@@ -1984,6 +1984,7 @@ function persistPersonToDB(caseId, p) {
     gijutsuType:'gijutsu_type', gijutsuWork:'gijutsu_work', gijutsuProof:'gijutsu_proof',
     pastEntry:'past_entry', pastEntryCount:'past_entry_count',
     deportation:'deportation', deportationCount:'deportation_count',
+    stayPeriod:'stay_period', stayPeriodOther:'stay_period_other',
     totalStayYear:'total_stay_year', totalStayMonth:'total_stay_month',
     lineGroupId:'line_group_id',
     tempReturn:'temp_return'
@@ -3999,6 +4000,11 @@ var AVAILABLE_FIELDS = [
     {k:'p.age',l:'年齢'},{k:'p.gender',l:'性別'},{k:'p.experience',l:'経験年数'},
     {k:'p.nationality',l:'国籍（カナ）'},{k:'p.birthdate',l:'生年月日（そのまま）'},
     {k:'p.birthY',l:'生年月日（年）自動'},{k:'p.birthM',l:'生年月日（月）自動'},{k:'p.birthD',l:'生年月日（日）自動'},
+    {k:'p.expireY',l:'在留期限(年)自動'},{k:'p.expireM',l:'在留期限(月)自動'},{k:'p.expireD',l:'在留期限(日)自動'},
+    {k:'p.passExpY',l:'旅券有効期限(年)'},{k:'p.passExpM',l:'旅券有効期限(月)'},{k:'p.passExpD',l:'旅券有効期限(日)'},
+    {k:'p.homeAddress',l:'本国における居住地'},{k:'p.desiredStatus',l:'希望する在留資格'},{k:'p.address',l:'住所（人材データ）'},
+    {k:'p.passport',l:'旅券番号'},{k:'p.residenceCard',l:'在留カード番号'},{k:'p.residenceStatus',l:'現在の在留資格'},
+    {k:'p.stayPeriod',l:'在留期間'},{k:'p.totalStayYear',l:'特定技能通算在留期間（年）'},{k:'p.totalStayMonth',l:'特定技能通算在留期間（月）'},
   ]},
   {group:'所属機関 (co.)', fields:[
     {k:'co.name',l:'所属機関名'},{k:'co.nameKana',l:'所属機関名（かな）'},{k:'co.nameEn',l:'会社名（英語）'},
@@ -4024,6 +4030,8 @@ var AVAILABLE_FIELDS = [
     {k:'so.name',l:'登録支援機関名'},{k:'so.address',l:'登録支援機関住所'},{k:'so.tel',l:'登録支援機関電話番号'},
     {k:'so.staff',l:'支援責任者氏名'},{k:'so.repName',l:'支援機関代表者名'},{k:'so.regNo',l:'登録番号'},
     {k:'so.pref',l:'支援機関都道府県'},{k:'so.city',l:'支援機関市区町村'},
+    {k:'so.officeName',l:'支援事業所名'},{k:'so.officeAddress',l:'支援事業所住所'},
+    {k:'so.language',l:'対応言語'},{k:'so.regY',l:'登録年月日(年)'},{k:'so.regM',l:'登録年月日(月)'},{k:'so.regD',l:'登録年月日(日)'},
   ]},
   {group:'雇用条件 - 作成日', fields:[
     {k:'es.createY',l:'作成日（年）'},{k:'es.createM',l:'作成日（月）'},{k:'es.createD',l:'作成日（日）'},
@@ -4402,12 +4410,93 @@ var CELL_MAPPING_129 = [
   {cell:'PH:案件一覧.所属機関',field:'case.company',label:'所属機関名',source:'案件基本情報'}
 ];
 
-// 1-11/1-23/1-25/1-29カテゴリにデフォルトマッピングを自動適用
+// 窓口申請書（変更）用デフォルトマッピング
+var CELL_MAPPING_window = [
+  // === 申請人用（変更）Sheet1 ===
+  {cell:'PH:パスポート.国籍',field:'p.nationality',label:'国籍・地域',source:'人材データ'},
+  {cell:'PH:パスポート.生年月日（年）',field:'p.birthY',label:'生年月日（年）',source:'人材データ'},
+  {cell:'PH:パスポート.生年月日（月）',field:'p.birthM',label:'生年月日（月）',source:'人材データ'},
+  {cell:'PH:パスポート.生年月日（日）',field:'p.birthD',label:'生年月日（日）',source:'人材データ'},
+  {cell:'PH:パスポート.氏名',field:'applicantName',label:'氏名',source:'案件基本情報'},
+  {cell:'PH:パスポート.本国における居住地',field:'p.homeAddress',label:'本国における居住地',source:'人材データ'},
+  {cell:'PH:在留カード_表.職業',field:'es.foreignerJobDesc',label:'職業',source:'雇用条件'},
+  {cell:'PH:人材データ.住所',field:'p.address',label:'住居地',source:'人材データ'},
+  {cell:'PH:所属機関.電話番号',field:'co.tel',label:'電話番号',source:'所属機関'},
+  {cell:'PH:パスポート.旅券番号',field:'p.passport',label:'旅券番号',source:'人材データ'},
+  {cell:'PH:パスポート.旅券有効期限（年）',field:'p.passExpY',label:'旅券有効期限（年）',source:'人材データ'},
+  {cell:'PH:パスポート.旅券有効期限（月）',field:'p.passExpM',label:'旅券有効期限（月）',source:'人材データ'},
+  {cell:'PH:パスポート.旅券有効期限（日）',field:'p.passExpD',label:'旅券有効期限（日）',source:'人材データ'},
+  {cell:'PH:在留カード.現に有する在留資格',field:'p.residenceStatus',label:'現在の在留資格',source:'人材データ'},
+  {cell:'PH:在留カード_表.在留期間',field:'p.stayPeriod',label:'在留期間',source:'人材データ'},
+  {cell:'PH:在留期限（年）',field:'p.expireY',label:'在留期間満了日（年）',source:'人材データ'},
+  {cell:'PH:在留期限（月）',field:'p.expireM',label:'在留期間満了日（月）',source:'人材データ'},
+  {cell:'PH:在留期限（日）',field:'p.expireD',label:'在留期間満了日（日）',source:'人材データ'},
+  {cell:'PH:在留カード番号',field:'p.residenceCard',label:'在留カード番号',source:'人材データ'},
+  {cell:'PH:希望する在留資格',field:'p.desiredStatus',label:'希望する在留資格',source:'人材データ'},
+  // === 申請人用（変更）２V Sheet2 ===
+  {cell:'PH:所属機関名',field:'co.name',label:'所属機関名',source:'所属機関'},
+  {cell:'PH:所属機関住所',field:'co.fullAddress',label:'所属機関住所',source:'所属機関'},
+  {cell:'PH:特定技能通算在留期間',field:'p.totalStayYear',label:'特定技能通算在留期間',source:'人材データ'},
+  // === 所属機関用（変更）V1 Sheet3 ===
+  {cell:'PH:申請人氏名',field:'applicantName',label:'申請人氏名',source:'案件基本情報'},
+  {cell:'PH:雇用条件.雇用契約期間(始期)(年)',field:'es.contractStartY',label:'雇用契約開始年',source:'雇用条件'},
+  {cell:'PH:雇用条件.雇用契約期間(始期)(月)',field:'es.contractStartM',label:'雇用契約開始月',source:'雇用条件'},
+  {cell:'PH:雇用条件.雇用契約期間(始期)(日)',field:'es.contractStartD',label:'雇用契約開始日',source:'雇用条件'},
+  {cell:'PH:雇用条件.雇用契約期間(終期)(年)',field:'es.contractEndY',label:'雇用契約終了年',source:'雇用条件'},
+  {cell:'PH:雇用条件.雇用契約期間(終期)(月)',field:'es.contractEndM',label:'雇用契約終了月',source:'雇用条件'},
+  {cell:'PH:雇用条件.雇用契約期間(終期)(日)',field:'es.contractEndD',label:'雇用契約終了日',source:'雇用条件'},
+  {cell:'PH:雇用条件.分野',field:'es.applicantField',label:'特定産業分野',source:'雇用条件'},
+  {cell:'PH:雇用条件.区分',field:'es.category',label:'業務区分',source:'雇用条件'},
+  {cell:'PH:雇用条件.所定労働時間(週平均)',field:'es.weeklyHours',label:'所定労働時間（週平均）',source:'雇用条件'},
+  {cell:'PH:雇用条件.所定労働時間(月平均)',field:'es.monthlyHours',label:'所定労働時間（月平均）',source:'雇用条件'},
+  {cell:'PH:雇用条件.月額報酬',field:'es.salaryMonthly',label:'月額報酬',source:'雇用条件'},
+  {cell:'PH:雇用条件.基本給の時間換算額',field:'es.salaryHourly',label:'基本給の時間換算額',source:'雇用条件'},
+  {cell:'PH:所属機関.日本人の月額報酬',field:'co.jpCompSalary',label:'日本人の月額報酬',source:'所属機関'},
+  {cell:'PH:職業紹介事業者名',field:'co.jobAgencyName',label:'職業紹介事業者名',source:'所属機関'},
+  {cell:'PH:職業紹介事業者住所',field:'co.jobAgencyAddress',label:'職業紹介事業者住所',source:'所属機関'},
+  {cell:'PH:職業紹介事業者電話番号',field:'co.jobAgencyTel',label:'職業紹介事業者電話番号',source:'所属機関'},
+  {cell:'PH:職業紹介事業者番号',field:'co.jobAgencyNo',label:'職業紹介事業者許可番号',source:'所属機関'},
+  {cell:'PH:職業紹介事業者受理年月日(年)',field:'co.jobAgencyRecvY',label:'職業紹介受理年月日（年）',source:'所属機関'},
+  {cell:'PH:職業紹介事業者受理年月日(月)',field:'co.jobAgencyRecvM',label:'職業紹介受理年月日（月）',source:'所属機関'},
+  {cell:'PH:職業紹介事業者受理年月日(日)',field:'co.jobAgencyRecvD',label:'職業紹介受理年月日（日）',source:'所属機関'},
+  // === 所属機関用（変更）V2 Sheet4 ===
+  {cell:'PH:所属機関.法人番号',field:'co.corporateNo',label:'法人番号',source:'所属機関'},
+  {cell:'PH:所属機関.雇用保険適用事業所番号',field:'co.employInsNo',label:'雇用保険適用事業所番号',source:'所属機関'},
+  {cell:'PH:所属機関.所属機関資本金',field:'co.capital',label:'資本金',source:'所属機関'},
+  {cell:'PH:所属機関.年間売上金額　万',field:'co.annualSales',label:'年間売上金額',source:'所属機関'},
+  {cell:'PH:所属機関.常勤職員数',field:'co.fullTimeStaff',label:'常勤職員数',source:'所属機関'},
+  {cell:'PH:所属機関.代表者名',field:'co.repName',label:'代表者名',source:'所属機関'},
+  {cell:'PH:雇用条件.(事業所名)',field:'es.officeName',label:'事業所名',source:'雇用条件'},
+  {cell:'PH:雇用条件.事業所住所',field:'es.officeAddress',label:'事業所住所',source:'雇用条件'},
+  {cell:'PH:所属機関.労働保険番号',field:'co.laborInsNo',label:'労働保険番号',source:'所属機関'},
+  // === 所属機関用（変更）V3 Sheet5 ===
+  {cell:'PH:雇用条件.作成日(年)',field:'es.createY',label:'作成日（年）',source:'雇用条件'},
+  {cell:'PH:雇用条件.作成日(月)',field:'es.createM',label:'作成日（月）',source:'雇用条件'},
+  {cell:'PH:雇用条件.作成日(日)',field:'es.createD',label:'作成日（日）',source:'雇用条件'},
+  {cell:'PH:雇用条件.事業所(所在地)(市区町村)',field:'es.officeCity',label:'事業所市区町村',source:'雇用条件'},
+  // === 所属機関用（変更）V4 Sheet6 ===
+  {cell:'PH:登録支援機関名',field:'so.name',label:'登録支援機関名',source:'登録支援機関'},
+  {cell:'PH:登録支援機関住所',field:'so.address',label:'登録支援機関住所',source:'登録支援機関'},
+  {cell:'PH:登録支援機関電話番号',field:'so.tel',label:'登録支援機関電話番号',source:'登録支援機関'},
+  {cell:'PH:登録支援機関代表者名',field:'so.repName',label:'登録支援機関代表者名',source:'登録支援機関'},
+  {cell:'PH:登録支援機関番号',field:'so.regNo',label:'登録支援機関番号',source:'登録支援機関'},
+  {cell:'PH:登録支援機関登録年月日(年)',field:'so.regY',label:'登録年月日（年）',source:'登録支援機関'},
+  {cell:'PH:登録支援機関登録年月日(月)',field:'so.regM',label:'登録年月日（月）',source:'登録支援機関'},
+  {cell:'PH:登録支援機関登録年月日(日)',field:'so.regD',label:'登録年月日（日）',source:'登録支援機関'},
+  {cell:'PH:登録支援機関支援事業所名',field:'so.officeName',label:'支援事業所名',source:'登録支援機関'},
+  {cell:'PH:登録支援機関支援事業所住所',field:'so.officeAddress',label:'支援事業所住所',source:'登録支援機関'},
+  {cell:'PH:登録支援機関対応言語',field:'so.language',label:'対応言語',source:'登録支援機関'},
+  {cell:'PH:支援委託費',field:'es.supportFee',label:'支援委託費',source:'雇用条件'},
+];
+
+// 1-11/1-23/1-25/1-29/窓口申請書カテゴリにデフォルトマッピングを自動適用
 (function(){
-  var maps={'1-11':CELL_MAPPING_111,'1-23':CELL_MAPPING_123,'1-25':CELL_MAPPING_125,'1-29':CELL_MAPPING_129};
+  var maps={'1-11':CELL_MAPPING_111,'1-23':CELL_MAPPING_123,'1-25':CELL_MAPPING_125,'1-29':CELL_MAPPING_129,'窓口申請書':CELL_MAPPING_window};
   Object.keys(maps).forEach(function(prefix){
     var ci=-1;
-    TEMPLATE_CATEGORIES.forEach(function(cat,i){if(cat.name.indexOf(prefix)===0) ci=i;});
+    TEMPLATE_CATEGORIES.forEach(function(cat,i){
+      if(prefix==='窓口申請書' ? cat.name===prefix : cat.name.indexOf(prefix)===0) ci=i;
+    });
     if(ci>=0 && TEMPLATE_CATEGORIES[ci].templates.length>0){
       var key=getTplMappingKey(ci,_selectedTplIdx);
       if(!tplMappings[key]||tplMappings[key].length===0){
@@ -4455,7 +4544,7 @@ var CELL_MAPPING_129 = [
       });
     }
     // マッピングも適用
-    var maps={'1-11':typeof CELL_MAPPING_111!=='undefined'?CELL_MAPPING_111:null,'1-16':typeof CELL_MAPPING_116!=='undefined'?CELL_MAPPING_116:null,'1-23':typeof CELL_MAPPING_123!=='undefined'?CELL_MAPPING_123:null,'1-25':typeof CELL_MAPPING_125!=='undefined'?CELL_MAPPING_125:null,'1-29':typeof CELL_MAPPING_129!=='undefined'?CELL_MAPPING_129:null};
+    var maps={'1-11':typeof CELL_MAPPING_111!=='undefined'?CELL_MAPPING_111:null,'1-16':typeof CELL_MAPPING_116!=='undefined'?CELL_MAPPING_116:null,'1-23':typeof CELL_MAPPING_123!=='undefined'?CELL_MAPPING_123:null,'1-25':typeof CELL_MAPPING_125!=='undefined'?CELL_MAPPING_125:null,'1-29':typeof CELL_MAPPING_129!=='undefined'?CELL_MAPPING_129:null,'窓口申請書':typeof CELL_MAPPING_window!=='undefined'?CELL_MAPPING_window:null};
     if(maps[bt.prefix]){
       var mkey=getTplMappingKey(ci,ti);
       if(!tplMappings[mkey]||!tplMappings[mkey].length){
@@ -4951,7 +5040,8 @@ function showTplDetail(ci, ti) {
   var is123 = cat.name.indexOf('1-23') >= 0;
   var is125 = cat.name.indexOf('1-25') >= 0;
   var is129 = cat.name.indexOf('1-29') >= 0;
-  var defaultMap = is116?CELL_MAPPING_116 : is16?CELL_MAPPING_16 : is14?CELL_MAPPING_14 : is17?CELL_MAPPING_17 : is111?CELL_MAPPING_111 : is123?CELL_MAPPING_123 : is125?CELL_MAPPING_125 : is129?CELL_MAPPING_129 : null;
+  var isWindow = cat.name === '窓口申請書';
+  var defaultMap = is116?CELL_MAPPING_116 : is16?CELL_MAPPING_16 : is14?CELL_MAPPING_14 : is17?CELL_MAPPING_17 : is111?CELL_MAPPING_111 : is123?CELL_MAPPING_123 : is125?CELL_MAPPING_125 : is129?CELL_MAPPING_129 : isWindow?CELL_MAPPING_window : null;
   var mapping = defaultMap && !tplMappings[mappingKey] ? defaultMap : (tplMappings[mappingKey] || []);
   // 保存済みマッピングのfield未設定行をCELL_MAPPING_16_DEFAULTSのセル一致で自動補完
   if (mapping.length) {
@@ -6433,6 +6523,7 @@ function renderAICheckFieldsTab(){
     {v:'contractEnd',l:'契約終了日',g:'人材'},{v:'salary',l:'月額報酬',g:'人材'},
     {v:'address',l:'住所（人材）',g:'人材'},{v:'experience',l:'経験年数',g:'人材'},
     {v:'applicantName',l:'申請者名',g:'人材'},{v:'applicantNameEn',l:'申請者名（英語）',g:'人材'},
+    {v:'stayPeriod',l:'許可された在留期間',g:'人材'},{v:'stayPeriodOther',l:'在留期間（その他）',g:'人材'},
     {v:'totalStay',l:'通算在留期間（月）',g:'人材'},{v:'totalStayYear',l:'通算在留（年）',g:'人材'},{v:'totalStayMonth',l:'通算在留（月）',g:'人材'},
     {v:'lineGroupId',l:'LINEグループID',g:'人材'},
     // 試験
@@ -11165,6 +11256,7 @@ function renderDocGenContent() {
     {key:'1-29', label:'1-29(書類省略誓約書)', icon:'📑', tplGroup:'1-29(書類省略に当たっての誓約書)'},
     {key:'field', label:'分野別必要書類', icon:'📂', tplGroup:'分野別必要書類'},
     {key:'window', label:'窓口申請書', icon:'🪪', tplGroup:'窓口申請書'},
+    {key:'shinsei_henko', label:'申請内容変更申出書', icon:'📝', tplGroup:'', special:true},
     {key:'onlineCSV', label:'オンラインCSV(認定)', icon:'🌐', tplGroup:'__onlineCSV__', special:true},
     {key:'onlineCSV_renewal', label:'オンラインCSV(更新)', icon:'🔄', tplGroup:'__onlineCSV_renewal__', special:true},
     {key:'onlineCSV_change', label:'オンラインCSV(変更)', icon:'🔀', tplGroup:'__onlineCSV_change__', special:true},
@@ -11237,7 +11329,7 @@ function renderDocGenContent() {
 
 var _selectedDocType = '';
 var _selectedTplIdx = 0; // 選択中テンプレートインデックス
-var _selectedDocTypes = {}; // 複数選択: {key: true}
+var _selectedDocTypes = {}; // 複数選択: {key: tplIdx(0始まり)}
 
 function selectDocType(key) {
   try{
@@ -11443,6 +11535,18 @@ function showMappingPreview() {
     if(field==='co.authorTitleName') return ((co.authorTitle||'')+' '+(co.authorName||'')).trim();
     if(field==='co.repTitleName') return ((co.repTitle||'')+' '+(co.repName||'')).trim();
     if(field==='case.docCreateDate') return c.docCreateDate||'';
+    // 在留期限分割
+    if(field==='p.expireY'){var ex=p.expire||c.expire||'';var ep=ex.split(/[-\/]/);return ep[0]||'';}
+    if(field==='p.expireM'){var ex2=p.expire||c.expire||'';var ep2=ex2.split(/[-\/]/);return ep2[1]?String(parseInt(ep2[1],10)):'';}
+    if(field==='p.expireD'){var ex3=p.expire||c.expire||'';var ep3=ex3.split(/[-\/]/);return ep3[2]?String(parseInt(ep3[2],10)):'';}
+    // パスポート有効期限分割
+    if(field==='p.passExpY'){var pe=p.passportExpiry||p.passportExpire||'';var pp=pe.split(/[-\/]/);return pp[0]||'';}
+    if(field==='p.passExpM'){var pe2=p.passportExpiry||p.passportExpire||'';var pp2=pe2.split(/[-\/]/);return pp2[1]?String(parseInt(pp2[1],10)):'';}
+    if(field==='p.passExpD'){var pe3=p.passportExpiry||p.passportExpire||'';var pp3=pe3.split(/[-\/]/);return pp3[2]?String(parseInt(pp3[2],10)):'';}
+    // その他人材データ直接参照
+    if(field==='p.homeAddress') return p.homeAddress||p.birthPlace||p.homeTown||'';
+    if(field==='p.desiredStatus') return p.desiredStatus||c.residenceStatus||'特定技能1号';
+    if(field==='p.address') return p.address||c.address||'';
     if(field==='case.company') return c.company||'';
     // 生年月日分割
     // 作成日分割（案件の書類作成日から自動）
@@ -11561,6 +11665,76 @@ function onDocGenCaseChange() {
 
 // ===== Excel生成（1-6 雇用条件書） =====
 // ===== 書類生成エントリーポイント =====
+function generateShinseHenkoSheet(){
+  var caseId = document.getElementById('dg_case').value;
+  if(!caseId){alert('案件を選択してください');return;}
+  var c = cData.find(function(x){return x.id===caseId;});
+  if(!c) return;
+
+  var receiptNo = c.receiptNo||'';
+  var appType   = c.appType||'';
+  var rn = receiptNo.toUpperCase();
+
+  // 管轄局prefix判定
+  var prefixMap = {
+    '東':'東京','大':'大阪','名':'名古屋','福':'福岡',
+    '広':'広島','仙':'仙台','札':'札幌','高':'高松',
+    '那':'那覇','横':'横浜'
+  };
+  var kankatsu = '';
+  Object.keys(prefixMap).forEach(function(k){if(rn.indexOf(k)===0) kankatsu=prefixMap[k];});
+
+  // 申請種別判定（取消線用）
+  var isChange  = !!(rn.match(/C/) || appType.indexOf('変更')>=0);
+  var isRenewal = !!(rn.match(/E/) || appType.indexOf('更新')>=0);
+  if(isChange) isRenewal=false;
+
+  // 申出日
+  var docDate=c.docCreateDate||''; var appY='',appM='',appD='';
+  if(docDate){var dp=docDate.split(/[-\/]/);appY=dp[0]||'';appM=dp[1]?String(parseInt(dp[1])):'';appD=dp[2]?String(parseInt(dp[2])):'';}
+
+  var tName = c.toritsugisha||'田中綾美';
+  var tAddr = '東京都大田区蒲田5丁目11-10 FUNDES蒲田8階';
+  var tOrg  = '大房行政書士法人';
+  var tTel  = '0364248849';
+
+  var gasUrl = driveGasUrl;
+  if(!gasUrl){ alert('GAS URLが設定されていません'); return; }
+
+  var btn = document.getElementById && document.querySelector ? document.querySelector('[data-action="shinsei-henko"]') : null;
+  if(btn){ btn.disabled=true; btn.textContent='⏳ 生成中...'; }
+
+  jsonpPost(gasUrl, 'generateShinseHenkoDocx', {
+    kankatsu: kankatsu,
+    appY: appY, appM: appM, appD: appD,
+    receiptNo: receiptNo,
+    isChange: isChange,
+    isRenewal: isRenewal,
+    toritsugishaName: tName,
+    toritsugishaAddr: tAddr,
+    toritsugishaSoshiki: tOrg,
+    toritsugishaTel: tTel,
+  }, function(res){
+    if(btn){ btn.disabled=false; btn.textContent='生成'; }
+    if(res && res.base64){
+      var bin = atob(res.base64);
+      var arr = new Uint8Array(bin.length);
+      for(var i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+      var blob = new Blob([arr],{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = '申請内容変更申出書_'+(getDisplayName(c)||caseId)+'.docx';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function(){URL.revokeObjectURL(url);a.remove();},1000);
+    } else {
+      alert('生成に失敗しました: '+(res&&res.error||'不明なエラー'));
+    }
+  });
+}
+
+
 function generateDoc(){
   var caseId = document.getElementById('dg_case').value;
   var empSetIdx = document.getElementById('dg_empset').value;
@@ -11571,6 +11745,12 @@ function generateDoc(){
     generateExcel16();
     return;
   }
+  // 申請内容変更申出書（HTML→PDF）
+  if(_selectedDocType==='shinsei_henko'){
+    generateShinseHenkoSheet();
+    return;
+  }
+
   // オンラインCSV
   if(_selectedDocType==='onlineCSV'){
     exportCOEcsv();
@@ -11607,33 +11787,58 @@ function updateMultiDocUI() {
   var checkboxDiv = document.getElementById('dg_multiCheckboxes');
   if (!multiBtn || !checkboxDiv) return;
 
-  // 現在選択中以外の書類タイプをチェックボックスで表示
+  var docTypesMap = {'1-5':'1-5(雇用契約書)','1-6':'1-6(雇用条件書)','1-3':'1-3(受診者の申告書別紙)','1-4':'1-4(特定技能外国人の報酬に関する説明書)','1-11':'1-11(特定技能所属機関概要書)','1-16':'1-16(雇用の経緯に係る説明書)','1-17':'1-17(支援計画書)','1-23':'1-23(特定技能所属機関の役員に関する誓約書)','1-25':'1-25(登録支援機関との支援委託契約に関する説明書)','1-27':'1-27(公的義務履行に関する説明書)','1-29':'1-29(書類省略に当たっての誓約書)','field':'分野別必要書類','window':'窓口申請書'};
+
   var allTypes = [
-    {key:'1-5',label:'1-5 雇用契約書'},{key:'1-6',label:'1-6 雇用条件書'},
     {key:'1-3',label:'1-3 申告書別紙'},{key:'1-4',label:'1-4 報酬説明書'},
+    {key:'1-5',label:'1-5 雇用契約書'},{key:'1-6',label:'1-6 雇用条件書'},
     {key:'1-11',label:'1-11 概要書'},{key:'1-16',label:'1-16 雇用経緯'},
     {key:'1-17',label:'1-17 支援計画書'},{key:'1-23',label:'1-23 役員誓約書'},
-    {key:'1-25',label:'1-25 支援委託契約'},{key:'1-29',label:'1-29 書類省略誓約'}
+    {key:'1-25',label:'1-25 支援委託契約'},{key:'1-29',label:'1-29 書類省略誓約'},
+    {key:'field',label:'分野別必要書類'},{key:'window',label:'窓口申請書'}
   ];
 
   var others = allTypes.filter(function(t) { return t.key !== _selectedDocType; });
   var h = '';
   others.forEach(function(t) {
-    var checked = _selectedDocTypes[t.key] ? 'checked' : '';
-    h += '<label style="display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border:1.5px solid #e5e7eb;border-radius:6px;cursor:pointer;font-size:11px;background:' + (checked ? '#eff6ff' : 'white') + ';border-color:' + (checked ? '#3b82f6' : '#e5e7eb') + ';">';
-    h += '<input type="checkbox" ' + checked + ' onchange="toggleMultiDocType(\'' + t.key + '\',this.checked)" style="margin:0;">';
-    h += t.label + '</label>';
+    var isChecked = _selectedDocTypes[t.key] != null;
+    var tplGroup = docTypesMap[t.key] || '';
+    var ci = -1;
+    TEMPLATE_CATEGORIES.forEach(function(cat, i) { if (cat.name === tplGroup) ci = i; });
+    var tpls = ci >= 0 ? TEMPLATE_CATEGORIES[ci].templates : [];
+    var borderColor = isChecked ? '#3b82f6' : '#e5e7eb';
+    var bgColor = isChecked ? '#eff6ff' : 'white';
+    h += '<div style="display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border:1.5px solid ' + borderColor + ';border-radius:6px;font-size:11px;background:' + bgColor + ';">';
+    h += '<label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;">';
+    h += '<input type="checkbox" ' + (isChecked ? 'checked' : '') + ' onchange="toggleMultiDocType(\'' + t.key + '\',this.checked)" style="margin:0;">';
+    h += t.label;
+    h += '</label>';
+    // テンプレートが複数ある場合はドロップダウン表示
+    if (isChecked && tpls.length > 1) {
+      var selIdx = _selectedDocTypes[t.key] || 0;
+      h += '<select onchange="_selectedDocTypes[\'' + t.key + '\']=parseInt(this.value)" style="font-size:10px;padding:1px 4px;border:1px solid #d1d5db;border-radius:4px;margin-left:4px;">';
+      tpls.forEach(function(tpl, ti) {
+        h += '<option value="' + ti + '"' + (ti === selIdx ? ' selected' : '') + '>' + esc(tpl.name) + '</option>';
+      });
+      h += '</select>';
+    } else if (isChecked && tpls.length === 0) {
+      h += '<span style="font-size:9px;color:#ef4444;margin-left:4px;">テンプレ未登録</span>';
+    }
+    h += '</div>';
   });
   checkboxDiv.innerHTML = h;
   multiSelect.style.display = 'block';
 
-  // 1つでも追加選択があれば一括ボタン表示
-  var hasExtra = Object.keys(_selectedDocTypes).some(function(k) { return _selectedDocTypes[k]; });
+  var hasExtra = Object.keys(_selectedDocTypes).some(function(k) { return _selectedDocTypes[k] != null; });
   multiBtn.style.display = hasExtra ? 'inline-block' : 'none';
 }
 
 function toggleMultiDocType(key, checked) {
-  _selectedDocTypes[key] = checked;
+  if (checked) {
+    _selectedDocTypes[key] = 0; // デフォルトは最初のテンプレート
+  } else {
+    delete _selectedDocTypes[key];
+  }
   updateMultiDocUI();
 }
 
@@ -11653,7 +11858,7 @@ function generateMultipleDocs() {
   var c = cData.find(function(x) { return x.id === caseId; });
   var displayName = c ? getDisplayName(c) : 'Unknown';
 
-  var docTypesMap = {'1-5':'1-5(雇用契約書)','1-6':'1-6(雇用条件書)','1-3':'1-3(受診者の申告書別紙)','1-4':'1-4(特定技能外国人の報酬に関する説明書)','1-11':'1-11(特定技能所属機関概要書)','1-16':'1-16(雇用の経緯に係る説明書)','1-17':'1-17(支援計画書)','1-23':'1-23(特定技能所属機関の役員に関する誓約書)','1-25':'1-25(登録支援機関との支援委託契約に関する説明書)','1-27':'1-27(公的義務履行に関する説明書)','1-29':'1-29(書類省略に当たっての誓約書)'};
+  var docTypesMap = {'1-5':'1-5(雇用契約書)','1-6':'1-6(雇用条件書)','1-3':'1-3(受診者の申告書別紙)','1-4':'1-4(特定技能外国人の報酬に関する説明書)','1-11':'1-11(特定技能所属機関概要書)','1-16':'1-16(雇用の経緯に係る説明書)','1-17':'1-17(支援計画書)','1-23':'1-23(特定技能所属機関の役員に関する誓約書)','1-25':'1-25(登録支援機関との支援委託契約に関する説明書)','1-27':'1-27(公的義務履行に関する説明書)','1-29':'1-29(書類省略に当たっての誓約書)','field':'分野別必要書類','window':'窓口申請書'};
 
   function checkDone() {
     done++;
@@ -11686,11 +11891,16 @@ function generateMultipleDocs() {
     TEMPLATE_CATEGORIES.forEach(function(cat, i) { if (cat.name === tplGroup) ci = i; });
     if (ci < 0) { checkDone(); return; }
 
-    // テンプレート取得
+    // テンプレート取得（選択されたインデックスを使用）
+    var tplIdx = (docType === _selectedDocType) ? _selectedTplIdx : (_selectedDocTypes[docType] || 0);
     var tplData;
     try { tplData = JSON.parse(localStorage.getItem('ofusa_templates') || '{}'); } catch(e) { tplData = {}; }
-    var tplKey = ci + '_0';
+    var tplKey = ci + '_' + tplIdx;
     var entry = tplData[tplKey];
+    if (!entry || !entry.data) {
+      // インデックス0でもう一度試す
+      entry = tplData[ci + '_0'];
+    }
     if (!entry || !entry.data) {
       Object.keys(tplData).forEach(function(k) {
         var t = tplData[k]; if (t && t.group === tplGroup && t.data) entry = t;
@@ -11729,53 +11939,12 @@ function generateMultipleDocs() {
 }
 
 function generateDocBytesForZip(caseId, empSetIdx, mappingArr, bytes, docType, displayName, callback) {
-  var c = cData.find(function(x) { return x.id === caseId; });
-  if (!c) { callback(null, ''); return; }
-  var co = companies.find(function(x) { return x.name === c.company; }) || {};
-  var es = (co.empSets && empSetIdx !== '') ? co.empSets[parseInt(empSetIdx)] || {} : {};
-  var p = personData[caseId] || {};
-  var now = new Date();
-
-  // rv関数（doGenerateFromMappingと同じ）
-  function rv(field) {
-    if (!field) return '';
-    if (field === 'auto') return now.getFullYear() + '年' + (now.getMonth()+1) + '月' + now.getDate() + '日';
-    if (field === 'co.fullAddress') return (co.pref||'') + (co.city||'') + (co.address||'');
-    if (field === 'co.authorTitleName') return ((co.authorTitle||'') + ' ' + (co.authorName||'')).trim();
-    if (field === 'co.repTitleName') return ((co.repTitle||'') + ' ' + (co.repName||'')).trim();
-    if (field === 'case.docCreateDate') return c.docCreateDate || '';
-    if (field === 'case.company') return c.company || '';
-    if (field === 'applicantName') return getDisplayName(c);
-    if (field === 'applicantNameEn') return p.applicantNameEn || p.nameEn || c.applicant || '';
-    if (field.indexOf('p.') === 0) return p[field.substring(2)] || '';
-    if (field.indexOf('co.') === 0) return co[field.substring(3)] || '';
-    if (field.indexOf('es.') === 0) { var k = field.substring(3); return es[k] != null ? String(es[k]) : ''; }
-    if (field.indexOf('so.') === 0) { var soN = co.supportOrgName||c.org||''; var soO = supportOrgs.find(function(x){return x.name===soN;})||{}; return soO[field.substring(3)]||''; }
-    return '';
-  }
-
-  // PLACEHOLDER_MAP構築
-  var PLACEHOLDER_MAP = {};
-  try { var upm = JSON.parse(localStorage.getItem('ofusa_userPHMap')||'{}'); Object.assign(PLACEHOLDER_MAP, upm); } catch(e) {}
-
-  JSZip.loadAsync(bytes).then(function(zip) {
-    return zip.file('word/document.xml').async('string').then(function(xml) {
-      Object.keys(PLACEHOLDER_MAP).forEach(function(phKey) {
-        var val = rv(PLACEHOLDER_MAP[phKey]);
-        var escaped = val.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        xml = xml.split('{{'+phKey+'}}').join(escaped);
-        xml = xml.split('{{ '+phKey+'}}').join(escaped);
-        xml = xml.split('{{'+phKey+' }}').join(escaped);
-        xml = xml.split('{{ '+phKey+' }}').join(escaped);
-      });
-      xml = fixSplitPlaceholders(xml, PLACEHOLDER_MAP, rv);
-      zip.file('word/document.xml', xml);
-      return zip.generateAsync({type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
-    });
-  }).then(function(blob) {
-    var fname = docType + '_' + displayName + '.docx';
-    callback(blob, fname);
-  }).catch(function() { callback(null, ''); });
+  // doGenerateFromMappingと同じPLACEHOLDER_MAP・rv()を使うため
+  // doGenerateFromMappingをzipCallbackモードで呼び出す
+  var savedType = _selectedDocType;
+  _selectedDocType = docType;
+  doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytes, callback);
+  _selectedDocType = savedType;
 }
 
 function getMappingForCurrentType(){
@@ -11792,11 +11961,12 @@ function getMappingForCurrentType(){
     if(tplGroup.indexOf('1-16')>=0) return CELL_MAPPING_116;
     if(tplGroup.indexOf('1-6')>=0) return CELL_MAPPING_16;
     if(tplGroup.indexOf('1-4')>=0) return CELL_MAPPING_14;
+    if(tplGroup==='窓口申請書') return CELL_MAPPING_window;
   }
   return mapping||[];
 }
 
-function doGenerateFromMapping(caseId, empSetIdx, mappingArr){
+function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zipCallback){
   var c=cData.find(function(x){return x.id===caseId;});
   if(!c) return;
   var co=companies.find(function(x){return x.name===c.company;})||{};
@@ -11811,6 +11981,18 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr){
     if(field==='co.authorTitleName') return ((co.authorTitle||'')+' '+(co.authorName||'')).trim();
     if(field==='co.repTitleName') return ((co.repTitle||'')+' '+(co.repName||'')).trim();
     if(field==='case.docCreateDate') return c.docCreateDate||'';
+    // 在留期限分割
+    if(field==='p.expireY'){var ex=p.expire||c.expire||'';var ep=ex.split(/[-\/]/);return ep[0]||'';}
+    if(field==='p.expireM'){var ex2=p.expire||c.expire||'';var ep2=ex2.split(/[-\/]/);return ep2[1]?String(parseInt(ep2[1],10)):'';}
+    if(field==='p.expireD'){var ex3=p.expire||c.expire||'';var ep3=ex3.split(/[-\/]/);return ep3[2]?String(parseInt(ep3[2],10)):'';}
+    // パスポート有効期限分割
+    if(field==='p.passExpY'){var pe=p.passportExpiry||p.passportExpire||'';var pp=pe.split(/[-\/]/);return pp[0]||'';}
+    if(field==='p.passExpM'){var pe2=p.passportExpiry||p.passportExpire||'';var pp2=pe2.split(/[-\/]/);return pp2[1]?String(parseInt(pp2[1],10)):'';}
+    if(field==='p.passExpD'){var pe3=p.passportExpiry||p.passportExpire||'';var pp3=pe3.split(/[-\/]/);return pp3[2]?String(parseInt(pp3[2],10)):'';}
+    // その他人材データ直接参照
+    if(field==='p.homeAddress') return p.homeAddress||p.birthPlace||p.homeTown||'';
+    if(field==='p.desiredStatus') return p.desiredStatus||c.residenceStatus||'特定技能1号';
+    if(field==='p.address') return p.address||c.address||'';
     if(field==='case.company') return c.company||'';
     // 作成日分割（案件の書類作成日から自動）
     if(field==='es.createY'){var cd=c.docCreateDate||'';if(cd){var cp=cd.split(/[-\/]/);return cp[0]||'';}return '';}
@@ -11891,6 +12073,89 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr){
     '所属機関.作成責任者役職氏名':'co.authorTitleName',
     // パスポート.性別バリアント
     'パスポート.性別(漢字のみ)':'p.gender',
+    '在留期間':'p.stayPeriod',
+    // ===== 窓口申請書（変更）=====
+    'パスポート.国籍':'p.nationality',
+    'パスポート.本国における居住地':'p.homeAddress',
+    'パスポート.旅券番号':'p.passport',
+    'パスポート.旅券有効期限（年）':'p.passExpY',
+    'パスポート.旅券有効期限（月）':'p.passExpM',
+    'パスポート.旅券有効期限（日）':'p.passExpD',
+    '人材データ.住所':'p.address',
+    '在留カード.現に有する在留資格':'p.residenceStatus',
+    '在留カード_表.在留期間':'p.stayPeriod',
+    '在留カード_表.職業':'es.foreignerJobDesc',
+    '在留カード番号':'p.residenceCard',
+    '管轄局長':function(c,p,co,es){
+      var rn=(c.receiptNo||'').toUpperCase();
+      var map={'東':'東京出入国在留管理局長','大':'大阪出入国在留管理局長','名':'名古屋出入国在留管理局長',
+               '福':'福岡出入国在留管理局長','広':'広島出入国在留管理局長','仙':'仙台出入国在留管理局長',
+               '札':'札幌出入国在留管理局長','高':'高松出入国在留管理局長','那':'那覇出入国在留管理局長',
+               '横':'東京出入国在留管理局横浜支局長'};
+      var k=Object.keys(map).find(function(k){return rn.indexOf(k)===0;});
+      return k?map[k]:'出入国在留管理局長';
+    },
+    '申出年':function(c,p,co,es){var d=(c.docCreateDate||'').split(/[-\/]/);return d[0]||'';},
+    '申出月':function(c,p,co,es){var d=(c.docCreateDate||'').split(/[-\/]/);return d[1]?String(parseInt(d[1])):'';},
+    '申出日':function(c,p,co,es){var d=(c.docCreateDate||'').split(/[-\/]/);return d[2]?String(parseInt(d[2])):'';},
+    '受付番号':function(c,p,co,es){return c.receiptNo||'';},
+    '取次者氏名':function(c,p,co,es){return c.toritsugisha||'田中綾美';},
+    '取次者住所':function(c,p,co,es){return '東京都大田区蒲田５丁目１１−１０　FUNDES蒲田8階';},
+    '取次者所属機関':function(c,p,co,es){return '大房行政書士法人';},
+    '取次者電話番号':function(c,p,co,es){return '0364248849';},
+    '在留期限（年）':'p.expireY',
+    '在留期限（月）':'p.expireM',
+    '在留期限（日）':'p.expireD',
+    '希望する在留資格':'p.desiredStatus',
+    '申請人氏名':'applicantName',
+    '所属機関名':'co.name',
+    '所属機関住所':'co.fullAddress',
+    '所属機関.代表者名':'co.repName',
+    '所属機関代表者名':'co.repName',
+    '所属機関.電話番号':'co.tel',
+    '所属機関.法人番号':'co.corporateNo',
+    '所属機関.雇用保険適用事業所番号':'co.employInsNo',
+    '所属機関.労働保険番号':'co.laborInsNo',
+    '所属機関.常勤職員数':'co.fullTimeStaff',
+    '所属機関.年間売上金額':'co.annualSales',
+    '所属機関.所属機関資本金':'co.capital',
+    '所属機関.日本人の月額報酬':'co.jpCompSalary',
+    '特定技能通算在留期間':'p.totalStayYear',
+    '登録支援機関名':'so.name',
+    '登録支援機関住所':'so.address',
+    '登録支援機関番号':'so.regNo',
+    '登録支援機関電話番号':'so.tel',
+    '登録支援機関代表者名':'so.repName',
+    '登録支援機関支援事業所名':'so.officeName',
+    '登録支援機関支援事業所住所':'so.officeAddress',
+    '登録支援機関対応言語':'so.language',
+    '登録支援機関登録年月日(年)':'so.regY',
+    '登録支援機関登録年月日(月)':'so.regM',
+    '登録支援機関登録年月日(日)':'so.regD',
+    '支援委託費':'es.supportFee',
+    '職業紹介事業者名':'co.jobAgencyName',
+    '職業紹介事業者住所':'co.jobAgencyAddress',
+    '職業紹介事業者番号':'co.jobAgencyNo',
+    '職業紹介事業者電話番号':'co.jobAgencyTel',
+    '職業紹介事業者受理年月日(年)':'co.jobAgencyRecvY',
+    '職業紹介事業者受理年月日(月)':'co.jobAgencyRecvM',
+    '職業紹介事業者受理年月日(日)':'co.jobAgencyRecvD',
+    '雇用条件.(事業所名)':'es.officeName',
+    '雇用条件.事業所住所':'es.officeAddress',
+    '雇用条件.分野':'es.field',
+    '雇用条件.区分':'es.category',
+    '雇用条件.月額報酬':'es.salaryMonthly',
+    '雇用条件.基本給の時間換算額':'es.salaryHourly',
+    '雇用条件.所定労働時間(週平均)':'es.weeklyHours',
+    '雇用条件.所定労働時間(月平均)':'es.monthlyHours',
+    '雇用条件.雇用契約期間(始期)(年)':'es.contractStartY',
+    '雇用条件.雇用契約期間(始期)(月)':'es.contractStartM',
+    '雇用条件.雇用契約期間(始期)(日)':'es.contractStartD',
+    '雇用条件.雇用契約期間(終期)(年)':'es.contractEndY',
+    '雇用条件.雇用契約期間(終期)(月)':'es.contractEndM',
+    '雇用条件.雇用契約期間(終期)(日)':'es.contractEndD',
+    'パスポート.在留期間':'p.stayPeriod',
+    '所属機関.在留期間':'p.stayPeriod',
     'パスポート.国籍（カナ）':'p.nationality',
     'パスポート.生年月日':'p.birthdate',
     // 所属機関住所バリアント
@@ -12001,6 +12266,16 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr){
     Object.keys(upm).forEach(function(k){ if(upm[k]) PLACEHOLDER_MAP[k]=upm[k]; });
   }catch(e){}
 
+  // bytesOverrideがある場合（ZIP一括生成）はテンプレート取得スキップ
+  if (bytesOverride) {
+    var docTypesMapB={'1-5':'1-5(雇用契約書)','1-6':'1-6(雇用条件書)','1-3':'1-3(受診者の申告書別紙)','1-4':'1-4(特定技能外国人の報酬に関する説明書)','1-11':'1-11(特定技能所属機関概要書)','1-16':'1-16(雇用の経緯に係る説明書)','1-17':'1-17(支援計画書)','1-23':'1-23(特定技能所属機関の役員に関する誓約書)','1-25':'1-25(登録支援機関との支援委託契約に関する説明書)','1-27':'1-27(公的義務履行に関する説明書)','1-29':'1-29(書類省略に当たっての誓約書)','field':'分野別必要書類','window':'窓口申請書'};
+    var tplGroupB = docTypesMapB[_selectedDocType] || '';
+    var ciB = -1;
+    TEMPLATE_CATEGORIES.forEach(function(cat, i) { if (cat.name === tplGroupB) ciB = i; });
+    processTemplateBytes(bytesOverride, ciB >= 0 ? ciB : 0, c, mappingArr, rv, PLACEHOLDER_MAP, zipCallback);
+    return;
+  }
+
   // テンプレートファイルを取得（選択中の書類タイプに応じて動的に解決）
   var docTypesMap={'1-5':'1-5(雇用契約書)','1-6':'1-6(雇用条件書)','1-3':'1-3(受診者の申告書別紙)','1-4':'1-4(特定技能外国人の報酬に関する説明書)','1-11':'1-11(特定技能所属機関概要書)','1-16':'1-16(雇用の経緯に係る説明書)','1-17':'1-17(支援計画書)','1-23':'1-23(特定技能所属機関の役員に関する誓約書)','1-25':'1-25(登録支援機関との支援委託契約に関する説明書)','1-27':'1-27(公的義務履行に関する説明書)','1-29':'1-29(書類省略に当たっての誓約書)','field':'分野別必要書類','window':'窓口申請書'};
   var tplGroup = docTypesMap[_selectedDocType] || '';
@@ -12033,7 +12308,7 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr){
           if(dlRes.error||!dlRes.data){alert('テンプレートのダウンロードに失敗しました。');return;}
           dlRes.data.arrayBuffer().then(function(ab){
             var bytes=new Uint8Array(ab);
-            processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP);
+            processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zipCallback);
           });
         });
       });
@@ -12049,13 +12324,85 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr){
   var bytes=new Uint8Array(binary.length);
   for(var i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
 
-  processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP);
+  processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zipCallback);
 }
 
 // テンプレートバイト配列からWord生成（共通処理）
-function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP) {
+function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zipCallback) {
   // JSZipでdocxを開いてプレースホルダー置換
   if(typeof JSZip==='undefined'){alert('JSZipが読み込まれていません');return;}
+
+  // テンプレート名からxlsxかdocxか判定
+  var tplName = (TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].templates&&TEMPLATE_CATEGORIES[ci].templates[0]&&TEMPLATE_CATEGORIES[ci].templates[0].filename)||'';
+  var isXlsx = /\.xlsx?$/i.test(tplName) || (TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].name==='窓口申請書');
+
+  if (isXlsx) {
+    // xlsxテンプレートのプレースホルダー置換
+    JSZip.loadAsync(bytes).then(function(zip) {
+      // sharedStrings.xmlとシートXMLの両方を処理
+      var fileList = Object.keys(zip.files);
+      var sheetFiles = fileList.filter(function(f){ return /xl\/worksheets\/sheet\d+\.xml/.test(f); });
+
+      function replacePH(xml) {
+        Object.keys(PLACEHOLDER_MAP).forEach(function(phKey) {
+          var val = rv(PLACEHOLDER_MAP[phKey]);
+          var escaped = String(val||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          ['{{'+phKey+'}}','{{ '+phKey+'}}','{{'+phKey+' }}','{{ '+phKey+' }}'].forEach(function(ph){
+            xml = xml.split(ph).join(escaped);
+          });
+        });
+        return xml;
+      }
+
+      var tasks = [];
+      // sharedStrings.xmlの置換
+      if (zip.file('xl/sharedStrings.xml')) {
+        tasks.push(zip.file('xl/sharedStrings.xml').async('string').then(function(xml){
+          zip.file('xl/sharedStrings.xml', replacePH(xml));
+        }));
+      }
+      // 全シートXMLの置換
+      sheetFiles.forEach(function(sf){
+        tasks.push(zip.file(sf).async('string').then(function(xml){
+          zip.file(sf, replacePH(xml));
+        }));
+      });
+
+      return Promise.all(tasks).then(function(){
+        return zip.generateAsync({type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      });
+    }).then(function(blob){
+      var catName = (TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].name)||'書類';
+      var fname = catName + '_' + getDisplayName(c) + '.xlsx';
+      if (typeof zipCallback === 'function') { zipCallback(blob, fname); return; }
+      var a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=fname;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      showToast('✅ Excel書類を出力しました');
+
+      var area=document.getElementById('dg_missing_edit');
+      if(area){
+        var h='<div style="background:#f0fdf4;border:2px solid #86efac;border-radius:12px;padding:16px;">';
+        h+='<div style="font-size:13px;font-weight:800;color:#15803d;margin-bottom:10px;">✅ マッピング結果（'+mappingArr.length+'項目）</div>';
+        h+='<table style="width:100%;font-size:11px;border-collapse:collapse;">';
+        mappingArr.forEach(function(m){
+          var val=rv(m.field);
+          h+='<tr><td style="padding:3px 6px;border-bottom:1px solid #e5e7eb;color:var(--gray-400);width:40%;">'+esc(m.label||m.cell)+'</td>';
+          h+='<td style="padding:3px 6px;border-bottom:1px solid #e5e7eb;font-weight:600;'+(val?'color:var(--navy);':'color:#dc2626;')+'">'+esc(String(val)||'（空欄）')+'</td></tr>';
+        });
+        h+='</table></div>';
+        area.innerHTML=h;
+        area.style.display='block';
+      }
+    }).catch(function(err){
+      console.error('Excel生成エラー:',err);
+      alert('Excel生成エラー: '+err.message);
+    });
+    return;
+  }
+
   JSZip.loadAsync(bytes).then(function(zip){
     return zip.file('word/document.xml').async('string').then(function(xml){
       // XMLの<w:t>タグ内テキストを結合してプレースホルダーを検出・置換
@@ -12082,6 +12429,8 @@ function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP) {
     });
   }).then(function(blob){
     var fname = ((TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].templates[0]&&TEMPLATE_CATEGORIES[ci].templates[0].name)||(TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].name)||'書類')+'_'+getDisplayName(c)+'.docx';
+    // ZIP一括生成モードの場合はコールバックに渡す
+    if (typeof zipCallback === 'function') { zipCallback(blob, fname); return; }
     var a=document.createElement('a');
     a.href=URL.createObjectURL(blob);
     a.download=fname;
@@ -12203,6 +12552,18 @@ function checkMappingFields(caseId, empSetIdx, mappingArr, onComplete) {
     if(field==='co.authorTitleName') return ((co.authorTitle||'')+' '+(co.authorName||'')).trim();
     if(field==='co.repTitleName') return ((co.repTitle||'')+' '+(co.repName||'')).trim();
     if(field==='case.docCreateDate') return c.docCreateDate||'';
+    // 在留期限分割
+    if(field==='p.expireY'){var ex=p.expire||c.expire||'';var ep=ex.split(/[-\/]/);return ep[0]||'';}
+    if(field==='p.expireM'){var ex2=p.expire||c.expire||'';var ep2=ex2.split(/[-\/]/);return ep2[1]?String(parseInt(ep2[1],10)):'';}
+    if(field==='p.expireD'){var ex3=p.expire||c.expire||'';var ep3=ex3.split(/[-\/]/);return ep3[2]?String(parseInt(ep3[2],10)):'';}
+    // パスポート有効期限分割
+    if(field==='p.passExpY'){var pe=p.passportExpiry||p.passportExpire||'';var pp=pe.split(/[-\/]/);return pp[0]||'';}
+    if(field==='p.passExpM'){var pe2=p.passportExpiry||p.passportExpire||'';var pp2=pe2.split(/[-\/]/);return pp2[1]?String(parseInt(pp2[1],10)):'';}
+    if(field==='p.passExpD'){var pe3=p.passportExpiry||p.passportExpire||'';var pp3=pe3.split(/[-\/]/);return pp3[2]?String(parseInt(pp3[2],10)):'';}
+    // その他人材データ直接参照
+    if(field==='p.homeAddress') return p.homeAddress||p.birthPlace||p.homeTown||'';
+    if(field==='p.desiredStatus') return p.desiredStatus||c.residenceStatus||'特定技能1号';
+    if(field==='p.address') return p.address||c.address||'';
     if(field==='case.company') return c.company||'';
     // 作成日分割（案件の書類作成日から自動）
     if(field==='es.createY'){var cd=c.docCreateDate||'';if(cd){var cp=cd.split(/[-\/]/);return cp[0]||'';}return '';}
@@ -13643,7 +14004,7 @@ function openCase(id) {
 }
 
 // 人材データ（案件IDをキーに保存 — 宣言は上部で実施済み）
-var PERSON_REQ_FIELDS=['residenceCard','passport','birthdate','nationality','residenceStatus','hireDate','expire','contractStart','contractEnd','salary','address','skillEvalType','jpEvalType','pastEntry','pastCOE','deportation','totalStayYear','totalStayMonth'];
+var PERSON_REQ_FIELDS=['residenceCard','passport','birthdate','nationality','residenceStatus','hireDate','expire','contractStart','contractEnd','salary','address','skillEvalType','jpEvalType','pastEntry','pastCOE','deportation','stayPeriod','stayPeriodOther','totalStayYear','totalStayMonth'];
 var COUNTRY_LIST_ONLINE=['日本 Japan','中国 People\'s Republic of China','ベトナム Viet Nam','韓国 Republic of Korea','フィリピン Philippines','ブラジル Brazil','ネパール Nepal','インドネシア Indonesia','ミャンマー Myanmar','台湾 Taiwan','米国 United States of America','カンボジア Cambodia','タイ Thailand','モンゴル Mongolia','バングラデシュ Bangladesh','スリランカ Sri Lanka','パキスタン Pakistan','インド India','ウズベキスタン Uzbekistan'];
 var SKILL_EVAL_TYPES=['分野別運用方針に定める評価方法による証明','技能実習２号を良好に修了'];
 // ===== 入管コードマスタ =====
@@ -14436,6 +14797,9 @@ function showTab(tab) {
       {key:'deportation',label:'退去強制の有無',type:'select',opts:['有 Yes','無 No'],req:1,def:'無 No'},
       {key:'deportationCount',label:'退去強制 回数',type:'select',opts:Array.from({length:100},function(_,i){return String(i+1);}),dis:p.deportation!=='有 Yes'},
       {key:'deportationDate',label:'退去強制 直近送還歴',type:'date',dis:p.deportation!=='有 Yes'},
+      {key:'_s2b',label:'📋 在留期間',type:'section'},
+      {key:'stayPeriod',label:'許可された在留期間',type:'select',opts:['1年','3年','5年','4ヶ月','6ヶ月','その他'],ph:'例：1年'},
+      {key:'stayPeriodOther',label:'在留期間（その他の場合）',type:'text',ph:'例：2年',dis:p.stayPeriod!=='その他'},
       {key:'_s3',label:'📅 通算在留期間',type:'section'},
       {key:'totalStayYear',label:'特定技能1号 通算在留期間(年)',type:'select',opts:['0','1','2','3','4','5'],req:1},
       {key:'totalStayMonth',label:'特定技能1号 通算在留期間(月)',type:'select',opts:['0','1','2','3','4','5','6','7','8','9','10','11'],req:1}
@@ -16405,7 +16769,7 @@ function saveEditMembers(caseId){
 }
 
 function savePerson(caseId) {
-  var keys = ['applicantName','applicantNameEn','residenceCard','passport','birthdate','residenceStatus','nationality','hireDate','expire','contractStart','contractEnd','entryY','entryM','entryD','tempReturn','salary','address','emergency','driveUrl','driveUrl2','driveUrl3','driveUrl4','driveUrl5','driveUrl6','driveUrl7','driveUrl8','driveUrl9','driveUrl10','lineGroupId','skillEvalType','skillExam1','skillExamLoc1','skillExam2','skillExamLoc2','skillExam3','skillExamLoc3','jpEvalType','jpExam1','jpExamLoc1','jpExam2','jpExamLoc2','jpExam3','jpExamLoc3','gijutsuType','gijutsuWork','gijutsuProof','pastEntry','pastEntryCount','pastEntryFrom','pastEntryTo','pastCOE','pastCOECount','pastCOEDenied','deportation','deportationCount','deportationDate','totalStayYear','totalStayMonth'];
+  var keys = ['applicantName','applicantNameEn','residenceCard','passport','birthdate','residenceStatus','nationality','hireDate','expire','contractStart','contractEnd','entryY','entryM','entryD','tempReturn','salary','address','emergency','driveUrl','driveUrl2','driveUrl3','driveUrl4','driveUrl5','driveUrl6','driveUrl7','driveUrl8','driveUrl9','driveUrl10','lineGroupId','skillEvalType','skillExam1','skillExamLoc1','skillExam2','skillExamLoc2','skillExam3','skillExamLoc3','jpEvalType','jpExam1','jpExamLoc1','jpExam2','jpExamLoc2','jpExam3','jpExamLoc3','gijutsuType','gijutsuWork','gijutsuProof','pastEntry','pastEntryCount','pastEntryFrom','pastEntryTo','pastCOE','pastCOECount','pastCOEDenied','deportation','deportationCount','deportationDate','stayPeriod','stayPeriodOther','totalStayYear','totalStayMonth'];
   if (!personData[caseId]) personData[caseId] = {};
   var p = personData[caseId];
   keys.forEach(function(k) {
