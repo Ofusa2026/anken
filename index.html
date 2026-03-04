@@ -4497,8 +4497,11 @@ var CELL_MAPPING_window = [
     TEMPLATE_CATEGORIES.forEach(function(cat,i){
       if(prefix==='窓口申請書' ? cat.name===prefix : cat.name.indexOf(prefix)===0) ci=i;
     });
-    if(ci>=0 && TEMPLATE_CATEGORIES[ci].templates.length>0){
-      var key=getTplMappingKey(ci,_selectedTplIdx);
+    if(ci<0) return;
+    var cat=TEMPLATE_CATEGORIES[ci];
+    var tplCount=Math.max(cat.templates.length, 1); // テンプレート未登録でも ti=0 分は適用
+    for(var ti=0;ti<tplCount;ti++){
+      var key=getTplMappingKey(ci,ti);
       if(!tplMappings[key]||tplMappings[key].length===0){
         tplMappings[key]=maps[prefix].slice();
         persistTplMappings();
@@ -5042,7 +5045,12 @@ function showTplDetail(ci, ti) {
   var is129 = cat.name.indexOf('1-29') >= 0;
   var isWindow = cat.name === '窓口申請書';
   var defaultMap = is116?CELL_MAPPING_116 : is16?CELL_MAPPING_16 : is14?CELL_MAPPING_14 : is17?CELL_MAPPING_17 : is111?CELL_MAPPING_111 : is123?CELL_MAPPING_123 : is125?CELL_MAPPING_125 : is129?CELL_MAPPING_129 : isWindow?CELL_MAPPING_window : null;
-  var mapping = defaultMap && !tplMappings[mappingKey] ? defaultMap : (tplMappings[mappingKey] || []);
+  var mapping = (tplMappings[mappingKey] && tplMappings[mappingKey].length) ? tplMappings[mappingKey] : (defaultMap ? defaultMap.slice() : []);
+  // デフォルトマップを初回表示時に保存
+  if (defaultMap && (!tplMappings[mappingKey] || !tplMappings[mappingKey].length)) {
+    tplMappings[mappingKey] = mapping;
+    persistTplMappings();
+  }
   // 保存済みマッピングのfield未設定行をCELL_MAPPING_16_DEFAULTSのセル一致で自動補完
   if (mapping.length) {
     var cm16Map = {};
@@ -6194,6 +6202,25 @@ function quickUploadTpl(ci, inp) {
       var rawB64 = base64.indexOf(',')>=0 ? base64.split(',')[1] : base64;
       scanDocxPlaceholders(rawB64);
     }
+    // デフォルトマッピング自動適用（窓口申請書など）
+    (function applyDefaultMapping(){
+      var cat = TEMPLATE_CATEGORIES[ci];
+      var mkey = getTplMappingKey(ci, ti);
+      if (!tplMappings[mkey] || !tplMappings[mkey].length) {
+        var catName = cat.name;
+        var defMap = null;
+        if(catName==='窓口申請書') defMap = CELL_MAPPING_window;
+        else if(catName.indexOf('1-11')>=0) defMap = CELL_MAPPING_111;
+        else if(catName.indexOf('1-23')>=0) defMap = CELL_MAPPING_123;
+        else if(catName.indexOf('1-25')>=0) defMap = CELL_MAPPING_125;
+        else if(catName.indexOf('1-29')>=0) defMap = CELL_MAPPING_129;
+        else if(catName.indexOf('1-16')>=0) defMap = CELL_MAPPING_116;
+        if(defMap) {
+          tplMappings[mkey] = defMap.slice();
+          persistTplMappings();
+        }
+      }
+    })();
     showToast('✅ 「'+name+'」を'+TEMPLATE_CATEGORIES[ci].name+'に登録しました');
     renderTemplatesContent();
   };
