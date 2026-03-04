@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
@@ -13749,7 +13748,7 @@ function showTab(tab) {
     h += '</div>';
     driveUrls.forEach(function(du,i){
       h += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;">';
-      h += '<input type="url" id="pf-'+du.key+'" value="'+(du.val||'')+'" placeholder="https://drive.google.com/drive/folders/..." style="flex:1;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px;font-size:11px;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor=\'var(--blue)\'" onblur="this.style.borderColor=\'var(--gray-200)\'">';
+      h += '<input type="url" id="pf-'+du.key+'" value="'+(du.val||'')+'" placeholder="https://drive.google.com/drive/folders/..." style="flex:1;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px;font-size:11px;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor=\'var(--blue)\'" onblur="this.style.borderColor=\'var(--gray-200)\';debounceSavePerson(\''+c.id+'\')">';
       if(du.val) h += '<a href="'+du.val+'" target="_blank" style="font-size:16px;text-decoration:none;" title="開く">↗️</a>';
       if(i>0) h += '<button onclick="removePersonDriveUrl(\''+c.id+'\',\''+du.key+'\')" style="font-size:10px;padding:2px 6px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;cursor:pointer;">✕</button>';
       h += '</div>';
@@ -13797,7 +13796,7 @@ function showTab(tab) {
           h += '<div id="lineGroupName_' + c.id + '" style="font-size:10px;color:#06b6d4;margin-top:3px;">🔍 グループ名を取得中...</div>';
         }
       } else {
-        h += '<input type="' + (f.type||'text') + '" id="pf-' + f.key + '" value="' + (p[f.key]||'') + '" placeholder="' + f.placeholder + '">';
+        h += '<input type="' + (f.type||'text') + '" id="pf-' + f.key + '" value="' + (p[f.key]||'') + '" placeholder="' + f.placeholder + '" onchange="debounceSavePerson(\''+c.id+'\')" onblur="debounceSavePerson(\''+c.id+'\')">';
       }
       h += '</div>';
       // 在留カード・パスポートの所在セレクタ
@@ -13888,9 +13887,9 @@ function showTab(tab) {
         (f.opts||[]).forEach(function(o){h+='<option value="'+o+'"'+(o===val?' selected':'')+'>'+o+'</option>';});
         h+='</select>';
       }else if(f.type==='date'){
-        h+='<input type="date" id="pf-'+f.key+'" value="'+(val||'')+'" style="width:100%;font-size:12px;padding:4px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;outline:none;">';
+        h+='<input type="date" id="pf-'+f.key+'" value="'+(val||'')+'" style="width:100%;font-size:12px;padding:4px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;outline:none;" onchange="debounceSavePerson(\''+c.id+'\')">';
       }else{
-        h+='<input type="text" id="pf-'+f.key+'" value="'+(val||'')+'" placeholder="'+(f.ph||'')+'" style="width:100%;font-size:12px;padding:4px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;outline:none;">';
+        h+='<input type="text" id="pf-'+f.key+'" value="'+(val||'')+'" placeholder="'+(f.ph||'')+'" style="width:100%;font-size:12px;padding:4px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;outline:none;" onchange="debounceSavePerson(\''+c.id+'\')" onblur="debounceSavePerson(\''+c.id+'\')">';
       }
       h+='</div>';
     });
@@ -15838,6 +15837,14 @@ function saveEditMembers(caseId){
   closeEditMembers();showTab('info');applyFilters();
 }
 
+var _savePersonTimer = {};
+function debounceSavePerson(caseId) {
+  clearTimeout(_savePersonTimer[caseId]);
+  _savePersonTimer[caseId] = setTimeout(function() {
+    savePerson(caseId);
+  }, 800);
+}
+
 function savePerson(caseId) {
   var keys = ['applicantName','applicantNameEn','residenceCard','passport','passportExpiry','birthdate','birthPlace','residenceStatus','nationality','hireDate','expire','contractStart','contractEnd','entryY','entryM','entryD','tempReturn','salary','address','emergency','occupation','email','age','gender','experience','spouse','driveUrl','driveUrl2','driveUrl3','driveUrl4','driveUrl5','driveUrl6','driveUrl7','driveUrl8','driveUrl9','driveUrl10','lineGroupId','skillEvalType','skillExam1','skillExamLoc1','skillExam2','skillExamLoc2','skillExam3','skillExamLoc3','jpEvalType','jpExam1','jpExamLoc1','jpExam2','jpExamLoc2','jpExam3','jpExamLoc3','gijutsuType','gijutsuWork','gijutsuProof','pastEntry','pastEntryCount','pastEntryFrom','pastEntryTo','pastCOE','pastCOECount','pastCOEDenied','deportation','deportationCount','deportationDate','totalStayYear','totalStayMonth'];
   if (!personData[caseId]) personData[caseId] = {};
@@ -15862,7 +15869,17 @@ function savePerson(caseId) {
   }
   personData[caseId] = p;
   try { localStorage.setItem('ofusa_personData', JSON.stringify(personData)); } catch(e) {}
-  
+
+  // applicantNameEn → cases.applicant に同期
+  if (p.applicantNameEn && currentCase && currentCase.id === caseId) {
+    autoSaveInfo('applicant', p.applicantNameEn);
+    // カード上の名前表示も更新
+    var nameEl = document.getElementById('caseDetailName');
+    if (nameEl) nameEl.textContent = p.applicantNameEn;
+  }
+  // Supabaseにも保存
+  persistPersonToDB(caseId, p);
+
   var saved = document.getElementById('personSaved');
   if (saved) { saved.style.display = 'block'; setTimeout(function(){ saved.style.display='none'; }, 2000); }
 }
@@ -21106,12 +21123,27 @@ function loadAllFromSupabase() {
     if (rows.length) {
       rows.forEach(function(r) {
         var p = {}; var mapping = {
-          applicant_name_en:'applicantNameEn',expire:'expire',temp_return:'tempReturn',
-          residence_card:'residenceCard',passport:'passport',passport_expiry:'passportExpiry',
-          birthdate:'birthdate',gender:'gender',nationality:'nationality',nationality_code:'nationalityCode',
-          address:'address',phone:'phone',email:'email'
+          applicant_name_en:'applicantNameEn', residence_card:'residenceCard',
+          passport:'passport', passport_expiry:'passportExpiry', birthdate:'birthdate',
+          birth_place:'birthPlace', nationality:'nationality', nationality_code:'nationalityCode',
+          gender:'gender', spouse:'spouse', occupation:'occupation',
+          address:'address', tel_num:'telNum', phone:'phone', cel_phone:'celPhone', email:'email',
+          notification_email:'notificationEmail', residence_status:'residenceStatus',
+          expire:'expire', entry_date:'entryDate', arrival_port:'arrivalPort',
+          stay_years:'stayYears', stay_months:'stayMonths', visa_place:'visaPlace',
+          contract_start:'contractStart', contract_end:'contractEnd',
+          hire_date:'hireDate', salary:'salary', emergency:'emergency',
+          temp_return:'tempReturn', line_group_id:'lineGroupId',
+          skill_eval_type:'skillEvalType', skill_exam_1:'skillExam1',
+          skill_exam_loc_1:'skillExamLoc1', jp_eval_type:'jpEvalType',
+          jp_exam_1:'jpExam1', jp_exam_loc_1:'jpExamLoc1',
+          gijutsu_type:'gijutsuType', gijutsu_work:'gijutsuWork', gijutsu_proof:'gijutsuProof',
+          past_entry:'pastEntry', past_entry_count:'pastEntryCount',
+          deportation:'deportation', deportation_count:'deportationCount',
+          total_stay_year:'totalStayYear', total_stay_month:'totalStayMonth'
         };
         Object.keys(mapping).forEach(function(k){ if(r[k]!==null&&r[k]!==undefined) p[mapping[k]]=r[k]; });
+        if(r.extra && typeof r.extra === 'object') Object.assign(p, r.extra);
         if(r.extra_data && typeof r.extra_data === 'object') Object.assign(p, r.extra_data);
         personData[r.case_id] = Object.assign(personData[r.case_id]||{}, p);
       });
