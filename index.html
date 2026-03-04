@@ -3528,6 +3528,12 @@ function getBuiltinPHKeys(){
   var keys={};
   // doGenerateFromMapping内のPLACEHOLDER_MAPと同じキーを列挙
   var builtins=['人材データ.氏名(英語)','案件一覧基本情報.各雇用条件.外国人職務内容','人材データ.年齢','人材データ.性別','人材データ.経験年数','案件一覧基本情報.雇用条件.月額基本給','案件一覧基本情報.各雇用条件.時間給','所属機関.基本情報.比較対象日本人職務内容','所属機関.基本情報.比較対象日本人年齢','所属機関.基本情報.比較対象日本人性別','所属機関.基本情報.比較対象日本人経験','所属機関.基本情報.比較対象日本人賃金','所属機関.基本情報.賃金規定有無','所属機関.基本情報.比較対象日本人同等理由','案件一覧.基本情報.書類作成日','案件一覧.所属機関','所属機関.基本情報.代表者役職+代表者名',
+    '企業情報.(所在地)(都道府県)','企業情報.(所在地)(市区町村)','企業情報.(所在地)(町名丁目番地号等)',
+    '企業情報.所在地','企業情報.郵便番号','企業情報.電話番号','企業情報.代表者名','企業情報.代表者役職',
+    '書類作成日','所属機関.作成責任者氏名','所属機関.作成責任者役職','所属機関.作成責任者役職氏名',
+    'パスポート.性別(漢字のみ)','パスポート.国籍（カナ）','パスポート.生年月日',
+    '所属機関.(所在地)(都道府県)','所属機関.(所在地)(市区町村)','所属機関.(所在地)(町名丁目番地号等)',
+    '所属機関.住所(都道府県)','所属機関.住所(市区町村)','所属機関.住所(番地以降)',
   'パスポート.氏名','パスポート.性別','パスポート.生年月日（年）','パスポート.生年月日（月）','パスポート.生年月日（日）',
   '所属機関.会社名','所属機関.会社名(ひらがな)','所属機関.会社名(英語)','所属機関.郵便番号','所属機関.住所','所属機関.電話番号','所属機関.会社住所(英語)','所属機関.作成責任者','所属機関.作成責任者英語','所属機関.支援担当者',
   '雇用条件.作成日(年)','雇用条件.作成日(月)','雇用条件.作成日(日)','雇用条件.事業所(所在地)(都道府県)','雇用条件.事業所(所在地)(市区町村)','雇用条件.事業所(都道府県英語)','雇用条件.事業所(市区町村英語)','雇用条件.入国予定日','雇用条件.入国予定日(年)','雇用条件.入国予定日(月)','雇用条件.入国予定日(日)','雇用条件.同居人数','雇用条件.居住費徴収の有無','雇用条件.居住費徴収費用','雇用条件.自己所有/借上','雇用条件.実費相当説明','雇用条件.支援担当',
@@ -3538,6 +3544,70 @@ function getBuiltinPHKeys(){
   // ユーザー追加分も
   Object.keys(_userPHMap).forEach(function(k){keys[k]=true;});
   return keys;
+}
+
+function reScanTpl(ci, ti) {
+  var cat = TEMPLATE_CATEGORIES[ci];
+  var tpl = cat && cat.templates[ti];
+  if (!tpl) return;
+  showToast('🔍 変数スキャン中...');
+
+  // 1. localStorageから取得を試みる
+  function tryFromBase64(base64) {
+    if (base64) {
+      scanDocxPlaceholders(base64);
+      return true;
+    }
+    return false;
+  }
+
+  var tplData;
+  try { tplData = JSON.parse(localStorage.getItem('ofusa_templates') || '{}'); } catch(e) { tplData = {}; }
+  var key = ci + '_' + ti;
+  if (tplData[key] && tplData[key].data) {
+    if (tryFromBase64(tplData[key].data)) return;
+  }
+  // groupで検索
+  Object.keys(tplData).forEach(function(k) {
+    var t = tplData[k];
+    if (t && t.group === cat.name && (t.name === tpl.filename || t.name === tpl.name) && t.data) {
+      tryFromBase64(t.data);
+    }
+  });
+
+  // 2. Supabase Storageから取得
+  if (DB_READY && tpl.storagePath) {
+    var paths = [tpl.storagePath, sanitizeStoragePath(tpl.storagePath)];
+    function tryPath(idx) {
+      if (idx >= paths.length) { showToast('❌ ファイルが見つかりません'); return; }
+      _sb.storage.from('templates').download(paths[idx]).then(function(res) {
+        if (res.error) { tryPath(idx + 1); return; }
+        res.data.arrayBuffer().then(function(ab) {
+          var bytes = new Uint8Array(ab);
+          var binary = '';
+          bytes.forEach(function(b) { binary += String.fromCharCode(b); });
+          scanDocxPlaceholders(btoa(binary));
+        });
+      });
+    }
+    tryPath(0);
+  } else {
+    // Supabase DBから検索
+    if (DB_READY) {
+      _sb.from('templates').select('storage_path').eq('group_name', cat.name).then(function(res) {
+        if (!res.data || !res.data.length) { showToast('❌ ファイルが見つかりません'); return; }
+        _sb.storage.from('templates').download(res.data[0].storage_path).then(function(dlRes) {
+          if (dlRes.error) { showToast('❌ ダウンロード失敗'); return; }
+          dlRes.data.arrayBuffer().then(function(ab) {
+            var bytes = new Uint8Array(ab);
+            var binary = '';
+            bytes.forEach(function(b) { binary += String.fromCharCode(b); });
+            scanDocxPlaceholders(btoa(binary));
+          });
+        });
+      });
+    }
+  }
 }
 
 function scanDocxPlaceholders(base64raw){
@@ -3551,22 +3621,35 @@ function scanDocxPlaceholders(base64raw){
       var xmlFile=zip.file('word/document.xml');
       if(!xmlFile) return;
       xmlFile.async('string').then(function(xml){
-        // XMLからテキストを抽出
-        var textContent='';
-        var tRe=/<w:t[^>]*>([^<]*)<\/w:t>/g;
+        // w:tタグを全部収集してテキストを結合（分割run対応）
+        var tNodes=[];
+        var tRe=/<w:t(?=[\s\/\>])[^>]*>([\s\S]*?)<\/w:t>|<w:t\/>/g;
         var tm;
-        while((tm=tRe.exec(xml))!==null) textContent+=tm[1];
+        while((tm=tRe.exec(xml))!==null) tNodes.push(tm[1]||'');
+        var concat=tNodes.join('');
+        // 生XMLからも単純抽出（念のため両方）
+        var rawRe=/<w:t[^>]*>([^<]*)<\/w:t>/g;
+        var rawText='';
+        while((tm=rawRe.exec(xml))!==null) rawText+=tm[1];
+        var combined=concat+'\n'+rawText;
         // {{...}} を検出
-        var phRe=/\{\{(.+?)\}\}/g;
+        var phRe=/\{\{([^{}\n]+?)\}\}/g;
         var found={};
         var pm;
-        while((pm=phRe.exec(textContent))!==null) found[pm[1].trim()]=true;
+        while((pm=phRe.exec(combined))!==null){
+          var k=pm[1].trim();
+          if(k) found[k]=true;
+        }
         var allVars=Object.keys(found);
-        if(!allVars.length) return;
+        console.log('📋 docxプレースホルダー検出:', allVars);
+        if(!allVars.length){
+          showToast('⚠️ テンプレート変数（{{...}}）が見つかりませんでした');
+          return;
+        }
         // 既存MAPにない変数を抽出
         var builtinKeys=getBuiltinPHKeys();
-        var unknown=allVars.filter(function(v){return !builtinKeys[v];});
-        var known=allVars.filter(function(v){return builtinKeys[v];});
+        var unknown=allVars.filter(function(v){return !builtinKeys[v] && !_userPHMap[v];});
+        var known=allVars.filter(function(v){return builtinKeys[v] || _userPHMap[v];});
         if(!unknown.length){
           showToast('✅ テンプレート変数 '+allVars.length+'個 すべてマッピング済み');
           return;
@@ -3781,6 +3864,7 @@ function renderTemplatesContent() {
       if (t.uploadDate) h += '<span style="font-size:9px;color:var(--gray-400);">' + t.uploadDate + ' ' + (t.uploadTime||'') + '</span>';
       h += '<span style="font-size:10px;font-weight:700;color:var(--green);background:#dcfce7;padding:2px 8px;border-radius:4px;">✓ 登録済</span>';
       h += '<button onclick="event.stopPropagation();downloadTpl(' + ci + ',' + realIdx + ')" style="font-size:10px;padding:3px 8px;background:#e0f2fe;color:#0369a1;border:none;border-radius:4px;cursor:pointer;font-weight:600;" title="ダウンロード">⬇️ DL</button>';
+      if(t.filename && t.filename.match(/\.docx$/i)) h += '<button onclick="event.stopPropagation();reScanTpl(' + ci + ',' + realIdx + ')" style="font-size:10px;padding:3px 8px;background:#f0fdf4;color:#16a34a;border:1px solid #86efac;border-radius:4px;cursor:pointer;font-weight:600;" title="変数スキャン">🔍 変数</button>';
       h += '<label onclick="event.stopPropagation()" style="font-size:10px;padding:3px 8px;background:#fef3c7;color:#92400e;border:none;border-radius:4px;cursor:pointer;font-weight:600;" title="テンプレ差し替え">🔄 差替<input type="file" accept=".xlsx,.xls,.docx,.doc" onchange="replaceTpl('+ci+','+realIdx+',this)" style="display:none;"></label>';
       h += '<button onclick="event.stopPropagation();removeTpl(' + ci + ',' + realIdx + ')" style="font-size:10px;padding:3px 8px;background:#fee2e2;color:#dc2626;border:none;border-radius:4px;cursor:pointer;font-weight:600;">削除</button>';
       h += '</div></div>';
@@ -3913,11 +3997,12 @@ var AVAILABLE_FIELDS = [
     {k:'p.contractEndY',l:'契約終了年'},{k:'p.contractEndM',l:'契約終了月'},{k:'p.contractEndD',l:'契約終了日'},
     {k:'p.entryY',l:'入国予定年'},{k:'p.entryM',l:'入国予定月'},{k:'p.entryD',l:'入国予定日'},
     {k:'p.age',l:'年齢'},{k:'p.gender',l:'性別'},{k:'p.experience',l:'経験年数'},
+    {k:'p.nationality',l:'国籍（カナ）'},{k:'p.birthdate',l:'生年月日（そのまま）'},
     {k:'p.birthY',l:'生年月日（年）自動'},{k:'p.birthM',l:'生年月日（月）自動'},{k:'p.birthD',l:'生年月日（日）自動'},
   ]},
   {group:'所属機関 (co.)', fields:[
     {k:'co.name',l:'所属機関名'},{k:'co.nameKana',l:'所属機関名（かな）'},{k:'co.nameEn',l:'会社名（英語）'},
-    {k:'co.zip',l:'郵便番号'},{k:'co.fullAddress',l:'所在地（結合）'},{k:'co.addressEn',l:'所在地（翻訳）'},
+    {k:'co.zip',l:'郵便番号'},{k:'co.pref',l:'所在地（都道府県）'},{k:'co.city',l:'所在地（市区町村）'},{k:'co.address',l:'所在地（番地以降）'},{k:'co.fullAddress',l:'所在地（都道府県+市区町村+番地 結合）'},{k:'co.addressEn',l:'所在地（翻訳）'},
     {k:'co.tel',l:'電話番号'},{k:'co.telEn',l:'電話番号（翻訳）'},
     {k:'co.repName',l:'代表者名'},{k:'co.repTitle',l:'代表者役職'},
     {k:'co.repNameEn',l:'代表者名（翻訳）'},{k:'co.repTitleEn',l:'代表者役職（翻訳）'},
@@ -4319,7 +4404,7 @@ var CELL_MAPPING_129 = [
     var ci=-1;
     TEMPLATE_CATEGORIES.forEach(function(cat,i){if(cat.name.indexOf(prefix)===0) ci=i;});
     if(ci>=0 && TEMPLATE_CATEGORIES[ci].templates.length>0){
-      var key=getTplMappingKey(ci,0);
+      var key=getTplMappingKey(ci,_selectedTplIdx);
       if(!tplMappings[key]||tplMappings[key].length===0){
         tplMappings[key]=maps[prefix].slice();
         persistTplMappings();
@@ -4687,11 +4772,124 @@ function applyTransformPreview(val, rule, customFmt) {
   return val;
 }
 
+function showDocxMappingInfo(ci, ti) {
+  var cat = TEMPLATE_CATEGORIES[ci];
+  var tpl = cat.templates[ti];
+  var area = document.getElementById('tplDetailArea');
+  area.style.display = 'block';
+
+  // docxからプレースホルダーを取得してPLACEHOLDER_MAPと照合表示
+  function renderDocxMapUI(vars) {
+    // PLACEHOLDER_MAP（ビルトイン + ユーザー）を構築
+    var builtinKeys = getBuiltinPHKeys();
+    var upm = {};
+    try { upm = JSON.parse(localStorage.getItem('ofusa_userPHMap') || '{}'); } catch(e) {}
+
+    var h = '<div style="background:white;border:2px solid #7c3aed;border-radius:12px;padding:16px;">';
+    h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">';
+    h += '<div style="font-size:14px;font-weight:800;color:#5b21b6;">📋 ' + esc(tpl.name) + ' — 変数マッピング</div>';
+    h += '<button onclick="document.getElementById(\'tplDetailArea\').style.display=\'none\'" style="font-size:11px;padding:4px 12px;background:#e5e7eb;color:#374151;border:none;border-radius:6px;cursor:pointer;font-weight:700;">✕ 閉じる</button>';
+    h += '</div>';
+
+    if (!vars || !vars.length) {
+      h += '<div style="color:#9ca3af;font-size:12px;padding:12px;text-align:center;background:#f9fafb;border-radius:8px;">変数が見つかりませんでした。「🔍 変数」ボタンで再スキャンしてください。</div>';
+    } else {
+      var mapped = [], unmapped = [];
+      vars.forEach(function(v) {
+        if (builtinKeys[v] || upm[v]) mapped.push(v);
+        else unmapped.push(v);
+      });
+
+      if (mapped.length) {
+        h += '<div style="margin-bottom:12px;">';
+        h += '<div style="font-size:11px;font-weight:700;color:#16a34a;margin-bottom:6px;">✅ マッピング済み（' + mapped.length + '個）</div>';
+        h += '<div style="display:flex;flex-direction:column;gap:4px;">';
+        mapped.forEach(function(v) {
+          var fieldKey = builtinKeys[v] ? v : upm[v];
+          // フィールドラベルを取得
+          var fieldLabel = fieldKey;
+          AVAILABLE_FIELDS.forEach(function(g) {
+            g.fields.forEach(function(f) { if (f.k === (upm[v] || fieldKey)) fieldLabel = f.l; });
+          });
+          if (upm[v]) fieldLabel = upm[v];
+          h += '<div style="display:flex;align-items:center;gap:8px;padding:5px 10px;background:#f0fdf4;border:1px solid #86efac;border-radius:6px;font-size:11px;">';
+          h += '<code style="color:#1e40af;background:#dbeafe;padding:1px 6px;border-radius:3px;font-size:10px;">{{' + esc(v) + '}}</code>';
+          h += '<span style="color:#9ca3af;">→</span>';
+          h += '<span style="font-weight:700;color:#15803d;">' + esc(fieldLabel) + '</span>';
+          h += '</div>';
+        });
+        h += '</div></div>';
+      }
+
+      if (unmapped.length) {
+        h += '<div style="margin-bottom:12px;">';
+        h += '<div style="font-size:11px;font-weight:700;color:#dc2626;margin-bottom:6px;">❌ 未マッピング（' + unmapped.length + '個）— 手動設定が必要です</div>';
+        unmapped.forEach(function(v) {
+          h += '<div style="padding:5px 10px;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;font-size:11px;margin-bottom:4px;">';
+          h += '<code style="color:#dc2626;">{{' + esc(v) + '}}</code>';
+          h += '</div>';
+        });
+        h += '</div>';
+        h += '<button onclick="reScanTpl(' + ci + ',' + ti + ')" style="width:100%;padding:8px;background:#7c3aed;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🔍 マッピングを設定する</button>';
+      }
+    }
+
+    h += '</div>';
+    area.innerHTML = h;
+  }
+
+  // localStorageからdocxを読み込んで変数抽出
+  var tplData;
+  try { tplData = JSON.parse(localStorage.getItem('ofusa_templates') || '{}'); } catch(e) { tplData = {}; }
+  var key = ci + '_' + ti;
+  var base64 = tplData[key] && tplData[key].data ? tplData[key].data : null;
+  if (!base64) {
+    Object.keys(tplData).forEach(function(k) {
+      var t = tplData[k];
+      if (t && t.group === cat.name && t.data && (t.name === tpl.filename || t.name === tpl.name)) base64 = t.data;
+    });
+  }
+
+  if (base64) {
+    var raw = base64.indexOf(',') >= 0 ? base64.split(',')[1] : base64;
+    try {
+      var binary = atob(raw);
+      var bytes = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      JSZip.loadAsync(bytes).then(function(zip) {
+        return zip.file('word/document.xml').async('string').then(function(xml) {
+          var tNodes = [];
+          var tRe = /<w:t(?=[\s\/\>])[^>]*>([\s\S]*?)<\/w:t>|<w:t\/>/g;
+          var tm;
+          while ((tm = tRe.exec(xml)) !== null) tNodes.push(tm[1] || '');
+          var concat = tNodes.join('');
+          var phRe = /\{\{([^{}\n]+?)\}\}/g;
+          var found = {}, pm;
+          while ((pm = phRe.exec(concat)) !== null) { var k2 = pm[1].trim(); if (k2) found[k2] = true; }
+          renderDocxMapUI(Object.keys(found));
+        });
+      });
+    } catch(e) { renderDocxMapUI([]); }
+  } else {
+    // Storageから取得
+    area.innerHTML = '<div style="padding:16px;text-align:center;color:#9ca3af;font-size:12px;">読み込み中...</div>';
+    area.style.display = 'block';
+    reScanTpl(ci, ti);
+    setTimeout(function() { area.style.display = 'none'; }, 500);
+  }
+}
+
 function showTplDetail(ci, ti) {
   var cat = TEMPLATE_CATEGORIES[ci];
   var tpl = cat.templates[ti];
   var area = document.getElementById('tplDetailArea');
-  
+
+  // docxの場合はPLACEHOLDER_MAP確認UIを表示
+  if (tpl.filename && tpl.filename.match(/\.docx$/i)) {
+    showDocxMappingInfo(ci, ti);
+    return;
+  }
+
   var mappingKey = getTplMappingKey(ci, ti);
   // 1-6(雇用条件書)カテゴリのテンプレートにはCELL_MAPPING_16をデフォルト適用
   var is16 = cat.name.indexOf('1-6') >= 0;
@@ -5282,8 +5480,6 @@ async function insertCardIntoExcel(caseId, frontData, backData) {
       cardsHtml += '</div>';
     }
 
-    var driveUrl = pd.driveUrl || '';
-    var folderId = driveUrl ? extractDriveFolderId(driveUrl) : '';
     var w = window.open('', '_blank');
     if(!w){ alert('ポップアップがブロックされました。許可してください。'); return; }
     w.document.open();
@@ -5507,18 +5703,15 @@ async function insertCardIntoExcel(caseId, frontData, backData) {
     w.document.write('</body></html>');
     w.document.close();
 
+    // GAS経由でDriveに保存
     var fileName = '申請中証明_' + (name || 'unknown') + '.pdf';
-
-    // 印刷ダイアログで直接PDF化（全言語含む）
-    setTimeout(function(){
-      try{ w.print(); }catch(e){ console.error(e); }
-    }, 600);
-    showToast('📄 印刷画面が開きます → 「PDFに保存」を選んでください');
-
-    // Driveフォルダがある場合はバックグラウンドでGASにも保存（日英のみ）
+    var driveUrl = pd.driveUrl || '';
+    var folderId = driveUrl ? extractDriveFolderId(driveUrl) : '';
     if (folderId) {
+      showToast('📤 Driveに保存中...');
       var driveGasUrl = GAS_MAILBOX_URL || GAS_URL;
       var selectedLangs = window._certSelectedLangs || ['日本語','英語'];
+      // 小さいJSONデータだけ送り、GAS側でHTML組立→PDF変換
       jsonpPost(driveGasUrl, 'generateCertPdf', {
         folderId: folderId,
         fileName: fileName,
@@ -5531,12 +5724,20 @@ async function insertCardIntoExcel(caseId, frontData, backData) {
         langs: selectedLangs
       }, function(res) {
         if (res && res.status === 'ok' && res.fileId) {
-          showToast('✅ Driveにも保存完了: ' + fileName);
-          sendLineCertNotification(fileName, res.fileId, cas);
+          showToast('✅ PDF Driveに保存完了: ' + fileName);
+          try { w.close(); } catch(e){}
         } else {
-          console.warn('GAS Drive保存失敗（印刷版は正常）:', res);
+          showToast('⚠️ Drive保存失敗 - 印刷からPDF保存してください');
+          console.error('GAS error:', res);
+          setTimeout(function(){ try{ w.print(); }catch(e){} }, 500);
         }
       });
+    } else {
+      // Driveなし：印刷ダイアログ
+      setTimeout(function(){
+        try{ w.print(); }catch(e){ console.error(e); }
+      }, 800);
+      showToast('📄 印刷画面が開きます → 「PDFに保存」を選んでください');
     }
   } catch(e) {
     alert('申請中証明 生成エラー: ' + e.toString());
@@ -5559,7 +5760,7 @@ function loadScript(src) {
 function showCertLangDialog(caseId, docType) {
   var cas = cData.find(function(c){return c.id===caseId;});
   var pd = personData[caseId] || {};
-  var nationality = (pd.nationality || cas && cas.nationality || '').trim();
+  var nationality = (pd.nationality || cas && cas.nationality || '').toUpperCase();
   var langs = [
     {key:'日本語', label:'🇯🇵 日本語', always:true},
     {key:'英語',   label:'🇬🇧 English', always:true},
@@ -5584,21 +5785,8 @@ function showCertLangDialog(caseId, docType) {
   h += '<h3 style="margin:0 0 8px;font-size:16px;">' + (docType==='cert' ? '🪪 申請中証明' : '📋 預かり証') + ' — 言語選択</h3>';
   h += '<p style="font-size:11px;color:#6b7280;margin-bottom:14px;">日本語・英語は必ず含まれます。追加する母国語を選んでください。</p>';
   h += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px;">';
-  // 国籍→言語キーのマッピング（完全一致・大文字小文字無視）
-  var NATIONALITY_LANG_MAP = {
-    'ベトナム':'ベトナム','vietnam':'ベトナム','viet nam':'ベトナム',
-    'インドネシア':'インドネシア','indonesia':'インドネシア',
-    'ミャンマー':'ミャンマー','myanmar':'ミャンマー','burma':'ミャンマー',
-    '中国':'中国','china':'中国','中華人民共和国':'中国',
-    'ネパール':'ネパール','nepal':'ネパール',
-    'フィリピン':'フィリピン','philippines':'フィリピン',
-    'タイ':'タイ','thailand':'タイ',
-    'モンゴル':'モンゴル','mongolia':'モンゴル',
-    'カンボジア':'カンボジア','cambodia':'カンボジア'
-  };
-  var detectedLangKey = NATIONALITY_LANG_MAP[nationality] || NATIONALITY_LANG_MAP[nationality.toLowerCase()] || '';
   langs.forEach(function(l){
-    var auto = l.always || (detectedLangKey !== '' && detectedLangKey === l.key);
+    var auto = l.always || nationality.indexOf(l.key) !== -1;
     var checked = auto ? 'checked' : '';
     var disabled = l.always ? 'disabled' : '';
     h += '<label style="display:flex;align-items:center;gap:4px;padding:6px 10px;border:1.5px solid '+(auto?'#2563eb':'#d1d5db')+';border-radius:8px;font-size:12px;cursor:pointer;background:'+(auto?'#eff6ff':'#fff')+';min-width:120px;">';
@@ -5724,19 +5912,14 @@ function renderAzukari(caseId, frontData, backData, passportData) {
     w.document.write('</div></body></html>');
     w.document.close();
 
+    // GAS経由でDriveにPDF保存（申請中証明と同じ方式）
     var fileName = '預かり証_' + (name || 'unknown') + '.pdf';
     var driveUrlVal = pd.driveUrl || '';
     var folderId = driveUrlVal ? extractDriveFolderId(driveUrlVal) : '';
-
-    // 印刷ダイアログで直接PDF化（全選択言語含む）
-    setTimeout(function(){
-      try{ w.print(); }catch(e){ console.error(e); }
-    }, 600);
-    showToast('📋 印刷画面が開きます → 「PDFに保存」を選んでください');
-
-    // Driveフォルダがある場合はバックグラウンドでGASにも保存
     if (folderId) {
+      showToast('📤 Driveに保存中...');
       var driveGasUrl = GAS_MAILBOX_URL || GAS_URL;
+      // 小さいJSONだけ送信（GAS側でフォルダから画像取得）
       var selectedLangs = window._certSelectedLangs || ['日本語','英語'];
       jsonpPost(driveGasUrl, 'generateAzukariPdf', {
         folderId: folderId,
@@ -5747,11 +5930,20 @@ function renderAzukari(caseId, frontData, backData, passportData) {
         langs: selectedLangs
       }, function(res) {
         if (res && res.status === 'ok' && res.fileId) {
-          showToast('✅ 預かり証 Driveにも保存完了: ' + fileName);
+          showToast('✅ 預かり証 Driveに保存完了: ' + fileName);
+          try { w.close(); } catch(e){}
         } else {
-          console.warn('GAS Drive保存失敗（印刷版は正常）:', res);
+          showToast('⚠️ Drive保存失敗 - 印刷からPDF保存してください');
+          console.error('GAS error:', res);
+          setTimeout(function(){ try{ w.print(); }catch(e){} }, 500);
         }
       });
+    } else {
+      // Driveなし：印刷ダイアログ
+      setTimeout(function(){
+        try{ w.print(); }catch(e){ console.error(e); }
+      }, 800);
+      showToast('📋 印刷画面が開きます → 「PDFに保存」を選んでください');
     }
 
   } catch(e) {
@@ -5766,17 +5958,28 @@ function downloadTpl(ci, ti) {
     var tpl = cat && cat.templates[ti];
     // 1. Supabase Storageからダウンロード（storagePath がある場合）
     if (DB_READY && tpl && tpl.storagePath) {
-      _sb.storage.from('templates').download(tpl.storagePath).then(function(res) {
-        if (res.error) { showToast('❌ ダウンロード失敗: ' + res.error.message); return; }
-        var url = URL.createObjectURL(res.data);
+      var primaryPath = tpl.storagePath;
+      var sanitizedPath = sanitizeStoragePath(tpl.storagePath);
+      function doDownloadBlob(blob, filename) {
+        var url = URL.createObjectURL(blob);
         var link = document.createElement('a');
-        link.href = url;
-        link.download = tpl.filename || tpl.name || 'template';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+        link.href = url; link.download = filename;
+        document.body.appendChild(link); link.click();
+        document.body.removeChild(link); URL.revokeObjectURL(url);
         showToast('⬇️ ' + (tpl.name || 'テンプレート') + ' をダウンロード');
+      }
+      // まずDBのパスをそのまま試し、失敗したらsanitizedパスを試す
+      _sb.storage.from('templates').download(primaryPath).then(function(res) {
+        if (!res.error) { doDownloadBlob(res.data, tpl.filename || tpl.name || 'template'); return; }
+        // 失敗→sanitizedパスで再試行
+        if (sanitizedPath !== primaryPath) {
+          _sb.storage.from('templates').download(sanitizedPath).then(function(res2) {
+            if (!res2.error) { doDownloadBlob(res2.data, tpl.filename || tpl.name || 'template'); }
+            else { showToast('❌ ダウンロード失敗: ' + res2.error.message); }
+          });
+        } else {
+          showToast('❌ ダウンロード失敗: ' + res.error.message);
+        }
       }).catch(function(e) { showToast('❌ ダウンロード失敗'); });
       return;
     }
@@ -5845,6 +6048,11 @@ function quickUploadTpl(ci, inp) {
       });
       _sb.from('templates').insert({group_name:grpName,name:name,filename:file.name,lang:'',storage_path:storagePath,uploaded_by:currentUser||''}).then(function(r){if(r.error)console.error('quickTpl DB err:',r.error);});
     }
+    // docxの場合は自動でプレースホルダースキャン
+    if(file.name.match(/\.docx$/i)){
+      var rawB64 = base64.indexOf(',')>=0 ? base64.split(',')[1] : base64;
+      scanDocxPlaceholders(rawB64);
+    }
     showToast('✅ 「'+name+'」を'+TEMPLATE_CATEGORIES[ci].name+'に登録しました');
     renderTemplatesContent();
   };
@@ -5877,6 +6085,11 @@ function replaceTpl(ci, ti, inp) {
     var now = new Date();
     tpl.uploadDate = now.getFullYear() + '/' + (now.getMonth()+1) + '/' + now.getDate();
     tpl.uploadTime = ('0'+now.getHours()).slice(-2) + ':' + ('0'+now.getMinutes()).slice(-2);
+    // docxの場合は自動でプレースホルダースキャン
+    if(file.name.match(/\.docx$/i)){
+      var rawB64r = base64.indexOf(',')>=0 ? base64.split(',')[1] : base64;
+      scanDocxPlaceholders(rawB64r);
+    }
     showToast('🔄 「' + tpl.name + '」を差し替えました（' + file.name + '）');
     renderTemplatesContent();
   };
@@ -6789,12 +7002,8 @@ function sendLineGroupMessage(message,callback,groupId){
   });
 }
 function sendLineCertNotification(pdfFileName,driveFileId,caseData){
-  if(!LINE_CHANNEL_TOKEN)return;
-  var groupId = (caseData && caseData.lineGroupId) ? caseData.lineGroupId : LINE_GROUP_ID;
-  if(!groupId)return;
   var name='';
   if(caseData) name=caseData.applicantName||caseData.applicantNameEn||caseData.name||caseData.applicant||'';
-  // 公開設定してから送信
   if(driveFileId){
     shareDriveFile(driveFileId, function(pub){
       var link = pub ? makePublicDriveLink(driveFileId) : ('https://drive.google.com/file/d/'+driveFileId+'/view');
@@ -6803,14 +7012,54 @@ function sendLineCertNotification(pdfFileName,driveFileId,caseData){
       msg+='📎 '+pdfFileName+'\n';
       msg+='🔗 '+link;
       if(pub) msg+='\n\n※タップでそのまま閲覧できます（ログイン不要）';
-      sendLineGroupMessage(msg, null, groupId);
+      showLineCopyModal('📄 証明書PDF', msg);
     });
   } else {
     var msg='📄 証明書PDF生成完了\n';
     if(name) msg+='👤 '+name+'\n';
     msg+='📎 '+pdfFileName;
-    sendLineGroupMessage(msg, null, groupId);
+    showLineCopyModal('📄 証明書PDF', msg);
   }
+}
+
+function copyToClipboard(text) {
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).catch(function(){
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+      document.body.removeChild(ta);
+    });
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+}
+
+// LINEメッセージ コピーモーダル
+function showLineCopyModal(label, msg) {
+  var old = document.getElementById('lineCopyModalOverlay');
+  if(old) old.remove();
+  var ov = document.createElement('div');
+  ov.id = 'lineCopyModalOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  ov.onclick = function(e){ if(e.target===ov) ov.remove(); };
+  var h = '<div style="background:white;border-radius:16px;max-width:480px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);position:relative;">';
+  h += '<button onclick="document.getElementById(\'lineCopyModalOverlay\').remove()" style="position:absolute;top:10px;right:14px;background:none;border:none;font-size:20px;cursor:pointer;color:#999;">×</button>';
+  h += '<div style="font-size:15px;font-weight:800;color:#06b6d4;margin-bottom:12px;">📋 ' + label + ' — LINEメッセージ</div>';
+  h += '<textarea id="lineCopyModalText" readonly style="width:100%;min-height:160px;padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:13px;font-family:inherit;resize:vertical;background:#f8fafc;box-sizing:border-box;">' + msg.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</textarea>';
+  h += '<button onclick="(function(){var t=document.getElementById(\'lineCopyModalText\');t.select();t.setSelectionRange(0,99999);navigator.clipboard?navigator.clipboard.writeText(t.value).then(function(){showToast(\'📋 コピーしました。LINEに貼り付けて送信してください\');}):document.execCommand(\'copy\');showToast(\'📋 コピーしました。LINEに貼り付けて送信してください\');})()" style="width:100%;margin-top:12px;padding:12px;background:#06b6d4;color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">📋 コピーする</button>';
+  h += '<p style="font-size:11px;color:#9ca3af;margin-top:8px;text-align:center;">コピー後、LINEアプリで該当トークに貼り付けて送信してください</p>';
+  h += '</div>';
+  ov.innerHTML = h;
+  document.body.appendChild(ov);
+  // 自動コピー試行
+  setTimeout(function(){
+    var t = document.getElementById('lineCopyModalText');
+    if(t && navigator.clipboard) navigator.clipboard.writeText(t.value).catch(function(){});
+  }, 100);
 }
 
 function renderAdminUsers(){
@@ -10929,6 +11178,7 @@ function renderDocGenContent() {
 }
 
 var _selectedDocType = '';
+var _selectedTplIdx = 0; // 選択中テンプレートインデックス
 
 function selectDocType(key) {
   try{
@@ -10982,12 +11232,17 @@ function selectDocType(key) {
     tplH += '<div style="background:white;border:1px solid var(--gray-200);border-radius:10px;padding:12px;">';
     tplH += '<div style="font-size:10px;font-weight:800;color:var(--blue);margin-bottom:8px;">📁 テンプレート（' + tpls.length + '件）</div>';
     tpls.forEach(function(t, ti) {
-      tplH += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-100);">';
-      tplH += '<div style="font-size:12px;font-weight:600;">' + (t.name||t.filename||'') + '</div>';
-      tplH += '<div style="display:flex;align-items:center;gap:8px;">';
-      tplH += '<div style="font-size:10px;color:var(--gray-400);">' + (t.lang||'') + '</div>';
-      tplH += '<button onclick="deleteTplFromDocGen(\'' + esc(tplGroup) + '\',' + ti + ',\'' + esc(t.name||t.filename||'') + '\')" style="font-size:9px;padding:2px 6px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;cursor:pointer;font-weight:700;">🗑</button>';
-      tplH += '</div></div>';
+      var isSelected = (ti === _selectedTplIdx);
+      var rowBg = isSelected ? '#eff6ff' : 'white';
+      var rowBorder = isSelected ? '#3b82f6' : 'var(--gray-100)';
+      tplH += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid ' + rowBorder + ';background:' + rowBg + ';border-radius:4px;padding:6px 6px;">';
+      tplH += '<div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;cursor:pointer;" onclick="selectTplIdx(' + ti + ')">';
+      tplH += '<div style="width:14px;height:14px;border-radius:50%;border:2px solid ' + (isSelected?'#3b82f6':'#d1d5db') + ';background:' + (isSelected?'#3b82f6':'white') + ';flex-shrink:0;"></div>';
+      tplH += '<div style="font-size:12px;font-weight:' + (isSelected?'700':'600') + ';color:' + (isSelected?'#1d4ed8':'inherit') + ';">' + (t.name||t.filename||'') + '</div>';
+      if(t.lang) tplH += '<div style="font-size:10px;color:var(--gray-400);">' + t.lang + '</div>';
+      tplH += '</div>';
+      tplH += '<button onclick="deleteTplFromDocGen(\'' + esc(tplGroup) + '\',' + ti + ',\'' + esc(t.name||t.filename||'') + '\')" style="font-size:9px;padding:2px 6px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;cursor:pointer;font-weight:700;flex-shrink:0;">🗑</button>';
+      tplH += '</div>';
     });
     tplH += '</div>';
   } else {
@@ -10996,6 +11251,7 @@ function selectDocType(key) {
   var el1=document.getElementById('dg_tplList'); if(el1) el1.innerHTML = tplH;
 
   // Step2を表示、Step3リセット
+  _selectedTplIdx = 0; // テンプレート選択リセット
   var s2=document.getElementById('dg_step2'); if(s2) s2.style.display = 'block';
   var s2b=document.getElementById('dg_step2b'); if(s2b) s2b.style.display = 'none';
   var s3=document.getElementById('dg_step3'); if(s3) s3.style.display = 'none';
@@ -11008,6 +11264,32 @@ function selectDocType(key) {
     dlBtn.textContent = labels[key] || '📥 ダウンロード';
   }
   }catch(e){console.error('selectDocType error:',e);alert('書類選択エラー: '+e.message);}
+}
+
+function selectTplIdx(ti) {
+  _selectedTplIdx = ti;
+  // リスト再描画（現在のdocTypeで再描画）
+  var el1 = document.getElementById('dg_tplList');
+  if (!el1) return;
+  var docTypes={'1-5':'1-5(雇用契約書)','1-6':'1-6(雇用条件書)','1-3':'1-3(受診者の申告書別紙)','1-4':'1-4(特定技能外国人の報酬に関する説明書)','1-11':'1-11(特定技能所属機関概要書)','1-16':'1-16(雇用の経緯に係る説明書)','1-17':'1-17(支援計画書)','1-23':'1-23(特定技能所属機関の役員に関する誓約書)','1-25':'1-25(登録支援機関との支援委託契約に関する説明書)','1-27':'1-27(公的義務履行に関する説明書)','1-29':'1-29(書類省略に当たっての誓約書)','field':'分野別必要書類','window':'窓口申請書'};
+  var tplGroup = docTypes[_selectedDocType] || '';
+  var tpls = [];
+  TEMPLATE_CATEGORIES.forEach(function(cat) { if(cat.name === tplGroup) cat.templates.forEach(function(t){ tpls.push(t); }); });
+  var tplH = '<div style="background:white;border:1px solid var(--gray-200);border-radius:10px;padding:12px;">';
+  tplH += '<div style="font-size:10px;font-weight:800;color:var(--blue);margin-bottom:8px;">📁 テンプレート（' + tpls.length + '件）</div>';
+  tpls.forEach(function(t, idx) {
+    var isSel = (idx === _selectedTplIdx);
+    tplH += '<div style="display:flex;align-items:center;justify-content:space-between;background:' + (isSel?'#eff6ff':'white') + ';border-radius:4px;padding:6px 6px;border-bottom:1px solid ' + (isSel?'#3b82f6':'var(--gray-100)') + ';">';
+    tplH += '<div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;cursor:pointer;" onclick="selectTplIdx(' + idx + ')">';
+    tplH += '<div style="width:14px;height:14px;border-radius:50%;border:2px solid ' + (isSel?'#3b82f6':'#d1d5db') + ';background:' + (isSel?'#3b82f6':'white') + ';flex-shrink:0;"></div>';
+    tplH += '<div style="font-size:12px;font-weight:' + (isSel?'700':'600') + ';color:' + (isSel?'#1d4ed8':'inherit') + ';">' + (t.name||t.filename||'') + '</div>';
+    if(t.lang) tplH += '<div style="font-size:10px;color:var(--gray-400);">' + t.lang + '</div>';
+    tplH += '</div>';
+    tplH += '<button onclick="deleteTplFromDocGen(\'' + esc(tplGroup) + '\',' + idx + ',\'' + esc(t.name||t.filename||'') + '\')" style="font-size:9px;padding:2px 6px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;cursor:pointer;font-weight:700;flex-shrink:0;">🗑</button>';
+    tplH += '</div>';
+  });
+  tplH += '</div>';
+  el1.innerHTML = tplH;
 }
 
 // 案件セレクトの検索フィルタ
@@ -11349,10 +11631,40 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr){
     '企業情報.会社名(英語)':'co.nameEn',
     '企業情報.作成責任者':'co.authorTitleName',
     '企業情報.作成責任者英語':'co.authorNameEn',
+    '企業情報.郵便番号':'co.zip',
+    '企業情報.(所在地)(都道府県)':'co.pref',
+    '企業情報.(所在地)(市区町村)':'co.city',
+    '企業情報.(所在地)(町名丁目番地号等)':'co.address',
+    '企業情報.所在地':'co.fullAddress',
+    '企業情報.電話番号':'co.tel',
+    '企業情報.代表者名':'co.repName',
+    '企業情報.代表者役職':'co.repTitle',
+    '企業情報.代表者役職+氏名':'co.repTitleName',
+    '企業情報.支援担当者':'co.supportStaff',
+    // 書類作成日（短縮形）
+    '書類作成日':'case.docCreateDate',
+    // 所属機関.作成責任者（バリアント）
+    '所属機関.作成責任者氏名':'co.authorName',
+    '所属機関.作成責任者役職':'co.authorTitle',
+    '所属機関.作成責任者役職氏名':'co.authorTitleName',
+    // パスポート.性別バリアント
+    'パスポート.性別(漢字のみ)':'p.gender',
+    'パスポート.国籍（カナ）':'p.nationality',
+    'パスポート.生年月日':'p.birthdate',
+    // 所属機関住所バリアント
+    '所属機関.(所在地)(都道府県)':'co.pref',
+    '所属機関.(所在地)(市区町村)':'co.city',
+    '所属機関.(所在地)(町名丁目番地号等)':'co.address',
     '所属機関.会社名(ひらがな)':'co.nameKana',
     '所属機関.会社名(英語)':'co.nameEn',
     '所属機関.郵便番号':'co.zip',
     '所属機関.住所':'co.fullAddress',
+    '所属機関.住所(都道府県)':'co.pref',
+    '所属機関.住所(市区町村)':'co.city',
+    '所属機関.住所(番地以降)':'co.address',
+    '所属機関.(所在地)(都道府県)':'co.pref',
+    '所属機関.(所在地)(市区町村)':'co.city',
+    '所属機関.(所在地)(町名丁目番地号等)':'co.address',
     '所属機関.電話番号':'co.tel',
     '所属機関.会社住所(英語)':'co.addressEn',
     '所属機関.作成責任者':'co.authorName',
@@ -11446,7 +11758,7 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr){
   var ci=-1;
   TEMPLATE_CATEGORIES.forEach(function(cat,i){if(cat.name===tplGroup)ci=i;});
   if(ci<0){alert('テンプレートカテゴリが見つかりません（'+tplGroup+'）');return;}
-  var tplKey=ci+'_'+0;
+  var tplKey=ci+'_'+_selectedTplIdx;
   var tplData;
   try{tplData=JSON.parse(localStorage.getItem('ofusa_templates')||'{}');}catch(e){tplData={};}
   // TEMPLATE_CATEGORIESのtemplatesが空でも、localStorageに直接データがあるか全キーを検索
@@ -11464,9 +11776,9 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr){
     // Supabase Storageからフォールバック取得
     if(DB_READY){
       showToast('📥 テンプレートをサーバーから取得中...');
-      _sb.from('templates').select('*').eq('group_name',tplGroup).limit(1).then(function(res){
+      _sb.from('templates').select('*').eq('group_name',tplGroup).then(function(res){
         if(res.error||!res.data||!res.data.length){alert('テンプレートファイルが見つかりません。\n📁 書類テンプレからアップロードしてください。');return;}
-        var tplRow=res.data[0];
+        var tplRow=res.data[Math.min(_selectedTplIdx, res.data.length-1)];
         if(!tplRow.storage_path){alert('テンプレートのStorageパスが未設定です。再アップロードしてください。');return;}
         _sb.storage.from('templates').download(tplRow.storage_path).then(function(dlRes){
           if(dlRes.error||!dlRes.data){alert('テンプレートのダウンロードに失敗しました。');return;}
@@ -12259,6 +12571,14 @@ var REQUIRED_DOCS_CO = [
 ];
 // docCheck[caseId][docName] = true/false (宣言は上部で実施済み)
 // caseNotes[caseId] = { text:'', confirm:false, assignee:'', reply:'', replied:false } (宣言は上部で実施済み)
+
+function saveProgressMemo(caseId) {
+  var ta = document.getElementById('progressMemo_' + caseId);
+  if (!ta) return;
+  if (!caseNotes[caseId]) caseNotes[caseId] = { text:'', confirm:false, assignee:'', reply:'', replied:false };
+  caseNotes[caseId].progressMemo = ta.value;
+  persistCaseNotes();
+}
 
 function saveCaseNote(caseId) {
   var ta = document.getElementById('caseNote_' + caseId);
@@ -13529,6 +13849,7 @@ function showTab(tab) {
     var infoPct = activeInfoKeys.length ? Math.round(infoFilled / activeInfoKeys.length * 100) : 100;
     var barCol = infoPct >= 100 ? 'var(--green)' : infoPct >= 60 ? '#f59e0b' : '#ef4444';
     // 質問・回答欄（最上部）
+    var progressMemoVal = (caseNotes[c.id] || {}).progressMemo || '';
     var noteVal     = (caseNotes[c.id] || {}).text     || '';
     var noteConfirmState = (caseNotes[c.id] || {}).confirmState || ((caseNotes[c.id] || {}).confirm ? 1 : 0);
     var noteAssignee= (caseNotes[c.id] || {}).assignee || '';
@@ -13538,7 +13859,11 @@ function showTab(tab) {
     var ncBg=noteConfirmState===1?'#f59e0b':noteConfirmState===2?'var(--green)':'white';
     var ncColor=noteConfirmState>=1?'white':'var(--gray-400)';
     var ncLabel=noteConfirmState===1?'📩 確認依頼':noteConfirmState===2?'✓ 確認済':'👁 確認';
-    h = '<div style="margin-bottom:12px;background:white;border-radius:10px;padding:14px;border:1px solid var(--gray-200);">';
+    h = '<div style="margin-bottom:12px;background:white;border-radius:10px;padding:14px;border:1.5px solid #6366f1;">';
+    h += '<div style="font-size:11px;font-weight:700;color:#6366f1;margin-bottom:8px;">📝 進捗状況</div>';
+    h += '<textarea id="progressMemo_' + c.id + '" oninput="saveProgressMemo(\'' + c.id + '\')" style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;resize:vertical;min-height:70px;font-family:inherit;box-sizing:border-box;" placeholder="現在の進捗・対応状況を自由に記入...">' + esc(progressMemoVal) + '</textarea>';
+    h += '</div>';
+    h += '<div style="margin-bottom:12px;background:white;border-radius:10px;padding:14px;border:1px solid var(--gray-200);">';
     h += '<div style="font-size:11px;font-weight:700;color:var(--gray-400);margin-bottom:8px;">❓ 質問</div>';
     h += '<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:8px;">';
     h += '<textarea id="caseNote_' + c.id + '" onchange="saveCaseNote(\'' + c.id + '\')" style="flex:1;padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;resize:vertical;min-height:60px;font-family:inherit;" placeholder="質問を入力...">' + noteVal + '</textarea>';
@@ -13748,7 +14073,7 @@ function showTab(tab) {
     h += '</div>';
     driveUrls.forEach(function(du,i){
       h += '<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;">';
-      h += '<input type="url" id="pf-'+du.key+'" value="'+(du.val||'')+'" placeholder="https://drive.google.com/drive/folders/..." style="flex:1;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px;font-size:11px;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor=\'var(--blue)\'" onblur="this.style.borderColor=\'var(--gray-200)\';debounceSavePerson(\''+c.id+'\')">';
+      h += '<input type="url" id="pf-'+du.key+'" value="'+(du.val||'')+'" placeholder="https://drive.google.com/drive/folders/..." style="flex:1;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px;font-size:11px;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor=\'var(--blue)\'" onblur="this.style.borderColor=\'var(--gray-200)\'">';
       if(du.val) h += '<a href="'+du.val+'" target="_blank" style="font-size:16px;text-decoration:none;" title="開く">↗️</a>';
       if(i>0) h += '<button onclick="removePersonDriveUrl(\''+c.id+'\',\''+du.key+'\')" style="font-size:10px;padding:2px 6px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;cursor:pointer;">✕</button>';
       h += '</div>';
@@ -13796,7 +14121,7 @@ function showTab(tab) {
           h += '<div id="lineGroupName_' + c.id + '" style="font-size:10px;color:#06b6d4;margin-top:3px;">🔍 グループ名を取得中...</div>';
         }
       } else {
-        h += '<input type="' + (f.type||'text') + '" id="pf-' + f.key + '" value="' + (p[f.key]||'') + '" placeholder="' + f.placeholder + '" onchange="debounceSavePerson(\''+c.id+'\')" onblur="debounceSavePerson(\''+c.id+'\')">';
+        h += '<input type="' + (f.type||'text') + '" id="pf-' + f.key + '" value="' + (p[f.key]||'') + '" placeholder="' + f.placeholder + '">';
       }
       h += '</div>';
       // 在留カード・パスポートの所在セレクタ
@@ -13887,9 +14212,9 @@ function showTab(tab) {
         (f.opts||[]).forEach(function(o){h+='<option value="'+o+'"'+(o===val?' selected':'')+'>'+o+'</option>';});
         h+='</select>';
       }else if(f.type==='date'){
-        h+='<input type="date" id="pf-'+f.key+'" value="'+(val||'')+'" style="width:100%;font-size:12px;padding:4px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;outline:none;" onchange="debounceSavePerson(\''+c.id+'\')">';
+        h+='<input type="date" id="pf-'+f.key+'" value="'+(val||'')+'" style="width:100%;font-size:12px;padding:4px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;outline:none;">';
       }else{
-        h+='<input type="text" id="pf-'+f.key+'" value="'+(val||'')+'" placeholder="'+(f.ph||'')+'" style="width:100%;font-size:12px;padding:4px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;outline:none;" onchange="debounceSavePerson(\''+c.id+'\')" onblur="debounceSavePerson(\''+c.id+'\')">';
+        h+='<input type="text" id="pf-'+f.key+'" value="'+(val||'')+'" placeholder="'+(f.ph||'')+'" style="width:100%;font-size:12px;padding:4px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;outline:none;">';
       }
       h+='</div>';
     });
@@ -14406,8 +14731,8 @@ function renderLineTab(c) {
   h += '<div style="background:white;border:1.5px solid var(--gray-200);border-radius:12px;padding:14px;margin-bottom:10px;">';
   h += '<textarea id="lineQuickMsg_'+c.id+'" rows="3" placeholder="メッセージを入力..." style="width:100%;border:1.5px solid var(--gray-200);border-radius:8px;padding:10px;font-size:13px;resize:vertical;box-sizing:border-box;font-family:inherit;"></textarea>';
   h += '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">';
-  h += '<button onclick="lineQuickSend(\''+c.id+'\')" style="padding:8px 16px;background:#06b6d4;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📤 送信</button>';
-  h += '<button onclick="showLineSendMenu(\''+c.id+'\')" style="padding:8px 16px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📁 Drive書類を送信</button>';
+  h += '<button onclick="lineQuickSend(\''+c.id+'\')" style="padding:8px 16px;background:#06b6d4;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📋 コピー</button>';
+  h += '<button onclick="showLineSendMenu(\''+c.id+'\')" style="padding:8px 16px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📁 Drive書類をコピー</button>';
   h += '<button onclick="openDocTextGenerator(\''+c.id+'\')" style="padding:8px 16px;background:#059669;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📝 テキスト生成</button>';
   h += '</div></div>';
 
@@ -14605,36 +14930,25 @@ function lineQuickSend(caseId) {
   var el = document.getElementById('lineQuickMsg_' + caseId);
   if (!el || !el.value.trim()) { showToast('⚠️ メッセージを入力してください'); return; }
   var msg = el.value.trim();
-  var pd = personData[caseId] || {};
-  var groupId = pd.lineGroupId || LINE_GROUP_ID;
-  if (!groupId || !LINE_CHANNEL_TOKEN) { showToast('⚠️ LINEトークンまたはグループIDが未設定です'); return; }
-  sendLineGroupMessage(msg, function(ok) {
-    // 送信履歴に記録
-    if (!lineSentHistory[caseId]) lineSentHistory[caseId] = [];
-    lineSentHistory[caseId].push({time:Date.now(), msg:msg, type:'text', ok:ok});
-    persistLineSentHistory();
-    if (ok) { el.value = ''; showToast('✅ LINE送信完了'); }
-    else { showToast('❌ LINE送信失敗'); }
-    // タブ再描画
-    var c = cData.find(function(x){return x.id===caseId;});
-    if (c) renderLineTab(c);
-  }, groupId);
+  copyToClipboard(msg);
+  if (!lineSentHistory[caseId]) lineSentHistory[caseId] = [];
+  lineSentHistory[caseId].push({time:Date.now(), msg:msg, type:'text', ok:true});
+  persistLineSentHistory();
+  el.value = '';
+  showToast('📋 クリップボードにコピーしました。LINEに貼り付けて送信してください');
+  var c = cData.find(function(x){return x.id===caseId;});
+  if (c) renderLineTab(c);
 }
 
 function lineTemplateSend(caseId, encodedMsg) {
   var msg = decodeURIComponent(encodedMsg);
-  var pd = personData[caseId] || {};
-  var groupId = pd.lineGroupId || LINE_GROUP_ID;
-  if (!groupId || !LINE_CHANNEL_TOKEN) { showToast('⚠️ LINEトークンまたはグループIDが未設定です'); return; }
-  if (!confirm('以下をLINEに送信しますか？\n\n' + msg)) return;
-  sendLineGroupMessage(msg, function(ok) {
-    if (!lineSentHistory[caseId]) lineSentHistory[caseId] = [];
-    lineSentHistory[caseId].push({time:Date.now(), msg:msg, type:'text', ok:ok});
-    persistLineSentHistory();
-    showToast(ok ? '✅ LINE送信完了' : '❌ LINE送信失敗');
-    var c = cData.find(function(x){return x.id===caseId;});
-    if (c) renderLineTab(c);
-  }, groupId);
+  copyToClipboard(msg);
+  if (!lineSentHistory[caseId]) lineSentHistory[caseId] = [];
+  lineSentHistory[caseId].push({time:Date.now(), msg:msg, type:'text', ok:true});
+  persistLineSentHistory();
+  showToast('📋 クリップボードにコピーしました。LINEに貼り付けて送信してください');
+  var c = cData.find(function(x){return x.id===caseId;});
+  if (c) renderLineTab(c);
 }
 
 // 既存のsendLineGroupMessage成功時にも履歴記録をフック
@@ -15080,7 +15394,13 @@ function executeRename(caseId){
     var ext='';
     var dotIdx=it.file.name.lastIndexOf('.');
     if(dotIdx>=0) ext=it.file.name.substring(dotIdx);
-    var newName=newCat+ext;
+    var baseName=newCat;
+    if((newCat==='在留カード表'||newCat==='在留カード裏')&&caseId){
+      var _cas=cData.find(function(x){return x.id===caseId;});
+      var _rs=_cas&&_cas.residenceStatus;
+      if(_rs) baseName=newCat+'_'+_rs;
+    }
+    var newName=baseName+ext;
     renames.push({fileId:it.file.id, oldName:it.file.name, newName:newName, category:newCat});
   });
   
@@ -15339,8 +15659,8 @@ function showLineSendMenu(caseId) {
 
   var h = '<div style="background:white;border-radius:16px;max-width:420px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);position:relative;">';
   h += '<button onclick="document.getElementById(\'lineSendMenuOverlay\').remove()" style="position:absolute;top:10px;right:14px;background:none;border:none;font-size:20px;cursor:pointer;color:#999;">×</button>';
-  h += '<h3 style="margin:0 0 4px;font-size:16px;">📤 LINE送信</h3>';
-  h += '<p style="font-size:11px;color:#6b7280;margin-bottom:12px;">👤 ' + name + '　→　グループに送信する書類を選択</p>';
+  h += '<h3 style="margin:0 0 4px;font-size:16px;">📋 LINEメッセージ生成</h3>';
+  h += '<p style="font-size:11px;color:#6b7280;margin-bottom:12px;">👤 ' + name + '　→　生成する書類を選択（コピーして手動送信）</p>';
   items.forEach(function(item) {
     h += '<label style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:10px;margin-bottom:6px;cursor:pointer;" onmouseover="this.style.borderColor=\'#06b6d4\'" onmouseout="this.style.borderColor=\'#e2e8f0\'">';
     h += '<input type="checkbox" class="line-send-cb" value="' + item.key + '" style="width:18px;height:18px;accent-color:#06b6d4;">';
@@ -15348,7 +15668,7 @@ function showLineSendMenu(caseId) {
     h += '<div style="font-size:10px;color:#9ca3af;">' + item.desc + '</div></div>';
     h += '</label>';
   });
-  h += '<button onclick="execLineSend(\'' + caseId + '\')" style="width:100%;padding:12px;background:#06b6d4;color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px;">📤 送信する</button>';
+  h += '<button onclick="execLineSend(\'' + caseId + '\')" style="width:100%;padding:12px;background:#06b6d4;color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;margin-top:8px;">📋 テキストを生成してコピー</button>';
   h += '</div>';
   ov.innerHTML = h;
   document.body.appendChild(ov);
@@ -15376,7 +15696,7 @@ function execLineSend(caseId) {
     if (ok) okCount++;
     pending--;
     if (pending <= 0) {
-      showToast('✅ LINE送信完了 (' + okCount + '/' + selected.length + ')');
+      showToast('📋 テキストをコピーしました (' + okCount + '/' + selected.length + '件)。LINEに貼り付けて送信してください');
     }
   }
 
@@ -15423,10 +15743,8 @@ function doSendLineFile(file, name, groupId, label, callback) {
     var fileUrl = pub ? makePublicDriveLink(file.id) : ('https://drive.google.com/file/d/' + file.id + '/view');
     var msg = label + 'を作成いたしましたので、お送りいたします。\n\n👤 ' + name + '\n📎 ' + file.name + '\n🔗 ' + fileUrl;
     if(pub) msg += '\n\n※タップでそのまま閲覧できます（ログイン不要）';
-    sendLineGroupMessage(msg, function(ok) {
-      if (ok) showToast('📤 ' + label + ' 送信完了');
-      callback(ok);
-    }, groupId);
+    showLineCopyModal(label, msg);
+    callback(true);
   });
 }
 
@@ -15462,7 +15780,7 @@ function showLineFilePicker(files, name, groupId, label, callback) {
   var h = '<div style="background:white;border-radius:16px;padding:20px;max-width:500px;width:100%;max-height:80vh;overflow-y:auto;position:relative;">';
   h += '<button onclick="document.getElementById(\'lineFilePickerOverlay\').remove()" style="position:absolute;top:10px;right:14px;background:none;border:none;font-size:20px;cursor:pointer;color:#999;">×</button>';
   h += '<h3 style="margin:0 0 4px;font-size:16px;">📎 ファイル選択</h3>';
-  h += '<p style="font-size:12px;color:#6b7280;margin:0 0 12px;">' + label + ' に該当するファイルが ' + files.length + '件 見つかりました。送信するファイルを選んでください。</p>';
+  h += '<p style="font-size:12px;color:#6b7280;margin:0 0 12px;">' + label + ' に該当するファイルが ' + files.length + '件 見つかりました。コピーするファイルを選んでください。</p>';
 
   files.forEach(function(f, idx) {
     var sizeStr = f.size ? (f.size > 1048576 ? (f.size/1048576).toFixed(1)+'MB' : (f.size/1024).toFixed(0)+'KB') : '';
@@ -15837,16 +16155,8 @@ function saveEditMembers(caseId){
   closeEditMembers();showTab('info');applyFilters();
 }
 
-var _savePersonTimer = {};
-function debounceSavePerson(caseId) {
-  clearTimeout(_savePersonTimer[caseId]);
-  _savePersonTimer[caseId] = setTimeout(function() {
-    savePerson(caseId);
-  }, 800);
-}
-
 function savePerson(caseId) {
-  var keys = ['applicantName','applicantNameEn','residenceCard','passport','passportExpiry','birthdate','birthPlace','residenceStatus','nationality','hireDate','expire','contractStart','contractEnd','entryY','entryM','entryD','tempReturn','salary','address','emergency','occupation','email','age','gender','experience','spouse','driveUrl','driveUrl2','driveUrl3','driveUrl4','driveUrl5','driveUrl6','driveUrl7','driveUrl8','driveUrl9','driveUrl10','lineGroupId','skillEvalType','skillExam1','skillExamLoc1','skillExam2','skillExamLoc2','skillExam3','skillExamLoc3','jpEvalType','jpExam1','jpExamLoc1','jpExam2','jpExamLoc2','jpExam3','jpExamLoc3','gijutsuType','gijutsuWork','gijutsuProof','pastEntry','pastEntryCount','pastEntryFrom','pastEntryTo','pastCOE','pastCOECount','pastCOEDenied','deportation','deportationCount','deportationDate','totalStayYear','totalStayMonth'];
+  var keys = ['applicantName','applicantNameEn','residenceCard','passport','birthdate','residenceStatus','nationality','hireDate','expire','contractStart','contractEnd','entryY','entryM','entryD','tempReturn','salary','address','emergency','driveUrl','driveUrl2','driveUrl3','driveUrl4','driveUrl5','driveUrl6','driveUrl7','driveUrl8','driveUrl9','driveUrl10','lineGroupId','skillEvalType','skillExam1','skillExamLoc1','skillExam2','skillExamLoc2','skillExam3','skillExamLoc3','jpEvalType','jpExam1','jpExamLoc1','jpExam2','jpExamLoc2','jpExam3','jpExamLoc3','gijutsuType','gijutsuWork','gijutsuProof','pastEntry','pastEntryCount','pastEntryFrom','pastEntryTo','pastCOE','pastCOECount','pastCOEDenied','deportation','deportationCount','deportationDate','totalStayYear','totalStayMonth'];
   if (!personData[caseId]) personData[caseId] = {};
   var p = personData[caseId];
   keys.forEach(function(k) {
@@ -15869,17 +16179,7 @@ function savePerson(caseId) {
   }
   personData[caseId] = p;
   try { localStorage.setItem('ofusa_personData', JSON.stringify(personData)); } catch(e) {}
-
-  // applicantNameEn → cases.applicant に同期
-  if (p.applicantNameEn && currentCase && currentCase.id === caseId) {
-    autoSaveInfo('applicant', p.applicantNameEn);
-    // カード上の名前表示も更新
-    var nameEl = document.getElementById('caseDetailName');
-    if (nameEl) nameEl.textContent = p.applicantNameEn;
-  }
-  // Supabaseにも保存
-  persistPersonToDB(caseId, p);
-
+  
   var saved = document.getElementById('personSaved');
   if (saved) { saved.style.display = 'block'; setTimeout(function(){ saved.style.display='none'; }, 2000); }
 }
@@ -18496,61 +18796,37 @@ function findHealthCheckFile(caseId,files,btn,resEl){
       resEl.innerHTML='<div style="color:#dc2626;font-weight:700;">❌ フォルダ内に健康診断票が見つかりませんでした。</div><div style="font-size:11px;color:#6b7280;margin-top:4px;">「健康診断」等のキーワードを含むファイル名にリネームするか、下から選択してください。</div>';
       btn.disabled=false;btn.textContent='チェック実行';return;
     }
-    // ファイル選択UI（複数選択可能）
-    showHCFileSelector(caseId, imgFiles, btn, resEl);
+    // ファイル選択UIを表示
+    var h='<div style="font-weight:700;color:#166534;margin-bottom:8px;">📂 健康診断票を自動検出できませんでした。対象ファイルを選択してください：</div>';
+    imgFiles.forEach(function(f,i){
+      h+='<div onclick="runHCCheckWithFile(\''+caseId+'\',\''+f.id+'\')" style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:6px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:.2s;" onmouseover="this.style.borderColor=\'#16a34a\'" onmouseout="this.style.borderColor=\'#bbf7d0\'">';
+      var icon=f.mimeType&&f.mimeType.indexOf('pdf')>=0?'📄':'🖼️';
+      h+='<span style="font-size:20px;">'+icon+'</span>';
+      h+='<div><div style="font-weight:600;font-size:12px;color:var(--navy);">'+esc(f.name)+'</div>';
+      if(f.mimeType) h+='<div style="font-size:10px;color:#6b7280;">'+f.mimeType+'</div>';
+      h+='</div></div>';
+    });
+    resEl.innerHTML=h;
+    btn.disabled=false;btn.textContent='チェック実行';
     return;
   }
 
-  // 候補が1件のみ → 即チェック、複数 → 選択UI
-  if(candidates.length===1){
-    executeHCFormatCheck(caseId,candidates[0].id,btn,resEl);
-  } else {
-    showHCFileSelector(caseId, candidates, btn, resEl);
-  }
-}
-
-function showHCFileSelector(caseId, files, btn, resEl){
-  var uid='hcSel_'+caseId;
-  var h='<div style="font-weight:700;color:#166534;margin-bottom:8px;">📂 チェックするファイルを選択してください（複数可）：</div>';
-  h+='<div id="'+uid+'">';
-  files.forEach(function(f,i){
-    var icon=f.mimeType&&f.mimeType.indexOf('pdf')>=0?'📄':'🖼️';
-    h+='<label style="display:flex;align-items:center;gap:8px;background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:6px;cursor:pointer;">';
-    h+='<input type="checkbox" value="'+f.id+'" data-name="'+esc(f.name)+'" style="width:16px;height:16px;cursor:pointer;">';
-    h+='<span style="font-size:18px;">'+icon+'</span>';
-    h+='<div><div style="font-weight:600;font-size:12px;color:var(--navy);">'+esc(f.name)+'</div>';
-    if(f.mimeType) h+='<div style="font-size:10px;color:#6b7280;">'+f.mimeType+'</div>';
-    h+='</div></label>';
-  });
-  h+='</div>';
-  h+='<button onclick="runHCCheckMultiple(\''+caseId+'\')" style="margin-top:8px;padding:8px 20px;background:#16a34a;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">✅ 選択したファイルをチェック</button>';
-  resEl.style.display='block';
-  resEl.innerHTML=h;
-  btn.disabled=false;btn.textContent='チェック実行';
-}
-
-function runHCCheckMultiple(caseId){
-  var btn=document.getElementById('hcCheckBtn_'+caseId);
-  var resEl=document.getElementById('hcCheckResult_'+caseId);
-  var checks=resEl.querySelectorAll('input[type=checkbox]:checked');
-  if(!checks.length){alert('ファイルを1つ以上選択してください');return;}
-  var fileIds=[];
-  checks.forEach(function(cb){fileIds.push(cb.value);});
-  btn.disabled=true;btn.textContent='⏳ チェック中...';
-  resEl.innerHTML='<div style="text-align:center;color:#166534;">🔄 '+fileIds.length+'件のファイルをAI分析中...</div>';
-  // 順番にチェック、結果を蓄積
-  var results=[];
-  var done=0;
-  fileIds.forEach(function(fid,idx){
-    executeHCFormatCheckMulti(caseId,fid,function(html){
-      results[idx]=html;
-      done++;
-      if(done>=fileIds.length){
-        resEl.innerHTML=results.join('<hr style="margin:12px 0;border-color:#d1fae5;">');
-        btn.disabled=false;btn.textContent='チェック実行';
-      }
+  // 最初の候補を使用
+  var target=candidates[0];
+  if(candidates.length>1){
+    var h='<div style="font-weight:700;color:#166534;margin-bottom:8px;">📂 複数の健康診断票候補が見つかりました。チェック対象を選択してください：</div>';
+    candidates.forEach(function(f){
+      h+='<div onclick="runHCCheckWithFile(\''+caseId+'\',\''+f.id+'\')" style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin-bottom:6px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:.2s;" onmouseover="this.style.borderColor=\'#16a34a\'" onmouseout="this.style.borderColor=\'#bbf7d0\'">';
+      var icon=f.mimeType&&f.mimeType.indexOf('pdf')>=0?'📄':'🖼️';
+      h+='<span style="font-size:20px;">'+icon+'</span>';
+      h+='<div><div style="font-weight:600;font-size:12px;color:var(--navy);">'+esc(f.name)+'</div></div></div>';
     });
-  });
+    resEl.innerHTML=h;
+    btn.disabled=false;btn.textContent='チェック実行';
+    return;
+  }
+
+  executeHCFormatCheck(caseId,target.id,btn,resEl);
 }
 
 function runHCCheckWithFile(caseId,fileId){
@@ -18562,57 +18838,12 @@ function runHCCheckWithFile(caseId,fileId){
   executeHCFormatCheck(caseId,fileId,btn,resEl);
 }
 
-function executeHCFormatCheckMulti(caseId,fileId,callback){
-  var driveGasUrl=GAS_MAILBOX_URL||GAS_URL;
-  jsonpPost(driveGasUrl,'getDriveFileBase64',{fileId:fileId},function(res){
-    if(!res||res.status!=='ok'||!res.base64){
-      callback('<div style="color:#f59e0b;font-weight:700;">⚠️ ファイル取得失敗: '+fileId+'</div>');
-      return;
-    }
-    var b64=res.base64;
-    var mimeType=res.mimeType||'image/jpeg';
-    callHCFormatAIMulti(caseId,b64,mimeType,res.name||fileId,callback);
-  });
-}
-
-function callHCFormatAIMulti(caseId,b64Data,mimeType,fileName,callback){
-  var apiKey=getApiKey();
-  if(!apiKey){callback('<div style="color:#dc2626;">❌ APIキー未設定</div>');return;}
-  var pd=personData[caseId]||{};
-  var systemPrompt='あなたは入国管理局の書類審査の専門家です。健康診断書（健康診断個人票）のフォーマットチェックを行います。\n\n【入管指定フォーマットの必須要件】\n■基本情報欄\n1. タイトル「健康診断個人票」の文言\n2. 氏名・生年月日・性別・年齢・検診年月日の記載欄\n3. 業務歴の記載欄\n4. 既往歴・自覚症状・他覚症状の記載欄\n\n■検査項目（以下が全て含まれていること）\n5. 血圧（最高・最低 mmHg）\n6. 貧血検査：血色素量（g/dℓ）・赤血球数（万/mm³）\n7. 肝機能検査：GOT（AST）・GPT（ALT）・γ-GTP（IU/ℓ）\n8. 血中脂質検査：LDLコレステロール・HDLコレステロール・トリグリセライド（mg/dℓ）\n9. 血糖検査（mg/dℓ）\n10. 尿検査：糖・蛋白\n11. 身長（cm）・体重（kg）・BMI・腹囲（cm）\n12. 視力：右・左（矯正有無を区別）\n13. 聴力：右・左（1,000Hz・4,000Hz、所見あり/なし）\n14. 胸部エックス線検査（直接/間接、撮影年月日、フィルム番号、所見欄）\n15. 心電図検査\n16. その他の検査欄\n\n■医師・申請人署名欄\n17. 医師の診断欄（異常なし/要精密検査/要診療等）\n18. 医師の署名・作成年月日欄\n19. 受診者の申告書（通院歴・入院歴・手術歴・投薬歴を申告した旨）・申請人の署名欄\n\n【判定基準】\n- ✅ OK: 入管指定フォーマットに準拠\n- ⚠️ 要確認: 一部項目が欠けているか若干異なる\n- ❌ NG: 入管指定フォーマットと明らかに異なる（一般企業健診・人間ドック等）\n\n日本語で回答。以下のJSON形式で返す：\n{"result":"OK"または"WARN"または"NG","summary":"判定の概要","details":[{"item":"チェック項目","status":"OK"または"WARN"または"NG","note":"詳細"}],"advice":"総合アドバイス"}';
-  var userContent=[];
-  var mediaType=mimeType;
-  if(mediaType.indexOf('pdf')>=0) mediaType='application/pdf';
-  else if(mediaType.indexOf('png')>=0) mediaType='image/png';
-  else mediaType='image/jpeg';
-  if(mediaType==='application/pdf'){
-    userContent.push({type:'document',source:{type:'base64',media_type:'application/pdf',data:b64Data}});
-  } else {
-    userContent.push({type:'image',source:{type:'base64',media_type:mediaType,data:b64Data}});
-  }
-  userContent.push({type:'text',text:'この健康診断書が入管指定フォーマット（健康診断個人票）に準拠しているかチェックしてください。\nファイル名: '+fileName+'\n対象者: '+(pd.applicantName||'')});
-  fetch('https://api.anthropic.com/v1/messages',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2000,system:systemPrompt,messages:[{role:'user',content:userContent}]})
-  }).then(function(r){return r.json();}).then(function(data){
-    var text=(data.content||[]).map(function(c){return c.text||'';}).join('');
-    // displayHCCheckResultをHTML文字列として返す
-    var tmpDiv=document.createElement('div');
-    displayHCCheckResult(tmpDiv,{disabled:false,textContent:''},text);
-    var html='<div style="font-weight:700;font-size:11px;color:#374151;margin-bottom:6px;">📄 '+esc(fileName)+'</div>'+tmpDiv.innerHTML;
-    callback(html);
-  }).catch(function(e){
-    callback('<div style="color:#dc2626;">❌ AIエラー: '+e.toString()+'</div>');
-  });
-}
-
 function executeHCFormatCheck(caseId,fileId,btn,resEl){
   resEl.innerHTML='<div style="text-align:center;color:#166534;">🔄 ファイルを取得してAI分析中...</div>';
 
   // GASでファイルのBase64を取得
   var driveGasUrl=GAS_MAILBOX_URL||GAS_URL;
-  jsonpPost(driveGasUrl,'getDriveFileBase64',{fileId:fileId},function(res){
+  jsonpPost(driveGasUrl,'getFileBase64',{fileId:fileId},function(res){
     if(!res||res.status!=='ok'||!res.base64){
       // GASにgetFileBase64がない場合はサムネイル/URLで代替
       resEl.innerHTML='<div style="color:#f59e0b;font-weight:700;">⚠️ ファイル取得にGAS「getFileBase64」関数が必要です。</div><div style="font-size:11px;color:#6b7280;margin-top:6px;">GASに以下の関数を追加してください：<br><code style="background:#f3f4f6;padding:2px 6px;border-radius:4px;">getFileBase64(fileId)</code> → ファイルをBase64で返す</div><div style="margin-top:10px;"><button onclick="executeHCFormatCheckDirect(\''+caseId+'\',\''+fileId+'\')" style="padding:8px 16px;background:#16a34a;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📝 テキスト情報のみでチェック</button></div>';
@@ -18644,37 +18875,31 @@ function callHCFormatAI(caseId,b64Data,mimeType,btn,resEl){
 
   var pd=personData[caseId]||{};
 
-  var systemPrompt='あなたは入国管理局の書類審査の専門家です。健康診断書（健康診断個人票）のフォーマットチェックを行います。\n\n'+
-    '【入管指定フォーマット（健康診断個人票）の必須要件】\n'+
-    '■ 基本情報欄\n'+
-    '1. タイトル「健康診断個人票」の文言\n'+
-    '2. 氏名・生年月日・性別・年齢・検診年月日の記載欄\n'+
-    '3. 業務歴の記載欄\n'+
-    '4. 既往歴・自覚症状・他覚症状の記載欄\n'+
-    '\n'+
-    '■ 検査項目（以下が全て含まれていること）\n'+
-    '5. 血圧（最高・最低 mmHg）\n'+
-    '6. 貧血検査：血色素量（g/dℓ）・赤血球数（万/mm³）\n'+
-    '7. 肝機能検査：GOT（AST）・GPT（ALT）・γ-GTP（IU/ℓ）\n'+
-    '8. 血中脂質検査：LDLコレステロール・HDLコレステロール・トリグリセライド（mg/dℓ）\n'+
-    '9. 血糖検査（mg/dℓ）\n'+
-    '10. 尿検査：糖・蛋白\n'+
-    '11. 身長（cm）・体重（kg）・BMI・腹囲（cm）\n'+
-    '12. 視力：右・左（矯正有無を区別）\n'+
-    '13. 聴力：右・左（1,000Hz・4,000Hz、所見あり/なし）\n'+
-    '14. 胸部エックス線検査（直接/間接、撮影年月日、フィルム番号、所見欄）\n'+
-    '15. 心電図検査\n'+
-    '16. その他の検査欄\n'+
-    '\n'+
-    '■ 医師・申請人署名欄\n'+
-    '17. 医師の診断欄（異常なし/要精密検査/要診療等）\n'+
-    '18. 医師の署名・作成年月日欄\n'+
-    '19. 受診者の申告書（通院歴・入院歴・手術歴・投薬歴を申告した旨）・申請人の署名欄\n'+
-    '\n'+
+  var systemPrompt='あなたは入国管理局の書類審査の専門家です。健康診断書（健康診断票）のフォーマットチェックを行います。\n\n'+
+    '【入管指定の健康診断書フォーマットの必須要件】\n'+
+    '1. タイトルに「健康診断個人票」という文言があること\n'+
+    '2. 以下の検査項目が全て含まれていること：\n'+
+    '   - 身長・体重\n'+
+    '   - 視力（左右）\n'+
+    '   - 聴力\n'+
+    '   - 血圧（最高・最低）\n'+
+    '   - 胸部X線検査\n'+
+    '   - 血色素量（ヘモグロビン）\n'+
+    '   - 赤血球数\n'+
+    '   - GOT（AST）\n'+
+    '   - GPT（ALT）\n'+
+    '   - γ-GTP\n'+
+    '   - 血糖検査\n'+
+    '   - 尿検査（糖・蛋白）\n'+
+    '   - 心電図検査\n'+
+    '3. 医師の氏名・捺印欄があること\n'+
+    '4. 医療機関名・所在地の記載欄があること\n'+
+    '5. 受診日の記載欄があること\n'+
+    '6. 受診者の氏名・生年月日・性別の記載欄があること\n\n'+
     '【判定基準】\n'+
-    '- ✅ OK: 入管指定フォーマットに準拠\n'+
-    '- ⚠️ 要確認: 一部項目が欠けているか若干異なる（確認が必要）\n'+
-    '- ❌ NG: 入管指定フォーマットと明らかに異なる（一般企業健診・人間ドック等）\n\n'+
+    '- ✅ OK: 入管指定フォーマットと一致（または十分に準拠）\n'+
+    '- ⚠️ 要確認: 一部の項目が欠けているか、フォーマットが若干異なる\n'+
+    '- ❌ NG: 入管指定フォーマットと明らかに異なる（一般的な企業健診結果、人間ドック結果等）\n\n'+
     '日本語で回答してください。以下のJSON形式で返してください：\n'+
     '{"result":"OK"または"WARN"または"NG","summary":"判定の概要","details":[{"item":"チェック項目","status":"OK"または"WARN"または"NG","note":"詳細"}],"advice":"総合アドバイス"}';
 
@@ -18840,7 +19065,7 @@ function executeFacePhotoProcess(caseId,fileId,fileName,btn,resEl){
   resEl.innerHTML='<div style="text-align:center;color:#5b21b6;">🔄 画像を取得しています... ('+esc(fileName)+')</div>';
 
   var driveGasUrl=GAS_MAILBOX_URL||GAS_URL;
-  jsonpPost(driveGasUrl,'getDriveFileBase64',{fileId:fileId},function(res){
+  jsonpPost(driveGasUrl,'getFileBase64',{fileId:fileId},function(res){
     if(!res||res.status!=='ok'||!res.base64){
       resEl.innerHTML='<div style="color:#f59e0b;font-weight:700;">⚠️ 画像取得にGAS「getFileBase64」関数が必要です。</div>';
       btn.disabled=false;btn.textContent='加工実行';return;
@@ -19217,12 +19442,12 @@ function fetchAndCompareIncomeDocs(caseId,kazeiFileId,gensenFileId,kazeiName,gen
   }
 
   // 課税証明書を取得
-  jsonpPost(driveGasUrl,'getDriveFileBase64',{fileId:kazeiFileId},function(res){
+  jsonpPost(driveGasUrl,'getFileBase64',{fileId:kazeiFileId},function(res){
     if(res&&res.status==='ok'&&res.base64) results.kazei={b64:res.base64,mime:res.mimeType||'image/jpeg'};
     onDone();
   });
   // 源泉徴収票を取得
-  jsonpPost(driveGasUrl,'getDriveFileBase64',{fileId:gensenFileId},function(res){
+  jsonpPost(driveGasUrl,'getFileBase64',{fileId:gensenFileId},function(res){
     if(res&&res.status==='ok'&&res.base64) results.gensen={b64:res.base64,mime:res.mimeType||'image/jpeg'};
     onDone();
   });
@@ -19243,28 +19468,29 @@ function callIncomeCompareAI(caseId,kazeiData,gensenData,kazeiName,gensenName,bt
   var pd=personData[caseId]||{};
   var systemPrompt='あなたは入国管理局への申請書類を審査する専門家です。\n'+
     '課税証明書（所得・課税証明書）と源泉徴収票の金額を照合し、不一致がないかチェックしてください。\n\n'+
-    '【最重要照合ポイント】\n'+
-    '★ 源泉徴収票の「支払金額」と課税証明書の「給与収入」が一致しているか\n'+
-    '  → これが最も重要な照合項目です。必ず両書類から金額を読み取り、具体的な数値で比較してください。\n'+
-    '  → 一致していればOK、不一致であれば必ず差額と考えられる理由を明記してください。\n\n'+
-    '【その他の照合ポイント】\n'+
-    '1. 年度・対象期間が同じか\n'+
-    '2. 氏名が一致しているか\n'+
-    '3. 勤務先名の一致\n'+
-    '4. 源泉徴収税額と課税証明書の所得税額の整合性\n\n'+
-    '【注意点】\n'+
-    '- 転職している場合は複数の源泉徴収票の「支払金額」の合計と課税証明書の「給与収入」が一致する\n'+
-    '- 副業等がある場合、課税証明書の総所得は多くなるが「給与収入」欄は源泉徴収票の「支払金額」と一致するはず\n\n'+
-    '金額が不一致の場合は必ず以下を明示：\n'+
-    '- 読み取った具体的な金額（例：源泉徴収票 支払金額 3,240,000円 / 課税証明書 給与収入 3,240,000円）\n'+
-    '- どちらが高いか・差額はいくらか\n'+
-    '- 差額が生じる理由として考えられること\n\n'+
+    '【照合ポイント】\n'+
+    '1. 給与収入額（源泉徴収票の「支払金額」と課税証明書の「給与収入」が一致するか）\n'+
+    '2. 所得控除額の整合性\n'+
+    '3. 源泉徴収税額と課税証明書の所得税額\n'+
+    '4. 年度・対象期間が同じか\n'+
+    '5. 氏名・住所が一致しているか\n'+
+    '6. 勤務先名の一致\n\n'+
+    '【重要な注意点】\n'+
+    '- 課税証明書は市区町村が発行するもので、前年の所得に基づく\n'+
+    '- 源泉徴収票は勤務先が発行する\n'+
+    '- 転職している場合は複数の源泉徴収票の合算と課税証明書が一致する\n'+
+    '- 副業・その他収入がある場合、課税証明書の所得が源泉徴収票より多いのは正常\n\n'+
+    '【金額比較について - 重要】\n'+
+    '金額が不一致の場合、必ず以下を明示してください：\n'+
+    '- どちらの書類の金額が高いか（「課税証明書が高い」or「源泉徴収票が高い」）\n'+
+    '- 差額はいくらか（具体的な金額）\n'+
+    '- その差額が生じる理由として考えられること\n\n'+
     '日本語で回答してください。以下のJSON形式で返してください：\n'+
     '{"result":"OK"または"WARN"または"NG",'+
-    '"kazeiInfo":{"year":"対象年度","income":"給与収入額（数値）","taxableIncome":"課税所得額","tax":"税額","employer":"勤務先"},'+
-    '"gensenInfo":{"year":"対象年度","payment":"支払金額（数値）","withheld":"源泉徴収税額","employer":"勤務先"},'+
+    '"kazeiInfo":{"year":"対象年度","income":"給与収入額","taxableIncome":"課税所得額","tax":"税額","employer":"勤務先"},'+
+    '"gensenInfo":{"year":"対象年度","payment":"支払金額","withheld":"源泉徴収税額","employer":"勤務先"},'+
     '"comparisons":[{"item":"比較項目","kazeiValue":"課税証明書の値","gensenValue":"源泉徴収票の値","diff":"差額（例: +150,000円）","higher":"課税証明書が高い または 源泉徴収票が高い または 一致","status":"OK"または"WARN"または"NG","note":"備考（差額の理由等）"}],'+
-    '"summary":"判定概要（源泉徴収票の支払金額と課税証明書の給与収入の一致/不一致を必ず明記）","advice":"アドバイス"}';
+    '"summary":"判定概要（どちらがいくら高いか必ず明記）","advice":"アドバイス"}';
 
   var userContent=[];
 
@@ -21123,27 +21349,12 @@ function loadAllFromSupabase() {
     if (rows.length) {
       rows.forEach(function(r) {
         var p = {}; var mapping = {
-          applicant_name_en:'applicantNameEn', residence_card:'residenceCard',
-          passport:'passport', passport_expiry:'passportExpiry', birthdate:'birthdate',
-          birth_place:'birthPlace', nationality:'nationality', nationality_code:'nationalityCode',
-          gender:'gender', spouse:'spouse', occupation:'occupation',
-          address:'address', tel_num:'telNum', phone:'phone', cel_phone:'celPhone', email:'email',
-          notification_email:'notificationEmail', residence_status:'residenceStatus',
-          expire:'expire', entry_date:'entryDate', arrival_port:'arrivalPort',
-          stay_years:'stayYears', stay_months:'stayMonths', visa_place:'visaPlace',
-          contract_start:'contractStart', contract_end:'contractEnd',
-          hire_date:'hireDate', salary:'salary', emergency:'emergency',
-          temp_return:'tempReturn', line_group_id:'lineGroupId',
-          skill_eval_type:'skillEvalType', skill_exam_1:'skillExam1',
-          skill_exam_loc_1:'skillExamLoc1', jp_eval_type:'jpEvalType',
-          jp_exam_1:'jpExam1', jp_exam_loc_1:'jpExamLoc1',
-          gijutsu_type:'gijutsuType', gijutsu_work:'gijutsuWork', gijutsu_proof:'gijutsuProof',
-          past_entry:'pastEntry', past_entry_count:'pastEntryCount',
-          deportation:'deportation', deportation_count:'deportationCount',
-          total_stay_year:'totalStayYear', total_stay_month:'totalStayMonth'
+          applicant_name_en:'applicantNameEn',expire:'expire',temp_return:'tempReturn',
+          residence_card:'residenceCard',passport:'passport',passport_expiry:'passportExpiry',
+          birthdate:'birthdate',gender:'gender',nationality:'nationality',nationality_code:'nationalityCode',
+          address:'address',phone:'phone',email:'email'
         };
         Object.keys(mapping).forEach(function(k){ if(r[k]!==null&&r[k]!==undefined) p[mapping[k]]=r[k]; });
-        if(r.extra && typeof r.extra === 'object') Object.assign(p, r.extra);
         if(r.extra_data && typeof r.extra_data === 'object') Object.assign(p, r.extra_data);
         personData[r.case_id] = Object.assign(personData[r.case_id]||{}, p);
       });
