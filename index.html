@@ -22139,7 +22139,16 @@ function loadAllFromSupabase() {
       syncTemplateCategoriesWithGroups();
       // 削除済みブラックリスト読み込み
       var deletedList=[];
-      try{deletedList=JSON.parse(localStorage.getItem('ofusa_tplDeleted')||'[]');}catch(e){}
+      try{
+        deletedList=JSON.parse(localStorage.getItem('ofusa_tplDeleted')||'[]');
+        // tsのない古いエントリをクリーンアップ（再登録を誤削除しないよう）
+        var cleanedDl=deletedList.filter(function(d){ return !!d.ts; });
+        if(cleanedDl.length !== deletedList.length){
+          deletedList=cleanedDl;
+          localStorage.setItem('ofusa_tplDeleted',JSON.stringify(cleanedDl));
+          console.log('🧹 ブラックリスト古エントリ除去済み');
+        }
+      }catch(e){}
       res.data.forEach(function(row) {
         // 削除済みリストに該当するものはスキップ＆DBからも再削除
         // ただし、DBのcreated_atが削除時刻より新しい場合は再登録とみなしてスキップしない
@@ -22155,7 +22164,9 @@ function loadAllFromSupabase() {
             isDeleted = createdTs < delTs + 1000;
             if(!isDeleted) console.log('♻️ 再登録検出（削除後に再アップ）:', row.name||row.filename);
           } else {
-            isDeleted=true;
+            // tsがない古いエントリは安全のため削除しない（再登録を優先）
+            isDeleted=false;
+            console.log('⚠️ ブラックリストにts無し、削除スキップ:', row.name||row.filename);
           }
         }
         if(isDeleted){
