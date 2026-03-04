@@ -4876,11 +4876,58 @@ function showDocxMappingInfo(ci, ti) {
       });
     } catch(e) { renderDocxMapUI([]); }
   } else {
-    // Storageから取得
-    area.innerHTML = '<div style="padding:16px;text-align:center;color:#9ca3af;font-size:12px;">読み込み中...</div>';
-    area.style.display = 'block';
-    reScanTpl(ci, ti);
-    setTimeout(function() { area.style.display = 'none'; }, 500);
+    // localStorageにデータなし → Supabase DBからstorage_pathを取得してダウンロード
+    area.innerHTML = '<div style="padding:16px;text-align:center;color:#9ca3af;font-size:12px;">📥 読み込み中...</div>';
+
+    function extractAndRender(ab) {
+      JSZip.loadAsync(new Uint8Array(ab)).then(function(zip) {
+        return zip.file('word/document.xml').async('string').then(function(xml) {
+          var tNodes = [], tRe = /<w:t(?=[\s\/\>])[^>]*>([\s\S]*?)<\/w:t>|<w:t\/>/g, tm;
+          while ((tm = tRe.exec(xml)) !== null) tNodes.push(tm[1] || '');
+          var concat = tNodes.join('');
+          var phRe = /\{\{([^{}
+]+?)\}\}/g, found = {}, pm;
+          while ((pm = phRe.exec(concat)) !== null) { var kk = pm[1].trim(); if (kk) found[kk] = true; }
+          renderDocxMapUI(Object.keys(found));
+        });
+      }).catch(function() { renderDocxMapUI([]); });
+    }
+
+    function tryPaths(paths, idx) {
+      if (idx >= paths.length) { renderDocxMapUI([]); return; }
+      _sb.storage.from('templates').download(paths[idx]).then(function(res) {
+        if (res.error || !res.data) { tryPaths(paths, idx + 1); return; }
+        res.data.arrayBuffer().then(function(ab) { extractAndRender(ab); });
+      }).catch(function() { tryPaths(paths, idx + 1); });
+    }
+
+    if (!DB_READY) { renderDocxMapUI([]); return; }
+
+    // DBからファイル名でstorage_pathを検索
+    _sb.from('templates').select('storage_path').eq('group_name', cat.name).then(function(res) {
+      var paths = [];
+      if (res.data && res.data.length) {
+        // filenameが一致するものを優先
+        var matched = res.data.filter(function(r) { return r.storage_path && r.storage_path.indexOf(tpl.filename || tpl.name) >= 0; });
+        var rows = matched.length ? matched : res.data;
+        rows.forEach(function(r) {
+          if (r.storage_path) {
+            paths.push(r.storage_path);
+            var s = sanitizeStoragePath(r.storage_path);
+            if (s !== r.storage_path) paths.push(s);
+          }
+        });
+      }
+      // tpl.storagePathも候補に
+      if (tpl.storagePath) {
+        paths.push(tpl.storagePath);
+        paths.push(sanitizeStoragePath(tpl.storagePath));
+      }
+      // 重複除去
+      paths = paths.filter(function(p, i) { return p && paths.indexOf(p) === i; });
+      if (!paths.length) { renderDocxMapUI([]); return; }
+      tryPaths(paths, 0);
+    }).catch(function() { renderDocxMapUI([]); });
   }
 }
 
