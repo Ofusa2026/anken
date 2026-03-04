@@ -3391,11 +3391,17 @@ function restoreTemplatesFromStorage(){
     Object.keys(tplData).forEach(function(k){
       var entry=tplData[k]; if(!entry||!entry.data) return;
       var parts=k.split('_'); var ci=parseInt(parts[0]); var ti=parseInt(parts[1]);
-      if(isNaN(ci)||ci<0||ci>=TEMPLATE_CATEGORIES.length) return;
-      var cat=TEMPLATE_CATEGORIES[ci];
-      // 同じインデックスにまだ登録されていなければ復元
-      var alreadyExists=false;
-      cat.templates.forEach(function(t){if(t.filename===entry.name)alreadyExists=true;});
+      // groupフィールドがあればそちらでカテゴリを特定（ciはリロード後に変わりうるため）
+      var cat=null;
+      if(entry.group){
+        TEMPLATE_CATEGORIES.forEach(function(c){ if(c.name===entry.group) cat=c; });
+      }
+      if(!cat){
+        if(isNaN(ci)||ci<0||ci>=TEMPLATE_CATEGORIES.length) return;
+        cat=TEMPLATE_CATEGORIES[ci];
+      }
+      // 同じファイル名がなければ復元
+      var alreadyExists=cat.templates.some(function(t){ return t.filename===entry.name; });
       if(!alreadyExists){
         cat.templates.push({name:entry.name||('テンプレート'+(ti+1)),lang:entry.lang||'',filename:entry.name||'',status:'登録済',uploadDate:'',uploadTime:'',group:entry.group||cat.name});
       }
@@ -6186,16 +6192,23 @@ function quickUploadTpl(ci, inp) {
     TEMPLATE_CATEGORIES[ci].templates.push({name:name, lang:'', filename:file.name, status:'登録済', uploadDate:ds, uploadTime:ts, storagePath:storagePath});
     try {
       var tplData = JSON.parse(localStorage.getItem('ofusa_templates') || '{}');
-      tplData[ci+'_'+ti] = {name:file.name, data:base64};
+      tplData[ci+'_'+ti] = {name:file.name, data:base64, group:grpName, lang:''};
       localStorage.setItem('ofusa_templates', JSON.stringify(tplData));
-    } catch(ex) {}
+    } catch(ex) { console.warn('quickUploadTpl localStorage保存失敗（容量超過？）:', ex); }
     // Supabase Storage + DB
     if(DB_READY){
       var rawBase64=base64.indexOf(',')>=0?base64.split(',')[1]:base64;
       storageUploadBase64('templates',storagePath,rawBase64,file.type||'application/octet-stream',function(res,err){
-        if(err)console.error('quickTpl storage err:',err);
+        if(err){ console.error('quickTpl storage err:',err); showToast('⚠️ Storage保存失敗: '+JSON.stringify(err)); }
+        else { console.log('✅ Storage保存成功:', storagePath); }
       });
-      _sb.from('templates').insert({group_name:grpName,name:name,filename:file.name,lang:'',storage_path:storagePath,uploaded_by:currentUser||''}).then(function(r){if(r.error)console.error('quickTpl DB err:',r.error);});
+      _sb.from('templates').insert({group_name:grpName,name:name,filename:file.name,lang:'',storage_path:storagePath,uploaded_by:currentUser||''}).then(function(r){
+        if(r.error){ console.error('quickTpl DB err:',r.error); showToast('⚠️ DB登録失敗: '+r.error.message); }
+        else { console.log('✅ DB登録成功:', grpName, name); }
+      });
+    } else {
+      console.warn('⚠️ DB_READY=false のためlocalStorageのみ保存。リロード後に消える可能性があります。');
+      showToast('⚠️ DBに未接続のため、リロードするとテンプレートが消える場合があります');
     }
     // docxの場合は自動でプレースホルダースキャン
     if(file.name.match(/\.docx$/i)){
