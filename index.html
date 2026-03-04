@@ -6204,7 +6204,17 @@ function quickUploadTpl(ci, inp) {
       });
       _sb.from('templates').insert({group_name:grpName,name:name,filename:file.name,lang:'',storage_path:storagePath,uploaded_by:currentUser||''}).then(function(r){
         if(r.error){ console.error('quickTpl DB err:',r.error); showToast('⚠️ DB登録失敗: '+r.error.message); }
-        else { console.log('✅ DB登録成功:', grpName, name); }
+        else {
+          console.log('✅ DB登録成功:', grpName, name);
+          // 削除ブラックリストから該当エントリを除去（再登録時にリロードで消されないように）
+          try{
+            var _dl=JSON.parse(localStorage.getItem('ofusa_tplDeleted')||'[]');
+            var _fn=file.name;
+            _dl=_dl.filter(function(d){ return !(d.group===grpName && (d.name===name||d.name===_fn||d.filename===_fn||d.filename===name)); });
+            localStorage.setItem('ofusa_tplDeleted',JSON.stringify(_dl));
+            console.log('🗑️ ブラックリスト除去完了:', grpName, name);
+          }catch(e){}
+        }
       });
     } else {
       console.warn('⚠️ DB_READY=false のためlocalStorageのみ保存。リロード後に消える可能性があります。');
@@ -22132,9 +22142,22 @@ function loadAllFromSupabase() {
       try{deletedList=JSON.parse(localStorage.getItem('ofusa_tplDeleted')||'[]');}catch(e){}
       res.data.forEach(function(row) {
         // 削除済みリストに該当するものはスキップ＆DBからも再削除
-        var isDeleted=deletedList.some(function(d){
+        // ただし、DBのcreated_atが削除時刻より新しい場合は再登録とみなしてスキップしない
+        var matchedDel=deletedList.find(function(d){
           return d.group===row.group_name && (d.name===row.name || d.name===row.filename || d.filename===row.filename || d.filename===row.name);
         });
+        var isDeleted=false;
+        if(matchedDel){
+          if(matchedDel.ts && row.created_at){
+            var delTs=matchedDel.ts;
+            var createdTs=new Date(row.created_at).getTime();
+            // DBのcreated_atが削除時刻より1秒以上新しければ再登録とみなす
+            isDeleted = createdTs < delTs + 1000;
+            if(!isDeleted) console.log('♻️ 再登録検出（削除後に再アップ）:', row.name||row.filename);
+          } else {
+            isDeleted=true;
+          }
+        }
         if(isDeleted){
           // DBに残っているゴミを掃除（storage_pathで特定して確実に削除）
           if(row.storage_path){
