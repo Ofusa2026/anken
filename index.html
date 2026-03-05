@@ -425,6 +425,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="nav-item" id="nav-records" onclick="openRecords()">🗂️ 申請記録</div>
   <div class="nav-item" id="nav-shinsaList" onclick="openShinsaList()">✅ 審査完了</div>
   <div class="nav-item" id="nav-certList" onclick="openCertList()">📄 認定証明書</div>
+  <div class="nav-item" id="nav-intake" onclick="showIntake()" style="position:relative;">📥 受信トレイ<span id="intakeBadge" style="display:none;position:absolute;right:12px;top:50%;transform:translateY(-50%);background:#dc2626;color:white;border-radius:99px;font-size:9px;padding:1px 6px;font-weight:700;"></span></div>
   <div class="sidebar-section">マスタ</div>
   <div class="nav-item" id="nav-support" onclick="openSupport()">🏢 登録支援機関</div>
   <div class="nav-item" id="nav-company" onclick="openCompany()">🏭 所属機関</div>
@@ -456,6 +457,28 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     </div>
   </div>
   <div id="myTaskBoard" style="flex:1;display:flex;gap:16px;overflow-x:auto;padding:20px 24px;align-items:flex-start;background:#f8fafc;border-radius:12px;margin:0 8px 8px;"></div>
+</div>
+
+<div id="intakeScreen" class="main-panel" style="display:none;flex-direction:column;height:100%;">
+  <div class="topbar">
+    <span class="page-title">📥 受信トレイ</span>
+    <div class="topbar-actions">
+      <button class="btn btn-outline" onclick="fetchIntakeNow()" style="background:#f0fdf4;color:#16a34a;border-color:#bbf7d0;">🔄 今すぐ取込</button>
+      <button class="btn btn-outline" onclick="openAgencyMaster()">🏢 機関マスタ</button>
+    </div>
+  </div>
+  <div style="padding:12px 16px;border-bottom:1px solid var(--gray-200);display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+    <select id="intakeFilterStatus" onchange="renderIntakeList()" style="padding:6px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:12px;">
+      <option value="pending">未確認</option>
+      <option value="hold">保留</option>
+      <option value="all">すべて</option>
+    </select>
+    <select id="intakeFilterAgency" onchange="renderIntakeList()" style="padding:6px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:12px;">
+      <option value="">機関：すべて</option>
+    </select>
+    <input id="intakeFilterText" type="text" placeholder="人材名・企業名で検索" oninput="renderIntakeList()" style="flex:1;min-width:120px;padding:6px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:12px;">
+  </div>
+  <div id="intakeList" class="table-section" style="flex:1;overflow-y:auto;padding:12px 16px;"></div>
 </div>
 
 <div id="casesScreen" class="main-panel" style="display:flex;flex-direction:column;height:100%;">
@@ -1064,6 +1087,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 <nav class="bottom-nav">
   <button class="bnav-item" id="bnav-gmail" onclick="openGmail()"><span class="bnav-icon">📧</span>Gmail取込</button>
   <button class="bnav-item active" id="bnav-cases" onclick="showCases()"><span class="bnav-icon">📋</span>案件一覧</button>
+  <button class="bnav-item" id="bnav-intake" onclick="showIntake()" style="position:relative;"><span class="bnav-icon">📥</span>受信トレイ<span id="intakeBadge" style="display:none;position:absolute;top:4px;right:8px;background:#dc2626;color:white;border-radius:99px;font-size:9px;padding:1px 5px;font-weight:700;"></span></button>
   <button class="bnav-item" id="bnav-mytasks" onclick="openMyTasks()"><span class="bnav-icon">✏️</span>個人タスク</button>
   <button class="bnav-item" id="bnav-docs" onclick="openDocs()"><span class="bnav-icon">📝</span>タスク一覧</button>
   <button class="bnav-item" onclick="openMore()"><span class="bnav-icon">⋯</span>もっと見る</button>
@@ -1813,7 +1837,7 @@ function dbRowToCase(r) {
     nationality: r.nationality||'', org: r.org||'', company: r.company||'',
     appType: r.app_type||'', residenceStatus: r.residence_status||'',
     currentStatus: r.current_status||'', team: r.team||'', staff: r.staff||'',
-    toritsugisha: r.toritsugisha||'', expire: r.expire||'',
+    toritsugisha: r.toritsugisha||'', introFee: r.intro_fee||'', otherSupportNote: r.other_support_note||'', expire: r.expire||'',
     status: r.status||'未着手', empSetIdx: r.emp_set_idx||'',
     supportFee: r.support_fee||'', applicantField: r.applicant_field||'',
     jobCategory: r.job_category||'', receiptNo: r.receipt_no||'',
@@ -1880,6 +1904,7 @@ function loadCasesFromDB(callback) {
         company: r.company || '',
         appType: r.app_type || '',
         residenceStatus: r.residence_status || '',
+        completionDate: r.completion_date || '',
         currentStatus: r.current_status || '',
         team: r.team || '',
         staff: r.staff || '',
@@ -2026,7 +2051,7 @@ function initialSyncToSupabase() {
         id:c.id, applicant:c.applicant||null, name:c.name||null, nationality:c.nationality||null,
         org:c.org||null, company:c.company||null, app_type:c.appType||null,
         residence_status:c.residenceStatus||null, current_status:c.currentStatus||null,
-        team:c.team||null, staff:c.staff||null, toritsugisha:c.toritsugisha||null,
+        team:c.team||null, staff:c.staff||null, toritsugisha:c.toritsugisha||null, intro_fee:c.introFee||null, other_support_note:c.otherSupportNote||null,
         expire:c.expire||null, status:c.status||'書類作成中',
         emp_set_idx:c.empSetIdx!=null?String(c.empSetIdx):null,
         support_fee:c.supportFee||null, applicant_field:c.applicantField||null,
@@ -2571,13 +2596,13 @@ function switchPanel(panelId, navId) {
     if (nav) nav.classList.add('active');
   }
   // ボトムナビ連動
-  var bnavMap = {'casesScreen':'bnav-cases','myTasksScreen':'bnav-mytasks','docsScreen':'bnav-docs'};
+  var bnavMap = {'casesScreen':'bnav-cases','myTasksScreen':'bnav-mytasks','docsScreen':'bnav-docs','intakeScreen':'bnav-intake'};
   if(bnavMap[panelId]){var bn=document.getElementById(bnavMap[panelId]);if(bn)bn.classList.add('active');}
   // パネル状態を保存
   try{localStorage.setItem('ofusa_lastPanel',panelId);localStorage.setItem('ofusa_lastNav',navId||'');}catch(e){}
 }
 
-function showCases() { applyFilters(); switchPanel('casesScreen','nav-cases'); setTimeout(updateCoDocAlertBadge,300); setTimeout(updatePersonDocAlertBadge,300); }
+function showCases() { applyFilters(); switchPanel('casesScreen','nav-cases'); setTimeout(updateCoDocAlertBadge,300); setTimeout(updatePersonDocAlertBadge,300); setTimeout(function(){ if(typeof loadIntakeData==='function') loadIntakeData(function(){}); },800); }
 
 // ===== 個人タスク（Trello風カンバンボード）=====
 var myTaskData = JSON.parse(localStorage.getItem('ofusa_myTasks') || '{}');
@@ -14850,7 +14875,9 @@ function showTab(tab) {
         {k:'residenceStatus',l:'希望在留資格',type:'text'},
         {k:'acceptExp',l:'受入経験',type:'select',opts:['','有','無']},
         {k:'personOrder',l:'2人目以降',type:'select',opts:['','1人目','2人目以降']},
-        {k:'toritsugisha',l:'取次者',type:'text',def:'田中 綾美'}
+        {k:'toritsugisha',l:'取次者',type:'text',def:'田中 綾美'},
+        {k:'introFee',l:'人材紹介料（税抜）',type:'text',placeholder:'例：300000'},
+        {k:'otherSupportNote',l:'別法人支援メモ',type:'text',placeholder:'別の法人支援がある場合など',style:'font-size:10px;color:#9ca3af;'}
       ]},
       {section:'登録支援機関・所属機関', fields:[
         {k:'org',l:'登録支援機関',type:'select',opts:orgNames,id:'ei-org'},
@@ -15007,6 +15034,7 @@ function showTab(tab) {
       {key:'birthdate',     label:'生年月日',       placeholder:'例：1995-03-15', type:'date'},
       {key:'birthPlace',    label:'出生地',         placeholder:'例：ハノイ'},
       {key:'residenceStatus',label:'現在の在留資格', placeholder:'例：特定技能1号'},
+      {key:'completionDate',label:'技能実習修了日／卒業予定日', placeholder:'', type:'date'},
       {key:'nationality',   label:'国籍',           placeholder:'例：ベトナム'},
       {key:'spouse',        label:'配偶者の有無',   placeholder:'', type:'select', opts:['','有','無']},
       {key:'occupation',    label:'職業',           placeholder:'例：会社員'},
@@ -17006,6 +17034,323 @@ var coDocCheck = (function(){try{return JSON.parse(localStorage.getItem('ofusa_c
 function persistCoDocCheck(){try{localStorage.setItem('ofusa_coDocCheck',JSON.stringify(coDocCheck));}catch(e){}
   if(DB_READY) { _sb.from('settings').upsert({key:'co_doc_check',value:JSON.stringify(coDocCheck)},{onConflict:'key'}).then(function(r){if(r.error)console.error('coDocCheck sync err:',r.error);}); }
   setTimeout(updateCoDocAlertBadge, 100);
+}
+
+// ===== 受信トレイ =====
+var intakeData = [];
+var agencyMaster = [];
+
+function loadIntakeData(cb) {
+  if (!DB_READY) { if(cb) cb(); return; }
+  _sb.from('intake_requests').select('*').order('received_at', {ascending:false}).then(function(r) {
+    if (!r.error) intakeData = r.data || [];
+    _sb.from('agency_master').select('*').order('name').then(function(r2) {
+      if (!r2.error) agencyMaster = r2.data || [];
+      updateIntakeBadge();
+      if (cb) cb();
+    });
+  });
+}
+
+function updateIntakeBadge() {
+  var pending = intakeData.filter(function(d){ return d.status === 'pending'; }).length;
+  var badge = document.getElementById('intakeBadge');
+  if (!badge) return;
+  if (pending > 0) { badge.style.display = ''; badge.textContent = pending; }
+  else { badge.style.display = 'none'; }
+}
+
+function showIntake() {
+  switchPanel('intakeScreen', 'bnav-intake');
+  loadIntakeData(function() { renderIntakeList(); });
+}
+
+function renderIntakeList() {
+  var statusFilter = (document.getElementById('intakeFilterStatus')||{}).value || 'pending';
+  var agencyFilter = (document.getElementById('intakeFilterAgency')||{}).value || '';
+  var textFilter = ((document.getElementById('intakeFilterText')||{}).value || '').toLowerCase();
+
+  // 機関フィルタ選択肢を更新
+  var agSel = document.getElementById('intakeFilterAgency');
+  if (agSel && agSel.options.length <= 1) {
+    var agencies = {};
+    intakeData.forEach(function(d){ if(d.agency_name) agencies[d.agency_name]=1; });
+    Object.keys(agencies).sort().forEach(function(a){
+      var o = document.createElement('option'); o.value = a; o.textContent = a;
+      agSel.appendChild(o);
+    });
+  }
+
+  var filtered = intakeData.filter(function(d) {
+    if (statusFilter !== 'all' && d.status !== statusFilter) return false;
+    if (agencyFilter && d.agency_name !== agencyFilter) return false;
+    if (textFilter && (d.applicant||'').toLowerCase().indexOf(textFilter) < 0 && (d.company||'').toLowerCase().indexOf(textFilter) < 0) return false;
+    return true;
+  });
+
+  var el = document.getElementById('intakeList');
+  if (!el) return;
+  if (!filtered.length) {
+    el.innerHTML = '<div style="text-align:center;padding:40px;color:#9ca3af;font-size:13px;">該当する受信データがありません</div>';
+    return;
+  }
+
+  var h = '';
+  filtered.forEach(function(d) {
+    var isNew = d.status === 'pending';
+    var isHold = d.status === 'hold';
+    var borderColor = isNew ? '#93c5fd' : isHold ? '#fcd34d' : '#e5e7eb';
+    var bgColor = isNew ? '#eff6ff' : isHold ? '#fffbeb' : '#f9fafb';
+
+    // 支援担当者不一致アラート
+    var supportAlert = '';
+    if (d.support_staff && d.agency_name) {
+      var ag = agencyMaster.find(function(a){ return a.name === d.agency_name; });
+      if (ag && ag.support_staff && ag.support_staff !== d.support_staff) {
+        supportAlert = '<span style="font-size:10px;background:#fee2e2;color:#dc2626;border-radius:4px;padding:1px 6px;font-weight:700;margin-left:6px;">⚠️ 支援担当者不一致：マスタ「'+esc(ag.support_staff)+'」</span>';
+      }
+    }
+
+    h += '<div style="border:1.5px solid '+borderColor+';border-radius:12px;background:'+bgColor+';margin-bottom:10px;overflow:hidden;">';
+
+    // ヘッダ行
+    h += '<div style="padding:10px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">';
+    h += '<div style="flex:1;min-width:0;">';
+    h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">';
+    h += '<span style="font-size:13px;font-weight:800;color:#1f2937;">'+esc(d.applicant||'（氏名未入力）')+'</span>';
+    if (isNew) h += '<span style="font-size:10px;background:#3b82f6;color:white;border-radius:99px;padding:1px 7px;font-weight:700;">NEW</span>';
+    if (isHold) h += '<span style="font-size:10px;background:#f59e0b;color:white;border-radius:99px;padding:1px 7px;font-weight:700;">保留</span>';
+    h += supportAlert;
+    h += '</div>';
+    h += '<div style="font-size:11px;color:#6b7280;margin-top:2px;">';
+    h += esc(d.company||'') + '　' + esc(d.app_type||'') + '　' + esc(d.applicant_field||'');
+    h += '</div>';
+    h += '<div style="font-size:10px;color:#9ca3af;margin-top:2px;">';
+    h += '📥 ' + (d.received_at ? d.received_at.substring(0,10) : '') + '　🏢 ';
+    if (d.sheet_url) h += '<a href="'+d.sheet_url+'" target="_blank" style="color:#2563eb;font-weight:700;text-decoration:none;">'+esc(d.agency_name||'不明')+'　📊</a>';
+    else h += esc(d.agency_name||'不明');
+    h += '</div>';
+    h += '</div>';
+
+    // アクションボタン
+    h += '<div style="display:flex;gap:6px;flex-shrink:0;">';
+    h += '<button onclick="toggleIntakeDetail(\''+d.id+'\')" style="font-size:11px;padding:5px 12px;background:white;border:1px solid #d1d5db;border-radius:7px;cursor:pointer;color:#374151;font-weight:600;">詳細 ▼</button>';
+    if (isNew || isHold) {
+      h += '<button onclick="registerIntakeCase(\''+d.id+'\')" style="font-size:11px;padding:5px 12px;background:#2563eb;color:white;border:none;border-radius:7px;cursor:pointer;font-weight:700;">✅ 案件登録</button>';
+    }
+    if (isNew) {
+      h += '<button onclick="updateIntakeStatus(\''+d.id+'\',\'hold\')" style="font-size:11px;padding:5px 10px;background:#fffbeb;color:#d97706;border:1px solid #fcd34d;border-radius:7px;cursor:pointer;font-weight:600;">⏸ 保留</button>';
+      h += '<button onclick="updateIntakeStatus(\''+d.id+'\',\'rejected\')" style="font-size:11px;padding:5px 10px;background:#fff1f2;color:#dc2626;border:1px solid #fca5a5;border-radius:7px;cursor:pointer;font-weight:600;">🗑 却下</button>';
+    }
+    h += '</div>';
+    h += '</div>';
+
+    // 詳細（折りたたみ）
+    h += '<div id="intakeDetail_'+d.id+'" style="display:none;border-top:1px solid '+borderColor+';padding:10px 14px;background:white;">';
+    var fields = [
+      ['依頼受領日', d.receipt_date],['大房担当MG', d.team],['希望在留資格', d.desired_status],
+      ['申請種別', d.app_type],['受入経験', d.accept_exp],['申請分野', d.applicant_field],
+      ['案件名', d.case_name],['企業名', d.company],['国籍', d.nationality],
+      ['現在の在留資格', d.residence_status],['在留期限', d.expire],['特例期間', d.tokurei_date],
+      ['一時帰国日', d.temp_return],['技能実習修了日/卒業予定', d.completion_date],
+      ['支援委託費', d.support_fee ? d.support_fee+'円' : ''],
+      ['職業紹介事業者名', d.toritsugisha],['人材紹介料', d.intro_fee ? d.intro_fee+'円' : ''],
+      ['支援担当者', d.support_staff],['別法人支援メモ', d.other_support_note]
+    ];
+    h += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:4px 12px;">';
+    fields.forEach(function(f) {
+      if (!f[1]) return;
+      h += '<div style="font-size:11px;padding:3px 0;border-bottom:1px solid #f3f4f6;">';
+      h += '<span style="color:#9ca3af;margin-right:6px;">'+esc(f[0])+'</span>';
+      h += '<span style="font-weight:600;color:#1f2937;">'+esc(String(f[1]))+'</span>';
+      h += '</div>';
+    });
+    h += '</div>';
+    h += '</div>';
+    h += '</div>';
+  });
+
+  el.innerHTML = h;
+}
+
+function toggleIntakeDetail(id) {
+  var el = document.getElementById('intakeDetail_'+id);
+  if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+
+function updateIntakeStatus(id, status) {
+  if (!DB_READY) return;
+  _sb.from('intake_requests').update({status: status}).eq('id', id).then(function(r) {
+    if (!r.error) {
+      var item = intakeData.find(function(d){return d.id===id;});
+      if (item) item.status = status;
+      updateIntakeBadge();
+      renderIntakeList();
+      showToast(status === 'hold' ? '⏸ 保留にしました' : '🗑 却下しました');
+    }
+  });
+}
+
+function registerIntakeCase(id) {
+  var d = intakeData.find(function(x){ return x.id === id; });
+  if (!d) return;
+  if (!confirm('「'+( d.applicant||'この案件')+'」を案件として登録しますか？')) return;
+
+  var newCase = {
+    id: 'c_' + Date.now(),
+    applicant: d.applicant || '',
+    name: d.case_name || d.applicant || '',
+    appType: d.app_type || '',
+    status: '未着手',
+    team: d.team || '',
+    org: d.agency_name || '',
+    company: d.company || '',
+    applicantField: d.applicant_field || '',
+    acceptExp: d.accept_exp || '',
+    residenceStatus: d.desired_status || '',
+    expire: d.expire || '',
+    tokureiDate: d.tokurei_date || '',
+    tempReturn: d.temp_return || '',
+    receiptDate: d.receipt_date || '',
+    toritsugisha: d.toritsugisha || '',
+    introFee: d.intro_fee || '',
+    otherSupportNote: d.other_support_note || '',
+    nationality: d.nationality || '',
+    createdAt: new Date().toISOString(),
+    intake_id: id
+  };
+
+  cData.push(newCase);
+  saveCases(function() {
+    // personDataも登録
+    if (d.nationality || d.residence_status || d.completion_date) {
+      personData[newCase.id] = personData[newCase.id] || {};
+      if (d.nationality) personData[newCase.id].nationality = d.nationality;
+      if (d.residence_status) personData[newCase.id].residenceStatus = d.residence_status;
+      if (d.completion_date) personData[newCase.id].completionDate = d.completion_date;
+      if (d.desired_status) personData[newCase.id].desiredStatus = d.desired_status;
+      savePersonData(newCase.id);
+    }
+    // intake_requests を registered に更新
+    _sb.from('intake_requests').update({status:'registered', case_id: newCase.id}).eq('id', id).then(function(r){
+      if (!r.error) {
+        var item = intakeData.find(function(x){return x.id===id;});
+        if (item) { item.status = 'registered'; item.case_id = newCase.id; }
+        updateIntakeBadge();
+        renderIntakeList();
+        applyFilters();
+        showToast('✅ 案件「'+(newCase.applicant||newCase.name)+'」を登録しました');
+      }
+    });
+  });
+}
+
+function fetchIntakeNow() {
+  showToast('🔄 GASに取込を依頼中...');
+  var url = GAS_MAILBOX_URL || GAS_URL;
+  if (!url) { showToast('⚠️ GAS URLが未設定です'); return; }
+  jsonpPost(url, 'fetchIntakeRequests', {}, function(res) {
+    if (res && res.status === 'ok') {
+      showToast('✅ ' + (res.count||0) + '件取込完了');
+      loadIntakeData(renderIntakeList);
+    } else {
+      showToast('❌ 取込失敗: ' + (res&&res.error||'不明なエラー'));
+    }
+  });
+}
+
+// ===== 登録支援機関マスタ =====
+function openAgencyMaster() {
+  var modal = document.getElementById('agencyMasterModal');
+  if (modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'agencyMasterModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
+  var inner = document.createElement('div');
+  inner.style.cssText = 'background:white;border-radius:14px;width:100%;max-width:680px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;';
+  modal.appendChild(inner);
+  document.body.appendChild(modal);
+  _renderAgencyMasterModal(inner);
+}
+
+function _renderAgencyMasterModal(inner) {
+  var h = '';
+  h += '<div style="padding:14px 16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">';
+  h += '<div style="font-size:14px;font-weight:800;">🏢 登録支援機関マスタ</div>';
+  h += '<button onclick="document.getElementById(\'agencyMasterModal\').remove()" style="padding:5px 14px;background:white;color:#6b7280;border:1px solid #e5e7eb;border-radius:7px;font-size:12px;cursor:pointer;">閉じる</button>';
+  h += '</div>';
+  h += '<div style="flex:1;overflow-y:auto;">';
+  h += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+  h += '<thead><tr style="background:#f9fafb;border-bottom:1px solid #e5e7eb;">';
+  ['機関名','支援担当者','スプレッドシートURL','最終取込行','操作'].forEach(function(col){
+    h += '<th style="padding:8px 10px;text-align:left;font-weight:700;color:#374151;">'+col+'</th>';
+  });
+  h += '</tr></thead><tbody>';
+  agencyMaster.forEach(function(ag) {
+    h += '<tr style="border-bottom:1px solid #f3f4f6;" id="agRow_'+ag.id+'">';
+    h += '<td style="padding:7px 10px;font-weight:600;">'+esc(ag.name||'')+'</td>';
+    h += '<td style="padding:7px 10px;">'+esc(ag.support_staff||'')+'</td>';
+    h += '<td style="padding:7px 10px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">';
+    if (ag.sheet_url) h += '<a href="'+ag.sheet_url+'" target="_blank" style="color:#2563eb;">📊 '+esc(ag.sheet_url.substring(0,40))+'...</a>';
+    h += '</td>';
+    h += '<td style="padding:7px 10px;color:#9ca3af;">'+( ag.last_row||0)+'行目</td>';
+    h += '<td style="padding:7px 10px;"><button onclick="editAgency(\''+ag.id+'\')" style="font-size:10px;padding:2px 8px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:4px;cursor:pointer;">編集</button> <button onclick="deleteAgency(\''+ag.id+'\')" style="font-size:10px;padding:2px 8px;background:#fff1f2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;cursor:pointer;">削除</button></td>';
+    h += '</tr>';
+  });
+  h += '</tbody></table>';
+  if (!agencyMaster.length) h += '<div style="text-align:center;padding:30px;color:#9ca3af;">登録支援機関がありません</div>';
+  h += '</div>';
+  h += '<div style="padding:12px 16px;border-top:1px solid #e5e7eb;">';
+  h += '<button onclick="addAgency()" style="padding:8px 20px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">＋ 機関を追加</button>';
+  h += '</div>';
+  inner.innerHTML = h;
+}
+
+function addAgency() {
+  var name = prompt('登録支援機関名:'); if (!name||!name.trim()) return;
+  var url = prompt('スプレッドシートURL:'); if (!url||!url.trim()) return;
+  var staff = prompt('支援担当者名（任意）:') || '';
+  if (!DB_READY) { showToast('⚠️ DB未接続'); return; }
+  _sb.from('agency_master').insert({name:name.trim(), sheet_url:url.trim(), support_staff:staff.trim(), last_row:1}).then(function(r){
+    if (!r.error) {
+      showToast('✅ 追加しました');
+      loadIntakeData(function(){
+        var inner = document.querySelector('#agencyMasterModal>div');
+        if (inner) _renderAgencyMasterModal(inner);
+      });
+    } else showToast('❌ 追加失敗');
+  });
+}
+
+function editAgency(id) {
+  var ag = agencyMaster.find(function(a){return a.id===id;});
+  if (!ag) return;
+  var name = prompt('機関名:', ag.name||''); if (name===null) return;
+  var url = prompt('スプレッドシートURL:', ag.sheet_url||''); if (url===null) return;
+  var staff = prompt('支援担当者:', ag.support_staff||''); if (staff===null) return;
+  _sb.from('agency_master').update({name:name.trim(),sheet_url:url.trim(),support_staff:staff.trim()}).eq('id',id).then(function(r){
+    if (!r.error) {
+      showToast('✅ 更新しました');
+      loadIntakeData(function(){
+        var inner = document.querySelector('#agencyMasterModal>div');
+        if (inner) _renderAgencyMasterModal(inner);
+      });
+    }
+  });
+}
+
+function deleteAgency(id) {
+  var ag = agencyMaster.find(function(a){return a.id===id;});
+  if (!ag||!confirm('「'+ag.name+'」を削除しますか？')) return;
+  _sb.from('agency_master').delete().eq('id',id).then(function(r){
+    if (!r.error) {
+      agencyMaster = agencyMaster.filter(function(a){return a.id!==id;});
+      showToast('🗑 削除しました');
+      var inner = document.querySelector('#agencyMasterModal>div');
+      if (inner) _renderAgencyMasterModal(inner);
+    }
+  });
 }
 
 // ===== 所属機関 書類回収アラート =====
