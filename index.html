@@ -467,6 +467,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <button class="btn btn-outline" onclick="exportCSV()">📤 エクスポート</button>
       <button class="btn btn-gmail" onclick="openGmail()">📧 Gmail取込</button>
       <button class="btn btn-primary" onclick="openNewCase()">＋ 新規案件</button>
+      <button id="personDocAlertBtn" onclick="showPersonDocAlertModal()" title="人材書類回収アラート" style="display:none;padding:6px 12px;background:#fffbeb;color:#d97706;border:1.5px solid #fcd34d;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">👤書類 <span id="personDocAlertCount" style="background:#d97706;color:white;border-radius:99px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></button>
+      <button id="coDocAlertBtn" onclick="showCoDocAlertModal()" title="法人書類回収アラート" style="display:none;padding:6px 12px;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🏢書類 <span id="coDocAlertCount" style="background:#dc2626;color:white;border-radius:99px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></button>
       <button class="btn btn-outline" onclick="forceSync()" title="サーバーと同期" style="padding:6px 10px;">🔄</button>
     </div>
   </div>
@@ -2094,7 +2096,15 @@ function initialSyncToSupabase() {
       {ls:'ofusa_savedMails',db:'saved_mails'},{ls:'ofusa_aiCheckRules',db:'ai_check_rules_data'},
       {ls:'ofusa_tplMappings',db:'tplMappings'},{ls:'ofusa_skippedFields',db:'skipped_fields'},
       {ls:'ofusa_lineSentHistory',db:'line_sent_history'},
-      {ls:'ofusa_userPHMap',db:'userPHMap'}
+      {ls:'ofusa_userPHMap',db:'userPHMap'},
+      {ls:'ofusa_coRenameCatsBase',db:'co_rename_cats_base'},
+      {ls:'ofusa_coRenameCats',db:'co_rename_cats_extra'},
+      {ls:'ofusa_requiredDocsCo',db:'required_docs_co'},
+      {ls:'ofusa_requiredDocsCoField',db:'required_docs_co_field'},
+      {ls:'ofusa_requiredDocsCoKojin',db:'required_docs_co_kojin'},
+      {ls:'ofusa_requiredDocs',db:'required_docs'},
+      {ls:'ofusa_requiredDocsRyugaku',db:'required_docs_ryugaku'},
+      {ls:'ofusa_requiredDocsNationality',db:'required_docs_nationality'}
     ];
     var sRows = [];
     settingsKeys.forEach(function(sk){try{var v=localStorage.getItem(sk.ls);if(v)sRows.push({key:sk.db,value:v});}catch(e){}});
@@ -2567,7 +2577,7 @@ function switchPanel(panelId, navId) {
   try{localStorage.setItem('ofusa_lastPanel',panelId);localStorage.setItem('ofusa_lastNav',navId||'');}catch(e){}
 }
 
-function showCases() { applyFilters(); switchPanel('casesScreen','nav-cases'); }
+function showCases() { applyFilters(); switchPanel('casesScreen','nav-cases'); setTimeout(updateCoDocAlertBadge,300); setTimeout(updatePersonDocAlertBadge,300); }
 
 // ===== 個人タスク（Trello風カンバンボード）=====
 var myTaskData = JSON.parse(localStorage.getItem('ofusa_myTasks') || '{}');
@@ -8443,6 +8453,7 @@ function persistCaseNotes() {
 function persistDocCheck() {
   try { localStorage.setItem('ofusa_docCheck', JSON.stringify(docCheck)); } catch(e) {}
   if(DB_READY) { _sb.from('settings').upsert({key:'doc_check',value:JSON.stringify(docCheck)},{onConflict:'key'}).then(function(r){if(r.error)console.error('docCheck sync err:',r.error);}); }
+  setTimeout(updatePersonDocAlertBadge, 100);
 }
 function persistDocTaskStatus() {
   try { localStorage.setItem('ofusa_docTaskStatus', JSON.stringify(docTaskStatus)); } catch(e) {}
@@ -8539,13 +8550,14 @@ var SUPPORT_FIELDS = [
 ];
 
 // オンラインCSV必須フィールドキー（赤背景+🌐表示用）
-var CSV_PERSON_KEYS = {applicantNameEn:1,gender:1,birthdate:1,birthPlace:1,spouse:1,occupation:1,address:1,passport:1,passportExpiry:1,nationality:1,email:1,contractStart:1,contractEnd:1,residenceCard:1,expire:1};
+var CSV_PERSON_KEYS = {applicantNameEn:1,gender:1,birthdate:1,birthPlace:1,spouse:1,occupation:1,address:1,passport:1,passportExpiry:1,nationality:1,email:1,contractStart:1,contractEnd:1,residenceCard:1,expire:1,residenceStatus:1};
 var CSV_COMPANY_KEYS = {name:1,corpNo:1,industryCode:1,categoryCode:1,occupationCode:1,address:1,pref:1,tel:1,capital:1,employees:1,repName:1,laborInsNo:1,empInsNo:1,zip:1,detailAddress:1,annualSales:1,sales:1,staffCount:1,supportOrg:1,supportStaff:1,supportOrgName:1,jjName:1,jjCorpNo:1,jjZip:1,jjPref:1,jjCity:1,jjAddressDetail:1,jjTel:1,jjPermitNo:1,jjPermitDate:1,hasJobPlacement:1};
 var CSV_EMP_KEYS = {contractStart:1,contractEnd:1,fieldCode:1,workHoursWeek:1,salary:1,jpBaseSalary:1,officeName:1,officeAddress:1,monthlyHours:1,hourlyRate:1,workLocation:1,officeAddr:1,officeZip:1,officeAddressCode:1};
 var CSV_INFO_KEYS = {applicant:1,applicantField:1,nationality:1,org:1,toritsugisha:1,hasJobPlacement:1};
 var CSV_SUPPORT_ORG_KEYS = {name:1,corpNo:1,pref:1,city:1,addressDetail:1,zip:1,tel:1,repName:1,regNo:1,regDate:1,languages:1,officeName:1,officeZip:1,officePref:1,officeCity:1,officeAddressDetail:1,officeTel:1,supportManager:1,nameEn:1,addressEn:1,officeAddressEn:1,supportManagerKana:1,supportManagerTitle:1};
 var CSV_JOB_PLACEMENT_KEYS = {jjName:1,jjCorpNo:1,jjZip:1,jjPref:1,jjCity:1,jjAddressDetail:1,jjTel:1,jjPermitNo:1,jjPermitDate:1,jobPermitNo:1,jobPermitDate:1};
 var COMPANY_FIELDS = [
+  {key:'corpType',      label:'個人/法人区分',                type:'select',section:'基本情報', opts:['','法人','個人事業主']},
   {key:'folderNo',      label:'フォルダ番号',                 type:'text',  section:'基本情報', placeholder:'001'},
   {key:'name',          label:'会社名',                       type:'text',  section:'基本情報', placeholder:'○○株式会社'},
   {key:'nameKana',      label:'会社名（かな）',               type:'text',  section:'基本情報', placeholder:'まるまるかぶしきがいしゃ'},
@@ -8602,8 +8614,6 @@ var COMPANY_FIELDS = [
   {key:'supportOrgName',label:'登録支援機関名',              type:'support',section:'登録支援機関', placeholder:''},
   {key:'supportStaff',  label:'支援担当者',                  type:'supportStaffSelect',   section:'登録支援機関', placeholder:''},
   {key:'ofusaStaff',    label:'大房担当者',                   type:'hidden',  section:'大房担当', placeholder:''},
-  {key:'driveUrl',      label:'ドライブURL①',                type:'text',  section:'大房担当', placeholder:'https://drive.google.com/drive/folders/...'},
-  {key:'driveUrl2',     label:'ドライブURL②',                type:'text',  section:'大房担当', placeholder:'https://drive.google.com/drive/folders/...'},
   {key:'memo',          label:'メモ',                         type:'text',  section:'大房担当', placeholder:''},
 ];
 
@@ -9599,6 +9609,27 @@ function renderCompanyDetail(co){
   h+='</div></div>';
 
   if(tab==='detail'){
+    // === Driveフォルダ入力欄（最上部）===
+    var coDriveUrls=[];
+    for(var _cdi=0;_cdi<5;_cdi++){var _cdk=_cdi===0?'driveUrl':'driveUrl'+(_cdi+1);if(co[_cdk])coDriveUrls.push({key:_cdk,val:co[_cdk]});}
+    if(coDriveUrls.length===0) coDriveUrls.push({key:'driveUrl',val:''});
+    h+='<div style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:10px;padding:10px 12px;margin-bottom:14px;">';
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
+    h+='<div style="font-size:11px;font-weight:800;color:#1e40af;">📁 ドライブフォルダURL</div>';
+    h+='<div style="display:flex;gap:4px;">';
+    coDriveUrls.forEach(function(du){ if(du.val) h+='<a href="'+du.val+'" target="_blank" style="font-size:11px;padding:3px 10px;background:#1a73e8;color:white;border-radius:5px;text-decoration:none;font-weight:700;">📁 開く</a>'; });
+    h+='<button onclick="addCoDriveUrl(\'' + co.id + '\')" style="font-size:10px;padding:3px 10px;background:#2563eb;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;">＋ 追加</button>';
+    h+='</div></div>';
+    coDriveUrls.forEach(function(du,i){
+      h+='<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;">';
+      h+='<input type="url" id="cof-'+du.key+'" value="'+(du.val||'')+'" placeholder="https://drive.google.com/drive/folders/..." style="flex:1;padding:6px 8px;border:1px solid var(--gray-200);border-radius:6px;font-size:11px;outline:none;box-sizing:border-box;" onfocus="this.style.borderColor=\'var(--blue)\'" onblur="this.style.borderColor=\'var(--gray-200)\'">';
+      if(du.val) h+='<a href="'+du.val+'" target="_blank" style="font-size:16px;text-decoration:none;">↗️</a>';
+      if(i>0) h+='<button onclick="removeCoDriveUrl(\'' + co.id + '\',\''+du.key+'\')" style="font-size:10px;padding:2px 6px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;cursor:pointer;">✕</button>';
+      h+='</div>';
+    });
+    h+='<button onclick="saveCoDriveUrls(\'' + co.id + '\')" style="width:100%;margin-top:4px;padding:6px;background:#2563eb;color:white;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">💾 保存</button>';
+    h+='</div>';
+
     // セクション別表示
     var sectionOrder=['基本情報','所在地','連絡先','代表者情報','財務情報','決算情報（3期分）','比較対象日本人','登録支援機関','大房担当'];
     var grouped={};
@@ -10357,9 +10388,17 @@ function updateJobCategoryOptions() {
   }
 }
 
+var FIELD_LIST_GLOBAL = ['','介護分野','ビルクリーニング分野（特定技能１号）','ビルクリーニング分野（特定技能２号）','素形材・産業機械・電気電子（特定技能１号）','素形材・産業機械・電気電子（特定技能２号）','建設分野（特定技能１号）','建設分野（特定技能２号）','造船・舶用工業分野（特定技能１号）','造船・舶用工業分野（特定技能２号）','自動車整備分野（特定技能１号）','自動車整備分野（特定技能２号）','航空分野（特定技能１号）','航空分野（特定技能２号）','宿泊分野（特定技能１号）','宿泊分野（特定技能２号）','農業分野（特定技能１号）','農業分野（特定技能２号）','漁業分野（特定技能１号）','漁業分野（特定技能２号）','飲食料品製造業分野（特定技能１号）','飲食料品製造業分野（特定技能２号）','外食業分野（特定技能１号）','外食業分野（特定技能２号）'];
+
 var EMP_SET_FIELDS = [
   {section:'セット名', fields:[
     {k:'setName',l:'セット名',ph:'例：製造A、介護B',wide:true}
+  ]},
+  {section:'分野・業務区分', fields:[
+    {k:'applicantField',l:'特定産業分野①',ph:'',type:'fieldSelect'},
+    {k:'category',l:'業務区分①',ph:'',type:'catSelect'},
+    {k:'applicantField2',l:'特定産業分野②',ph:'',type:'fieldSelect2'},
+    {k:'category2',l:'業務区分②',ph:'',type:'catSelect2'},
   ]},
   {section:'就業場所・業務', fields:[
     {k:'officeName',l:'就業場所の名前',ph:'',tr:1},
@@ -10548,7 +10587,41 @@ function editEmpSet(coId, idx) {
       h += '<button onclick="toggleSkipField(\''+esSkipScope+'\',\''+f.k+'\');editEmpSet(\''+coId+'\','+idx+')" style="font-size:8px;padding:0px 4px;border-radius:2px;border:1px solid '+(esSkipped?'#f59e0b':'var(--gray-200)')+';background:'+(esSkipped?'#fef3c7':'white')+';color:'+(esSkipped?'#b45309':'var(--gray-400)')+';cursor:pointer;font-weight:600;line-height:14px;">'+(esSkipped?'✓':'不要')+'</button>';
       h += '</div>';
       if(esSkipped){ h+='<div style="font-size:10px;color:var(--gray-300);">—</div></div>'; if(hasTr) h+='<div style="background:#f3f4f6;border-radius:4px;padding:6px;"><div style="font-size:10px;color:var(--gray-300);">—</div></div>'; else h+='<div></div>'; return; }
-      if (f.type === 'date') {
+      if (f.type === 'fieldSelect' || f.type === 'fieldSelect2') {
+        // 特定産業分野セレクト（①or②）
+        var _fsCbName = f.type === 'fieldSelect' ? 'onEsfFieldChange' : 'onEsfFieldChange2';
+        h += '<select id="esf_' + f.k + '" onchange="'+_fsCbName+'(\''+coId+'\','+idx+',this.value)" style="width:100%;padding:7px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;box-sizing:border-box;background:white;">';
+        h += '<option value="">— 分野を選択 —</option>';
+        FIELD_LIST_GLOBAL.filter(function(x){return x;}).forEach(function(o){ h += '<option value="'+o+'"'+(o===val?' selected':'')+'>'+o+'</option>'; });
+        h += '</select>';
+        h += '</div>';
+        // 右列：翻訳
+        var _fsEnKey = f.k + 'En';
+        var _fsEnVal = String(es[_fsEnKey]||'').replace(/"/g,'&quot;');
+        h += '<div>';
+        h += '<label style="font-size:10px;font-weight:700;color:#7c3aed;display:block;margin-bottom:2px;">'+f.l+'（翻訳）</label>';
+        h += '<input id="esf_'+_fsEnKey+'" type="text" value="'+_fsEnVal+'" placeholder="翻訳" style="width:100%;padding:7px 10px;border:1px solid #c4b5fd;border-radius:7px;font-size:12px;box-sizing:border-box;background:#faf5ff;">';
+        h += '</div>';
+        return;
+      } else if (f.type === 'catSelect' || f.type === 'catSelect2') {
+        // 業務区分セレクト（分野連動・①or②）
+        var _csFieldKey = f.type === 'catSelect' ? 'applicantField' : 'applicantField2';
+        var _curField = es[_csFieldKey] || '';
+        var _cats = FIELD_CATEGORY_MAP[_curField] || ALL_JOB_CATEGORIES;
+        h += '<select id="esf_' + f.k + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;box-sizing:border-box;background:white;">';
+        h += '<option value="">— 業務区分を選択 —</option>';
+        _cats.forEach(function(o){ h += '<option value="'+o+'"'+(o===val?' selected':'')+'>'+o+'</option>'; });
+        h += '</select>';
+        h += '</div>';
+        // 右列：翻訳
+        var _csEnKey = f.k + 'En';
+        var _csEnVal = String(es[_csEnKey]||'').replace(/"/g,'&quot;');
+        h += '<div>';
+        h += '<label style="font-size:10px;font-weight:700;color:#7c3aed;display:block;margin-bottom:2px;">'+f.l+'（翻訳）</label>';
+        h += '<input id="esf_'+_csEnKey+'" type="text" value="'+_csEnVal+'" placeholder="翻訳" style="width:100%;padding:7px 10px;border:1px solid #c4b5fd;border-radius:7px;font-size:12px;box-sizing:border-box;background:#faf5ff;">';
+        h += '</div>';
+        return;
+      } else if (f.type === 'date') {
         h += '<input id="esf_' + f.k + '" type="date" value="' + val + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;box-sizing:border-box;"';
         // Auto-split date into Y/M/D
         if (f.k === 'createDate') h += ' onchange="empDateSplit(this.value,\'createY\',\'createM\',\'createD\')"';
@@ -10668,6 +10741,38 @@ function calcEmpNetPay() {
   showToast('🔢 手取り: ' + total + ' - ' + totalDeduct + ' = ' + net);
 }
 
+function onEsfFieldChange(coId, idx, fieldVal) {
+  // 分野①が変わったら業務区分①セレクトを更新
+  var catEl = document.getElementById('esf_category');
+  if (!catEl) return;
+  var cats = FIELD_CATEGORY_MAP[fieldVal] || ALL_JOB_CATEGORIES;
+  var curVal = catEl.value;
+  catEl.innerHTML = '<option value="">— 業務区分を選択 —</option>';
+  cats.forEach(function(o) {
+    var opt = document.createElement('option');
+    opt.value = o; opt.textContent = o;
+    if (o === curVal) opt.selected = true;
+    catEl.appendChild(opt);
+  });
+  if (cats.length === 1) catEl.value = cats[0];
+}
+
+function onEsfFieldChange2(coId, idx, fieldVal) {
+  // 分野②が変わったら業務区分②セレクトを更新
+  var catEl = document.getElementById('esf_category2');
+  if (!catEl) return;
+  var cats = FIELD_CATEGORY_MAP[fieldVal] || ALL_JOB_CATEGORIES;
+  var curVal = catEl.value;
+  catEl.innerHTML = '<option value="">— 業務区分を選択 —</option>';
+  cats.forEach(function(o) {
+    var opt = document.createElement('option');
+    opt.value = o; opt.textContent = o;
+    if (o === curVal) opt.selected = true;
+    catEl.appendChild(opt);
+  });
+  if (cats.length === 1) catEl.value = cats[0];
+}
+
 function saveEmpSet(coId, idx) {
   var co = companies.find(function(x) { return x.id === coId; });
   if (!co || !co.empSets || !co.empSets[idx]) return;
@@ -10676,8 +10781,9 @@ function saveEmpSet(coId, idx) {
     sec.fields.forEach(function(f) {
       var el = document.getElementById('esf_' + f.k);
       if (el) es[f.k] = el.tagName === 'TEXTAREA' ? el.value : el.value.trim();
-      // 翻訳フィールドも保存
-      if (f.tr) {
+      // 翻訳フィールドも保存（tr付き or fieldSelect/catSelect系）
+      var hasTrField = f.tr || f.type === 'fieldSelect' || f.type === 'fieldSelect2' || f.type === 'catSelect' || f.type === 'catSelect2';
+      if (hasTrField) {
         var elEn = document.getElementById('esf_' + f.k + 'En');
         if (elEn) es[f.k + 'En'] = elEn.tagName === 'TEXTAREA' ? elEn.value : elEn.value.trim();
       }
@@ -11329,7 +11435,7 @@ function renderDocGenContent() {
     if(uploaded && typeof uploaded==='object' && !Array.isArray(uploaded)){Object.keys(uploaded).forEach(function(k){var t=uploaded[k];if(t&&t.group===dt.tplGroup)tplCount++;});}
     else if(Array.isArray(uploaded)){uploaded.forEach(function(t){if(t&&t.group===dt.tplGroup)tplCount++;});}}catch(e){}
 
-    h += '<button onclick="selectDocType(\'' + dt.key + '\')" id="dgType_' + dt.key + '" style="padding:10px 16px;border-radius:10px;border:1.5px solid var(--gray-200);background:white;cursor:pointer;text-align:center;min-width:100px;transition:.15s;">';
+    h += '<button onclick="selectDocType(\'' + dt.key + '\')" id="dgType_' + dt.key + '" style="padding:8px 12px;border-radius:10px;border:1.5px solid var(--gray-200);background:white;cursor:pointer;text-align:center;min-width:88px;transition:.15s;">';
     h += '<div style="font-size:20px;margin-bottom:4px;">' + dt.icon + '</div>';
     h += '<div style="font-size:11px;font-weight:700;color:var(--navy);white-space:nowrap;">' + dt.label + '</div>';
     if(dt.special) h += '<div style="font-size:9px;color:var(--green);margin-top:2px;">CSV出力</div>';
@@ -12053,6 +12159,19 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
     if(field==='es.createY'){var cd=c.docCreateDate||'';if(cd){var cp=cd.split(/[-\/]/);return cp[0]||'';}return '';}
     if(field==='es.createM'){var cd2=c.docCreateDate||'';if(cd2){var cp2=cd2.split(/[-\/]/);return cp2[1]?String(parseInt(cp2[1],10)):'';}return '';}
     if(field==='es.createD'){var cd3=c.docCreateDate||'';if(cd3){var cp3=cd3.split(/[-\/]/);return cp3[2]?String(parseInt(cp3[2],10)):'';}return '';}
+    // 雇用契約期間（始期・終期）分割取得
+    if(field==='es.contractStartY'){var cs1=es.contractStartY||es.contractStartDate||(es.contractStart||'').split(/[-\/]/)[0]||'';return cs1;}
+    if(field==='es.contractStartM'){var cs2=es.contractStartM||(es.contractStart||'').split(/[-\/]/)[1]||'';return cs2?String(parseInt(cs2,10)):'';}
+    if(field==='es.contractStartD'){var cs3=es.contractStartD||(es.contractStart||'').split(/[-\/]/)[2]||'';return cs3?String(parseInt(cs3,10)):'';}
+    if(field==='es.contractEndY'){var ce1=es.contractEndY||es.contractEndDate||(es.contractEnd||'').split(/[-\/]/)[0]||'';return ce1;}
+    if(field==='es.contractEndM'){var ce2=es.contractEndM||(es.contractEnd||'').split(/[-\/]/)[1]||'';return ce2?String(parseInt(ce2,10)):'';}
+    if(field==='es.contractEndD'){var ce3=es.contractEndD||(es.contractEnd||'').split(/[-\/]/)[2]||'';return ce3?String(parseInt(ce3,10)):'';}
+    // 分野・区分のフォールバック
+    if(field==='es.applicantField') return es.applicantField||es.field||c.applicantField||'';
+    if(field==='es.weeklyHours') return es.weeklyHours||es.workHoursWeek||'';
+    if(field==='es.monthlyHours') return es.monthlyHours||'';
+    if(field==='es.salaryMonthly') return es.salaryMonthly||es.salary||'';
+    if(field==='es.salaryHourly') return es.salaryHourly||es.hourlyRate||'';
     // 生年月日分割（人材データから自動）
     if(field==='p.birthY'){var bd=p.birthdate||'';var bm=bd.match(/(\d{4})/);return bm?bm[1]:'';}
     if(field==='p.birthM'){var bd2=p.birthdate||'';var bm2=bd2.match(/\d{4}[\/\-年](\d{1,2})/);return bm2?bm2[1]:'';}
@@ -12071,10 +12190,28 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
     if(field==='case.entryDate'){var ey=es.entryY||'',em=es.entryM||'',ed=es.entryD||'';if(ey&&em&&ed)return ey+'/'+em+'/'+ed;var ped=p.entryDate||'';if(ped){var edm=ped.replace(/[０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-0xFEE0);});var edp=edm.match(/(\d{4})[年\/\-](\d{1,2})[月\/\-](\d{1,2})/);if(edp)return edp[1]+'/'+edp[2]+'/'+edp[3];}return ped;}
     if(field.indexOf('p.')===0) return p[field.substring(2)]||'';
     if(field.indexOf('co.')===0) return co[field.substring(3)]||'';
-    if(field.indexOf('es.')===0){var k=field.substring(3);return es[k]!=null&&es[k]!=='' ? String(es[k]) : '';}
+    if(field.indexOf('es.')===0){
+      var k=field.substring(3);
+      // 雇用契約期間の分割フィールド対応
+      if(k==='contractStartY') return es.contractStartY||(es.contractStart||'').split(/[-\/]/)[0]||'';
+      if(k==='contractStartM'){var _csm=(es.contractStartM||(es.contractStart||'').split(/[-\/]/)[1]||'');return _csm?String(parseInt(_csm,10)):'';}
+      if(k==='contractStartD'){var _csd=(es.contractStartD||(es.contractStart||'').split(/[-\/]/)[2]||'');return _csd?String(parseInt(_csd,10)):'';}
+      if(k==='contractEndY') return es.contractEndY||(es.contractEnd||'').split(/[-\/]/)[0]||'';
+      if(k==='contractEndM'){var _cem=(es.contractEndM||(es.contractEnd||'').split(/[-\/]/)[1]||'');return _cem?String(parseInt(_cem,10)):'';}
+      if(k==='contractEndD'){var _ced=(es.contractEndD||(es.contractEnd||'').split(/[-\/]/)[2]||'');return _ced?String(parseInt(_ced,10)):'';}
+      if(k==='applicantField') return es.applicantField||es.field||c.applicantField||'';
+      if(k==='weeklyHours') return es.weeklyHours||es.workHoursWeek||'';
+      if(k==='salaryMonthly') return es.salaryMonthly||es.salary||'';
+      if(k==='salaryHourly') return es.salaryHourly||es.hourlyRate||'';
+      return es[k]!=null&&es[k]!=='' ? String(es[k]) : '';
+    }
     if(field.indexOf('so.')===0){var _soName=co.supportOrgName||c.org||'';var _so=supportOrgs.find(function(x){return x.name===_soName;})||{};return _so[field.substring(3)]||'';}
     if(field==='applicantName') return getDisplayName(c);
     if(field==='applicantNameEn') return p.applicantNameEn||p.nameEn||c.applicant||'';
+    if(field==='applicantField') return c.applicantField||es.applicantField||es.field||'';
+    if(field==='applicantFieldEn') return c.applicantFieldEn||es.applicantFieldEn||'';
+    if(field==='jobCategory') return c.jobCategory||es.category||'';
+    if(field==='jobCategoryEn') return c.jobCategoryEn||es.categoryEn||'';
     if(field==='case.contractEndDate'){var ce=p.contractEndDate||p.contractEnd||'';if(ce)return ce;var cey=es.contractEndY||'',cem=es.contractEndM||'',ced=es.contractEndD||'';if(cey&&cem&&ced)return cey+'年'+cem+'月'+ced+'日';return '';}
     return '';
   }
@@ -12150,6 +12287,29 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
       var k=Object.keys(map).find(function(k){return rn.indexOf(k)===0;});
       return k?map[k]:'出入国在留管理局長';
     },
+    // 管轄入管（局長なし・申請番号先頭から自動判定）
+    '管轄入管':function(c,p,co,es){
+      var rn=(c.receiptNo||'');
+      var map={
+        '東':'東京出入国在留管理局',
+        '大':'大阪出入国在留管理局',
+        '名':'名古屋出入国在留管理局',
+        '福':'福岡出入国在留管理局',
+        '広':'広島出入国在留管理局',
+        '仙':'仙台出入国在留管理局',
+        '札':'札幌出入国在留管理局',
+        '高':'高松出入国在留管理局',
+        '那':'那覇出入国在留管理局',
+        '横':'東京出入国在留管理局横浜支局'
+      };
+      var k=Object.keys(map).find(function(k){return rn.indexOf(k)===0;});
+      return k?map[k]:'出入国在留管理局';
+    },
+    // 申請日（申出年月日と同義）
+    '申請日(年)':function(c,p,co,es){var d=(c.docCreateDate||'').split(/[-\/]/);return d[0]||'';},
+    '申請日(月)':function(c,p,co,es){var d=(c.docCreateDate||'').split(/[-\/]/);return d[1]?String(parseInt(d[1])):'';},
+    '申請日(日)':function(c,p,co,es){var d=(c.docCreateDate||'').split(/[-\/]/);return d[2]?String(parseInt(d[2])):'';},
+    '申請番号':function(c,p,co,es){return c.receiptNo||'';},
     '申出年':function(c,p,co,es){var d=(c.docCreateDate||'').split(/[-\/]/);return d[0]||'';},
     '申出月':function(c,p,co,es){var d=(c.docCreateDate||'').split(/[-\/]/);return d[1]?String(parseInt(d[1])):'';},
     '申出日':function(c,p,co,es){var d=(c.docCreateDate||'').split(/[-\/]/);return d[2]?String(parseInt(d[2])):'';},
@@ -12654,6 +12814,10 @@ function checkMappingFields(caseId, empSetIdx, mappingArr, onComplete) {
     }
     if(field==='applicantName') return getDisplayName(c);
     if(field==='applicantNameEn') return p.applicantNameEn||p.nameEn||c.applicant||'';
+    if(field==='applicantField') return c.applicantField||es.applicantField||es.field||'';
+    if(field==='applicantFieldEn') return c.applicantFieldEn||es.applicantFieldEn||'';
+    if(field==='jobCategory') return c.jobCategory||es.category||'';
+    if(field==='jobCategoryEn') return c.jobCategoryEn||es.categoryEn||'';
     return '';
   }
 
@@ -13177,45 +13341,110 @@ var TASK_NAMES = ['質問票作成','1-6作成','サイン書類作成','企業�
 var DOC_TASKS = TASK_NAMES; // 同じ配列を参照（管理者設定から編集可）
 
 // ===== 必要書類リスト（申請種別ごと）=====
-var REQUIRED_DOCS = {
-  '更新': [
-    '顔写真',
-    '所得・課税証明書',
-    '納税証明書',
-    '源泉徴収票',
-    '在留カード',
-    'パスポート',
-    '合格証（技能）',
-    '合格証（日本語）',
-    '預かり証',
-    '申請中証明'
-  ],
-  '変更': [
-    '顔写真',
-    '所得・課税証明書',
-    '納税証明書',
-    '源泉徴収票',
-    '在留カード',
-    'パスポート',
-    '合格証（技能）',
-    '合格証（日本語）',
-    '健康診断票',
-    '預かり証',
-    '申請中証明'
-  ],
-  '認定': [
-    '顔写真',
-    'パスポート',
-    '合格証（技能）',
-    '合格証（日本語）',
-    '健康診断票',
-    '預かり証',
-    '申請中証明'
-  ]
+var _REQUIRED_DOCS_DEFAULT = {
+  '更新': ['顔写真','所得・課税証明書','納税証明書','源泉徴収票','在留カード','パスポート','合格証（技能）','合格証（日本語）','預かり証','申請中証明'],
+  '変更': ['顔写真','所得・課税証明書','納税証明書','源泉徴収票','在留カード','パスポート','合格証（技能）','合格証（日本語）','健康診断票','預かり証','申請中証明'],
+  '認定': ['顔写真','パスポート','合格証（技能）','合格証（日本語）','健康診断票','預かり証','申請中証明']
 };
+// 留学生からの変更・追加書類
+var _REQUIRED_DOCS_RYUGAKU_DEFAULT = {
+  '更新': [],
+  '変更': ['在留カード（留学）','卒業証明書（または在学証明書）','成績証明書'],
+  '認定': ['在留カード（留学）','卒業証明書（または在学証明書）','成績証明書']
+};
+// 国籍別追加書類
+var _REQUIRED_DOCS_NATIONALITY_DEFAULT = {
+  'ベトナム': {
+    '更新': ['無犯罪証明書（ベトナム）'],
+    '変更': ['無犯罪証明書（ベトナム）'],
+    '認定': ['無犯罪証明書（ベトナム）','推薦状（送出機関）']
+  },
+  'ミャンマー': {
+    '更新': ['無犯罪証明書（ミャンマー）'],
+    '変更': ['無犯罪証明書（ミャンマー）'],
+    '認定': ['無犯罪証明書（ミャンマー）','推薦状（送出機関）']
+  },
+  'カンボジア': {
+    '更新': ['無犯罪証明書（カンボジア）'],
+    '変更': ['無犯罪証明書（カンボジア）'],
+    '認定': ['無犯罪証明書（カンボジア）','推薦状（送出機関）']
+  }
+};
+var REQUIRED_DOCS_RYUGAKU = (function(){
+  try { var s=localStorage.getItem('ofusa_requiredDocsRyugaku'); if(s) return JSON.parse(s); } catch(e) {}
+  return {
+    '更新': _REQUIRED_DOCS_RYUGAKU_DEFAULT['更新'].slice(),
+    '変更': _REQUIRED_DOCS_RYUGAKU_DEFAULT['変更'].slice(),
+    '認定': _REQUIRED_DOCS_RYUGAKU_DEFAULT['認定'].slice()
+  };
+})();
+var REQUIRED_DOCS_NATIONALITY = (function(){
+  try { var s=localStorage.getItem('ofusa_requiredDocsNationality'); if(s) return JSON.parse(s); } catch(e) {}
+  var r={};
+  Object.keys(_REQUIRED_DOCS_NATIONALITY_DEFAULT).forEach(function(nat){
+    r[nat]={};
+    ['更新','変更','認定'].forEach(function(k){ r[nat][k]=_REQUIRED_DOCS_NATIONALITY_DEFAULT[nat][k].slice(); });
+  });
+  return r;
+})();
+function _persistRequiredDocsRyugaku(){
+  try{localStorage.setItem('ofusa_requiredDocsRyugaku',JSON.stringify(REQUIRED_DOCS_RYUGAKU));}catch(e){}
+  if(typeof DB_READY!=='undefined'&&DB_READY&&typeof _sb!=='undefined')
+    _sb.from('settings').upsert({key:'required_docs_ryugaku',value:JSON.stringify(REQUIRED_DOCS_RYUGAKU)},{onConflict:'key'}).then(function(){});
+}
+function _persistRequiredDocsNationality(){
+  try{localStorage.setItem('ofusa_requiredDocsNationality',JSON.stringify(REQUIRED_DOCS_NATIONALITY));}catch(e){}
+  if(typeof DB_READY!=='undefined'&&DB_READY&&typeof _sb!=='undefined')
+    _sb.from('settings').upsert({key:'required_docs_nationality',value:JSON.stringify(REQUIRED_DOCS_NATIONALITY)},{onConflict:'key'}).then(function(){});
+}
+// 有効な国籍追加書類の国リストを返す
+function getExtraNatKeys(){ return Object.keys(REQUIRED_DOCS_NATIONALITY); }
+var REQUIRED_DOCS = (function(){
+  try { var s = localStorage.getItem('ofusa_requiredDocs'); if(s) return JSON.parse(s); } catch(e) {}
+  return {
+    '更新': _REQUIRED_DOCS_DEFAULT['更新'].slice(),
+    '変更': _REQUIRED_DOCS_DEFAULT['変更'].slice(),
+    '認定': _REQUIRED_DOCS_DEFAULT['認定'].slice()
+  };
+})();
+function _persistRequiredDocs(){
+  try { localStorage.setItem('ofusa_requiredDocs', JSON.stringify(REQUIRED_DOCS)); } catch(e) {}
+  if(typeof DB_READY!=='undefined' && DB_READY && typeof _sb!=='undefined')
+    _sb.from('settings').upsert({key:'required_docs',value:JSON.stringify(REQUIRED_DOCS)},{onConflict:'key'}).then(function(){});
+}
 
 // 所属機関の必要書類
-var REQUIRED_DOCS_CO = [
+// 個人事業主用デフォルト書類リスト
+var _REQUIRED_DOCS_CO_KOJIN_DEFAULT = [
+  '確定申告書（直近1年分）',
+  '所得税の納税証明書（その１・その２）',
+  '住民税の納税証明書',
+  '登記されていないことの証明書',
+  '役員の住民票（代表者）',
+  '役員の誓約書（代表者）',
+  '雇用保険適用事業所設置届',
+  '労働保険料等納付証明書',
+  '社会保険料納入状況照会回答票',
+  '雇用条件書',
+  '支援計画書',
+  '特定技能雇用契約書',
+  '就業規則',
+  '賃金規定',
+  '36協定届出書',
+  '変形労働届出書',
+  '年間カレンダー'
+];
+var REQUIRED_DOCS_CO_KOJIN = (function(){
+  try { var s=localStorage.getItem('ofusa_requiredDocsCoKojin'); if(s) return JSON.parse(s); } catch(e) {}
+  return _REQUIRED_DOCS_CO_KOJIN_DEFAULT.slice();
+})();
+function _persistRequiredDocsCoKojin(){
+  try{localStorage.setItem('ofusa_requiredDocsCoKojin',JSON.stringify(REQUIRED_DOCS_CO_KOJIN));}catch(e){}
+  if(typeof DB_READY!=='undefined'&&DB_READY&&typeof _sb!=='undefined')
+    _sb.from('settings').upsert({key:'required_docs_co_kojin',value:JSON.stringify(REQUIRED_DOCS_CO_KOJIN)},{onConflict:'key'}).then(function(){});
+}
+
+var _REQUIRED_DOCS_CO_DEFAULT = [
   '決算文書の写し（損益計算書及び貸借対照表）',
   '登記事項証明書（履歴事項全部証明書）',
   '役員（代表で1名分）の住民票の写し',
@@ -13234,6 +13463,56 @@ var REQUIRED_DOCS_CO = [
   '② 物件の間取り図、賃貸契約書など',
   '③ 予定物件の間取り図、物件資料など'
 ];
+var REQUIRED_DOCS_CO = (function(){
+  try { var s = localStorage.getItem('ofusa_requiredDocsCo'); if(s) return JSON.parse(s); } catch(e) {}
+  return _REQUIRED_DOCS_CO_DEFAULT.slice();
+})();
+function _persistRequiredDocsCo(){
+  try { localStorage.setItem('ofusa_requiredDocsCo', JSON.stringify(REQUIRED_DOCS_CO)); } catch(e) {}
+  if(typeof DB_READY!=='undefined' && DB_READY && typeof _sb!=='undefined')
+    _sb.from('settings').upsert({key:'required_docs_co',value:JSON.stringify(REQUIRED_DOCS_CO)},{onConflict:'key'}).then(function(){});
+}
+// 分野別追加書類（デフォルト）
+var _REQUIRED_DOCS_CO_FIELD_DEFAULT = {
+  '介護': ['介護分野 特定技能評価試験結果（施設）','介護日本語評価試験結果'],
+  '建設': ['建設特定技能受入計画 認定証','CCUS登録確認書類','建設業許可証'],
+  '造船': ['造船・舶用工業分野 特定技能評価試験結果'],
+  '自動車整備': ['自動車整備分野 特定技能評価試験結果','認定自動車整備士資格証（写し）'],
+  '航空': ['航空分野 特定技能評価試験結果'],
+  '宿泊': ['宿泊分野 特定技能評価試験結果'],
+  '農業': ['農業分野 特定技能評価試験結果'],
+  '漁業': ['漁業分野 特定技能評価試験結果'],
+  '飲食料品製造': ['飲食料品製造業分野 特定技能評価試験結果'],
+  '外食': ['外食業分野 特定技能評価試験結果'],
+  'ビルクリーニング': ['ビルクリーニング分野 特定技能評価試験結果'],
+  '素形材': ['素形材・産業機械・電気電子情報産業分野 特定技能評価試験結果'],
+  '林業': ['林業分野 特定技能評価試験結果'],
+  '木材': ['木材産業分野 特定技能評価試験結果']
+};
+var REQUIRED_DOCS_CO_FIELD = (function(){
+  try { var s=localStorage.getItem('ofusa_requiredDocsCoField'); if(s) return JSON.parse(s); } catch(e) {}
+  var r={};
+  Object.keys(_REQUIRED_DOCS_CO_FIELD_DEFAULT).forEach(function(k){ r[k]=_REQUIRED_DOCS_CO_FIELD_DEFAULT[k].slice(); });
+  return r;
+})();
+function _persistRequiredDocsCoField(){
+  try{localStorage.setItem('ofusa_requiredDocsCoField',JSON.stringify(REQUIRED_DOCS_CO_FIELD));}catch(e){}
+  if(typeof DB_READY!=='undefined'&&DB_READY&&typeof _sb!=='undefined')
+    _sb.from('settings').upsert({key:'required_docs_co_field',value:JSON.stringify(REQUIRED_DOCS_CO_FIELD)},{onConflict:'key'}).then(function(){});
+}
+// 所属機関の分野キーを取得（empSetsのapplicantFieldから部分一致）
+function _getCoFieldKeys(co) {
+  var fields = [];
+  (co.empSets||[]).forEach(function(s){ if(s.applicantField) fields.push(s.applicantField); });
+  if (co.applicantField) fields.push(co.applicantField);
+  var matched = [];
+  Object.keys(REQUIRED_DOCS_CO_FIELD).forEach(function(fk){
+    if (fields.some(function(f){ return f.indexOf(fk)!==-1; })) {
+      if (matched.indexOf(fk)===-1) matched.push(fk);
+    }
+  });
+  return matched;
+}
 // docCheck[caseId][docName] = true/false (宣言は上部で実施済み)
 // caseNotes[caseId] = { text:'', confirm:false, assignee:'', reply:'', replied:false } (宣言は上部で実施済み)
 
@@ -14588,8 +14867,8 @@ function showTab(tab) {
         {k:'docCreateDate',l:'書類作成日',type:'date'}
       ]},
       {section:'分野・業務', fields:[
-        {k:'applicantField',l:'申請分野',type:'select',opts:FIELD_LIST,id:'ei-applicantField'},
-        {k:'jobCategory',l:'業務区分',type:'select',opts:'ALL_JOB_CATEGORIES',id:'ei-jobCategory'},
+        {k:'applicantField',l:'申請分野',type:'esReadonly',esKey:'applicantField',id:'ei-applicantField'},
+        {k:'jobCategory',l:'業務区分',type:'esReadonly',esKey:'category',id:'ei-jobCategory'},
         {k:'applicantFieldEn',l:'申請分野（翻訳）',type:'text'},
         {k:'jobCategoryEn',l:'業務区分（翻訳）',type:'text'}
       ]}
@@ -14600,7 +14879,8 @@ function showTab(tab) {
       h += '<div style="background:var(--navy);color:white;padding:8px 14px;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:space-between;">';
       h += '<span>' + sec.section + '</span>';
       if (sec.section === '分野・業務') {
-        h += '<div style="display:flex;align-items:center;gap:4px;">';
+        h += '<div style="display:flex;align-items:center;gap:6px;">';
+        h += '<span style="font-size:10px;color:rgba(255,255,255,.7);font-weight:600;">📋 分野・業務区分は雇用条件セットから自動取得</span>';
         h += '<select id="ei-fieldLang" style="font-size:10px;padding:2px 4px;background:rgba(255,255,255,.15);color:white;border:1px solid rgba(255,255,255,.3);border-radius:4px;cursor:pointer;">';
         h += '<option value="英語">英語</option><option value="インドネシア語">インドネシア語</option><option value="ベトナム語">ベトナム語</option><option value="中国語">中国語</option><option value="タガログ語">タガログ語</option><option value="ミャンマー語">ミャンマー語</option><option value="タイ語">タイ語</option><option value="クメール語">クメール語</option><option value="ネパール語">ネパール語</option><option value="モンゴル語">モンゴル語</option>';
         h += '</select>';
@@ -14614,17 +14894,29 @@ function showTab(tab) {
         var borderR = fi % 2 === 0 ? 'border-right:1px solid var(--gray-100);' : '';
         var skipScope = 'case_'+c.id+'_info';
         var skipped = isFieldSkipped(skipScope, f.k);
-        var empty = !val && f.type !== 'readonly';
+        var empty = !val && f.type !== 'readonly' && f.type !== 'esReadonly';
         var isCsvField = CSV_INFO_KEYS[f.k];
         var bgColor = skipped ? '#f3f4f6' : (empty ? (isCsvField?'#fef2f2':'#fffbeb') : 'transparent');
         h += '<div style="padding:10px 14px;border-bottom:1px solid var(--gray-100);' + borderR + 'background:'+bgColor+';position:relative;'+(empty&&isCsvField&&!skipped?'border-left:3px solid #fca5a5;':'')+'">';
         h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">';
         h += '<div style="font-size:10px;font-weight:700;color:'+(skipped?'var(--gray-300)':'var(--gray-400)')+';">'+(isCsvField&&!skipped?'<span style="color:#ef4444;">🌐</span> ':'')+(skipped?'<s>'+f.l+'</s>':f.l)+'</div>';
-        if (f.type !== 'readonly') h += '<button onclick="toggleSkipField(\''+skipScope+'\',\''+f.k+'\');showTab(\'info\')" style="font-size:9px;padding:1px 5px;border-radius:3px;border:1px solid '+(skipped?'#f59e0b':'var(--gray-200)')+';background:'+(skipped?'#fef3c7':'white')+';color:'+(skipped?'#b45309':'var(--gray-400)')+';cursor:pointer;font-weight:600;">'+(skipped?'✓ 不要':'不要')+'</button>';
+        if (f.type !== 'readonly' && f.type !== 'esReadonly') h += '<button onclick="toggleSkipField(\''+skipScope+'\',\''+f.k+'\');showTab(\'info\')" style="font-size:9px;padding:1px 5px;border-radius:3px;border:1px solid '+(skipped?'#f59e0b':'var(--gray-200)')+';background:'+(skipped?'#fef3c7':'white')+';color:'+(skipped?'#b45309':'var(--gray-400)')+';cursor:pointer;font-weight:600;">'+(skipped?'✓ 不要':'不要')+'</button>';
         h += '</div>';
         if (skipped) { h += '<div style="font-size:11px;color:var(--gray-300);padding:4px 0;">—</div>'; }
         else if (f.type === 'readonly') {
           h += '<div style="font-size:13px;font-weight:700;color:var(--navy);padding:4px 0;">' + val + '</div>';
+        } else if (f.type === 'esReadonly') {
+          // 雇用条件セットから自動取得（読み取り専用）
+          var _selCo2 = c.company ? companies.find(function(x){ return x.name===c.company; }) : null;
+          var _empSets2 = (_selCo2 && _selCo2.empSets) ? _selCo2.empSets : [];
+          var _empIdx2 = c.empSetIdx != null ? parseInt(c.empSetIdx,10) : 0;
+          var _es2 = _empSets2[_empIdx2] || {};
+          var _esVal = _es2[f.esKey] || _es2['field'] || '';
+          // fallback: applicantField → c.applicantField, category → c.jobCategory
+          if(!_esVal && f.k==='applicantField') _esVal = c.applicantField||'';
+          if(!_esVal && f.k==='jobCategory') _esVal = c.jobCategory||'';
+          h += '<div id="' + f.id + '" style="font-size:13px;font-weight:700;color:' + (_esVal?'var(--navy)':'var(--gray-300)') + ';padding:4px 0;">' + (_esVal||'—') + '</div>';
+          if(!_esVal) h += '<div style="font-size:10px;color:var(--gray-400);margin-top:2px;">雇用条件セットから自動取得</div>';
         } else if (f.type === 'select') {
           h += '<select id="' + (f.id||'ei-'+f.k) + '" onchange="autoSaveInfo(\''+f.k+'\',this.value)" style="width:100%;font-size:13px;font-weight:700;color:var(--navy);padding:5px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;cursor:pointer;outline:none;">';
           h += '<option value="">— 選択 —</option>';
@@ -15240,14 +15532,34 @@ function renderDocsTab(cas) {
   else if (appType.indexOf('変更') !== -1) listKey = '変更';
   else if (appType.indexOf('認定') !== -1) listKey = '認定';
 
-  var docList = listKey ? REQUIRED_DOCS[listKey] : null;
+  var _baseDocList = listKey ? REQUIRED_DOCS[listKey] : null;
+  // 留学生追加書類
+  var _pd_nat = personData[cas.id] || {};
+  var _prevStatus = _pd_nat.residenceStatus || cas.residenceStatus || '';
+  var _isRyugaku = _prevStatus.indexOf('留学') !== -1;
+  var _natRaw = _pd_nat.nationality || cas.nationality || '';
+  // 国籍マッチ（ベトナム・ミャンマー・カンボジア）
+  var _natKey = null;
+  Object.keys(REQUIRED_DOCS_NATIONALITY).forEach(function(k){ if(_natRaw.indexOf(k)!==-1) _natKey=k; });
+  var _extraRyugaku = (_isRyugaku && listKey) ? (REQUIRED_DOCS_RYUGAKU[listKey]||[]) : [];
+  var _extraNat = (_natKey && listKey) ? ((REQUIRED_DOCS_NATIONALITY[_natKey]||{})[listKey]||[]) : [];
+  // 重複除去して結合
+  var docList = null;
+  if (_baseDocList) {
+    var _seen = {};
+    docList = [];
+    _baseDocList.concat(_extraRyugaku).concat(_extraNat).forEach(function(d){ if(!_seen[d]){_seen[d]=1;docList.push(d);} });
+  }
   if (!docCheck[cas.id] || typeof docCheck[cas.id] !== 'object') docCheck[cas.id] = {};
 
   var h = '';
 
   // ヘッダー：申請種別 + ドライブボタン
   h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">';
-  h += '<div style="font-size:12px;color:var(--gray-400);font-weight:700;">申請種別：<span style="color:var(--navy);">' + (appType||'未設定') + '</span>' + (listKey ? '　→　<b>' + listKey + '</b>用リスト' : '　（リスト未定義）') + '</div>';
+  var _badgeHtml = '';
+  if(_isRyugaku && _extraRyugaku.length) _badgeHtml += '<span style="margin-left:6px;font-size:10px;background:#fef3c7;color:#d97706;border-radius:99px;padding:1px 7px;font-weight:700;">＋留学生'+_extraRyugaku.length+'件</span>';
+  if(_natKey && _extraNat.length) _badgeHtml += '<span style="margin-left:4px;font-size:10px;background:#ede9fe;color:#7c3aed;border-radius:99px;padding:1px 7px;font-weight:700;">＋'+_natKey+_extraNat.length+'件</span>';
+  h += '<div style="font-size:12px;color:var(--gray-400);font-weight:700;">申請種別：<span style="color:var(--navy);">' + (appType||'未設定') + '</span>' + (listKey ? '　→　<b>' + listKey + '</b>用リスト' : '　（リスト未定義）') + _badgeHtml + '</div>';
   var pd_d = personData[cas.id] || {};
   var pDriveUrls = [];
   if (pd_d.driveUrl) pDriveUrls.push({label:'フォルダ①', url:pd_d.driveUrl});
@@ -15282,6 +15594,7 @@ function renderDocsTab(cas) {
   }
   // テキスト生成ボタン
   h += '<button onclick="openDocTextGenerator(\'' + cas.id + '\')" style="padding:8px 16px;background:#059669;color:white;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">📝 テキスト生成</button>';
+  if (listKey) h += '<button onclick="openRequiredDocsEditor(\'' + listKey + '\')" style="padding:8px 16px;background:#f5f3ff;color:#7c3aed;border:1.5px solid #c4b5fd;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">✏️ リスト編集</button>';
   h += '</div>';
 
   // Driveスキャン結果表示エリア
@@ -15318,25 +15631,49 @@ function renderDocsTab(cas) {
       var staffKey = 'staff::' + docName;
       var dateKey = 'date::' + docName;
       var skipKey = 'skip::' + docName;
+      var reqKey = 'req::' + docName;
       var dc = docCheck[cas.id];
       var aiChecked = !!dc[aiKey];
       var staffChecked = !!dc[staffKey];
       var dateVal = dc[dateKey] || '';
+      var reqDate = dc[reqKey] || '';
       var skipped = !!dc[skipKey];
       var bothDone = !skipped && staffChecked;
-      var borderColor = skipped ? '#e5e7eb' : bothDone ? '#bbf7d0' : (aiChecked || staffChecked) ? '#bfdbfe' : 'var(--gray-200)';
-      var bgColor = skipped ? '#f9fafb' : bothDone ? '#f0fdf4' : 'white';
+
+      // 依頼日アラート計算（1週間=注意、2週間=警報）
+      var reqDateMs = reqDate ? new Date(reqDate).getTime() : 0;
+      var daysDiff = reqDateMs ? Math.floor((Date.now() - reqDateMs) / 86400000) : -1;
+      var isAlert  = !skipped && !bothDone && daysDiff >= 7 && daysDiff < 14;  // 1週間以上
+      var isWarn   = !skipped && !bothDone && daysDiff >= 14;                   // 2週間以上
+
+      var borderColor = skipped ? '#e5e7eb' : bothDone ? '#bbf7d0' : isWarn ? '#fca5a5' : isAlert ? '#fcd34d' : (aiChecked || staffChecked) ? '#bfdbfe' : 'var(--gray-200)';
+      var bgColor     = skipped ? '#f9fafb' : bothDone ? '#f0fdf4' : isWarn ? '#fff1f2' : isAlert ? '#fffbeb' : 'white';
 
       h += '<div style="background:'+bgColor+';border:1.5px solid '+borderColor+';border-radius:10px;margin-bottom:5px;padding:7px 10px;">';
       h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">';
       if (skipped) {
         h += '<div style="width:20px;height:20px;border-radius:50%;background:#d1d5db;display:flex;align-items:center;justify-content:center;font-size:10px;color:white;flex-shrink:0;">—</div>';
       } else {
-        h += '<div style="width:20px;height:20px;border-radius:50%;background:' + (bothDone ? 'var(--green)' : 'var(--gray-200)') + ';display:flex;align-items:center;justify-content:center;font-size:11px;color:white;flex-shrink:0;">' + (bothDone ? '✓' : '') + '</div>';
+        var circBg = bothDone ? 'var(--green)' : isWarn ? '#ef4444' : isAlert ? '#f59e0b' : 'var(--gray-200)';
+        var circTxt = bothDone ? '✓' : isWarn ? '!' : isAlert ? '!' : '';
+        h += '<div style="width:20px;height:20px;border-radius:50%;background:'+circBg+';display:flex;align-items:center;justify-content:center;font-size:11px;color:white;flex-shrink:0;">'+circTxt+'</div>';
       }
       var escDoc = docName.replace(/'/g, "\\'");
-      h += '<span style="flex:1;font-size:11px;font-weight:600;min-width:80px;' + (skipped ? 'text-decoration:line-through;color:#9ca3af;' : bothDone ? 'color:var(--gray-400);' : '') + '">' + docName + '</span>';
-      h += '<input type="date" value="' + dateVal + '" onchange="setDocDate2(\'' + cas.id + '\',\'' + escDoc + '\',this.value)" style="width:105px;padding:2px 3px;border:1px solid #d1d5db;border-radius:4px;font-size:10px;' + (skipped ? 'opacity:0.4;' : '') + '" title="取得日">';
+      var alertBadge = isWarn ? ' <span style="font-size:9px;background:#fee2e2;color:#dc2626;border-radius:3px;padding:0 4px;">🚨 依頼から'+daysDiff+'日</span>'
+                     : isAlert ? ' <span style="font-size:9px;background:#fef3c7;color:#d97706;border-radius:3px;padding:0 4px;">⚠️ 依頼から'+daysDiff+'日</span>' : '';
+      h += '<span style="flex:1;font-size:11px;font-weight:600;min-width:80px;' + (skipped ? 'text-decoration:line-through;color:#9ca3af;' : bothDone ? 'color:var(--gray-400);' : isWarn ? 'color:#dc2626;' : isAlert ? 'color:#d97706;' : '') + '">' + docName + alertBadge + '</span>';
+
+      h += '<div style="display:flex;flex-direction:column;gap:2px;flex-shrink:0;">';
+      h += '<div style="display:flex;align-items:center;gap:3px;">';
+      h += '<span style="font-size:9px;color:#9ca3af;white-space:nowrap;">依頼日</span>';
+      h += '<input type="date" value="' + reqDate + '" onchange="setPersonDocReqDate(\'' + cas.id + '\',\'' + escDoc + '\',this.value)" style="width:110px;padding:2px 3px;border:1px solid ' + (isWarn ? '#fca5a5' : isAlert ? '#fcd34d' : '#d1d5db') + ';border-radius:4px;font-size:10px;background:' + (isWarn ? '#fff1f2' : isAlert ? '#fffbeb' : 'white') + ';' + (skipped ? 'opacity:0.4;' : '') + '" title="書類依頼日">';
+      h += '</div>';
+      h += '<div style="display:flex;align-items:center;gap:3px;">';
+      h += '<span style="font-size:9px;color:#9ca3af;white-space:nowrap;">取得日</span>';
+      h += '<input type="date" value="' + dateVal + '" onchange="setDocDate2(\'' + cas.id + '\',\'' + escDoc + '\',this.value)" style="width:110px;padding:2px 3px;border:1px solid #d1d5db;border-radius:4px;font-size:10px;' + (skipped ? 'opacity:0.4;' : '') + '" title="書類取得日">';
+      h += '</div>';
+      h += '</div>';
+
       h += '<button onclick="event.stopPropagation();toggleDocSkip(\'' + cas.id + '\',\'' + escDoc + '\')" style="padding:2px 6px;border-radius:5px;font-size:9px;font-weight:700;border:1.5px solid ' + (skipped ? '#f97316' : '#e5e7eb') + ';background:' + (skipped ? '#fff7ed' : 'white') + ';color:' + (skipped ? '#ea580c' : '#9ca3af') + ';cursor:pointer;" title="不要">不要</button>';
       h += '<button onclick="event.stopPropagation();toggleDocCheck2(\'' + cas.id + '\',\'' + aiKey.replace(/'/g, "\\'") + '\')" style="padding:2px 7px;border-radius:5px;font-size:10px;font-weight:700;border:1.5px solid ' + (aiChecked ? '#10b981' : '#d1d5db') + ';background:' + (aiChecked ? '#d1fae5' : 'white') + ';color:' + (aiChecked ? '#047857' : '#6b7280') + ';cursor:pointer;' + (skipped ? 'opacity:0.4;' : '') + '">🤖' + (aiChecked ? '✓' : '') + '</button>';
       h += '<button onclick="event.stopPropagation();toggleDocCheck2(\'' + cas.id + '\',\'' + staffKey.replace(/'/g, "\\'") + '\')" style="padding:2px 7px;border-radius:5px;font-size:10px;font-weight:700;border:1.5px solid ' + (staffChecked ? '#10b981' : '#d1d5db') + ';background:' + (staffChecked ? '#d1fae5' : 'white') + ';color:' + (staffChecked ? '#047857' : '#6b7280') + ';cursor:pointer;' + (skipped ? 'opacity:0.4;' : '') + '">👤' + (staffChecked ? '✓' : '') + '</button>';
@@ -15364,32 +15701,8 @@ function renderLineTab(c) {
   if (!el) return;
   var h = '<div style="padding:10px 0;">';
 
-  // === ヘッダ: グループID入力 + 状態 ===
-  h += '<div style="background:#06b6d4;color:white;border-radius:12px;padding:16px;margin-bottom:16px;">';
-  h += '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">';
-  h += '<div style="display:flex;align-items:center;gap:10px;flex:1;min-width:200px;">';
-  h += '<span style="font-size:28px;">📱</span>';
-  h += '<div style="flex:1;">';
-  h += '<div style="font-size:16px;font-weight:800;margin-bottom:6px;">LINE グループ</div>';
-  // グループID選択欄（一覧から選択 + 手動入力）
-  h += '<div style="display:flex;gap:6px;align-items:center;">';
-  h += '<select id="lineGidSelect_'+c.id+'" onchange="var v=this.value;document.getElementById(\'lineGidInput_'+c.id+'\').value=v;" style="flex:1;padding:6px 10px;border:none;border-radius:6px;font-size:12px;color:#333;outline:none;min-width:0;">';
-  h += '<option value="">— グループを選択 —</option>';
-  if(window._lineGroups){window._lineGroups.forEach(function(g){h+='<option value="'+g.id+'"'+(g.id===gid?' selected':'')+'>'+getLineGroupDisplayName(g)+(g.label&&(g.name&&g.name!=='グループ')?' ('+g.label+')':'')+'</option>';});}
-  if(gid && (!window._lineGroups || !window._lineGroups.find(function(g){return g.id===gid;}))){h+='<option value="'+gid+'" selected>'+gid+'</option>';}
-  h += '</select>';
+  // グループID（非表示・内部利用のみ）
   h += '<input id="lineGidInput_'+c.id+'" type="hidden" value="'+gid+'">';
-  h += '<button onclick="saveLineGroupId(\''+c.id+'\')" style="padding:6px 12px;background:rgba(255,255,255,0.25);color:white;border:1px solid rgba(255,255,255,0.5);border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">保存</button>';
-  h += '</div>';
-  if (gid) {
-    h += '<div id="lineTabGroupName_' + c.id + '" style="font-size:12px;font-weight:700;margin-top:4px;">🔍 グループ名取得中...</div>';
-  }
-  h += '</div></div>';
-  // LINEアプリで開くボタン
-  if (gid) {
-    h += '<a href="https://line.me/R/ti/g/' + gid + '" target="_blank" style="padding:10px 16px;background:white;color:#06b6d4;border-radius:10px;font-size:13px;font-weight:700;text-decoration:none;white-space:nowrap;">LINEで開く ↗</a>';
-  }
-  h += '</div></div>';
 
   // === クイック送信 ===
   h += '<div style="margin-bottom:16px;">';
@@ -15421,31 +15734,7 @@ function renderLineTab(c) {
   });
   h += '</div></div>';
 
-  // === 送信履歴 ===
-  h += '<div>';
-  h += '<div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid var(--navy);">📜 送信履歴</div>';
-  var hist = lineSentHistory[c.id] || [];
-  if (hist.length === 0) {
-    h += '<div style="text-align:center;padding:30px;color:var(--gray-400);font-size:13px;">送信履歴はありません</div>';
-  } else {
-    h += '<div style="max-height:400px;overflow-y:auto;">';
-    // 新しい順に表示
-    for (var hi = hist.length - 1; hi >= 0; hi--) {
-      var item = hist[hi];
-      var dt = item.time ? new Date(item.time) : null;
-      var timeStr = dt ? (dt.getMonth()+1)+'/'+(dt.getDate())+' '+(dt.getHours())+':'+(('0'+dt.getMinutes()).slice(-2)) : '';
-      var isFile = item.type === 'file';
-      h += '<div style="background:white;border:1.5px solid var(--gray-200);border-radius:10px;padding:12px;margin-bottom:8px;">';
-      h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
-      h += '<span style="font-size:10px;color:var(--gray-400);">' + timeStr + '</span>';
-      h += '<span style="font-size:9px;padding:2px 6px;border-radius:4px;background:'+(item.ok?'#dcfce7':'#fee2e2')+';color:'+(item.ok?'#16a34a':'#dc2626')+';font-weight:700;">'+(item.ok?'✅ 送信済':'❌ 失敗')+'</span>';
-      h += '</div>';
-      h += '<div style="font-size:12px;color:var(--navy);white-space:pre-wrap;word-break:break-all;max-height:100px;overflow-y:auto;">' + (isFile ? '📁 ' : '💬 ') + esc(item.msg||'').substring(0,200) + '</div>';
-      h += '</div>';
-    }
-    h += '</div>';
-  }
-  h += '</div></div>';
+  h += '</div>';
 
   // === LINEグループ一覧 ===
   h += '<div style="margin-top:16px;">';
@@ -15859,16 +16148,153 @@ function scanDriveDocuments(caseId) {
   });
 }
 
+function showCaseDetail(caseId, tab) {
+  var cas = cData.find(function(c){return c.id===caseId;});
+  if (!cas) return;
+  currentCase = cas;
+  showCaseDetailModal(cas);
+  if (tab) setTimeout(function(){ showTab(tab); }, 150);
+}
+
+function setPersonDocReqDate(caseId, docName, val) {
+  if (!docCheck[caseId]) docCheck[caseId] = {};
+  docCheck[caseId]['req::' + docName] = val;
+  persistDocCheck();
+  setTimeout(updatePersonDocAlertBadge, 100);
+}
+
+// ===== 人材 書類回収アラート =====
+function _getPersonDocAlerts() {
+  var alerts = [];
+  var today = Date.now();
+  cData.forEach(function(cas) {
+    var dc = docCheck[cas.id] || {};
+    var appType = cas.appType || '';
+    var listKey = appType.indexOf('更新')!==-1?'更新':appType.indexOf('変更')!==-1?'変更':appType.indexOf('認定')!==-1?'認定':null;
+    if (!listKey) return;
+    var _pd = personData[cas.id] || {};
+    var _prevStatus = _pd.residenceStatus || cas.residenceStatus || '';
+    var _natRaw = _pd.nationality || cas.nationality || '';
+    var _isRyugaku = _prevStatus.indexOf('留学') !== -1;
+    var _natKey = null;
+    Object.keys(REQUIRED_DOCS_NATIONALITY).forEach(function(k){ if(_natRaw.indexOf(k)!==-1) _natKey=k; });
+    var _seen = {}; var docList = [];
+    (REQUIRED_DOCS[listKey]||[]).forEach(function(d){ if(!_seen[d]){_seen[d]=1;docList.push(d);} });
+    if (_isRyugaku) (REQUIRED_DOCS_RYUGAKU[listKey]||[]).forEach(function(d){ if(!_seen[d]){_seen[d]=1;docList.push(d);} });
+    if (_natKey) ((REQUIRED_DOCS_NATIONALITY[_natKey]||{})[listKey]||[]).forEach(function(d){ if(!_seen[d]){_seen[d]=1;docList.push(d);} });
+    docList.forEach(function(docName) {
+      if (dc['skip::'+docName]) return;
+      if (dc['staff::'+docName]) return;
+      var reqDate = dc['req::'+docName];
+      if (!reqDate) return;
+      var daysDiff = Math.floor((today - new Date(reqDate).getTime()) / 86400000);
+      if (daysDiff >= 7) {
+        alerts.push({ cas: cas, docName: docName, daysDiff: daysDiff, reqDate: reqDate, isWarn: daysDiff >= 14 });
+      }
+    });
+  });
+  alerts.sort(function(a,b){ return b.daysDiff - a.daysDiff; });
+  return alerts;
+}
+
+function updatePersonDocAlertBadge() {
+  var alerts = _getPersonDocAlerts();
+  var btn = document.getElementById('personDocAlertBtn');
+  var cnt = document.getElementById('personDocAlertCount');
+  if (!btn) return;
+  if (alerts.length > 0) {
+    btn.style.display = '';
+    if (cnt) cnt.textContent = alerts.length;
+    // 警報（2週間以上）があれば赤、注意のみなら黄
+    var hasWarn = alerts.some(function(a){ return a.isWarn; });
+    btn.style.background = hasWarn ? '#fee2e2' : '#fffbeb';
+    btn.style.color = hasWarn ? '#dc2626' : '#d97706';
+    btn.style.borderColor = hasWarn ? '#fca5a5' : '#fcd34d';
+    if (cnt) { cnt.style.background = hasWarn ? '#dc2626' : '#d97706'; }
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+function showPersonDocAlertModal() {
+  var alerts = _getPersonDocAlerts();
+  var modal = document.getElementById('personDocAlertModal');
+  if (modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'personDocAlertModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
+  var h = '<div style="background:white;border-radius:14px;width:100%;max-width:560px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;">';
+  h += '<div style="padding:14px 16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">';
+  h += '<div><div style="font-size:14px;font-weight:800;color:#dc2626;">📋 書類回収アラート（人材）</div>';
+  h += '<div style="font-size:11px;color:#6b7280;margin-top:2px;"><span style="color:#d97706;font-weight:700;">⚠️ 1週間以上</span>　<span style="color:#dc2626;font-weight:700;">🚨 2週間以上</span></div></div>';
+  h += '<button onclick="document.getElementById(\'personDocAlertModal\').remove()" style="padding:5px 14px;background:white;color:#6b7280;border:1px solid #e5e7eb;border-radius:7px;font-size:12px;cursor:pointer;">閉じる</button>';
+  h += '</div>';
+  h += '<div style="flex:1;overflow-y:auto;padding:12px;">';
+  if (!alerts.length) {
+    h += '<div style="text-align:center;padding:30px;color:#9ca3af;font-size:13px;">アラートはありません 🎉</div>';
+  } else {
+    var casMap = {};
+    alerts.forEach(function(a){
+      var cid = a.cas.id;
+      if (!casMap[cid]) casMap[cid] = { cas: a.cas, items: [] };
+      casMap[cid].items.push(a);
+    });
+    Object.keys(casMap).forEach(function(cid) {
+      var group = casMap[cid];
+      var hasWarn = group.items.some(function(i){ return i.isWarn; });
+      h += '<div style="margin-bottom:12px;border:1.5px solid '+(hasWarn?'#fca5a5':'#fcd34d')+';border-radius:10px;overflow:hidden;">';
+      h += '<div style="background:'+(hasWarn?'#fee2e2':'#fffbeb')+';padding:8px 12px;display:flex;align-items:center;justify-content:space-between;">';
+      h += '<div>';
+      h += '<div style="font-size:12px;font-weight:800;color:'+(hasWarn?'#991b1b':'#92400e')+';">👤 '+esc(group.cas.applicant||'')+'</div>';
+      h += '<div style="font-size:10px;color:#6b7280;">'+esc(group.cas.appType||'')+'</div>';
+      h += '</div>';
+      h += '<button onclick="document.getElementById(\'personDocAlertModal\').remove();showCaseDetail(\''+cid+'\',\'docs\')" style="font-size:10px;padding:2px 10px;background:'+(hasWarn?'#dc2626':'#d97706')+';color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;">書類チェックへ</button>';
+      h += '</div>';
+      group.items.forEach(function(item) {
+        h += '<div style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-top:1px solid '+(item.isWarn?'#fecaca':'#fef08a')+'">';
+        h += '<span style="font-size:18px;">'+(item.isWarn?'🚨':'⚠️')+'</span>';
+        h += '<div style="flex:1;">';
+        h += '<div style="font-size:12px;font-weight:700;color:#1f2937;">'+esc(item.docName)+'</div>';
+        h += '<div style="font-size:10px;color:#6b7280;">依頼日: '+item.reqDate+'</div>';
+        h += '</div>';
+        h += '<span style="font-size:11px;font-weight:800;color:'+(item.isWarn?'#dc2626':'#d97706')+';background:'+(item.isWarn?'#fee2e2':'#fef3c7')+';padding:2px 8px;border-radius:99px;">'+item.daysDiff+'日経過</span>';
+        h += '</div>';
+      });
+      h += '</div>';
+    });
+  }
+  h += '</div></div>';
+  modal.innerHTML = h;
+  document.body.appendChild(modal);
+}
+
 // ===== AIファイルリネーム =====
-var RENAME_CATEGORIES = [
-  '顔写真','在留カード表','在留カード裏','パスポート',
-  '履歴書','健康診断票','技能試験合格証','日本語試験合格証',
-  '雇用契約書','所得・課税証明書','納税証明書','源泉徴収票',
-  '登記事項証明書','決算報告書','住民票'
-];
-// ユーザーが追加したカテゴリ
-var _extraRenameCategories = JSON.parse(localStorage.getItem('ofusa_renameCats')||'[]');
-function getAllRenameCategories(){ return RENAME_CATEGORIES.concat(_extraRenameCategories); }
+// 案件リネームカテゴリ = 全書類リスト（更新+変更+認定+留学生+国籍別）から重複除去
+function getAllRenameCategories(caseId) {
+  var seen = {};
+  var cats = [];
+  // 全申請種別の書類リストを統合
+  ['更新','変更','認定'].forEach(function(k){
+    (REQUIRED_DOCS[k]||[]).forEach(function(d){ if(!seen[d]){seen[d]=1;cats.push(d);} });
+  });
+  // 留学生追加
+  ['更新','変更','認定'].forEach(function(k){
+    (REQUIRED_DOCS_RYUGAKU[k]||[]).forEach(function(d){ if(!seen[d]){seen[d]=1;cats.push(d);} });
+  });
+  // 国籍別追加
+  Object.keys(REQUIRED_DOCS_NATIONALITY).forEach(function(nat){
+    ['更新','変更','認定'].forEach(function(k){
+      ((REQUIRED_DOCS_NATIONALITY[nat]||{})[k]||[]).forEach(function(d){ if(!seen[d]){seen[d]=1;cats.push(d);} });
+    });
+  });
+  // 旧来の追加カテゴリ（後方互換）
+  var _extra = [];
+  try { _extra = JSON.parse(localStorage.getItem('ofusa_renameCats')||'[]'); } catch(e) {}
+  _extra.forEach(function(d){ if(!seen[d]){seen[d]=1;cats.push(d);} });
+  return cats;
+}
+var _extraRenameCategories = []; // 後方互換用（実体はgetAllRenameCategories内で処理）
 
 function scanAndRenameFiles(caseId){
   var pd = personData[caseId]||{};
@@ -15901,25 +16327,32 @@ function scanAndRenameFiles(caseId){
 function processRenameFiles(caseId, files, el){
   if(!files.length){if(el) el.innerHTML='<div style="padding:12px;text-align:center;color:var(--gray-400);font-size:12px;">ファイルが見つかりません</div>';return;}
   
-  var cats=getAllRenameCategories();
-  // ファイル名キーワードマッチング
-  var kwMap={
-    '顔写真':['顔写真','写真','photo','face','kao'],
-    '在留カード表':['在留カード_表','在留カード表','card_front','zairyu_front','在留カードおもて','在留カード（表）'],
-    '在留カード裏':['在留カード_裏','在留カード裏','card_back','zairyu_back','在留カードうら','在留カード（裏）'],
-    'パスポート':['パスポート','passport','旅券'],
-    '履歴書':['履歴書','resume','cv'],
+  var cats=getAllRenameCategories(caseId);
+  // キーワードマップ: カテゴリ名そのものをキーワードとして使用 + 固定エイリアス
+  var _kwAlias={
+    '顔写真':['写真','photo','face'],
+    '在留カード':['在留カード','zairyu','card'],
+    'パスポート':['passport','旅券'],
     '健康診断票':['健康診断','medical','健診'],
-    '技能試験合格証':['技能試験','技能','skill'],
-    '日本語試験合格証':['日本語','JLPT','NAT','japanese'],
-    '雇用契約書':['雇用契約','employment','契約書'],
+    '合格証（技能）':['技能試験','技能','skill'],
+    '合格証（日本語）':['日本語','JLPT','NAT','japanese'],
     '所得・課税証明書':['所得','課税'],
     '納税証明書':['納税'],
     '源泉徴収票':['源泉'],
     '登記事項証明書':['登記'],
     '決算報告書':['決算'],
-    '住民票':['住民票']
+    '無犯罪証明書':['犯罪','criminal'],
+    '推薦状':['推薦','recommendation'],
+    '卒業証明書':['卒業','graduation'],
+    '成績証明書':['成績','transcript']
   };
+  var kwMap={};
+  cats.forEach(function(cat){
+    var kws=[cat]; // カテゴリ名自体でマッチ
+    // エイリアスを追加
+    Object.keys(_kwAlias).forEach(function(k){ if(cat.indexOf(k)>=0) kws=kws.concat(_kwAlias[k]); });
+    kwMap[cat]=kws;
+  });
 
   var items=files.map(function(f){
     // 既にカテゴリ名がついているか判定
@@ -16296,7 +16729,13 @@ function showScanResults(el, caseId, docList, matchMap, unmatchedImages, unmatch
   rh += '<div style="margin-top:8px;font-size:12px;font-weight:700;color:' + (matchCount === docList.length ? '#16a34a' : '#ea580c') + ';">';
   rh += matchCount === docList.length ? '🎉 全書類検出！' : '⚠️ ' + matchCount + '/' + docList.length + ' 検出（' + (docList.length - matchCount) + '件不足）';
   rh += '</div>';
+  rh += '<div style="margin-top:10px;"><button onclick="scanAndRenameFiles(\'' + caseId + '\')" style="padding:7px 18px;background:#059669;color:white;border:none;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;">📂 AIファイルリネーム</button></div>';
   rh += '</div>';
+  rh += '<div id="renameResult_' + caseId + '" style="margin-top:6px;"></div>';
+
+  // ファイル一覧を保持（リネーム用）
+  window._caseScanFiles = window._caseScanFiles || {};
+  window._caseScanFiles[caseId] = files;
 
   el.innerHTML = rh;
 }
@@ -16566,11 +17005,121 @@ function sendAzukariToLine(caseId) {
 var coDocCheck = (function(){try{return JSON.parse(localStorage.getItem('ofusa_coDocCheck'))||{};}catch(e){return {};}})();
 function persistCoDocCheck(){try{localStorage.setItem('ofusa_coDocCheck',JSON.stringify(coDocCheck));}catch(e){}
   if(DB_READY) { _sb.from('settings').upsert({key:'co_doc_check',value:JSON.stringify(coDocCheck)},{onConflict:'key'}).then(function(r){if(r.error)console.error('coDocCheck sync err:',r.error);}); }
+  setTimeout(updateCoDocAlertBadge, 100);
+}
+
+// ===== 所属機関 書類回収アラート =====
+function _getCoDocAlerts() {
+  // 全所属機関から「未完了かつ依頼日から3日以上経過」の書類を収集
+  var alerts = [];
+  var today = Date.now();
+  companies.forEach(function(co) {
+    var dc = coDocCheck[co.id] || {};
+    var _isKojin = co.corpType === '個人事業主';
+    var _fieldKeys = _getCoFieldKeys(co);
+    var seen = {};
+    var docList = [];
+    (_isKojin ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO).forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} });
+    _fieldKeys.forEach(function(fk){ (REQUIRED_DOCS_CO_FIELD[fk]||[]).forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} }); });
+    docList.forEach(function(docName) {
+      if (dc['skip::'+docName]) return;
+      if (dc['staff::'+docName]) return; // 担当確認済みはスキップ
+      var reqDate = dc['req::'+docName];
+      if (!reqDate) return;
+      var daysDiff = Math.floor((today - new Date(reqDate).getTime()) / 86400000);
+      if (daysDiff >= 3) {
+        alerts.push({ co: co, docName: docName, daysDiff: daysDiff, reqDate: reqDate });
+      }
+    });
+  });
+  // 経過日数が多い順にソート
+  alerts.sort(function(a,b){ return b.daysDiff - a.daysDiff; });
+  return alerts;
+}
+
+function updateCoDocAlertBadge() {
+  var alerts = _getCoDocAlerts();
+  var btn = document.getElementById('coDocAlertBtn');
+  var cnt = document.getElementById('coDocAlertCount');
+  if (!btn) return;
+  if (alerts.length > 0) {
+    btn.style.display = '';
+    if (cnt) cnt.textContent = alerts.length;
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+function showCoDocAlertModal() {
+  var alerts = _getCoDocAlerts();
+  var modal = document.getElementById('coDocAlertModal');
+  if (modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'coDocAlertModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
+  var h = '<div style="background:white;border-radius:14px;width:100%;max-width:560px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;">';
+  h += '<div style="padding:14px 16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">';
+  h += '<div><div style="font-size:14px;font-weight:800;color:#dc2626;">📋 書類回収アラート</div>';
+  h += '<div style="font-size:11px;color:#6b7280;margin-top:2px;">依頼から3日以上経過・未回収の書類</div></div>';
+  h += '<button onclick="document.getElementById(\'coDocAlertModal\').remove()" style="padding:5px 14px;background:white;color:#6b7280;border:1px solid #e5e7eb;border-radius:7px;font-size:12px;cursor:pointer;">閉じる</button>';
+  h += '</div>';
+  h += '<div style="flex:1;overflow-y:auto;padding:12px;">';
+  if (!alerts.length) {
+    h += '<div style="text-align:center;padding:30px;color:#9ca3af;font-size:13px;">アラートはありません 🎉</div>';
+  } else {
+    var coMap = {};
+    alerts.forEach(function(a){
+      var coId = a.co.id;
+      if (!coMap[coId]) coMap[coId] = { co: a.co, items: [] };
+      coMap[coId].items.push(a);
+    });
+    Object.keys(coMap).forEach(function(coId) {
+      var group = coMap[coId];
+      h += '<div style="margin-bottom:12px;border:1.5px solid #fca5a5;border-radius:10px;overflow:hidden;">';
+      h += '<div style="background:#fee2e2;padding:8px 12px;display:flex;align-items:center;justify-content:space-between;">';
+      h += '<div style="font-size:12px;font-weight:800;color:#991b1b;">🏢 ' + esc(group.co.name||'') + '</div>';
+      h += '<button onclick="document.getElementById(\'coDocAlertModal\').remove();openCompanyDetail(\''+coId+'\',\'coDocs\')" style="font-size:10px;padding:2px 10px;background:#dc2626;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;">書類チェックへ</button>';
+      h += '</div>';
+      group.items.forEach(function(item) {
+        var urgentColor = item.daysDiff >= 7 ? '#dc2626' : '#ea580c';
+        h += '<div style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-top:1px solid #fecaca;">';
+        h += '<span style="font-size:18px;">' + (item.daysDiff >= 7 ? '🚨' : '⚠️') + '</span>';
+        h += '<div style="flex:1;">';
+        h += '<div style="font-size:12px;font-weight:700;color:#1f2937;">' + esc(item.docName) + '</div>';
+        h += '<div style="font-size:10px;color:#6b7280;">依頼日: ' + item.reqDate + '</div>';
+        h += '</div>';
+        h += '<span style="font-size:11px;font-weight:800;color:'+urgentColor+';background:'+(item.daysDiff>=7?'#fee2e2':'#fff7ed')+';padding:2px 8px;border-radius:99px;">'+item.daysDiff+'日経過</span>';
+        h += '</div>';
+      });
+      h += '</div>';
+    });
+  }
+  h += '</div></div>';
+  modal.innerHTML = h;
+  document.body.appendChild(modal);
+}
+
+function openCompanyDetail(coId, tab) {
+  var co = companies.find(function(c){return c.id===coId;});
+  if (!co) return;
+  window._selectedCompanyId = coId;
+  window._companyDetailTab = tab || 'detail';
+  showTab('companies');
+  setTimeout(function(){ renderCompanyDetail(co); }, 100);
 }
 
 function renderCoDocsTabHtml(co) {
   var h = '';
-  var docList = REQUIRED_DOCS_CO;
+  // 個人/法人で基本リストを切り替え＋分野別追加書類をマージ
+  var _isKojin = co.corpType === '個人事業主';
+  var _coFieldKeys = _getCoFieldKeys(co);
+  var _seen = {};
+  var docList = [];
+  (_isKojin ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO).forEach(function(d){ if(!_seen[d]){_seen[d]=1;docList.push(d);} });
+  _coFieldKeys.forEach(function(fk){
+    (REQUIRED_DOCS_CO_FIELD[fk]||[]).forEach(function(d){ if(!_seen[d]){_seen[d]=1;docList.push(d);} });
+  });
   if (!coDocCheck[co.id]) coDocCheck[co.id] = {};
 
   // ドライブURL収集
@@ -16578,8 +17127,12 @@ function renderCoDocsTabHtml(co) {
   if (co.driveUrl) driveUrls.push({label:'フォルダ①', url:co.driveUrl});
   if (co.driveUrl2) driveUrls.push({label:'フォルダ②', url:co.driveUrl2});
 
-  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">';
-  h += '<div style="font-size:12px;font-weight:700;color:var(--gray-400);">所属機関書類チェック</div>';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px;">';
+  var _typeBadge = _isKojin ? '<span style="font-size:10px;background:#fef3c7;color:#d97706;border-radius:99px;padding:1px 8px;font-weight:700;">👤 個人事業主</span>' : '<span style="font-size:10px;background:#eff6ff;color:#2563eb;border-radius:99px;padding:1px 8px;font-weight:700;">🏢 法人</span>';
+  var _fieldBadges = '';
+  _coFieldKeys.forEach(function(fk){ var cnt=(REQUIRED_DOCS_CO_FIELD[fk]||[]).length; if(cnt) _fieldBadges+=' <span style="font-size:10px;background:#ede9fe;color:#7c3aed;border-radius:99px;padding:1px 7px;font-weight:700;">＋'+fk+' '+cnt+'件</span>'; });
+  h += '<div style="font-size:12px;font-weight:700;color:var(--gray-400);">所属機関書類チェック '+_typeBadge+_fieldBadges+'</div>';
+  h += '<button onclick="openRequiredDocsCoEditor()" style="font-size:10px;padding:3px 10px;background:#f5f3ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:6px;cursor:pointer;font-weight:700;">✏️ 書類リスト編集</button>';
   if (driveUrls.length > 0) {
     h += '<div style="display:flex;gap:4px;">';
     driveUrls.forEach(function(d, i) {
@@ -16638,14 +17191,7 @@ function renderCoDocsTabHtml(co) {
     var bgColor = skipped ? '#f9fafb' : bothDone ? '#f0fdf4' : 'white';
     var escDoc = docName.replace(/'/g, "\\'");
 
-    h += '<div style="display:flex;align-items:center;gap:6px;padding:7px 10px;background:'+bgColor+';border:1.5px solid '+borderColor+';border-radius:10px;margin-bottom:5px;flex-wrap:wrap;">';
-    if (skipped) {
-      h += '<div style="width:20px;height:20px;border-radius:50%;background:#d1d5db;display:flex;align-items:center;justify-content:center;font-size:10px;color:white;flex-shrink:0;">—</div>';
-    } else {
-      h += '<div style="width:20px;height:20px;border-radius:50%;background:' + (bothDone ? 'var(--green)' : 'var(--gray-200)') + ';display:flex;align-items:center;justify-content:center;font-size:11px;color:white;flex-shrink:0;">' + (bothDone ? '✓' : '') + '</div>';
-    }
-    h += '<span style="flex:1;font-size:11px;font-weight:600;min-width:80px;' + (skipped ? 'text-decoration:line-through;color:#9ca3af;' : bothDone ? 'color:var(--gray-400);' : '') + '">' + docName + '</span>';
-    h += '<input type="date" value="' + docDate + '" onchange="setCoDocDate2(\'' + co.id + '\',\'' + escDoc + '\',this.value)" style="width:105px;padding:2px 3px;border:1px solid #d1d5db;border-radius:4px;font-size:10px;' + (skipped ? 'opacity:0.4;' : '') + '" title="取得日">';
+
     h += '<button onclick="toggleCoDocSkip(\'' + co.id + '\',\'' + escDoc + '\')" style="padding:2px 6px;border-radius:5px;font-size:9px;font-weight:700;border:1.5px solid ' + (skipped ? '#f97316' : '#e5e7eb') + ';background:' + (skipped ? '#fff7ed' : 'white') + ';color:' + (skipped ? '#ea580c' : '#9ca3af') + ';cursor:pointer;" title="不要">不要</button>';
     h += '<button onclick="toggleCoDocCheck(\'' + co.id + '\',\'ai::' + escDoc + '\')" style="padding:2px 7px;border-radius:5px;font-size:10px;font-weight:700;border:1.5px solid ' + (aiChecked ? '#10b981' : '#d1d5db') + ';background:' + (aiChecked ? '#d1fae5' : 'white') + ';color:' + (aiChecked ? '#047857' : '#6b7280') + ';cursor:pointer;' + (skipped ? 'opacity:0.4;' : '') + '">🤖' + (aiChecked ? '✓' : '') + '</button>';
     h += '<button onclick="toggleCoDocCheck(\'' + co.id + '\',\'staff::' + escDoc + '\')" style="padding:2px 7px;border-radius:5px;font-size:10px;font-weight:700;border:1.5px solid ' + (staffChecked ? '#10b981' : '#d1d5db') + ';background:' + (staffChecked ? '#d1fae5' : 'white') + ';color:' + (staffChecked ? '#047857' : '#6b7280') + ';cursor:pointer;' + (skipped ? 'opacity:0.4;' : '') + '">👤' + (staffChecked ? '✓' : '') + '</button>';
@@ -16663,6 +17209,14 @@ function toggleCoDocCheck(coId, fullKey) {
   if (co) renderCompanyDetail(co);
 }
 
+function setCoDocReqDate(coId, docName, val) {
+  if (!coDocCheck[coId]) coDocCheck[coId] = {};
+  coDocCheck[coId]['req::' + docName] = val;
+  persistCoDocCheck();
+  // アラートバッジ更新
+  updateCoDocAlertBadge();
+}
+
 function setCoDocDate2(coId, docName, val) {
   if (!coDocCheck[coId]) coDocCheck[coId] = {};
   coDocCheck[coId]['date::' + docName] = val;
@@ -16676,6 +17230,328 @@ function toggleCoDocSkip(coId, docName) {
   persistCoDocCheck();
   var co = companies.find(function(c){return c.id===coId;});
   if (co) renderCompanyDetail(co);
+}
+
+// ===== 案件必要書類リスト編集 =====
+function openRequiredDocsEditor(listKey) {
+  var modal = document.getElementById('reqDocsModal');
+  if (modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'reqDocsModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.onclick = function(e){ if(e.target===modal) _saveReqDocsAndClose(listKey); };
+  var inner = document.createElement('div');
+  inner.style.cssText = 'background:white;border-radius:14px;width:100%;max-width:480px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;';
+  modal.appendChild(inner);
+  document.body.appendChild(modal);
+  window._reqDocsEditKey = listKey;
+  _renderReqDocsModal(inner, listKey);
+}
+
+function _renderReqDocsModal(inner, listKey, mode, natKey) {
+  mode = mode || 'base';
+  var docs;
+  if (mode === 'ryugaku') docs = REQUIRED_DOCS_RYUGAKU[listKey] || [];
+  else if (mode === 'nat' && natKey) docs = (REQUIRED_DOCS_NATIONALITY[natKey]||{})[listKey] || [];
+  else docs = REQUIRED_DOCS[listKey] || [];
+  window._reqDocsEditMode = mode;
+  window._reqDocsEditNatKey = natKey || null;
+  var h = '';
+  h += '<div style="padding:14px 16px;border-bottom:1px solid #e5e7eb;">';
+  // 申請種別タブ
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
+  h += '<div style="font-size:14px;font-weight:800;">📋 必要書類リスト編集</div>';
+  h += '<div style="display:flex;gap:4px;">';
+  ['更新','変更','認定'].forEach(function(k){
+    var active = k===listKey;
+    h += '<button onclick="window._reqDocsEditKey=\''+k+'\';var _m=document.querySelector(\'#reqDocsModal>div\');if(_m)_renderReqDocsModal(_m,\''+k+'\',window._reqDocsEditMode,window._reqDocsEditNatKey)" style="font-size:10px;padding:3px 8px;border-radius:5px;border:1px solid '+(active?'#7c3aed':'#e5e7eb')+';background:'+(active?'#7c3aed':'white')+';color:'+(active?'white':'#6b7280')+';cursor:pointer;font-weight:700;">'+k+'</button>';
+  });
+  h += '</div></div>';
+  // カテゴリタブ（基本 / 留学生追加 / 国籍別追加）
+  h += '<div style="display:flex;gap:4px;flex-wrap:wrap;">';
+  h += '<button onclick="var _m=document.querySelector(\'#reqDocsModal>div\');if(_m)_renderReqDocsModal(_m,window._reqDocsEditKey,\'base\')" style="font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid '+(mode==='base'?'#2563eb':'#e5e7eb')+';background:'+(mode==='base'?'#2563eb':'white')+';color:'+(mode==='base'?'white':'#6b7280')+';cursor:pointer;font-weight:700;">📋 基本</button>';
+  h += '<button onclick="var _m=document.querySelector(\'#reqDocsModal>div\');if(_m)_renderReqDocsModal(_m,window._reqDocsEditKey,\'ryugaku\')" style="font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid '+(mode==='ryugaku'?'#d97706':'#e5e7eb')+';background:'+(mode==='ryugaku'?'#fef3c7':'white')+';color:'+(mode==='ryugaku'?'#d97706':'#6b7280')+';cursor:pointer;font-weight:700;">🎓 留学生追加</button>';
+  getExtraNatKeys().forEach(function(nk){
+    var isActive = mode==='nat' && natKey===nk;
+    h += '<button onclick="var _m=document.querySelector(\'#reqDocsModal>div\');if(_m)_renderReqDocsModal(_m,window._reqDocsEditKey,\'nat\',\''+nk+'\')" style="font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid '+(isActive?'#7c3aed':'#e5e7eb')+';background:'+(isActive?'#ede9fe':'white')+';color:'+(isActive?'#7c3aed':'#6b7280')+';cursor:pointer;font-weight:700;">🌏 '+nk+'追加</button>';
+  });
+  // 国籍追加ボタン
+  h += '<button onclick="_addNatKeyPrompt()" style="font-size:10px;padding:3px 8px;border-radius:5px;border:1px solid #e5e7eb;background:white;color:#6b7280;cursor:pointer;">＋ 国籍追加</button>';
+  h += '</div>';
+  h += '</div>';
+  h += '<div style="font-size:10px;color:#6b7280;padding:8px 16px;">☰ ドラッグで並び替え　クリックで名前編集　✕ で削除</div>';
+  h += '<div id="reqDocSortList" style="flex:1;overflow-y:auto;padding:8px 12px;">';
+  docs.forEach(function(doc, i) {
+    h += '<div class="req-doc-item" draggable="true" style="display:flex;align-items:center;gap:6px;padding:5px 6px;border:1px solid #e5e7eb;border-radius:7px;margin-bottom:4px;background:white;cursor:grab;user-select:none;">';
+    h += '<span style="color:#9ca3af;font-size:14px;flex-shrink:0;">☰</span>';
+    h += '<input type="text" value="' + esc(doc) + '" style="flex:1;border:none;outline:none;font-size:12px;font-weight:600;background:transparent;padding:2px 4px;">';
+    h += '<button onclick="this.closest(\'req-doc-item\');this.parentElement.remove()" style="flex-shrink:0;padding:1px 7px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;">✕</button>';
+    h += '</div>';
+  });
+  h += '</div>';
+  h += '<div style="padding:10px 12px;border-top:1px solid #e5e7eb;display:flex;gap:6px;">';
+  h += '<input id="reqDocNewInput" type="text" placeholder="新しい書類名を入力..." style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:12px;">';
+  h += '<button onclick="_addReqDocItem()" style="padding:7px 14px;background:#7c3aed;color:white;border:none;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;">＋ 追加</button>';
+  h += '</div>';
+  h += '<div style="padding:6px 12px 10px;display:flex;justify-content:space-between;">';
+  h += '<button onclick="_resetReqDocs()" style="font-size:10px;padding:4px 10px;background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">🔄 デフォルトに戻す</button>';
+  h += '<button onclick="_saveReqDocsAndClose(window._reqDocsEditKey)" style="padding:6px 16px;background:#7c3aed;color:white;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;">💾 保存して閉じる</button>';
+  h += '</div>';
+  inner.innerHTML = h;
+
+  // ドラッグ&ドロップ
+  var list = inner.querySelector('#reqDocSortList');
+  var dragging = null;
+  function bindDrag(row) {
+    row.addEventListener('dragstart', function(e){ dragging=row; row.style.opacity='0.4'; e.dataTransfer.effectAllowed='move'; });
+    row.addEventListener('dragend', function(){ row.style.opacity='1'; dragging=null; list.querySelectorAll('.req-doc-item').forEach(function(r){r.style.background='white';}); });
+    row.addEventListener('dragover', function(e){ e.preventDefault(); if(dragging&&dragging!==row){ row.style.background='#f5f3ff'; var rect=row.getBoundingClientRect(); if(e.clientY<rect.top+rect.height/2) list.insertBefore(dragging,row); else list.insertBefore(dragging,row.nextSibling); } });
+    row.addEventListener('dragleave', function(){ row.style.background='white'; });
+  }
+  list.querySelectorAll('.req-doc-item').forEach(bindDrag);
+  window._bindReqDocItemDrag = bindDrag;
+
+  // Enterで追加
+  var inp = inner.querySelector('#reqDocNewInput');
+  if (inp) inp.addEventListener('keydown', function(e){ if(e.key==='Enter') _addReqDocItem(); });
+}
+
+function _addReqDocItem() {
+  var inp = document.getElementById('reqDocNewInput');
+  if (!inp || !inp.value.trim()) return;
+  var name = inp.value.trim(); inp.value = '';
+  var list = document.getElementById('reqDocSortList');
+  if (!list) return;
+  var row = document.createElement('div');
+  row.className = 'req-doc-item';
+  row.draggable = true;
+  row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:5px 6px;border:1px solid #c4b5fd;border-radius:7px;margin-bottom:4px;background:#faf5ff;cursor:grab;user-select:none;';
+  row.innerHTML = '<span style="color:#9ca3af;font-size:14px;flex-shrink:0;">☰</span><input type="text" value="' + esc(name) + '" style="flex:1;border:none;outline:none;font-size:12px;font-weight:600;background:transparent;padding:2px 4px;"><button onclick="this.parentElement.remove()" style="flex-shrink:0;padding:1px 7px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;">✕</button>';
+  list.appendChild(row);
+  if (window._bindReqDocItemDrag) window._bindReqDocItemDrag(row);
+  inp.focus();
+}
+
+function _saveReqDocsAndClose(listKey) {
+  var list = document.getElementById('reqDocSortList');
+  var mode = window._reqDocsEditMode || 'base';
+  var natKey = window._reqDocsEditNatKey;
+  if (list && listKey) {
+    var newDocs = [];
+    list.querySelectorAll('input[type="text"]').forEach(function(inp){
+      var v = inp.value.trim(); if(v) newDocs.push(v);
+    });
+    if (mode === 'ryugaku') {
+      REQUIRED_DOCS_RYUGAKU[listKey] = newDocs;
+      _persistRequiredDocsRyugaku();
+      showToast('✅【' + listKey + '】留学生追加書類を保存しました');
+    } else if (mode === 'nat' && natKey) {
+      if (!REQUIRED_DOCS_NATIONALITY[natKey]) REQUIRED_DOCS_NATIONALITY[natKey] = {};
+      REQUIRED_DOCS_NATIONALITY[natKey][listKey] = newDocs;
+      _persistRequiredDocsNationality();
+      showToast('✅【' + listKey + '】' + natKey + '追加書類を保存しました');
+    } else {
+      REQUIRED_DOCS[listKey] = newDocs;
+      _persistRequiredDocs();
+      showToast('✅【' + listKey + '】書類リストを保存しました');
+    }
+    if (currentCase) showTab('docs');
+  }
+  var modal = document.getElementById('reqDocsModal');
+  if (modal) modal.remove();
+}
+
+function _resetReqDocs() {
+  var listKey = window._reqDocsEditKey;
+  var mode = window._reqDocsEditMode || 'base';
+  var natKey = window._reqDocsEditNatKey;
+  if (!listKey || !confirm('デフォルトに戻しますか？')) return;
+  if (mode === 'ryugaku') {
+    REQUIRED_DOCS_RYUGAKU[listKey] = (_REQUIRED_DOCS_RYUGAKU_DEFAULT[listKey]||[]).slice();
+    _persistRequiredDocsRyugaku();
+  } else if (mode === 'nat' && natKey && _REQUIRED_DOCS_NATIONALITY_DEFAULT[natKey]) {
+    if (!REQUIRED_DOCS_NATIONALITY[natKey]) REQUIRED_DOCS_NATIONALITY[natKey] = {};
+    REQUIRED_DOCS_NATIONALITY[natKey][listKey] = (_REQUIRED_DOCS_NATIONALITY_DEFAULT[natKey][listKey]||[]).slice();
+    _persistRequiredDocsNationality();
+  } else {
+    REQUIRED_DOCS[listKey] = _REQUIRED_DOCS_DEFAULT[listKey].slice();
+    _persistRequiredDocs();
+  }
+  var inner = document.querySelector('#reqDocsModal > div');
+  if (inner) _renderReqDocsModal(inner, listKey, mode, natKey);
+}
+
+function _addNatKeyPrompt() {
+  var name = prompt('追加する国籍名を入力（例：インドネシア）:');
+  if (!name || !name.trim()) return;
+  name = name.trim();
+  if (!REQUIRED_DOCS_NATIONALITY[name]) {
+    REQUIRED_DOCS_NATIONALITY[name] = {'更新':[],'変更':[],'認定':[]};
+    _persistRequiredDocsNationality();
+  }
+  var inner = document.querySelector('#reqDocsModal > div');
+  if (inner) _renderReqDocsModal(inner, window._reqDocsEditKey||'更新', 'nat', name);
+}
+
+// ===== 所属機関 書類チェックリスト編集 =====
+function openRequiredDocsCoEditor(fieldKey) {
+  var modal = document.getElementById('reqDocsCoModal');
+  if (modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'reqDocsCoModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.onclick = function(e){ if(e.target===modal) _saveReqDocsCoAndClose(); };
+  var inner = document.createElement('div');
+  inner.style.cssText = 'background:white;border-radius:14px;width:100%;max-width:480px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;';
+  modal.appendChild(inner);
+  document.body.appendChild(modal);
+  window._reqDocsCoMode = fieldKey ? 'field' : 'base';
+  window._reqDocsCoFieldKey = fieldKey || null;
+  _renderReqDocsCoModal(inner);
+}
+
+
+function _renderReqDocsCoModal(inner) {
+  var mode = window._reqDocsCoMode || 'base';
+  var fieldKey = window._reqDocsCoFieldKey || null;
+  var docs = mode === 'field' && fieldKey ? (REQUIRED_DOCS_CO_FIELD[fieldKey]||[]) : mode === 'kojin' ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO;
+  var h = '';
+  // ヘッダ
+  h += '<div style="padding:14px 16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">';
+  h += '<div style="font-size:14px;font-weight:800;">📋 所属機関 書類リスト編集</div>';
+  h += '<button onclick="_saveReqDocsCoAndClose()" style="padding:5px 14px;background:#7c3aed;color:white;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;">💾 保存して閉じる</button>';
+  h += '</div>';
+  // カテゴリタブ
+  h += '<div style="padding:8px 12px;border-bottom:1px solid #f3f4f6;display:flex;gap:4px;flex-wrap:wrap;">';
+  h += '<button onclick="window._reqDocsCoMode=\'base\';window._reqDocsCoFieldKey=null;var _m=document.querySelector(\'#reqDocsCoModal>div\');if(_m)_renderReqDocsCoModal(_m)" style="font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid '+(mode==='base'?'#2563eb':'#e5e7eb')+';background:'+(mode==='base'?'#eff6ff':'white')+';color:'+(mode==='base'?'#2563eb':'#6b7280')+';cursor:pointer;font-weight:700;">🏢 法人</button>';
+  h += '<button onclick="window._reqDocsCoMode=\'kojin\';window._reqDocsCoFieldKey=null;var _m=document.querySelector(\'#reqDocsCoModal>div\');if(_m)_renderReqDocsCoModal(_m)" style="font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid '+(mode='kojin'?'#d97706':'#e5e7eb')+';background:'+(mode='kojin'?'#fef3c7':'white')+';color:'+(mode='kojin'?'#d97706':'#6b7280')+';cursor:pointer;font-weight:700;">👤 個人事業主</button>';
+  Object.keys(REQUIRED_DOCS_CO_FIELD).forEach(function(fk){
+    var isActive = mode==='field' && fieldKey===fk;
+    h += '<button onclick="window._reqDocsCoMode=\'field\';window._reqDocsCoFieldKey=\''+fk+'\';var _m=document.querySelector(\'#reqDocsCoModal>div\');if(_m)_renderReqDocsCoModal(_m)" style="font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid '+(isActive?'#2563eb':'#e5e7eb')+';background:'+(isActive?'#dbeafe':'white')+';color:'+(isActive?'#1d4ed8':'#6b7280')+';cursor:pointer;font-weight:700;">🏭 '+fk+'</button>';
+  });
+  h += '<button onclick="_addCoFieldKeyPrompt()" style="font-size:10px;padding:3px 8px;border-radius:5px;border:1px solid #e5e7eb;background:white;color:#6b7280;cursor:pointer;font-weight:700;">＋ 分野追加</button>';
+  h += '</div>';
+  h += '<div style="font-size:10px;color:#6b7280;padding:6px 16px;">☰ ドラッグで並び替え　クリックで名前編集　✕ で削除</div>';
+  // リスト
+  h += '<div id="reqDocsSortList" style="flex:1;overflow-y:auto;padding:8px 12px;">';
+  docs.forEach(function(doc) {
+    h += '<div class="req-doc-row" draggable="true" style="display:flex;align-items:center;gap:6px;padding:5px 6px;border:1px solid #e5e7eb;border-radius:7px;margin-bottom:4px;background:white;cursor:grab;user-select:none;">';
+    h += '<span style="color:#9ca3af;font-size:14px;flex-shrink:0;">☰</span>';
+    h += '<input type="text" value="' + esc(doc) + '" style="flex:1;border:none;outline:none;font-size:12px;font-weight:600;background:transparent;padding:2px 4px;">';
+    h += '<button onclick="this.parentElement.remove()" style="flex-shrink:0;padding:1px 7px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;">✕</button>';
+    h += '</div>';
+  });
+  h += '</div>';
+  h += '<div style="padding:10px 12px;border-top:1px solid #e5e7eb;display:flex;gap:6px;">';
+  h += '<input id="reqDocNewInput" type="text" placeholder="新しい書類名を入力..." style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:12px;">';
+  h += '<button onclick="_addReqDocRow()" style="padding:7px 14px;background:#7c3aed;color:white;border:none;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;">＋ 追加</button>';
+  h += '</div>';
+  h += '<div style="padding:6px 12px 10px;display:flex;justify-content:space-between;">';
+  h += '<button onclick="_resetReqDocsCo()" style="font-size:10px;padding:4px 10px;background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">🔄 デフォルトに戻す</button>';
+  if (mode==='field' && fieldKey) h += '<button onclick="_deleteCoFieldKey()" style="font-size:10px;padding:4px 10px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;cursor:pointer;">🗑 この分野を削除</button>';
+  h += '</div>';
+  inner.innerHTML = h;
+  // ドラッグ
+  var list = inner.querySelector('#reqDocsSortList');
+  var dragging = null;
+  function bindDrag(row) {
+    row.addEventListener('dragstart', function(e){ dragging=row; row.style.opacity='0.4'; e.dataTransfer.effectAllowed='move'; });
+    row.addEventListener('dragend', function(){ row.style.opacity='1'; dragging=null; list.querySelectorAll('.req-doc-row').forEach(function(r){r.style.background='white';}); });
+    row.addEventListener('dragover', function(e){ e.preventDefault(); if(dragging&&dragging!==row){ row.style.background='#eff6ff'; var rect=row.getBoundingClientRect(); if(e.clientY<rect.top+rect.height/2) list.insertBefore(dragging,row); else list.insertBefore(dragging,row.nextSibling); } });
+    row.addEventListener('dragleave', function(){ row.style.background='white'; });
+  }
+  list.querySelectorAll('.req-doc-row').forEach(bindDrag);
+  window._bindReqDocDrag = bindDrag;
+  var inp = inner.querySelector('#reqDocNewInput');
+  if (inp) inp.addEventListener('keydown', function(e){ if(e.key==='Enter') _addReqDocRow(); });
+}
+
+function _addReqDocRow() {
+  var inp = document.getElementById('reqDocNewInput');
+  if (!inp || !inp.value.trim()) return;
+  var name = inp.value.trim(); inp.value = '';
+  var list = document.getElementById('reqDocsSortList');
+  if (!list) return;
+  var row = document.createElement('div');
+  row.className = 'req-doc-row';
+  row.draggable = true;
+  row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:5px 6px;border:1px solid #c4b5fd;border-radius:7px;margin-bottom:4px;background:#faf5ff;cursor:grab;user-select:none;';
+  row.innerHTML = '<span style="color:#9ca3af;font-size:14px;flex-shrink:0;">☰</span><input type="text" value="' + esc(name) + '" style="flex:1;border:none;outline:none;font-size:12px;font-weight:600;background:transparent;padding:2px 4px;"><button onclick="this.parentElement.remove()" style="flex-shrink:0;padding:1px 7px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;">✕</button>';
+  list.appendChild(row);
+  if (window._bindReqDocDrag) window._bindReqDocDrag(row);
+  inp.focus();
+}
+
+function _saveReqDocsCoAndClose() {
+  var list = document.getElementById('reqDocsSortList');
+  var mode = window._reqDocsCoMode || 'base';
+  var fieldKey = window._reqDocsCoFieldKey || null;
+  if (list) {
+    var newDocs = [];
+    list.querySelectorAll('input[type="text"]').forEach(function(inp){ var v=inp.value.trim(); if(v) newDocs.push(v); });
+    if (mode === 'field' && fieldKey) {
+      REQUIRED_DOCS_CO_FIELD[fieldKey] = newDocs;
+      _persistRequiredDocsCoField();
+      showToast('✅【'+fieldKey+'】分野追加書類を保存しました');
+    } else if (mode === 'kojin') {
+      REQUIRED_DOCS_CO_KOJIN = newDocs;
+      _persistRequiredDocsCoKojin();
+      showToast('✅ 個人事業主書類リストを保存しました');
+    } else {
+      REQUIRED_DOCS_CO = newDocs;
+      _persistRequiredDocsCo();
+      showToast('✅ 法人共通書類リストを保存しました');
+    }
+    if (window._selectedCompanyId) {
+      var co = companies.find(function(c){return c.id===window._selectedCompanyId;});
+      if (co) { window._companyDetailTab='coDocs'; renderCompanyDetail(co); }
+    }
+  }
+  var modal = document.getElementById('reqDocsCoModal');
+  if (modal) modal.remove();
+}
+
+function _resetReqDocsCo() {
+  var mode = window._reqDocsCoMode || 'base';
+  var fieldKey = window._reqDocsCoFieldKey || null;
+  if (!confirm('デフォルトに戻しますか？')) return;
+  if (mode === 'field' && fieldKey && _REQUIRED_DOCS_CO_FIELD_DEFAULT[fieldKey]) {
+    REQUIRED_DOCS_CO_FIELD[fieldKey] = _REQUIRED_DOCS_CO_FIELD_DEFAULT[fieldKey].slice();
+    _persistRequiredDocsCoField();
+  } else if (mode === 'kojin') {
+    REQUIRED_DOCS_CO_KOJIN = _REQUIRED_DOCS_CO_KOJIN_DEFAULT.slice();
+    _persistRequiredDocsCoKojin();
+  } else {
+    REQUIRED_DOCS_CO = _REQUIRED_DOCS_CO_DEFAULT.slice();
+    _persistRequiredDocsCo();
+  }
+  var inner = document.querySelector('#reqDocsCoModal > div');
+  if (inner) _renderReqDocsCoModal(inner);
+}
+
+function _addCoFieldKeyPrompt() {
+  var name = prompt('追加する分野名を入力（例：介護、建設）:');
+  if (!name || !name.trim()) return;
+  name = name.trim();
+  if (!REQUIRED_DOCS_CO_FIELD[name]) {
+    REQUIRED_DOCS_CO_FIELD[name] = [];
+    _persistRequiredDocsCoField();
+  }
+  window._reqDocsCoMode = 'field';
+  window._reqDocsCoFieldKey = name;
+  var inner = document.querySelector('#reqDocsCoModal > div');
+  if (inner) _renderReqDocsCoModal(inner);
+}
+
+function _deleteCoFieldKey() {
+  var fieldKey = window._reqDocsCoFieldKey;
+  if (!fieldKey || !confirm('【'+fieldKey+'】分野を削除しますか？')) return;
+  delete REQUIRED_DOCS_CO_FIELD[fieldKey];
+  _persistRequiredDocsCoField();
+  window._reqDocsCoMode = 'base';
+  window._reqDocsCoFieldKey = null;
+  var inner = document.querySelector('#reqDocsCoModal > div');
+  if (inner) _renderReqDocsCoModal(inner);
 }
 
 // 所属機関 Driveスキャン
@@ -16783,11 +17659,388 @@ function processCoScannedFiles(coId, files, el) {
       rh += '<div style="margin-top:6px;font-size:10px;color:var(--gray-400);">📎 その他: ' + unmatched.map(function(f){return f.name;}).join(', ') + '</div>';
     }
     rh += '<div style="margin-top:6px;font-size:12px;font-weight:700;color:' + (matchCount === docList.length ? '#16a34a' : '#ea580c') + ';">' + (matchCount === docList.length ? '🎉 全書類検出！' : '⚠️ ' + matchCount + '/' + docList.length + ' 検出') + '</div>';
+    rh += '<div style="margin-top:10px;"><button onclick="startCoRename(\'' + coId + '\')" style="padding:7px 18px;background:#059669;color:white;border:none;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;">📂 AIファイルリネーム</button></div>';
     rh += '</div>';
+    rh += '<div id="coRenameResult_' + coId + '"></div>';
+
+    // ファイル一覧を保持
+    window._coScanFiles = window._coScanFiles || {};
+    window._coScanFiles[coId] = files;
 
     if (el) el.innerHTML = rh;
     persistCoDocCheck();
-    renderCompanyDetail(co);
+    // 進捗バーだけ再計算（画面再描画するとスキャン結果が消えるので再描画しない）
+    var docListR = REQUIRED_DOCS_CO;
+    var doneR = 0, totalR = 0;
+    docListR.forEach(function(d) {
+      var dc2 = coDocCheck[coId];
+      if (dc2['skip::'+d]) { doneR++; totalR++; return; }
+      totalR++;
+      if (dc2['ai::'+d] && dc2['staff::'+d]) doneR++;
+    });
+    var pctR = totalR > 0 ? Math.round(doneR / totalR * 100) : 0;
+    var pbEl = document.querySelector('#coScanResult_' + coId + ' ~ div .co-progress-bar');
+    // 書類チェックボタンの件数表示を更新するため軽量再描画
+    var coTabBtn = document.querySelector('[onclick*="showCoTab(\'' + coId + '\',\'coDocs\'"]');
+}
+
+// ===== 所属機関 AIファイルリネーム =====
+var _coRenameCategoriesBase = (function(){
+  var saved = null;
+  try { saved = JSON.parse(localStorage.getItem('ofusa_coRenameCatsBase')); } catch(e) {}
+  return saved || ['登記事項証明書','決算報告書','雇用保険適用事業所設置届','社会保険関連書類',
+    '雇用条件書','支援計画書','受入体制に関する書類','特定技能雇用契約書',
+    '納税証明書（法人）','役員の住民票','労働保険料等納付証明書','社会保険料納入状況照会回答票',
+    '登記されていないことの証明書','役員の履歴書','役員の誓約書'];
+})();
+var _coRenameCategoriesExtra = (function(){ try{ return JSON.parse(localStorage.getItem('ofusa_coRenameCats')||'[]'); }catch(e){ return []; } })();
+function getAllCoRenameCategories(coId) {
+  // REQUIRED_DOCS_CO（法人）or REQUIRED_DOCS_CO_KOJIN（個人）+ 分野別追加 + ユーザー追加分
+  var seen = {};
+  var cats = [];
+  var co = coId ? companies.find(function(c){return c.id===coId;}) : null;
+  // 個人/法人で基本リストを切り替え
+  var _baseList = (co && co.corpType === '個人事業主') ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO;
+  _baseList.forEach(function(d){ if(!seen[d]){seen[d]=1;cats.push(d);} });
+  // 分野別追加
+  if (co) {
+    _getCoFieldKeys(co).forEach(function(fk){
+      (REQUIRED_DOCS_CO_FIELD[fk]||[]).forEach(function(d){ if(!seen[d]){seen[d]=1;cats.push(d);} });
+    });
+  } else {
+    // coId不明時は全分野を含める
+    Object.keys(REQUIRED_DOCS_CO_FIELD).forEach(function(fk){
+      (REQUIRED_DOCS_CO_FIELD[fk]||[]).forEach(function(d){ if(!seen[d]){seen[d]=1;cats.push(d);} });
+    });
+  }
+  // 旧来のユーザー追加分（後方互換）
+  _coRenameCategoriesExtra.forEach(function(d){ if(!seen[d]){seen[d]=1;cats.push(d);} });
+  return cats;
+}
+function _persistCoRenameCatsBase(){
+  try { localStorage.setItem('ofusa_coRenameCatsBase', JSON.stringify(_coRenameCategoriesBase)); } catch(e) {}
+  if(typeof DB_READY!=='undefined' && DB_READY && typeof _sb!=='undefined')
+    _sb.from('settings').upsert({key:'co_rename_cats_base',value:JSON.stringify(_coRenameCategoriesBase)},{onConflict:'key'}).then(function(){});
+}
+function _persistCoRenameCatsExtra(){
+  try { localStorage.setItem('ofusa_coRenameCats', JSON.stringify(_coRenameCategoriesExtra)); } catch(e) {}
+  if(typeof DB_READY!=='undefined' && DB_READY && typeof _sb!=='undefined')
+    _sb.from('settings').upsert({key:'co_rename_cats_extra',value:JSON.stringify(_coRenameCategoriesExtra)},{onConflict:'key'}).then(function(){});
+}
+var _coRenameCategories = _coRenameCategoriesBase; // 後方互換
+
+function startCoRename(coId) {
+  var files = (window._coScanFiles || {})[coId] || [];
+  if (!files.length) { showToast('⚠️ 先にスキャンしてください'); return; }
+  var el = document.getElementById('coRenameResult_' + coId);
+  if (!el) return;
+
+  // カテゴリリストを書類チェックリストから取得
+  var coCats = getAllCoRenameCategories(coId);
+  // キーワードマップ: カテゴリ名自体 + エイリアス
+  var _coKwAlias = {
+    '登記事項証明書': ['登記','registry'],
+    '決算': ['financial','損益','貸借'],
+    '雇用保険': ['適用事業所'],
+    '社会保険': ['社保'],
+    '雇用条件': ['条件書'],
+    '支援計画': ['support'],
+    '雇用契約': ['contract'],
+    '納税': ['法人税','税務署'],
+    '住民票': ['jyuminhyo'],
+    '労働保険': ['労保'],
+    '照会回答': ['納入状況'],
+    '登記されていない': ['成年被後見'],
+    '履歴書': ['resume','cv'],
+    '誓約書': ['oath']
+  };
+  var kwMap = {};
+  coCats.forEach(function(cat){
+    var kws = [cat];
+    Object.keys(_coKwAlias).forEach(function(k){ if(cat.indexOf(k)>=0) kws=kws.concat(_coKwAlias[k]); });
+    kwMap[cat] = kws;
+  });
+
+  var items = files.map(function(f) {
+    var detected = '';
+    var alreadyNamed = false;
+    coCats.forEach(function(cat) {
+      var kws = kwMap[cat] || [cat];
+      kws.forEach(function(kw) {
+        if (new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'i').test(f.name)) {
+          alreadyNamed = true;
+          detected = cat;
+        }
+      });
+    });
+    return { file: f, alreadyNamed: alreadyNamed, detected: detected, aiResult: '', needsAI: false };
+  });
+
+  showCoRenameUI(coId, items, el);
+
+  // AIで未分類の画像・PDFを判別
+  var apiKey = getApiKey();
+  if (!apiKey) return;
+  var needAI = items.filter(function(it) {
+    if (it.alreadyNamed) return false;
+    var m = it.file.mime || '';
+    return m.indexOf('image/') === 0 || m.indexOf('pdf') >= 0;
+  });
+  if (!needAI.length) return;
+
+  var driveGasUrl = GAS_MAILBOX_URL || GAS_URL;
+  var aiDone = 0, aiTotal = needAI.length;
+  var prompt = '以下は所属機関（会社）の書類です。次のリストから最も当てはまる書類名を1つだけ選んでください：\n' +
+    coCats.join('\n') +
+    '\n\n当てはまるものがなければ「不明」と答えてください。回答は書類名のみ（1行）で答えてください。';
+
+  needAI.forEach(function(it) {
+    it.needsAI = true;
+    jsonpPost(driveGasUrl, 'getDriveFileBase64', { fileId: it.file.id }, function(fRes) {
+      aiDone++;
+      if (!fRes || fRes.status !== 'ok' || !fRes.base64) {
+        if (aiDone >= aiTotal) showCoRenameUI(coId, items, el);
+        return;
+      }
+      var mediaType = fRes.mime || 'image/jpeg';
+      if (mediaType.indexOf('image/') !== 0) {
+        if (aiDone >= aiTotal) showCoRenameUI(coId, items, el);
+        return;
+      }
+      fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 50, messages: [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: mediaType, data: fRes.base64 } }, { type: 'text', text: prompt }] }] })
+      }).then(function(r) { return r.json(); }).then(function(d) {
+        var txt = ((d.content && d.content[0] && d.content[0].text) || '').trim();
+        var matched = _coRenameCategories.find(function(c) { return txt.indexOf(c) >= 0; });
+        it.aiResult = matched || '';
+        if (!it.detected && matched) it.detected = matched;
+      }).catch(function() {}).finally(function() {
+        if (aiDone >= aiTotal) showCoRenameUI(coId, items, el);
+      });
+    });
+  });
+}
+
+function showCoRenameUI(coId, items, el) {
+  if (!el) return;
+  var h = '<div style="background:white;border:1.5px solid #6ee7b7;border-radius:10px;padding:12px;margin-top:8px;">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
+  h += '<div style="font-size:13px;font-weight:800;color:#059669;">📂 AIリネーム（' + items.length + '件）</div>';
+  h += '<div style="display:flex;gap:4px;">';
+  h += '<button onclick="addCoRenameCategory(\'' + coId + '\')" style="font-size:10px;padding:3px 8px;background:#eff6ff;color:#2563eb;border:1px solid #93c5fd;border-radius:5px;cursor:pointer;font-weight:600;">＋ カテゴリ追加</button>';
+  h += '<button onclick="manageCoRenameCategories(\'' + coId + '\')" style="font-size:10px;padding:3px 8px;background:#f5f3ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:5px;cursor:pointer;font-weight:600;">✏️ 編集</button>';
+  h += '<button onclick="executeCoRename(\'' + coId + '\')" style="font-size:11px;padding:4px 14px;background:#059669;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">✏️ 一括リネーム実行</button>';
+  h += '</div>';
+  h += '</div>';
+  h += '<div style="font-size:10px;color:var(--gray-400);margin-bottom:6px;">✅ = 既に名前付き　🤖 = AI判別</div>';
+  var _allCoCats = getAllCoRenameCategories(coId);
+  items.forEach(function(it, idx) {
+    var bg = it.alreadyNamed ? '#f0fdf4' : it.detected ? '#eff6ff' : 'white';
+    var border = it.alreadyNamed ? '#86efac' : it.detected ? '#93c5fd' : 'var(--gray-200)';
+    h += '<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid ' + border + ';border-radius:6px;margin-bottom:3px;background:' + bg + ';font-size:11px;">';
+    h += '<div style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(it.file.name) + '">' + esc(it.file.name) + '</div>';
+    if (it.alreadyNamed) {
+      h += '<span style="font-size:10px;color:#16a34a;font-weight:700;flex-shrink:0;">✅ ' + esc(it.detected) + '</span>';
+      h += '<input type="hidden" class="co-rename-select" data-idx="' + idx + '" value="">';
+    } else {
+      h += '<select class="co-rename-select" data-idx="' + idx + '" style="font-size:10px;padding:2px 4px;border:1px solid var(--gray-200);border-radius:4px;flex-shrink:0;max-width:160px;">';
+      h += '<option value="">変更しない</option>';
+      _allCoCats.forEach(function(cat) {
+        h += '<option value="' + cat + '"' + (it.detected === cat ? ' selected' : '') + '>' + cat + '</option>';
+      });
+      h += '</select>';
+      if (it.needsAI && !it.aiResult) h += '<span style="font-size:9px;color:#7c3aed;flex-shrink:0;">🤖解析中...</span>';
+      else if (it.aiResult) h += '<span style="font-size:9px;color:#7c3aed;flex-shrink:0;">🤖 ' + esc(it.aiResult) + '</span>';
+    }
+    h += '</div>';
+  });
+  h += '</div>';
+  el.innerHTML = h;
+  window._coRenameItems = items;
+  window._coRenameCoId = coId;
+}
+
+function addCoRenameCategory(coId) {
+  var name = prompt('追加するカテゴリ名を入力:');
+  if (!name || !name.trim()) return;
+  name = name.trim();
+  if (_coRenameCategoriesExtra.indexOf(name) < 0) {
+    _coRenameCategoriesExtra.push(name);
+    _persistCoRenameCatsExtra();
+  }
+  showToast('✅ カテゴリ「' + name + '」を追加しました');
+  if (window._coRenameItems) {
+    var el = document.getElementById('coRenameResult_' + coId);
+    showCoRenameUI(coId, window._coRenameItems, el);
+  }
+}
+
+function manageCoRenameCategories(coId) {
+  // Base+Extra を統合して1つのリストで管理
+  window._coCatEditCoId = coId;
+  var modal = document.getElementById('coCatModal');
+  if (modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'coCatModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.onclick = function(e){ if(e.target===modal) _saveCoCatModalAndClose(); };
+
+  var inner = document.createElement('div');
+  inner.style.cssText = 'background:white;border-radius:14px;width:100%;max-width:440px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;';
+  modal.appendChild(inner);
+  document.body.appendChild(modal);
+  _renderCoCatModal(inner, coId);
+}
+
+function _renderCoCatModal(inner, coId) {
+  var all = getAllCoRenameCategories(coId);
+  var h = '';
+  h += '<div style="padding:14px 16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">';
+  h += '<div style="font-size:14px;font-weight:800;">✏️ リネームカテゴリ管理</div>';
+  h += '<button onclick="_saveCoCatModalAndClose()" style="padding:5px 14px;background:#2563eb;color:white;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;">💾 保存して閉じる</button>';
+  h += '</div>';
+  h += '<div style="font-size:10px;color:#6b7280;padding:8px 16px;">☰ ドラッグで並び替え　✏️ クリックで名前編集　✕ で削除</div>';
+  h += '<div id="coCatSortList" style="flex:1;overflow-y:auto;padding:8px 12px;">';
+  all.forEach(function(cat, i) {
+    h += '<div class="co-cat-row" draggable="true" data-idx="' + i + '" style="display:flex;align-items:center;gap:6px;padding:5px 6px;border:1px solid #e5e7eb;border-radius:7px;margin-bottom:4px;background:white;cursor:grab;user-select:none;">';
+    h += '<span style="color:#9ca3af;font-size:14px;flex-shrink:0;">☰</span>';
+    h += '<input type="text" value="' + esc(cat) + '" data-cat-idx="' + i + '" style="flex:1;border:none;outline:none;font-size:12px;font-weight:600;background:transparent;padding:2px 4px;border-radius:4px;" onfocus="this.style.background=&quot;#eff6ff&quot;" onblur="this.style.background=&quot;transparent&quot;">';
+    h += '<button onclick="_deleteCoCatRow(' + i + ')" style="flex-shrink:0;padding:1px 7px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;">✕</button>';
+    h += '</div>';
+  });
+  h += '</div>';
+  h += '<div style="padding:10px 12px;border-top:1px solid #e5e7eb;display:flex;gap:6px;">';
+  h += '<input id="coCatNewInput" type="text" placeholder="新しいカテゴリ名を入力..." style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:12px;" onkeydown="if(event.key===\'Enter\') _addCoCatFromInput()">';
+  h += '<button onclick="_addCoCatFromInput()" style="padding:7px 14px;background:#2563eb;color:white;border:none;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;">＋ 追加</button>';
+  h += '</div>';
+  inner.innerHTML = h;
+
+  // ドラッグ&ドロップ並び替え
+  var list = inner.querySelector('#coCatSortList');
+  var dragging = null;
+  list.querySelectorAll('.co-cat-row').forEach(function(row) {
+    row.addEventListener('dragstart', function(e) {
+      dragging = row;
+      row.style.opacity = '0.4';
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    row.addEventListener('dragend', function() {
+      row.style.opacity = '1';
+      dragging = null;
+      list.querySelectorAll('.co-cat-row').forEach(function(r){ r.style.background='white'; });
+    });
+    row.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      if (dragging && dragging !== row) {
+        row.style.background = '#eff6ff';
+        var rect = row.getBoundingClientRect();
+        var mid = rect.top + rect.height / 2;
+        if (e.clientY < mid) list.insertBefore(dragging, row);
+        else list.insertBefore(dragging, row.nextSibling);
+      }
+    });
+    row.addEventListener('dragleave', function() { row.style.background='white'; });
+  });
+}
+
+function _addCoCatFromInput() {
+  var inp = document.getElementById('coCatNewInput');
+  if (!inp || !inp.value.trim()) return;
+  var name = inp.value.trim();
+  inp.value = '';
+  var list = document.getElementById('coCatSortList');
+  if (!list) return;
+  var allInputs = list.querySelectorAll('input[data-cat-idx]');
+  for (var i=0; i<allInputs.length; i++) { if (allInputs[i].value.trim()===name) { showToast('ℹ️ 既に存在します'); return; } }
+  var idx = list.querySelectorAll('.co-cat-row').length;
+  var row = document.createElement('div');
+  row.className = 'co-cat-row';
+  row.draggable = true;
+  row.dataset.idx = idx;
+  row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:5px 6px;border:1px solid #e5e7eb;border-radius:7px;margin-bottom:4px;background:#fefce8;cursor:grab;user-select:none;';
+  row.innerHTML = '<span style="color:#9ca3af;font-size:14px;flex-shrink:0;">☰</span><input type="text" value="' + esc(name) + '" data-cat-idx="' + idx + '" style="flex:1;border:none;outline:none;font-size:12px;font-weight:600;background:transparent;padding:2px 4px;border-radius:4px;"><button onclick="_deleteCoCatRow(-1,this)" style="flex-shrink:0;padding:1px 7px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;">✕</button>';
+  // ドラッグイベント付与
+  var list2 = list;
+  var dragging2 = null;
+  row.addEventListener('dragstart', function(e){ dragging2=row; row.style.opacity='0.4'; e.dataTransfer.effectAllowed='move'; });
+  row.addEventListener('dragend', function(){ row.style.opacity='1'; dragging2=null; });
+  row.addEventListener('dragover', function(e){ e.preventDefault(); if(dragging2&&dragging2!==row){ var rect=row.getBoundingClientRect(); if(e.clientY<rect.top+rect.height/2) list2.insertBefore(dragging2,row); else list2.insertBefore(dragging2,row.nextSibling); } });
+  list.appendChild(row);
+  inp.focus();
+}
+
+function _deleteCoCatRow(idx, btn) {
+  var row = btn ? btn.closest('.co-cat-row') : document.querySelector('.co-cat-row[data-idx="'+idx+'"]');
+  if (row) row.remove();
+}
+
+function _saveCoCatModalAndClose() {
+  var list = document.getElementById('coCatSortList');
+  if (list) {
+    var newCats = [];
+    list.querySelectorAll('input[type="text"]').forEach(function(inp) {
+      var v = inp.value.trim();
+      if (v) newCats.push(v);
+    });
+    _coRenameCategoriesBase = newCats;
+    _coRenameCategoriesExtra = [];
+    _persistCoRenameCatsBase();
+    _persistCoRenameCatsExtra();
+    var coId = window._coCatEditCoId;
+    if (window._coRenameItems && coId) {
+      var el = document.getElementById('coRenameResult_' + coId);
+      showCoRenameUI(coId, window._coRenameItems, el);
+    }
+    showToast('✅ カテゴリを保存しました');
+  }
+  var modal = document.getElementById('coCatModal');
+  if (modal) modal.remove();
+}
+
+// 後方互換（古いコードから呼ばれる可能性）
+function addCoRenameCategoryFromModal(coId) { _addCoCatFromInput(); }
+function deleteCoRenameCategoryBase(idx, coId) { _deleteCoCatRow(idx, null); }
+function deleteCoRenameCategory(idx, coId) {
+  var all = getAllCoRenameCategories();
+  var baseLen = _coRenameCategoriesBase.length;
+  var realIdx = baseLen + idx;
+  _deleteCoCatRow(realIdx, null);
+}
+
+function executeCoRename(coId) {
+  var items = window._coRenameItems;
+  if (!items) { showToast('⚠️ ファイルデータがありません'); return; }
+  var renames = [];
+  document.querySelectorAll('.co-rename-select').forEach(function(sel) {
+    var idx = parseInt(sel.getAttribute('data-idx'));
+    var newCat = sel.value;
+    if (!newCat) return;
+    var it = items[idx];
+    if (!it || it.alreadyNamed) return;
+    var ext = '';
+    var dot = it.file.name.lastIndexOf('.');
+    if (dot >= 0) ext = it.file.name.substring(dot);
+    renames.push({ fileId: it.file.id, oldName: it.file.name, newName: newCat + ext });
+  });
+  if (!renames.length) { showToast('ℹ️ リネーム対象がありません'); return; }
+  var msg = '以下のファイルをリネームします：\n\n';
+  renames.forEach(function(r) { msg += r.oldName + ' → ' + r.newName + '\n'; });
+  if (!confirm(msg)) return;
+  var driveGasUrl = GAS_MAILBOX_URL || GAS_URL;
+  var done = 0, ok = 0, err = 0;
+  showToast('📝 リネーム実行中... (' + renames.length + '件)');
+  renames.forEach(function(r) {
+    jsonpPost(driveGasUrl, 'renameDriveFile', { fileId: r.fileId, newName: r.newName }, function(res) {
+      done++;
+      if (res && res.status === 'ok') ok++; else err++;
+      if (done >= renames.length) {
+        showToast('✅ リネーム完了: 成功' + ok + '件' + (err ? ' / エラー' + err + '件' : ''));
+        scanCoDriveDocuments(coId);
+      }
+    });
+  });
 }
 
 // ===== グループメンバー編集 =====
@@ -16875,6 +18128,44 @@ function removePersonDriveUrl(caseId,key){
   delete personData[caseId][key];
   try{localStorage.setItem('ofusa_personData',JSON.stringify(personData));}catch(e){}
   showTab('person');
+}
+
+// 所属機関 DriveフォルダURL 保存・追加・削除
+function saveCoDriveUrls(coId) {
+  var co = companies.find(function(x){return x.id===coId;});
+  if (!co) return;
+  for (var i=0; i<5; i++) {
+    var key = i===0 ? 'driveUrl' : 'driveUrl'+(i+1);
+    var el = document.getElementById('cof-'+key);
+    if (el) co[key] = el.value.trim() || '';
+  }
+  persistCompanies();
+  showToast('✅ DriveフォルダURLを保存しました');
+  renderCompanyDetail(co);
+}
+
+function addCoDriveUrl(coId) {
+  var co = companies.find(function(x){return x.id===coId;});
+  if (!co) return;
+  // 次の空きキーを探す
+  var nextKey = null;
+  for (var i=1; i<=4; i++) {
+    var k = 'driveUrl'+(i+1);
+    if (!co[k]) { nextKey = k; break; }
+  }
+  if (!nextKey) { showToast('ℹ️ URLは最大5件まで'); return; }
+  co[nextKey] = '';
+  persistCompanies();
+  renderCompanyDetail(co);
+  setTimeout(function(){ var el=document.getElementById('cof-'+nextKey); if(el) el.focus(); }, 100);
+}
+
+function removeCoDriveUrl(coId, key) {
+  var co = companies.find(function(x){return x.id===coId;});
+  if (!co) return;
+  delete co[key];
+  persistCompanies();
+  renderCompanyDetail(co);
 }
 
 // LINEグループID一覧から選択
@@ -22046,7 +23337,7 @@ function loadAllFromSupabase() {
       res.data.forEach(function(s) {
         try {
           if(s.key==='doc_check') { docCheck = JSON.parse(s.value); }
-          if(s.key==='co_doc_check') { coDocCheck = JSON.parse(s.value); }
+          if(s.key==='co_doc_check') { coDocCheck = JSON.parse(s.value); setTimeout(updateCoDocAlertBadge,500); }
           if(s.key==='team_data') { teamData = JSON.parse(s.value); }
           if(s.key==='case_chats') { caseChats = JSON.parse(s.value); }
           if(s.key==='api_key' && s.value) { localStorage.setItem('ofusa_apiKey',s.value); }
@@ -22087,6 +23378,30 @@ function loadAllFromSupabase() {
           if(s.key==='gas_mailbox_url' && s.value) { localStorage.setItem('ofusa_mailboxUrl',s.value); }
           if(s.key==='userPHMap') {
             try{var uph=typeof s.value==='string'?JSON.parse(s.value):s.value;if(uph&&typeof uph==='object'){Object.keys(uph).forEach(function(k){if(!_userPHMap[k])_userPHMap[k]=uph[k];});localStorage.setItem('ofusa_userPHMap',JSON.stringify(_userPHMap));console.log('📦 userPHMap restored from DB');}}catch(e){}
+          }
+          if(s.key==='required_docs_ryugaku') {
+            try { var _rdr=JSON.parse(s.value); if(_rdr&&typeof _rdr==='object'){REQUIRED_DOCS_RYUGAKU=_rdr;localStorage.setItem('ofusa_requiredDocsRyugaku',s.value);} } catch(e) {}
+          }
+          if(s.key==='required_docs_nationality') {
+            try { var _rdn=JSON.parse(s.value); if(_rdn&&typeof _rdn==='object'){REQUIRED_DOCS_NATIONALITY=_rdn;localStorage.setItem('ofusa_requiredDocsNationality',s.value);} } catch(e) {}
+          }
+          if(s.key==='required_docs') {
+            try { var _rdc=JSON.parse(s.value); if(_rdc&&typeof _rdc==='object'){REQUIRED_DOCS=_rdc;localStorage.setItem('ofusa_requiredDocs',s.value);} } catch(e) {}
+          }
+          if(s.key==='required_docs_co_kojin') {
+            try { var _rck=JSON.parse(s.value); if(Array.isArray(_rck)){REQUIRED_DOCS_CO_KOJIN=_rck;localStorage.setItem('ofusa_requiredDocsCoKojin',s.value);} } catch(e) {}
+          }
+          if(s.key==='required_docs_co_field') {
+            try { var _rcf=JSON.parse(s.value); if(_rcf&&typeof _rcf==='object'){REQUIRED_DOCS_CO_FIELD=_rcf;localStorage.setItem('ofusa_requiredDocsCoField',s.value);} } catch(e) {}
+          }
+          if(s.key==='required_docs_co') {
+            try { var _rd=JSON.parse(s.value); if(Array.isArray(_rd)){REQUIRED_DOCS_CO=_rd;localStorage.setItem('ofusa_requiredDocsCo',s.value);} } catch(e) {}
+          }
+          if(s.key==='co_rename_cats_base') {
+            try { var _b=JSON.parse(s.value); if(Array.isArray(_b)){_coRenameCategoriesBase=_b;localStorage.setItem('ofusa_coRenameCatsBase',s.value);} } catch(e) {}
+          }
+          if(s.key==='co_rename_cats_extra') {
+            try { var _e=JSON.parse(s.value); if(Array.isArray(_e)){_coRenameCategoriesExtra=_e;localStorage.setItem('ofusa_coRenameCats',s.value);} } catch(e) {}
           }
           if(s.key==='taskMeta') {
             var tm=JSON.parse(s.value);
