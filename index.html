@@ -17274,19 +17274,19 @@ function registerIntakeCase(id) {
     if (d.desired_status) personData[newCase.id].desiredStatus = d.desired_status;
     savePersonData(newCase.id);
   }
-  // intake_requests を registered に更新
-  _sb.from('intake_requests').update({status:'registered', case_id: newCase.id}).eq('id', id).then(function(r){
-    if (!r.error) {
-      var item = intakeData.find(function(x){return x.id===id;});
-      if (item) { item.status = 'registered'; item.case_id = newCase.id; }
-      updateIntakeBadge();
-      renderIntakeList();
-      applyFilters();
-      showToast('✅ 案件「'+(newCase.applicant||newCase.name)+'」を登録しました');
-    } else {
-      showToast('⚠️ Supabase更新エラー: ' + JSON.stringify(r.error));
-    }
-  });
+  // UIを即時更新（Supabase応答を待たない）
+  var item = intakeData.find(function(x){return x.id===id;});
+  if (item) { item.status = 'registered'; item.case_id = newCase.id; }
+  updateIntakeBadge();
+  renderIntakeList();
+  applyFilters();
+  showToast('✅ 案件「'+(newCase.applicant||newCase.name)+'」を登録しました');
+  // intake_requests を registered に更新（非同期、バックグラウンド）
+  if (DB_READY) {
+    _sb.from('intake_requests').update({status:'registered', case_id: newCase.id}).eq('id', id).then(function(r){
+      if (r.error) console.warn('intake_requests update error:', r.error);
+    });
+  }
 }
 
 function fetchIntakeNow() {
