@@ -8604,9 +8604,14 @@ function persistSupportOrgs() {
     _sb.from('support_orgs').upsert(rows,{onConflict:'id'}).then(function(r){if(r.error)console.error('supportOrgs sync err:',r.error);});
   }
 }
+var _persistCompaniesTimer = null;
 function persistCompanies() {
   try { localStorage.setItem('ofusa_companies', JSON.stringify(companies)); } catch(e) {}
-  persistCompaniesToDB(companies);
+  // デバウンス: 500ms以内の連続呼び出しをまとめて1回だけDB送信
+  clearTimeout(_persistCompaniesTimer);
+  _persistCompaniesTimer = setTimeout(function(){
+    persistCompaniesToDB(companies);
+  }, 500);
 }
 function persistCaseNotes() {
   try { localStorage.setItem('ofusa_caseNotes', JSON.stringify(caseNotes)); } catch(e) {}
@@ -21252,7 +21257,7 @@ function executeCsvImport(){
   var result=document.getElementById('csvImportResult');
   result.style.display='block'; result.style.background='#fffbeb'; result.style.color='#d97706';
   result.textContent='⏳ 登録中... 0/'+_csvParsedRows.length;
-  var idx=0, ok=0, fail=0, newCoCount=0;
+  var idx=0, ok=0, fail=0, newCoCount=0, pendingRows=[];
   function doNext(){
     if(idx>=_csvParsedRows.length){
       finishImport();
@@ -21276,7 +21281,9 @@ function executeCsvImport(){
       if(!existCo){
         var newCo={id:'c'+Date.now()+'_'+idx, name:data.company, supportOrgName:data.org||'', nameKana:'',nameEn:'',corpNo:'',empInsNo:'',laborInsNo:'',zip:'',pref:'',city:'',address:'',addressEn:'',tel:'',repName:'',repTitle:'',repNameEn:'',authorName:'',authorNameEn:'',capital:'',sales:'',employees:'',foreignEmployees:'',techTrainees:'',jpSalary:'',industry:'',supportOrgAddress:'',supportOrgNo:'',ofusaStaff:'',memo:'',folderNo:''};
         companies.push(newCo);
-        persistCompanies();
+        // 全件ではなく新規追加分だけDBに保存
+        try { localStorage.setItem('ofusa_companies', JSON.stringify(companies)); } catch(e) {}
+        if(DB_READY){ _sb.from('companies').upsert({id:newCo.id,name:newCo.name,data:newCo},{onConflict:'id'}).then(function(){}).catch(function(){}); }
         newCoCount++;
       }
     }
@@ -21294,13 +21301,21 @@ function executeCsvImport(){
     data.id=newId;
     data.createdAt=new Date().toISOString();
     cData.push(data);
-    if(DB_READY){
-      persistCasesToDB([data]);
+    pendingRows.push(data);
+    // 50件たまったらまとめてDB送信
+    if(DB_READY && pendingRows.length>=50){
+      persistCasesToDB(pendingRows.slice());
+      pendingRows=[];
     }
-    ok++;idx++;setTimeout(doNext,50);
+    ok++;idx++;setTimeout(doNext,30);
   }
   // 全件処理後の完了処理
   function finishImport(){
+    // 残りのバッチを送信
+    if(DB_READY && pendingRows.length>0){
+      persistCasesToDB(pendingRows.slice());
+      pendingRows=[];
+    }
     result.style.background='#f0fdf4'; result.style.color='#16a34a';
     result.textContent='✅ 完了！ '+ok+'件 登録成功'+(fail?' / '+fail+'件 失敗':'')+(newCoCount?' / 所属機関 '+newCoCount+'件 新規登録':'');
     document.getElementById('csvImportBtn').disabled=true;
