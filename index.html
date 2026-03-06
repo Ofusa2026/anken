@@ -24449,20 +24449,45 @@ function loadAllFromSupabase() {
     var allRows = [], pageSize = 1000, from = 0;
     var orderCol = (opts && opts.order) || 'id';
     var asc = (opts && opts.ascending !== undefined) ? opts.ascending : true;
+    var called = false;
+    function safeCallback(rows) {
+      if (called) return;
+      called = true;
+      callback(rows);
+    }
     function fetchPage() {
+      var timer = setTimeout(function() {
+        console.warn(table + ' fetch timeout, skipping');
+        safeCallback(allRows);
+      }, 15000);
       _sb.from(table).select('*').order(orderCol, {ascending: asc}).range(from, from + pageSize - 1).then(function(res) {
-        if (res.error) { console.error(table + ' fetch err:', res.error); callback(allRows); return; }
+        clearTimeout(timer);
+        if (res.error) { console.error(table + ' fetch err:', res.error); safeCallback(allRows); return; }
         if (res.data && res.data.length) {
           allRows = allRows.concat(res.data);
           if (res.data.length === pageSize) { from += pageSize; fetchPage(); }
-          else callback(allRows);
-        } else callback(allRows);
-      }).catch(function(e) { console.error(table + ' fetch err:', e); callback(allRows); });
+          else safeCallback(allRows);
+        } else safeCallback(allRows);
+      }).catch(function(e) { clearTimeout(timer); console.error(table + ' fetch err:', e); safeCallback(allRows); });
     }
     fetchPage();
   }
   
   var pending = 10;
+  // 20秒後に強制的にローディングを終了するフォールバック
+  setTimeout(function() {
+    if (isLoading) {
+      console.warn('⚠️ ロードタイムアウト強制終了 pending=', pending);
+      isLoading = false;
+      hideLoading();
+      cData.forEach(function(c){
+        var d=0;
+        for(var i=0;i<TASK_NAMES.length;i++){var s=docTaskStatus[c.id+'_'+i]||0;if(s===3||s===4)d++;}
+        c.taskDone=d; c.taskTotal=TASK_NAMES.length;
+      });
+      renderStats(); applyFilters(); updateReviewBadge();
+    }
+  }, 20000);
   var done = function() {
     pending--;
     console.log('done() called, pending=', pending);
