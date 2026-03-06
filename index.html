@@ -2673,6 +2673,8 @@ function completeLogin(userName, user) {
   if (adminBtn) adminBtn.style.display = user.isAdmin ? 'block' : 'none';
   var trashBtn = document.getElementById('sidebarTrashBtn');
   if (trashBtn) trashBtn.style.display = user.isAdmin ? 'block' : 'none';
+  var teamNav = document.getElementById('nav-team');
+  if (teamNav) teamNav.style.display = user.isAdmin ? '' : 'none';
   var err=document.getElementById('loginError'); if(err) err.style.display = 'none';
   rebuildLoginSelect();
   updateReviewBadge();
@@ -7212,27 +7214,47 @@ function renderTeamChart(){
   });
   h+='</div>';
 
-  // ===== パスワード管理セクション（管理者のみ）=====
+  // DBリセットボタン（管理者のみ）
   if(adm){
-    h+='<div style="background:white;border:1.5px solid var(--gray-200);border-radius:12px;padding:14px 20px;margin-top:16px;">';
-    h+='<div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:10px;">🔑 パスワード管理</div>';
-    h+='<div style="font-size:11px;color:var(--gray-400);margin-bottom:10px;">各ユーザーのログインパスワードを変更できます。変更はSupabaseに保存されます。</div>';
-    h+='<div id="pwMgmtList">';
-    USERS.forEach(function(u,i){
-      h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid #f1f5f9;">';
-      h+='<span style="flex:1;font-size:13px;font-weight:600;min-width:100px;">'+u.name+'</span>';
-      h+='<input type="text" id="pw_'+i+'" value="'+(u.password||'0000')+'" style="width:100px;font-size:13px;padding:4px 8px;border:1.5px solid var(--gray-200);border-radius:6px;font-family:monospace;text-align:center;">';
-      h+='<button onclick="saveUserPw('+i+')" style="font-size:11px;padding:4px 10px;background:var(--blue);color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">保存</button>';
-      h+='</div>';
-    });
+    h+='<div style="margin-top:16px;padding:12px 16px;background:#fff7ed;border:1.5px solid #fed7aa;border-radius:10px;display:flex;align-items:center;justify-content:space-between;">';
+    h+='<span style="font-size:12px;color:#92400e;">⚠️ チームデータをデフォルトに戻す（メンバーが消えた場合）</span>';
+    h+='<button onclick="resetTeamDataFromDB()" style="font-size:11px;padding:5px 14px;background:#f59e0b;color:white;border:none;border-radius:7px;cursor:pointer;font-weight:700;">🔄 DBから再読込</button>';
     h+='</div>';
-    h+='<div style="margin-top:10px;display:flex;gap:8px;">';
-    h+='<button onclick="saveAllPasswords()" style="font-size:11px;padding:6px 14px;background:#059669;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">全員一括保存</button>';
-    h+='<button onclick="resetAllPasswords()" style="font-size:11px;padding:6px 14px;background:var(--gray-200);color:var(--gray-600);border:none;border-radius:6px;cursor:pointer;font-weight:700;">全員0000にリセット</button>';
-    h+='</div></div>';
   }
 
   el.innerHTML=h;
+}
+
+// チームデータをDBから強制再読込
+function resetTeamDataFromDB(){
+  if(!DB_READY){showToast('❌ DB未接続');return;}
+  _sb.from('settings').select('*').eq('key','team_data').then(function(r){
+    if(r.data && r.data.length){
+      try{
+        var val = r.data[0].value;
+        var parsed = typeof val==='string' ? JSON.parse(val) : val;
+        if(parsed && parsed.teams){
+          // 坂育→坂齊 正規化
+          parsed.teams.forEach(function(t){
+            if(t.name==='坂育チーム') t.name='坂齊チーム';
+            if(t.members) t.members.forEach(function(m){
+              if(m.name) m.name=m.name.replace(/坂育/g,'坂齊');
+            });
+          });
+          teamData = parsed;
+          localStorage.setItem('ofusa_teamData', JSON.stringify(teamData));
+          renderTeamChart();
+          showToast('✅ DBからチームデータを読み込みました');
+          return;
+        }
+      }catch(e){}
+    }
+    // DBにデータがない or 壊れている場合はlocalStorageをクリアしてデフォルト
+    localStorage.removeItem('ofusa_teamData');
+    teamData = null;
+    renderTeamChart();
+    showToast('🔄 デフォルトのチームデータに戻しました');
+  });
 }
 
 // パスワード保存（個別）
@@ -25039,6 +25061,9 @@ rebuildLoginSelect();
     // 保存済みユーザーで自動ログイン
     currentUser = savedUser;
     document.getElementById('loginScreen').style.display = 'none';
+    var _savedUserObj = getUser(savedUser);
+    var _teamNav = document.getElementById('nav-team');
+    if (_teamNav) _teamNav.style.display = (_savedUserObj && _savedUserObj.isAdmin) ? '' : 'none';
     document.getElementById('sidebarUser').style.display = 'block';
     document.getElementById('sidebarUserName').textContent = '👤 ' + currentUser;
     var avatar = document.getElementById('sidebarAvatar');
