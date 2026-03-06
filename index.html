@@ -7295,9 +7295,9 @@ function resetAllPasswords(){
   showToast('✅ 全員のパスワードを0000にリセットしました');
 }
 
-function updateTeamMember(ti,mi,field,val){teamData.teams[ti].members[mi][field]=val;persistTeamData();syncUsersFromTeamData();persistUsers();if(field==='role'||field==='name')renderTeamChart();}
-function removeTeamMember(ti,mi){if(!confirm(teamData.teams[ti].members[mi].name+' を削除しますか？'))return;teamData.teams[ti].members.splice(mi,1);persistTeamData();syncUsersFromTeamData();persistUsers();renderTeamChart();}
-function addTeamMember(ti){teamData.teams[ti].members.push({name:'',role:'社員'});persistTeamData();syncUsersFromTeamData();persistUsers();renderTeamChart();}
+function updateTeamMember(ti,mi,field,val){teamData.teams[ti].members[mi][field]=val;persistTeamData();syncUsersFromTeamData();persistUsers();rebuildLoginSelect();if(field==='role'||field==='name')renderTeamChart();}
+function removeTeamMember(ti,mi){if(!confirm(teamData.teams[ti].members[mi].name+' を削除しますか？'))return;teamData.teams[ti].members.splice(mi,1);persistTeamData();syncUsersFromTeamData();persistUsers();rebuildLoginSelect();renderTeamChart();}
+function addTeamMember(ti){teamData.teams[ti].members.push({name:'',role:'社員'});persistTeamData();syncUsersFromTeamData();persistUsers();rebuildLoginSelect();renderTeamChart();}
 function updateCommonMember(ci,field,val){teamData.common[ci][field]=val;persistTeamData();syncUsersFromTeamData();persistUsers();}
 function removeCommonMember(ci){if(!confirm(teamData.common[ci].name+' を削除しますか？'))return;teamData.common.splice(ci,1);persistTeamData();syncUsersFromTeamData();persistUsers();renderTeamChart();}
 function addCommonMember(){teamData.common.push({name:'',role:''});persistTeamData();syncUsersFromTeamData();persistUsers();renderTeamChart();}
@@ -7307,7 +7307,7 @@ function moveTeamMember(fromTi,mi,toTarget){
   teamData.teams[fromTi].members.splice(mi,1);
   if(toTarget==='common'){teamData.common.push({name:member.name,role:member.role});}
   else{teamData.teams[parseInt(toTarget)].members.push(member);}
-  persistTeamData();renderTeamChart();showToast('↪ '+member.name+' を移動しました');
+  persistTeamData();syncUsersFromTeamData();persistUsers();rebuildLoginSelect();renderTeamChart();showToast('↪ '+member.name+' を移動しました');
 }
 function closeMore(){ document.getElementById('moreMenu').style.display='none'; }
 
@@ -7920,7 +7920,9 @@ function renderDocsContent() {
       if(urgCount) h+='<span style="font-size:11px;font-weight:800;color:#dc2626;background:#fef2f2;border:1px solid #fca5a5;border-radius:99px;padding:2px 8px;">🔥 '+urgCount+'</span>';
       h+='<input type="checkbox" onclick="event.stopPropagation();toggleAccTaskSel('+ti+',this.checked)" title="全選択" style="cursor:pointer;">';
       h+='<div style="width:100px;height:5px;background:var(--gray-200);border-radius:3px;"><div style="width:'+pct+'%;height:5px;background:var(--green);border-radius:3px;"></div></div>';
-      h+='<span style="font-size:11px;font-weight:700;color:'+(taskItems.length>0?'#ea580c':'var(--green)')+';white-space:nowrap;">未完了 '+taskItems.length+'件</span></div>';
+      h+='<span style="font-size:11px;font-weight:700;color:'+(taskItems.length>0?'#ea580c':'var(--green)')+';white-space:nowrap;">未完了 '+taskItems.length+'件</span>';
+      if(taskItems.length>0) h+='<button onclick="event.stopPropagation();bulkCompleteTask('+ti+')" style="font-size:10px;padding:3px 10px;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">✅ 全完了</button>';
+      h+='</div>';
       h+='<div id="'+accId+'" style="display:none;border-top:1px solid '+secBorder+';">';
       if(!taskItems.length){h+='<div style="padding:16px;text-align:center;color:var(--green);font-size:12px;">✅ 全件完了</div>';}
       else{taskItems.forEach(function(item){h+=buildDocCard(item.c,tn,ti,item.st,item.key,item.deadline,today,ST_LABEL,ST_COLOR,ST_BG,ST_BORDER,false,item.isUrg);});}
@@ -7968,6 +7970,47 @@ function renderDocsContent() {
   }
   el.innerHTML=h;
 }
+function bulkCompleteTask(ti){
+  var tn = TASK_NAMES[ti];
+  if(!confirm(tn+' の未完了案件を全て完了にしますか？\n※件数が多い場合、数回に分けてDB保存されます'))return;
+  var rows=[];
+  cData.forEach(function(c){
+    if(c.status==='完了') return;
+    var key=c.id+'_'+ti;
+    var st=docTaskStatus[key]||0;
+    if(st===3||st===4) return;
+    docTaskStatus[key]=3;
+    rows.push({case_id:c.id, task_index:ti, status:3});
+  });
+  if(!rows.length){showToast('既に全件完了です');return;}
+  // localStorage更新
+  try{localStorage.setItem('ofusa_docTaskStatus',JSON.stringify(docTaskStatus));}catch(e){}
+  // taskDone/taskTotal再計算
+  cData.forEach(function(c){
+    var d=0;
+    for(var i=0;i<TASK_NAMES.length;i++){if((docTaskStatus[c.id+'_'+i]||0)===3||(docTaskStatus[c.id+'_'+i]||0)===4)d++;}
+    c.taskDone=d; c.taskTotal=TASK_NAMES.length;
+  });
+  renderDocs();
+  showToast('⏳ '+tn+' '+rows.length+'件を完了にしています...');
+  // 100件ずつバッチでDB送信
+  if(!DB_READY){showToast('✅ '+tn+' '+rows.length+'件を完了にしました（ローカル）');return;}
+  var BATCH=100, sent=0;
+  function sendNext(){
+    if(sent>=rows.length){
+      showToast('✅ '+tn+' '+rows.length+'件を完了にしました');
+      return;
+    }
+    var batch=rows.slice(sent,sent+BATCH);
+    sent+=BATCH;
+    _sb.from('doc_tasks').upsert(batch,{onConflict:'case_id,task_index'}).then(function(r){
+      if(r.error) console.error('bulkComplete err:',r.error);
+      setTimeout(sendNext, 300);
+    });
+  }
+  sendNext();
+}
+
 function buildDocCard(c,taskName,ti,st,key,deadline,today,ST_LABEL,ST_COLOR,ST_BG,ST_BORDER,showTask,isUrg){
   var dlLabel=deadline?(deadline<today?'期日超過':deadline):'',dlColor=deadline&&deadline<today?'#ef4444':'#94a3b8';
   var rowBg=isUrg?'#fef2f2':ST_BG[st];
