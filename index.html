@@ -1950,12 +1950,28 @@ function persistCasesToDB(casesArray, callback) {
       drive_url: c.driveUrl || null
     };
   });
+  // 重複IDを除去（同一バッチ内の重複でPostgresエラーになるのを防ぐ）
+  var seen = {};
+  rows = rows.filter(function(r) {
+    if (!r.id || seen[r.id]) return false;
+    seen[r.id] = true;
+    return true;
+  });
+  if (!rows.length) { if (typeof callback === 'function') callback(null); return; }
   // 既知の除外カラムを事前に除外
   rows = rows.map(function(r) {
     var nr = {};
     Object.keys(r).forEach(function(k){ if(!_dbExcludedCols[k]) nr[k]=r[k]; });
     return nr;
   });
+  // 同一バッチ内のID重複を除去（ON CONFLICT エラー回避）
+  var seen = {};
+  rows = rows.filter(function(r) {
+    if (seen[r.id]) return false;
+    seen[r.id] = true;
+    return true;
+  });
+  if (!rows.length) { if (typeof callback === 'function') callback(null); return; }
   // PGRST204エラー（カラム不存在）の場合、該当カラムをキャッシュして再試行
   function tryUpsert(rowsToTry, attempt) {
     _sb.from('cases').upsert(rowsToTry, {onConflict: 'id'}).then(function(res) {
@@ -24425,7 +24441,7 @@ function submitNewCase() {
   try{localStorage.setItem('ofusa_personData',JSON.stringify(personData));}catch(e){}
   if(DB_READY){
     persistCasesToDB([data], function(err) {
-      if (!err) _createCaseDriveFolder(data);
+      _createCaseDriveFolder(data);
     });
     hideLoading();showToast('✅ 案件を登録しました');loadAllFromSupabase();
   } else {
@@ -24460,10 +24476,15 @@ function _createCaseDriveFolder(caseData) {
       showToast('📁 Driveフォルダ作成: ' + res.folderName);
       // ★人材資料フォルダURLをdriveUrlに保存
       var driveUrlToSave = res.jinzaiUrl || res.folderUrl;
+      // cDataを更新（見つかれば）
       var caseObj = cData.find(function(c){ return c.id === caseData.id; });
-      if (caseObj) {
-        caseObj.driveUrl = driveUrlToSave;
-        if(DB_READY) _sb.from('cases').update({drive_url: driveUrlToSave}).eq('id', caseData.id).then(function(){});
+      if (caseObj) caseObj.driveUrl = driveUrlToSave;
+      // DBは常に直接PATCH（cDataの有無に依存しない）
+      if(DB_READY) {
+        _sb.from('cases').update({drive_url: driveUrlToSave}).eq('id', caseData.id).then(function(r){
+          if(r && r.error) console.warn('drive_url保存失敗:', r.error);
+          else console.log('✅ drive_url保存完了:', driveUrlToSave);
+        });
       }
     } else {
       console.warn('フォルダ作成失敗:', res);
