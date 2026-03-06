@@ -1721,6 +1721,8 @@ function sbFetchCases(opts, callback) {
   } else if (opts.sort === 'return-asc' || opts.sort === 'return-desc') {
     // 一時帰国ソート: personsテーブルからtemp_returnを取得してクライアント側ソート
     dataQuery = dataQuery.order('created_at', {ascending: false, nullsFirst: false});
+  } else if (opts.colSort) {
+    dataQuery = dataQuery.order(opts.colSort.col, {ascending: opts.colSort.dir==='asc', nullsFirst: false});
   } else {
     dataQuery = dataQuery.order('created_at', {ascending: false, nullsFirst: false});
   }
@@ -14357,9 +14359,21 @@ function applyFilters(resetPage) {
   
   // Supabase直接クエリ
   if (DB_READY) {
+    // ヘッダークリックのカラムソートをDB列名に変換
+    var colSortMap = {
+      'name':'name','applicant':'applicant','org':'org','company':'company',
+      'appType':'app_type','team':'team','staff':'staff','status':'status',
+      'expire':'expire','receiptDate':'receipt_date','receiptNo':'receipt_no',
+      'shinsaDate':'shinsa_date'
+    };
+    var colSt = colSortState.main;
+    var dbColSort = (!sort && colSt.col && colSortMap[colSt.col])
+      ? {col: colSortMap[colSt.col], dir: colSt.dir}
+      : null;
     sbFetchCases({
       page: currentPage, pageSize: PAGE_SIZE,
-      team: team, appType: type, status: status, staff: staff, search: q, sort: sort
+      team: team, appType: type, status: status, staff: staff, search: q, sort: sort,
+      colSort: dbColSort
     }, function(cases, total) {
       filteredTotalCount = total;
       // cDataキャッシュにマージ
@@ -14367,9 +14381,7 @@ function applyFilters(resetPage) {
         var idx = cData.findIndex(function(x) { return x.id === c.id; });
         if (idx >= 0) cData[idx] = c; else cData.push(c);
       });
-      var sorted = cases.slice();
-      if(!sort && colSortState.main.col) sorted = sortByColumn(sorted, 'main');
-      renderTable(sorted);
+      renderTable(cases);
       renderPagination(total, currentPage, PAGE_SIZE);
     });
   } else {
