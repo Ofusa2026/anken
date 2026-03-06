@@ -622,6 +622,24 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <option value="return-desc">一時帰国：遠い順</option>
       </select>
     </div>
+    <!-- 一括操作バー -->
+    <div id="doneBulkBar" style="display:none;background:#eff6ff;border:1.5px solid #93c5fd;border-radius:10px;padding:8px 14px;margin-top:6px;display:none;align-items:center;gap:10px;flex-wrap:wrap;">
+      <span id="doneBulkCount" style="font-size:12px;font-weight:700;color:#1e40af;">0件選択</span>
+      <span style="font-size:12px;color:#64748b;">→ ステータスを変更:</span>
+      <select id="doneBulkStatus" style="font-size:12px;padding:4px 8px;border:1px solid #93c5fd;border-radius:7px;background:white;">
+        <option value="">選択してください</option>
+        <option value="未着手">未着手</option>
+        <option value="書類作成中">書類作成中</option>
+        <option value="審査中">審査中</option>
+        <option value="追加資料対応">追加資料対応</option>
+        <option value="申請済">申請済</option>
+        <option value="完了">完了</option>
+        <option value="審査完了">審査完了</option>
+      </select>
+      <button onclick="applyDoneBulkStatus()" style="font-size:12px;padding:4px 14px;background:#2563eb;color:white;border:none;border-radius:7px;cursor:pointer;font-weight:700;">一括変更</button>
+      <button onclick="doneBulkSelectAll()" style="font-size:11px;padding:3px 10px;background:white;color:#2563eb;border:1px solid #93c5fd;border-radius:7px;cursor:pointer;">全選択</button>
+      <button onclick="doneBulkClear()" style="font-size:11px;padding:3px 10px;background:white;color:#64748b;border:1px solid #d1d5db;border-radius:7px;cursor:pointer;">解除</button>
+    </div>
   </div>
   <div class="table-section">
     <div class="table-wrap">
@@ -1848,10 +1866,17 @@ function dbRowToCase(r) {
     appType: r.app_type||'', residenceStatus: r.residence_status||'',
     currentStatus: r.current_status||'', team: r.team||'', staff: r.staff||'',
     toritsugisha: r.toritsugisha||'', introFee: r.intro_fee||'', otherSupportNote: r.other_support_note||'', expire: r.expire||'',
+    tokureiDate: r.tokurei_date||'', tempReturn: r.temp_return||'',
+    shinsaDate: r.shinsa_date||'',
     status: r.status||'未着手', empSetIdx: r.emp_set_idx||'',
     supportFee: r.support_fee||'', applicantField: r.applicant_field||'',
     jobCategory: r.job_category||'', receiptNo: r.receipt_no||'',
     receiptDate: r.receipt_date||'', docCreateDate: r.doc_create_date||'',
+    taskDone: r.task_done||0, taskTotal: r.task_total||0,
+    _caseNo: r.case_no||'',
+    folderNo: r.folder_no||'', industry: r.industry||'', memo: r.memo||'',
+    authorName: r.author_name||'', authorTitle: r.author_title||'',
+    intake_id: r.intake_id||'',
     members: r.members||[]
   };
 }
@@ -7568,20 +7593,22 @@ function renderStats() {
   var teams = ['中林チーム','亀谷チーム','坂育チーム'];
   var teamColors = {'中林チーム':'#2563eb','亀谷チーム':'#d97706','坂育チーム':'#16a34a'};
   var h = '';
-  var urgent = cData.filter(function(c){ return c.status==='追加資料対応'; }).length;
+  // 完了・審査完了を除いたアクティブ案件
+  var activeData = cData.filter(function(c){ return c.status !== '完了' && c.status !== '審査完了'; });
+  var urgent = activeData.filter(function(c){ return c.status==='追加資料対応'; }).length;
 
-  // 全案件カード
+  // 全案件カード（完了除く）
   h += '<div class="stat-card" data-team="" onclick="filterTeam(this.dataset.team)">';
   h += '<div style="font-size:10px;font-weight:700;color:var(--gray-400);margin-bottom:2px;">全案件</div>';
-  h += '<div style="font-size:22px;font-weight:900;color:var(--navy);line-height:1;">'+cData.length+'<span style="font-size:11px;color:var(--gray-400);font-weight:500;"> 件</span></div>';
+  h += '<div style="font-size:22px;font-weight:900;color:var(--navy);line-height:1;">'+activeData.length+'<span style="font-size:11px;color:var(--gray-400);font-weight:500;"> 件</span></div>';
   if (urgent) h += '<div style="font-size:10px;color:#dc2626;margin-top:3px;">⚠ 要対応 '+urgent+'件</div>';
   else h += '<div style="font-size:10px;color:var(--gray-400);margin-top:3px;">異常なし</div>';
   h += '</div>';
 
-  // チームカード
+  // チームカード（完了除く）
   teams.forEach(function(team) {
     var col = teamColors[team]||'#64748b';
-    var cases = cData.filter(function(c){ return c.team===team; });
+    var cases = activeData.filter(function(c){ return c.team===team; });
     var docs=cases.filter(function(c){return c.status==='書類作成中';}).length;
     var rev=cases.filter(function(c){return c.status==='審査中';}).length;
     var add=cases.filter(function(c){return c.status==='追加資料対応';}).length;
@@ -7598,7 +7625,7 @@ function renderStats() {
   });
 
   // 企業単独カード
-  var kigyoCases = cData.filter(function(c){ return c.org==='企業単独'; });
+  var kigyoCases = activeData.filter(function(c){ return c.org==='企業単独'; });
   var kDocs=kigyoCases.filter(function(c){return c.status==='書類作成中';}).length;
   var kRev=kigyoCases.filter(function(c){return c.status==='審査中';}).length;
   var kAdd=kigyoCases.filter(function(c){return c.status==='追加資料対応';}).length;
@@ -13768,7 +13795,7 @@ function buildCaseRow(c, today, inGroup) {
   // 担当者苗字のみ
   var staffShort = (c.staff||'').split(/[\s\u3000]/)[0];
   var h = '<tr onclick="openCase(\'' + c.id + '\')" style="' + rowStyle + '">';
-  h += '<td onclick="event.stopPropagation()" style="text-align:center;'+cs+'"><input type="checkbox" class="group-sel-cb" data-id="'+c.id+'" onchange="updateGroupSelectBar()" style="width:14px;height:14px;cursor:pointer;accent-color:#2563eb;"></td>';
+  h += '<td onclick="event.stopPropagation()" style="text-align:center;'+cs+'"><input type="checkbox" class="group-sel-cb" data-id="'+c.id+'" onchange="updateGroupSelectBar();updateDoneBulkBar();" style="width:14px;height:14px;cursor:pointer;accent-color:#2563eb;"></td>';
   h += '<td style="'+cs+'font-size:10px;color:var(--gray-400);font-weight:600;">'+caseNo+'</td>';
   // 案件名+申請者 2段
   var mc = (c.members && c.members.length > 1) ? c.members.length : 0;
@@ -14220,6 +14247,68 @@ function filterStatus(s) {
 }
 
 // ===== 完了案件一覧 =====
+function getDoneSelectedIds() {
+  var cbs = document.querySelectorAll('#doneCaseTable .group-sel-cb:checked');
+  return Array.from(cbs).map(function(cb){ return cb.dataset.id; });
+}
+
+function updateDoneBulkBar() {
+  var ids = getDoneSelectedIds();
+  var bar = document.getElementById('doneBulkBar');
+  var cnt = document.getElementById('doneBulkCount');
+  if (!bar) return;
+  if (ids.length > 0) {
+    bar.style.display = 'flex';
+    if (cnt) cnt.textContent = ids.length + '件選択中';
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function doneBulkSelectAll() {
+  document.querySelectorAll('#doneCaseTable .group-sel-cb').forEach(function(cb){ cb.checked = true; });
+  updateDoneBulkBar();
+}
+
+function doneBulkClear() {
+  document.querySelectorAll('#doneCaseTable .group-sel-cb').forEach(function(cb){ cb.checked = false; });
+  updateDoneBulkBar();
+}
+
+function applyDoneBulkStatus() {
+  var ids = getDoneSelectedIds();
+  var newStatus = document.getElementById('doneBulkStatus').value;
+  if (!ids.length) { showToast('⚠️ 案件を選択してください'); return; }
+  if (!newStatus) { showToast('⚠️ 変更後のステータスを選択してください'); return; }
+  if (!confirm(ids.length + '件のステータスを「' + newStatus + '」に変更しますか？')) return;
+
+  var done = 0;
+  var total = ids.length;
+  ids.forEach(function(id) {
+    var c = cData.find(function(x){ return x.id === id; });
+    if (c) c.status = newStatus;
+    if (DB_READY) {
+      _sb.from('cases').update({status: newStatus}).eq('id', id).then(function(r) {
+        done++;
+        if (done === total) {
+          persist();
+          showToast('✅ ' + total + '件のステータスを「' + newStatus + '」に変更しました');
+          doneBulkClear();
+          applyDoneFilters(true);
+          renderStats();
+        }
+      });
+    }
+  });
+  if (!DB_READY) {
+    persist();
+    showToast('✅ ' + total + '件のステータスを「' + newStatus + '」に変更しました');
+    doneBulkClear();
+    applyDoneFilters(true);
+    renderStats();
+  }
+}
+
 function openDoneCases(){
   buildDoneFilters();
   applyDoneFilters();
@@ -16207,7 +16296,21 @@ function scanDriveDocuments(caseId) {
 
 function showCaseDetail(caseId, tab) {
   var cas = cData.find(function(c){return c.id===caseId;});
-  if (!cas) return;
+  if (!cas && DB_READY) {
+    // cDataにない場合（完了案件等）はSupabaseから直接取得
+    _sb.from('cases').select('*').eq('id', caseId).single().then(function(r){
+      if (!r.error && r.data) {
+        var loaded = dbRowToCase(r.data);
+        // cDataに追加してから開く
+        if (!cData.find(function(x){return x.id===caseId;})) cData.push(loaded);
+        showCaseDetail(caseId, tab);
+      } else {
+        showToast('⚠️ 案件が見つかりません');
+      }
+    });
+    return;
+  }
+  if (!cas) { showToast('⚠️ 案件が見つかりません'); return; }
   currentCase = cas;
   // アラートモーダルを全部閉じる
   ['personDocAlertModal','coDocAlertModal'].forEach(function(id){
