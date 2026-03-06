@@ -15676,6 +15676,90 @@ function showTab(tab) {
   }
 }
 
+function bulkSetReqDate(caseId) {
+  var val = (document.getElementById('bulkReqDate_'+caseId)||{}).value;
+  if (!val) { showToast('⚠️ 依頼日を入力してください'); return; }
+  var cas = cData.find(function(x){return x.id===caseId;});
+  if (!cas) return;
+  var docList = _getDocList(cas);
+  if (!docList) return;
+  if (!docCheck[caseId]) docCheck[caseId] = {};
+  docList.forEach(function(d){
+    if (!docCheck[caseId]['skip::'+d]) {
+      docCheck[caseId]['req::'+d] = val;
+    }
+  });
+  persistDocCheck();
+  showTab('docs');
+  showToast('✅ 依頼日を一括セットしました');
+}
+
+function bulkSetGotDate(caseId) {
+  var val = (document.getElementById('bulkGotDate_'+caseId)||{}).value;
+  if (!val) { showToast('⚠️ 取得日を入力してください'); return; }
+  var cas = cData.find(function(x){return x.id===caseId;});
+  if (!cas) return;
+  var docList = _getDocList(cas);
+  if (!docList) return;
+  if (!docCheck[caseId]) docCheck[caseId] = {};
+  docList.forEach(function(d){
+    if (!docCheck[caseId]['skip::'+d]) {
+      docCheck[caseId]['date::'+d] = val;
+    }
+  });
+  persistDocCheck();
+  showTab('docs');
+  showToast('✅ 取得日を一括セットしました');
+}
+
+function bulkCheckAll(caseId, type) {
+  var cas = cData.find(function(x){return x.id===caseId;});
+  if (!cas) return;
+  var docList = _getDocList(cas);
+  if (!docList) return;
+  if (!docCheck[caseId]) docCheck[caseId] = {};
+  docList.forEach(function(d){
+    if (!docCheck[caseId]['skip::'+d]) {
+      docCheck[caseId][type+'::'+d] = true;
+    }
+  });
+  persistDocCheck();
+  showTab('docs');
+  showToast('✅ 全書類をチェックしました');
+}
+
+function bulkUncheckAll(caseId, type) {
+  var cas = cData.find(function(x){return x.id===caseId;});
+  if (!cas) return;
+  var docList = _getDocList(cas);
+  if (!docList) return;
+  if (!docCheck[caseId]) docCheck[caseId] = {};
+  docList.forEach(function(d){ delete docCheck[caseId][type+'::'+d]; });
+  persistDocCheck();
+  showTab('docs');
+  showToast('✅ チェックを全解除しました');
+}
+
+function _getDocList(cas) {
+  var appType = cas.appType || '';
+  var listKey = null;
+  if (appType.indexOf('更新') !== -1) listKey = '更新';
+  else if (appType.indexOf('変更') !== -1) listKey = '変更';
+  else if (appType.indexOf('認定') !== -1) listKey = '認定';
+  if (!listKey) return null;
+  var pd = personData[cas.id] || {};
+  var prevStatus = pd.residenceStatus || cas.residenceStatus || '';
+  var isRyugaku = prevStatus.indexOf('留学') !== -1;
+  var natRaw = pd.nationality || cas.nationality || '';
+  var natKey = null;
+  Object.keys(REQUIRED_DOCS_NATIONALITY).forEach(function(k){ if(natRaw.indexOf(k)!==-1) natKey=k; });
+  var seen = {}; var docList = [];
+  (REQUIRED_DOCS[listKey]||[]).forEach(function(d){if(!seen[d]){seen[d]=1;docList.push(d);}});
+  if (isRyugaku) (REQUIRED_DOCS_RYUGAKU[listKey]||[]).forEach(function(d){if(!seen[d]){seen[d]=1;docList.push(d);}});
+  if (natKey) ((REQUIRED_DOCS_NATIONALITY[natKey]||{})[listKey]||[]).forEach(function(d){if(!seen[d]){seen[d]=1;docList.push(d);}});
+  return docList;
+}
+
 function renderDocsTab(cas) {
   var appType = cas.appType || '';
   var listKey = null;
@@ -15769,6 +15853,26 @@ function renderDocsTab(cas) {
     h += '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--gray-400);margin-bottom:4px;">';
     h += '<span>書類確認進捗</span><span>' + doneCount + ' / ' + totalActive + '件</span></div>';
     h += '<div style="background:var(--gray-200);border-radius:99px;height:6px;"><div style="background:var(--green);height:6px;border-radius:99px;width:' + pct + '%;transition:.3s;"></div></div>';
+    h += '</div>';
+
+    // 一括操作バー
+    h += '<div style="background:#f0f9ff;border:1.5px solid #7dd3fc;border-radius:10px;padding:8px 12px;margin-bottom:10px;">';
+    h += '<div style="font-size:11px;font-weight:700;color:#0369a1;margin-bottom:7px;">⚡ 一括操作</div>';
+    h += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">';
+    // 一括依頼日
+    h += '<span style="font-size:10px;color:#64748b;white-space:nowrap;">依頼日:</span>';
+    h += '<input type="date" id="bulkReqDate_'+cas.id+'" style="padding:3px 5px;border:1px solid #7dd3fc;border-radius:5px;font-size:10px;">';
+    h += '<button onclick="bulkSetReqDate(\'' + cas.id + '\')" style="padding:3px 10px;background:#0ea5e9;color:white;border:none;border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;">一括セット</button>';
+    h += '<span style="color:#cbd5e1;">|</span>';
+    // 一括取得日
+    h += '<span style="font-size:10px;color:#64748b;white-space:nowrap;">取得日:</span>';
+    h += '<input type="date" id="bulkGotDate_'+cas.id+'" style="padding:3px 5px;border:1px solid #7dd3fc;border-radius:5px;font-size:10px;">';
+    h += '<button onclick="bulkSetGotDate(\'' + cas.id + '\')" style="padding:3px 10px;background:#0ea5e9;color:white;border:none;border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;">一括セット</button>';
+    h += '<span style="color:#cbd5e1;">|</span>';
+    // 一括チェック
+    h += '<button onclick="bulkCheckAll(\'' + cas.id + '\',\'staff\')" style="padding:3px 10px;background:#10b981;color:white;border:none;border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;">👤 全チェック</button>';
+    h += '<button onclick="bulkUncheckAll(\'' + cas.id + '\',\'staff\')" style="padding:3px 10px;background:white;color:#64748b;border:1px solid #cbd5e1;border-radius:5px;font-size:10px;cursor:pointer;">全解除</button>';
+    h += '</div>';
     h += '</div>';
 
     // 凡例
@@ -16425,7 +16529,8 @@ function showPersonDocAlertModal() {
       h += '<div style="background:'+(hasWarn?'#fee2e2':'#fffbeb')+';padding:8px 12px;display:flex;align-items:center;justify-content:space-between;">';
       h += '<div>';
       h += '<div style="font-size:12px;font-weight:800;color:'+(hasWarn?'#991b1b':'#92400e')+';">👤 '+esc(group.cas.applicant||'')+'</div>';
-      h += '<div style="font-size:10px;color:#6b7280;">'+esc(group.cas.appType||'')+'</div>';
+      h += '<div style="font-size:10px;color:#6b7280;">'+esc(group.cas.name||'')+'</div>';
+      h += '<div style="font-size:10px;color:#9ca3af;">'+esc(group.cas.appType||'')+'</div>';
       h += '</div>';
       h += '<button onclick="document.getElementById(\'personDocAlertModal\').remove();showCaseDetail(\''+cid+'\',\'docs\')" style="font-size:10px;padding:2px 10px;background:'+(hasWarn?'#dc2626':'#d97706')+';color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;">書類チェックへ</button>';
       h += '</div>';
@@ -17609,6 +17714,71 @@ function openCompanyDetail(coId, tab) {
   setTimeout(function(){ renderCompanyDetail(co); }, 100);
 }
 
+function _getCoDocList(co) {
+  var isKojin = co.corpType === '個人事業主';
+  var coFieldKeys = _getCoFieldKeys(co);
+  var seen = {}; var docList = [];
+  (isKojin ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO).forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} });
+  coFieldKeys.forEach(function(fk){
+    (REQUIRED_DOCS_CO_FIELD[fk]||[]).forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} });
+  });
+  return docList;
+}
+
+function coBulkSetReqDate(coId) {
+  var val = (document.getElementById('coBulkReqDate_'+coId)||{}).value;
+  if (!val) { showToast('⚠️ 依頼日を入力してください'); return; }
+  var co = supportOrgs.find(function(x){return x.id===coId;}) || companies.find(function(x){return x.id===coId;});
+  if (!co) return;
+  var docList = _getCoDocList(co);
+  if (!coDocCheck[coId]) coDocCheck[coId] = {};
+  docList.forEach(function(d){
+    if (!coDocCheck[coId]['skip::'+d]) coDocCheck[coId]['req::'+d] = val;
+  });
+  persistCoDocCheck();
+  openCompanyDetail(coId, 'coDocs');
+  showToast('✅ 依頼日を一括セットしました');
+}
+
+function coBulkSetGotDate(coId) {
+  var val = (document.getElementById('coBulkGotDate_'+coId)||{}).value;
+  if (!val) { showToast('⚠️ 取得日を入力してください'); return; }
+  var co = supportOrgs.find(function(x){return x.id===coId;}) || companies.find(function(x){return x.id===coId;});
+  if (!co) return;
+  var docList = _getCoDocList(co);
+  if (!coDocCheck[coId]) coDocCheck[coId] = {};
+  docList.forEach(function(d){
+    if (!coDocCheck[coId]['skip::'+d]) coDocCheck[coId]['date::'+d] = val;
+  });
+  persistCoDocCheck();
+  openCompanyDetail(coId, 'coDocs');
+  showToast('✅ 取得日を一括セットしました');
+}
+
+function coBulkCheckAll(coId, type) {
+  var co = supportOrgs.find(function(x){return x.id===coId;}) || companies.find(function(x){return x.id===coId;});
+  if (!co) return;
+  var docList = _getCoDocList(co);
+  if (!coDocCheck[coId]) coDocCheck[coId] = {};
+  docList.forEach(function(d){
+    if (!coDocCheck[coId]['skip::'+d]) coDocCheck[coId][type+'::'+d] = true;
+  });
+  persistCoDocCheck();
+  openCompanyDetail(coId, 'coDocs');
+  showToast('✅ 全書類をチェックしました');
+}
+
+function coBulkUncheckAll(coId, type) {
+  var co = supportOrgs.find(function(x){return x.id===coId;}) || companies.find(function(x){return x.id===coId;});
+  if (!co) return;
+  var docList = _getCoDocList(co);
+  if (!coDocCheck[coId]) coDocCheck[coId] = {};
+  docList.forEach(function(d){ delete coDocCheck[coId][type+'::'+d]; });
+  persistCoDocCheck();
+  openCompanyDetail(coId, 'coDocs');
+  showToast('✅ チェックを全解除しました');
+}
+
 function renderCoDocsTabHtml(co) {
   var h = '';
   // 個人/法人で基本リストを切り替え＋分野別追加書類をマージ
@@ -17672,6 +17842,23 @@ function renderCoDocsTabHtml(co) {
   h += '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--gray-400);margin-bottom:4px;">';
   h += '<span>書類確認進捗</span><span>' + doneCount + ' / ' + totalActive + '件</span></div>';
   h += '<div style="background:var(--gray-200);border-radius:99px;height:6px;"><div style="background:var(--green);height:6px;border-radius:99px;width:' + pct + '%;transition:.3s;"></div></div>';
+  h += '</div>';
+
+  // 一括操作バー
+  h += '<div style="background:#f0f9ff;border:1.5px solid #7dd3fc;border-radius:10px;padding:8px 12px;margin-bottom:10px;">';
+  h += '<div style="font-size:11px;font-weight:700;color:#0369a1;margin-bottom:7px;">⚡ 一括操作</div>';
+  h += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">';
+  h += '<span style="font-size:10px;color:#64748b;white-space:nowrap;">依頼日:</span>';
+  h += '<input type="date" id="coBulkReqDate_'+co.id+'" style="padding:3px 5px;border:1px solid #7dd3fc;border-radius:5px;font-size:10px;">';
+  h += '<button onclick="coBulkSetReqDate(\'' + co.id + '\')" style="padding:3px 10px;background:#0ea5e9;color:white;border:none;border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;">一括セット</button>';
+  h += '<span style="color:#cbd5e1;">|</span>';
+  h += '<span style="font-size:10px;color:#64748b;white-space:nowrap;">取得日:</span>';
+  h += '<input type="date" id="coBulkGotDate_'+co.id+'" style="padding:3px 5px;border:1px solid #7dd3fc;border-radius:5px;font-size:10px;">';
+  h += '<button onclick="coBulkSetGotDate(\'' + co.id + '\')" style="padding:3px 10px;background:#0ea5e9;color:white;border:none;border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;">一括セット</button>';
+  h += '<span style="color:#cbd5e1;">|</span>';
+  h += '<button onclick="coBulkCheckAll(\'' + co.id + '\',\'staff\')" style="padding:3px 10px;background:#10b981;color:white;border:none;border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;">👤 全チェック</button>';
+  h += '<button onclick="coBulkUncheckAll(\'' + co.id + '\',\'staff\')" style="padding:3px 10px;background:white;color:#64748b;border:1px solid #cbd5e1;border-radius:5px;font-size:10px;cursor:pointer;">全解除</button>';
+  h += '</div>';
   h += '</div>';
 
   // 凡例
