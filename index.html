@@ -1896,7 +1896,7 @@ function dbRowToCase(r) {
 
 // 案件データ: cData をDBに保存
 var _dbExcludedCols = {}; // 存在しないカラムをキャッシュ
-function persistCasesToDB(casesArray) {
+function persistCasesToDB(casesArray, callback) {
   if (!DB_READY || !casesArray || !casesArray.length) return;
   // 日付フィールドのサニタイズ: 空・1900年代・不正値はnullに変換
   function safeDate(v) {
@@ -1972,9 +1972,11 @@ function persistCasesToDB(casesArray) {
           tryUpsert(fixed, attempt + 1);
         } else {
           console.error('persistCasesToDB error:', res.error);
+          if (typeof callback === 'function') callback(res.error);
         }
       } else {
         console.log('📦 cases synced to DB:', rowsToTry.length);
+        if (typeof callback === 'function') callback(null);
       }
     });
   }
@@ -24421,10 +24423,10 @@ function submitNewCase() {
   personData[newId].applicantNameEn = applicant;
   try{localStorage.setItem('ofusa_personData',JSON.stringify(personData));}catch(e){}
   if(DB_READY){
-    persistCasesToDB([data]);
+    persistCasesToDB([data], function(err) {
+      if (!err) _createCaseDriveFolder(data);
+    });
     hideLoading();showToast('✅ 案件を登録しました');loadAllFromSupabase();
-    // GASでDriveフォルダ作成
-    _createCaseDriveFolder(data);
   } else {
     hideLoading();showToast('✅ 案件を登録しました（ローカル）');renderStats();applyFilters();
   }
@@ -24432,17 +24434,24 @@ function submitNewCase() {
 
 function _createCaseDriveFolder(caseData) {
   if (typeof GAS_URL === 'undefined' || !GAS_URL) return;
-  // 登録支援機関名取得
+  // 登録支援機関名取得（ID or 名前で検索）
   var orgName = '';
   if (caseData.org) {
     var orgObj = supportOrgs.find(function(o){ return o.id === caseData.org || o.name === caseData.org; });
-    orgName = orgObj ? (orgObj.displayName || orgObj.name) : caseData.org;
+    orgName = orgObj ? (orgObj.displayName || orgObj.name || orgObj.id) : caseData.org;
   }
-  // 申請種別（認定・変更・更新のみ）
-  var appType = caseData.appType || '';
-  if (appType !== '認定' && appType !== '変更' && appType !== '更新') appType = appType || '認定';
+  // 企業名（hidden inputに入っていない場合はcompanySearchの表示値も使う）
+  var companyName = caseData.company || '';
+  if (!companyName) {
+    var csEl = document.getElementById('nc_companySearch');
+    if (csEl) companyName = csEl.value.trim();
+  }
+  // 申請種別
+  var appType = caseData.appType || '認定';
+  // 人材名
+  var applicantName = caseData.applicant || caseData.name || '';
   // フォルダ名: 登録支援機関名/企業名/申請種別/人材名
-  var parts = [orgName, caseData.company || '', appType, caseData.applicant || ''];
+  var parts = [orgName, companyName, appType, applicantName];
   var folderName = parts.filter(function(p){ return p; }).join('/');
   var driveGasUrl = GAS_MAILBOX_URL || GAS_URL;
   jsonpPost(driveGasUrl, 'createCaseFolder', {folderName:folderName, caseId:caseData.id}, function(res){
