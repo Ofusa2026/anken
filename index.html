@@ -24689,18 +24689,25 @@ function loadAllFromSupabase() {
   }).catch(function(e) { console.error('shinsa load err:', e); done(); });
   
   // 6. 書類タスク
-  _sb.from('doc_tasks').select('*').then(function(res) {
-    if (!res.error && res.data) {
-      res.data.forEach(function(r) {
-        var key = r.case_id + '_' + r.task_index;
-        docTaskStatus[key] = r.status || 0;
-        if(r.deadline) taskDeadline[key] = r.deadline;
-        if(r.memo) taskMemo[key] = r.memo;
-      });
+  // doc_tasks を1000件ずつページングで全件取得
+  (function loadDocTasksAll(from){
+    _sb.from('doc_tasks').select('*').range(from, from+999).then(function(res) {
+      if (!res.error && res.data && res.data.length) {
+        res.data.forEach(function(r) {
+          var key = r.case_id + '_' + r.task_index;
+          docTaskStatus[key] = r.status || 0;
+          if(r.deadline) taskDeadline[key] = r.deadline;
+          if(r.memo) taskMemo[key] = r.memo;
+        });
+        if(res.data.length === 1000) {
+          loadDocTasksAll(from + 1000);
+          return;
+        }
+      }
       try{localStorage.setItem('ofusa_docTaskStatus',JSON.stringify(docTaskStatus));}catch(e){}
-    }
-    done();
-  }).catch(function(e) { console.error('docTasks load err:', e); done(); });
+      done();
+    }).catch(function(e) { console.error('docTasks load err:', e); done(); });
+  })(0);
   
   // 7. 確認事項
   _sb.from('case_notes').select('*').then(function(res) {
