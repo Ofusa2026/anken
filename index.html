@@ -2174,15 +2174,10 @@ function initialSyncToSupabase() {
     // 支援機関
     try { persistSupportOrgs(); } catch(e) {}
 
-    // 書類タスク
+    // 書類タスク: DB最優先のためlocalStorageからの同期は廃止
     try {
-      var dt = JSON.parse(localStorage.getItem('ofusa_docTaskStatus') || '{}');
-      var rows = [];
-      Object.keys(dt).forEach(function(k) {
-        var parts=k.split('_'); var caseId=parts.slice(0,-1).join('_'); var ti=parseInt(parts[parts.length-1]);
-        if(!isNaN(ti)&&validCaseIds[caseId]) rows.push({case_id:caseId,task_index:ti,status:dt[k]||0,deadline:taskDeadline[k]||null,memo:taskMemo[k]||null});
-      });
-      if(rows.length) _sb.from('doc_tasks').upsert(rows,{onConflict:'case_id,task_index'}).then(function(r){if(r.error)console.error('docTasks sync err:',r.error);else console.log('📦 docTasks synced:',rows.length);});
+      // (localStorageからのsyncは廃止)
+      if(false) {
     } catch(e) {}
 
     // 審査データ
@@ -8008,7 +8003,7 @@ function bulkCompleteTask(ti){
       rows.push({case_id:c.id, task_index:ti, status:3});
     });
     if(!rows.length){showToast('既に全件完了です');return;}
-    try{localStorage.setItem('ofusa_docTaskStatus',JSON.stringify(docTaskStatus));}catch(e){}
+    // localStorage廃止
     cData.forEach(function(c){
       var d=0;
       for(var i=0;i<TASK_NAMES.length;i++){if((docTaskStatus[c.id+'_'+i]||0)>=3)d++;}
@@ -8766,7 +8761,6 @@ function persistDocCheck() {
   setTimeout(updatePersonDocAlertBadge, 100);
 }
 function persistDocTaskStatus(specificKey) {
-  try { localStorage.setItem('ofusa_docTaskStatus', JSON.stringify(docTaskStatus)); } catch(e) {}
   if(DB_READY) {
     var rows = [];
     var keys = specificKey ? [specificKey] : Object.keys(docTaskStatus);
@@ -8796,7 +8790,7 @@ function loadPersistedData() {
         }
       }
     }
-    var dt = localStorage.getItem('ofusa_docTaskStatus');
+    var dt = null; // DB最優先のためlocalStorageは使わない //var dt = localStorage.getItem('ofusa_docTaskStatus');
     if (dt) docTaskStatus = JSON.parse(dt);
     var td = localStorage.getItem('ofusa_taskDeadline');
     if (td) taskDeadline = JSON.parse(td);
@@ -24689,7 +24683,8 @@ function loadAllFromSupabase() {
   }).catch(function(e) { console.error('shinsa load err:', e); done(); });
   
   // 6. 書類タスク
-  // doc_tasks を1000件ずつページングで全件取得
+  // doc_tasks を1000件ずつページングで全件取得（DB最優先、localStorageは使わない）
+  docTaskStatus = {};
   (function loadDocTasksAll(from){
     _sb.from('doc_tasks').select('*').range(from, from+999).then(function(res) {
       if (!res.error && res.data && res.data.length) {
@@ -24704,7 +24699,6 @@ function loadAllFromSupabase() {
           return;
         }
       }
-      try{localStorage.setItem('ofusa_docTaskStatus',JSON.stringify(docTaskStatus));}catch(e){}
       done();
     }).catch(function(e) { console.error('docTasks load err:', e); done(); });
   })(0);
@@ -24926,7 +24920,7 @@ function handleRealtimeChange(table, payload) {
     var key = newRow.key;
     var val = newRow.value;
     if (key === 'teamData') { teamData = val; try{localStorage.setItem('ofusa_teamData',JSON.stringify(val));}catch(e){} }
-    else if (key === 'docTaskStatus') { docTaskStatus = val; try{localStorage.setItem('ofusa_docTaskStatus',JSON.stringify(val));}catch(e){} }
+    else if (key === 'docTaskStatus') { /* DB最優先のため無視 */ }
     else if (key === 'shinsaData') { shinsaData = val; try{localStorage.setItem('ofusa_shinsaData',JSON.stringify(val));}catch(e){} }
     else if (key === 'docCheck') { docCheck = val; try{localStorage.setItem('ofusa_docCheck',JSON.stringify(val));}catch(e){} }
     else if (key === 'coDocCheck') { coDocCheck = val; try{localStorage.setItem('ofusa_coDocCheck',JSON.stringify(val));}catch(e){} }
