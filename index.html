@@ -468,6 +468,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <button class="btn btn-outline" onclick="bulkDeleteIntake()" style="background:#fee2e2;color:#dc2626;border-color:#fca5a5;font-weight:700;">🗑 表示中を一括削除</button>
     </div>
   </div>
+  <div id="intakeBulkBar" style="display:none;padding:8px 16px;background:#fef2f2;border-bottom:1px solid #fca5a5;display:flex;align-items:center;gap:10px;">
+    <input type="checkbox" id="intakeSelAll" onchange="toggleAllIntakeSel(this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:#dc2626;">
+    <span id="intakeSelCount" style="font-size:12px;font-weight:700;color:#dc2626;">0件選択中</span>
+    <button onclick="bulkDeleteSelectedIntake()" style="padding:5px 14px;background:#dc2626;color:white;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;">🗑 選択を削除</button>
+    <button onclick="clearIntakeSel()" style="padding:5px 10px;background:white;color:#6b7280;border:1px solid #d1d5db;border-radius:7px;font-size:12px;cursor:pointer;">✕ 解除</button>
+  </div>
   <div style="padding:12px 16px;border-bottom:1px solid var(--gray-200);display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
     <select id="intakeFilterStatus" onchange="renderIntakeList()" style="padding:6px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:12px;">
       <option value="pending">未確認</option>
@@ -17562,6 +17568,7 @@ function renderIntakeList() {
 
     // ヘッダ行
     h += '<div style="padding:10px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">';
+    h += '<input type="checkbox" class="intake-sel-cb" data-id="'+d.id+'" onchange="updateIntakeSelBar()" style="width:15px;height:15px;cursor:pointer;accent-color:#dc2626;flex-shrink:0;">';
     h += '<div style="flex:1;min-width:0;">';
     h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">';
     h += '<span style="font-size:13px;font-weight:800;color:#1f2937;">'+esc(d.applicant||'（氏名未入力）')+'</span>';
@@ -17691,6 +17698,52 @@ function registerIntakeCase(id) {
       if (r.error) console.warn('intake_requests update error:', r.error);
     });
   }
+}
+
+function updateIntakeSelBar() {
+  var cbs = document.querySelectorAll('.intake-sel-cb:checked');
+  var all = document.querySelectorAll('.intake-sel-cb');
+  var bar = document.getElementById('intakeBulkBar');
+  var cnt = document.getElementById('intakeSelCount');
+  var selAll = document.getElementById('intakeSelAll');
+  if (bar) bar.style.display = cbs.length ? 'flex' : 'none';
+  if (cnt) cnt.textContent = cbs.length + '件選択中';
+  if (selAll) selAll.checked = all.length > 0 && cbs.length === all.length;
+}
+
+function toggleAllIntakeSel(checked) {
+  document.querySelectorAll('.intake-sel-cb').forEach(function(cb){ cb.checked = checked; });
+  updateIntakeSelBar();
+}
+
+function clearIntakeSel() {
+  document.querySelectorAll('.intake-sel-cb').forEach(function(cb){ cb.checked = false; });
+  updateIntakeSelBar();
+}
+
+function bulkDeleteSelectedIntake() {
+  var cbs = document.querySelectorAll('.intake-sel-cb:checked');
+  if (!cbs.length) return;
+  var ids = [];
+  cbs.forEach(function(cb){ ids.push(cb.getAttribute('data-id')); });
+  if (!confirm(ids.length + '件を削除しますか？')) return;
+  if (!DB_READY) {
+    intakeData = intakeData.filter(function(d){ return ids.indexOf(String(d.id)) < 0; });
+    updateIntakeBadge(); renderIntakeList();
+    showToast('🗑 ' + ids.length + '件を削除しました');
+    return;
+  }
+  var done = 0;
+  ids.forEach(function(id) {
+    _sb.from('intake_requests').delete().eq('id', id).then(function(r) {
+      done++;
+      if (!r.error) intakeData = intakeData.filter(function(d){ return String(d.id) !== String(id); });
+      if (done === ids.length) {
+        updateIntakeBadge(); renderIntakeList();
+        showToast('🗑 ' + ids.length + '件を削除しました');
+      }
+    });
+  });
 }
 
 function bulkDeleteIntake() {
@@ -21093,7 +21146,8 @@ function formatExcelDate(v){
   if(s.match(/^\d+$/) && parseInt(s)>40000){ var d=new Date((parseInt(s)-25569)*86400000); return d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2)+"-"+("0"+d.getDate()).slice(-2); }
   // ISO datetime string (Date.toISOString など)
   if(s.match(/^\d{4}-\d{2}-\d{2}T/)) return s.slice(0,10);
-  return s;
+  // 日付として解釈できない文字列（「郵送交付」など）は破棄
+  return '';
 }
 function extractCompanyFromCaseName(name){
   if(!name) return '';
@@ -21201,10 +21255,7 @@ function executeCsvImport(){
   var idx=0, ok=0, fail=0, newCoCount=0;
   function doNext(){
     if(idx>=_csvParsedRows.length){
-      result.style.background='#f0fdf4'; result.style.color='#16a34a';
-      result.textContent='✅ 完了！ '+ok+'件 登録成功'+(fail?' / '+fail+'件 失敗':'')+(newCoCount?' / 所属機関 '+newCoCount+'件 新規登録':'');
-      document.getElementById('csvImportBtn').disabled=true;
-      loadAllFromSupabase();
+      finishImport();
       return;
     }
     var row=_csvParsedRows[idx];
@@ -21230,6 +21281,14 @@ function executeCsvImport(){
       }
     }
     result.textContent='⏳ 登録中... '+(idx+1)+'/'+_csvParsedRows.length+' ('+row.applicant+')';
+    // 審査中の場合はタスクを全完了で登録
+    if(data.status==='審査中'){
+      data.taskDone=TASK_NAMES.length;
+      data.taskTotal=TASK_NAMES.length;
+    } else {
+      data.taskDone=0;
+      data.taskTotal=TASK_NAMES.length;
+    }
     // Supabase直接書き込み
     var newId='case_'+Date.now()+'_'+idx;
     data.id=newId;
@@ -21239,6 +21298,40 @@ function executeCsvImport(){
       persistCasesToDB([data]);
     }
     ok++;idx++;setTimeout(doNext,50);
+  }
+  // 全件処理後の完了処理
+  function finishImport(){
+    result.style.background='#f0fdf4'; result.style.color='#16a34a';
+    result.textContent='✅ 完了！ '+ok+'件 登録成功'+(fail?' / '+fail+'件 失敗':'')+(newCoCount?' / 所属機関 '+newCoCount+'件 新規登録':'');
+    document.getElementById('csvImportBtn').disabled=true;
+    loadAllFromSupabase();
+    // 審査中案件のタスク完了を登録完了後3秒後に一括適用
+    var shinsakuIds = _csvParsedRows.filter(function(r){ return (r.status||statusVal)==='審査中'; }).map(function(r,i){ return 'case_'+Date.now()+'_'+i; });
+    // IDは登録済みcDataから取得する方が確実
+    setTimeout(function(){
+      var applied = 0;
+      cData.forEach(function(c){
+        if(c.status!=='審査中') return;
+        // 既に全タスク完了済みならスキップ
+        var alreadyDone = true;
+        for(var ti=0;ti<TASK_NAMES.length;ti++){
+          if((docTaskStatus[c.id+'_'+ti]||0)<3){ alreadyDone=false; break; }
+        }
+        if(alreadyDone) return;
+        // createdAtが今回の流し込み開始から5分以内のもののみ対象
+        var created = c.createdAt ? new Date(c.createdAt) : null;
+        var now = new Date();
+        if(!created || (now - created) > 5*60*1000) return;
+        for(var ti=0;ti<TASK_NAMES.length;ti++){
+          docTaskStatus[c.id+'_'+ti]=3;
+        }
+        applied++;
+      });
+      if(applied>0){
+        persistDocTaskStatus();
+        showToast('✅ 審査中 '+applied+'件のタスクを完了にしました');
+      }
+    }, 3000);
   }
   doNext();
 }
