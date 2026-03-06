@@ -7975,43 +7975,48 @@ function renderDocsContent() {
 }
 function bulkCompleteTask(ti){
   var tn = TASK_NAMES[ti];
-  if(!confirm(tn+' の未完了案件を全て完了にしますか？\n※件数が多い場合、数回に分けてDB保存されます'))return;
-  var rows=[];
-  cData.forEach(function(c){
-    if(c.status==='完了') return;
-    var key=c.id+'_'+ti;
-    var st=docTaskStatus[key]||0;
-    if(st===3||st===4) return;
-    docTaskStatus[key]=3;
-    rows.push({case_id:c.id, task_index:ti, status:3});
-  });
-  if(!rows.length){showToast('既に全件完了です');return;}
-  // localStorage更新
-  try{localStorage.setItem('ofusa_docTaskStatus',JSON.stringify(docTaskStatus));}catch(e){}
-  // taskDone/taskTotal再計算
-  cData.forEach(function(c){
-    var d=0;
-    for(var i=0;i<TASK_NAMES.length;i++){if((docTaskStatus[c.id+'_'+i]||0)===3||(docTaskStatus[c.id+'_'+i]||0)===4)d++;}
-    c.taskDone=d; c.taskTotal=TASK_NAMES.length;
-  });
-  renderDocs();
-  showToast('⏳ '+tn+' '+rows.length+'件を完了にしています...');
-  // 100件ずつバッチでDB送信
-  if(!DB_READY){showToast('✅ '+tn+' '+rows.length+'件を完了にしました（ローカル）');return;}
-  var BATCH=100, sent=0;
-  function sendNext(){
-    if(sent>=rows.length){
-      showToast('✅ '+tn+' '+rows.length+'件を完了にしました');
-      return;
-    }
-    var batch=rows.slice(sent,sent+BATCH);
-    sent+=BATCH;
-    _sb.from('doc_tasks').upsert(batch,{onConflict:'case_id,task_index'}).then(function(r){
-      if(r.error) console.error('bulkComplete err:',r.error);
-      setTimeout(sendNext, 300);
+  if(!confirm(tn+' の未完了案件を全て完了にしますか？\n※全案件取得後にDB保存します'))return;
+  showToast('⏳ 全案件を取得中...');
+  if(!DB_READY){showToast('❌ DB未接続');return;}
+  // 全案件IDをDBから取得（完了・審査完了除く）
+  _sb.from('cases').select('id,status').not('status','in','("完了","審査完了")').then(function(res){
+    if(res.error){showToast('❌ 取得失敗');return;}
+    var allCases = res.data||[];
+    var rows=[];
+    allCases.forEach(function(c){
+      var key=c.id+'_'+ti;
+      var st=docTaskStatus[key]||0;
+      if(st===3||st===4) return;
+      docTaskStatus[key]=3;
+      rows.push({case_id:c.id, task_index:ti, status:3});
     });
-  }
-  sendNext();
+    if(!rows.length){showToast('既に全件完了です');return;}
+    // localStorage更新
+    try{localStorage.setItem('ofusa_docTaskStatus',JSON.stringify(docTaskStatus));}catch(e){}
+    // cData内のtaskDone再計算
+    cData.forEach(function(c){
+      var d=0;
+      for(var i=0;i<TASK_NAMES.length;i++){if((docTaskStatus[c.id+'_'+i]||0)===3||(docTaskStatus[c.id+'_'+i]||0)===4)d++;}
+      c.taskDone=d; c.taskTotal=TASK_NAMES.length;
+    });
+    renderDocs();
+    showToast('⏳ '+tn+' '+rows.length+'件を完了にしています...');
+    // 100件ずつバッチでDB送信
+    var BATCH=100, sent=0;
+    function sendNext(){
+      if(sent>=rows.length){
+        showToast('✅ '+tn+' '+rows.length+'件を完了にしました');
+        return;
+      }
+      var batch=rows.slice(sent,sent+BATCH);
+      sent+=BATCH;
+      _sb.from('doc_tasks').upsert(batch,{onConflict:'case_id,task_index'}).then(function(r){
+        if(r.error) console.error('bulkComplete err:',r.error);
+        setTimeout(sendNext,300);
+      });
+    }
+    sendNext();
+  });
 }
 
 function buildDocCard(c,taskName,ti,st,key,deadline,today,ST_LABEL,ST_COLOR,ST_BG,ST_BORDER,showTask,isUrg){
