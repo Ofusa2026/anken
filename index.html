@@ -8405,7 +8405,6 @@ function renderReviewTasksTab(el) {
 function setDocTaskStatus(caseId, taskIdx, status) {
   if(status===3){if(!confirm(TASK_NAMES[taskIdx]+' を完了にしますか？'))return;}
   docTaskStatus[caseId+'_'+taskIdx] = status;
-  persistDocTaskStatus(caseId+'_'+taskIdx);
   var c = currentCase;
   if (!c) return;
   var done = 0;
@@ -8413,8 +8412,20 @@ function setDocTaskStatus(caseId, taskIdx, status) {
   var caseObj = cData.find(function(x){return x.id===caseId;});
   if (caseObj) {
     caseObj.taskDone=done; caseObj.taskTotal=TASK_NAMES.length;
-    // casesテーブルのtask_done/task_totalも更新
-    if(DB_READY) _sb.from('cases').update({task_done:done, task_total:TASK_NAMES.length}).eq('id',caseId).then(function(r){if(r.error)console.error('task_done update err:',r.error);});
+    // doc_tasks + cases両方をDB保存、完了後にトースト通知
+    if(DB_READY) {
+      var key = caseId+'_'+taskIdx;
+      var parts = key.split('_'); var ti = parseInt(parts[parts.length-1]);
+      var row = {case_id:caseId, task_index:ti, status:docTaskStatus[key]||0, deadline:taskDeadline[key]||null, memo:taskMemo[key]||null};
+      Promise.all([
+        _sb.from('doc_tasks').upsert([row], {onConflict:'case_id,task_index'}),
+        _sb.from('cases').update({task_done:done, task_total:TASK_NAMES.length}).eq('id',caseId)
+      ]).then(function(results){
+        var errs = results.filter(function(r){return r.error;});
+        if(errs.length) { console.error('DB save err:', errs); showToast('⚠️ 保存に失敗しました'); }
+        else { showToast('✅ 保存しました'); }
+      }).catch(function(e){ console.error('DB save err:', e); showToast('⚠️ 保存に失敗しました'); });
+    }
   }
   // 確認(2)にした場合、確認事項に登録
   if(status===2){
