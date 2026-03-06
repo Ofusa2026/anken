@@ -24531,10 +24531,35 @@ function loadAllFromSupabase() {
   fetchAllRows('cases', {order:'created_at',ascending:false}, function(rows) {
     if (rows.length) {
       cData = rows.map(function(r) { return dbRowToCase(r); });
-      try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){}
       console.log('📥 cases loaded:', cData.length);
     }
-    done();
+    // cases完了後にdoc_tasksをロード開始
+    docTaskStatus = {};
+    (function loadDocTasksAll(from){
+      _sb.from('doc_tasks').select('*').range(from, from+999).then(function(res) {
+        if (!res.error && res.data && res.data.length) {
+          res.data.forEach(function(r) {
+            var key = r.case_id + '_' + r.task_index;
+            docTaskStatus[key] = r.status || 0;
+            if(r.deadline) taskDeadline[key] = r.deadline;
+            if(r.memo) taskMemo[key] = r.memo;
+          });
+          if(res.data.length === 1000) {
+            loadDocTasksAll(from + 1000);
+            return;
+          }
+        }
+        // 全件取得完了 → taskDone再計算
+        cData.forEach(function(c){
+          var d=0;
+          for(var i=0;i<TASK_NAMES.length;i++){var s=docTaskStatus[c.id+'_'+i]||0;if(s===3||s===4)d++;}
+          c.taskDone=d; c.taskTotal=TASK_NAMES.length;
+        });
+        console.log('📥 docTasks loaded:', Object.keys(docTaskStatus).length);
+        done();
+        if(!isLoading){ renderStats(); applyFilters(); }
+      }).catch(function(e) { console.error('docTasks load err:', e); done(); });
+    })(0);
   });
   
   // 2. 企業（全件取得）
@@ -24685,34 +24710,7 @@ function loadAllFromSupabase() {
     done();
   }).catch(function(e) { console.error('shinsa load err:', e); done(); });
   
-  // 6. 書類タスク
-  // doc_tasks を1000件ずつページングで全件取得（DB最優先、localStorageは使わない）
-  docTaskStatus = {};
-  (function loadDocTasksAll(from){
-    _sb.from('doc_tasks').select('*').range(from, from+999).then(function(res) {
-      if (!res.error && res.data && res.data.length) {
-        res.data.forEach(function(r) {
-          var key = r.case_id + '_' + r.task_index;
-          docTaskStatus[key] = r.status || 0;
-          if(r.deadline) taskDeadline[key] = r.deadline;
-          if(r.memo) taskMemo[key] = r.memo;
-        });
-        if(res.data.length === 1000) {
-          loadDocTasksAll(from + 1000);
-          return;
-        }
-      }
-      // cDataのtaskDone/taskTotalを再計算して再描画
-      cData.forEach(function(c){
-        var d=0;
-        for(var i=0;i<TASK_NAMES.length;i++){var s=docTaskStatus[c.id+'_'+i]||0;if(s===3||s===4)d++;}
-        c.taskDone=d; c.taskTotal=TASK_NAMES.length;
-      });
-      done();
-      // 他のロードより遅れて完了した場合も再描画
-      if(!isLoading){ renderStats(); applyFilters(); }
-    }).catch(function(e) { console.error('docTasks load err:', e); done(); });
-  })(0);
+  // 6. 書類タスク: casesロード完了後に開始（上記cases完了コールバック内）
   
   // 7. 確認事項
   _sb.from('case_notes').select('*').then(function(res) {
