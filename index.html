@@ -7998,6 +7998,9 @@ function bulkCompleteTask(ti){
     });
   }
   function executeComplete(cases){
+    // DBに存在するcaseIdのセットを作成
+    var dbIds={};
+    cases.forEach(function(c){dbIds[c.id]=true;});
     var rows=[];
     cases.forEach(function(c){
       var key=c.id+'_'+ti;
@@ -8392,7 +8395,7 @@ function renderReviewTasksTab(el) {
 function setDocTaskStatus(caseId, taskIdx, status) {
   if(status===3){if(!confirm(TASK_NAMES[taskIdx]+' を完了にしますか？'))return;}
   docTaskStatus[caseId+'_'+taskIdx] = status;
-  persistDocTaskStatus();
+  persistDocTaskStatus(caseId+'_'+taskIdx);
   var c = currentCase;
   if (!c) return;
   var done = 0;
@@ -8744,11 +8747,12 @@ function persistDocCheck() {
   if(DB_READY) { _sb.from('settings').upsert({key:'doc_check',value:JSON.stringify(docCheck)},{onConflict:'key'}).then(function(r){if(r.error)console.error('docCheck sync err:',r.error);}); }
   setTimeout(updatePersonDocAlertBadge, 100);
 }
-function persistDocTaskStatus() {
+function persistDocTaskStatus(specificKey) {
   try { localStorage.setItem('ofusa_docTaskStatus', JSON.stringify(docTaskStatus)); } catch(e) {}
   if(DB_READY) {
     var rows = [];
-    Object.keys(docTaskStatus).forEach(function(k) {
+    var keys = specificKey ? [specificKey] : Object.keys(docTaskStatus);
+    keys.forEach(function(k) {
       var parts = k.split('_'); var caseId = parts.slice(0,-1).join('_'); var ti = parseInt(parts[parts.length-1]);
       if(!isNaN(ti)) rows.push({case_id:caseId, task_index:ti, status:docTaskStatus[k]||0, deadline:taskDeadline[k]||null, memo:taskMemo[k]||null});
     });
