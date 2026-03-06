@@ -24420,9 +24420,41 @@ function submitNewCase() {
   if(DB_READY){
     persistCasesToDB([data]);
     hideLoading();showToast('✅ 案件を登録しました');loadAllFromSupabase();
+    // GASでDriveフォルダ作成
+    _createCaseDriveFolder(data);
   } else {
     hideLoading();showToast('✅ 案件を登録しました（ローカル）');renderStats();applyFilters();
   }
+}
+
+function _createCaseDriveFolder(caseData) {
+  if (typeof GAS_URL === 'undefined' || !GAS_URL) return;
+  // 登録支援機関名取得
+  var orgName = '';
+  if (caseData.org) {
+    var orgObj = supportOrgs.find(function(o){ return o.id === caseData.org || o.name === caseData.org; });
+    orgName = orgObj ? (orgObj.displayName || orgObj.name) : caseData.org;
+  }
+  // 申請種別（認定・変更・更新のみ）
+  var appType = caseData.appType || '';
+  if (appType !== '認定' && appType !== '変更' && appType !== '更新') appType = appType || '認定';
+  // フォルダ名: 登録支援機関名/企業名/申請種別/人材名
+  var parts = [orgName, caseData.company || '', appType, caseData.applicant || ''];
+  var folderName = parts.filter(function(p){ return p; }).join('/');
+  jsonpPost({action:'createCaseFolder', data:{folderName:folderName, caseId:caseData.id}}, function(res){
+    if (res && res.status === 'ok') {
+      showToast('📁 Driveフォルダ作成: ' + res.folderName);
+      // 案件のdriveUrlを更新
+      var caseObj = cData.find(function(c){ return c.id === caseData.id; });
+      if (caseObj) {
+        caseObj.driveUrl = res.folderUrl;
+        if(DB_READY) _sb.from('cases').update({drive_url: res.folderUrl}).eq('id', caseData.id).then(function(){});
+      }
+    } else {
+      console.warn('フォルダ作成失敗:', res);
+      showToast('⚠️ Driveフォルダ作成失敗');
+    }
+  });
 }
 
 var _origOpenCase = openCase;
