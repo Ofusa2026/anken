@@ -15636,7 +15636,6 @@ function showTab(tab) {
     });
 
 
-    h += '<button class="person-save-btn" onclick="savePerson(\'' + c.id + '\')">💾 保存</button>';
     // === 入管オンライン申請用フィールド ===
     var isTestRoute = p.skillEvalType && p.skillEvalType.indexOf('評価方法') >= 0;
     var isTrainRoute = p.skillEvalType && p.skillEvalType.indexOf('技能実習') >= 0;
@@ -15707,8 +15706,7 @@ function showTab(tab) {
       }
       h+='</div>';
     });
-    h += '<button class="person-save-btn" onclick="savePerson(\'' + c.id + '\')">💾 保存</button>';
-    h += '<div class="person-saved" id="personSaved">✅ 保存しました</div>';
+    h += '<div class="person-saved" id="personSaved">✅ 自動保存しました</div>';
     h += '</div>';
   } else if (tab === 'generate') {
     var pd = personData[c.id] || {};
@@ -16019,6 +16017,25 @@ function showTab(tab) {
   }
   // LINEグループ名取得
   if (currentTab === 'person' || currentTab === 'generate' || currentTab === 'line') {
+    // 人材データ自動保存（デバウンス500ms）
+    if (currentTab === 'person') {
+      setTimeout(function() {
+        var cId = c.id;
+        var _saveTimer = null;
+        function _autoSavePerson() {
+          clearTimeout(_saveTimer);
+          _saveTimer = setTimeout(function() {
+            savePerson(cId);
+            var saved = document.getElementById('personSaved');
+            if (saved) { saved.style.display = 'block'; setTimeout(function(){ saved.style.display='none'; }, 2000); }
+          }, 500);
+        }
+        document.querySelectorAll('[id^="pf-"]').forEach(function(el) {
+          el.addEventListener('change', _autoSavePerson);
+          el.addEventListener('input', _autoSavePerson);
+        });
+      }, 100);
+    }
     var _pd = personData[c.id] || {};
     var _gid = _pd.lineGroupId;
     if (_gid) {
@@ -19271,9 +19288,7 @@ function savePerson(caseId) {
   }
   personData[caseId] = p;
   try { localStorage.setItem('ofusa_personData', JSON.stringify(personData)); } catch(e) {}
-  
-  var saved = document.getElementById('personSaved');
-  if (saved) { saved.style.display = 'block'; setTimeout(function(){ saved.style.display='none'; }, 2000); }
+  if (DB_READY) persistPersonToDB(caseId, p);
 }
 
 function addPersonDriveUrl(caseId){
@@ -24441,7 +24456,8 @@ function submitNewCase() {
   try{localStorage.setItem('ofusa_personData',JSON.stringify(personData));}catch(e){}
   if(DB_READY){
     persistCasesToDB([data], function(err) {
-      _createCaseDriveFolder(data);
+      // upsert成否に関わらずフォルダ作成（ただしupsert成功時のみURL保存可能）
+      _createCaseDriveFolder(data, !err);
     });
     hideLoading();showToast('✅ 案件を登録しました');loadAllFromSupabase();
   } else {
@@ -24449,7 +24465,8 @@ function submitNewCase() {
   }
 }
 
-function _createCaseDriveFolder(caseData) {
+function _createCaseDriveFolder(caseData, canSaveUrl) {
+  if (canSaveUrl === undefined) canSaveUrl = true;
   if (typeof GAS_URL === 'undefined' || !GAS_URL) return;
   // 登録支援機関名取得（ID or 名前で検索）
   var orgName = '';
@@ -24479,11 +24496,24 @@ function _createCaseDriveFolder(caseData) {
       // cDataを更新（見つかれば）
       var caseObj = cData.find(function(c){ return c.id === caseData.id; });
       if (caseObj) caseObj.driveUrl = driveUrlToSave;
-      // DBは常に直接PATCH（cDataの有無に依存しない）
-      if(DB_READY) {
+      // personDataにも書き込んで自動保存
+      personData[caseData.id] = personData[caseData.id] || {};
+      personData[caseData.id].driveUrl = driveUrlToSave;
+      if (DB_READY) persistPersonToDB(caseData.id, personData[caseData.id]);
+      // casesテーブルにも保存
+      if(DB_READY && canSaveUrl) {
         _sb.from('cases').update({drive_url: driveUrlToSave}).eq('id', caseData.id).then(function(r){
           if(r && r.error) console.warn('drive_url保存失敗:', r.error);
           else console.log('✅ drive_url保存完了:', driveUrlToSave);
+        });
+      } else if (DB_READY && !canSaveUrl) {
+        // upsertが失敗していた場合はinsertしてからURLも保存
+        console.warn('upsert失敗のためinsertで再試行');
+        _sb.from('cases').insert({id: caseData.id, drive_url: driveUrlToSave}).then(function(r){
+          if(r && r.error) {
+            // すでにある場合はupdateで上書き
+            _sb.from('cases').update({drive_url: driveUrlToSave}).eq('id', caseData.id).then(function(){});
+          }
         });
       }
     } else {
