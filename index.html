@@ -1884,6 +1884,7 @@ function dbRowToCase(r) {
 // ===== localStorage → Supabase 変換ヘルパー =====
 
 // 案件データ: cData をDBに保存
+var _dbExcludedCols = {}; // 存在しないカラムをキャッシュ
 function persistCasesToDB(casesArray) {
   if (!DB_READY || !casesArray || !casesArray.length) return;
   // cDataのキーをsnake_caseに変換
@@ -1914,13 +1915,48 @@ function persistCasesToDB(casesArray) {
       folder_no: c.folderNo || null,
       industry: c.industry || null,
       memo: c.memo || null,
-      members: c.members ? JSON.stringify(c.members) : null
+      members: c.members ? JSON.stringify(c.members) : null,
+      task_done: c.taskDone || 0,
+      task_total: c.taskTotal || 0,
+      shinsa_date: c.shinsaDate || null,
+      temp_return: c.tempReturn || null,
+      intro_fee: c.introFee || null,
+      other_support_note: c.otherSupportNote || null,
+      case_no: c._caseNo || null,
+      author_name: c.authorName || null,
+      author_title: c.authorTitle || null,
+      intake_id: c.intake_id || null
     };
   });
-  _sb.from('cases').upsert(rows, {onConflict: 'id'}).then(function(res) {
-    if (res.error) console.error('persistCasesToDB error:', res.error);
-    else console.log('📦 cases synced to DB:', rows.length);
+  // 既知の除外カラムを事前に除外
+  rows = rows.map(function(r) {
+    var nr = {};
+    Object.keys(r).forEach(function(k){ if(!_dbExcludedCols[k]) nr[k]=r[k]; });
+    return nr;
   });
+  // PGRST204エラー（カラム不存在）の場合、該当カラムをキャッシュして再試行
+  function tryUpsert(rowsToTry, attempt) {
+    _sb.from('cases').upsert(rowsToTry, {onConflict: 'id'}).then(function(res) {
+      if (res.error) {
+        var msg = res.error.message || '';
+        var m = msg.match(/find the '([^']+)' column/);
+        if (m && attempt < 10) {
+          var badCol = m[1];
+          _dbExcludedCols[badCol] = true; // セッション内でキャッシュ
+          console.warn('⚠️ cases列が存在しません: ' + badCol + ' → 除外して再試行');
+          var fixed = rowsToTry.map(function(r) {
+            var nr = {}; Object.keys(r).forEach(function(k){ if(k!==badCol) nr[k]=r[k]; }); return nr;
+          });
+          tryUpsert(fixed, attempt + 1);
+        } else {
+          console.error('persistCasesToDB error:', res.error);
+        }
+      } else {
+        console.log('📦 cases synced to DB:', rowsToTry.length);
+      }
+    });
+  }
+  tryUpsert(rows, 0);
 }
 
 // DBから案件データ読み込み → cData形式に変換
