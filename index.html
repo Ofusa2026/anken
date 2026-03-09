@@ -419,6 +419,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="nav-item" id="nav-docs" onclick="openDocs()">📝 タスク一覧</div>
   <div class="nav-item" id="nav-docgen" onclick="openDocGen()" style="min-height:38px;">📄 書類生成</div>
   <div class="nav-item" id="nav-review" onclick="openReview()">✅ 確認事項 <span class="badge" id="review-badge" style="display:none;">0</span></div>
+  <div class="nav-item" id="nav-madoguchi" onclick="openMadoguchi()">🏢 窓口 <span class="badge" id="madoguchi-badge" style="display:none;">0</span></div>
 
   <div class="nav-item" id="nav-gmail" onclick="openGmail()">📧 Gmail取込 <span id="gmailRunBadge" style="display:none;font-size:9px;color:white;background:#f59e0b;border-radius:8px;padding:1px 5px;margin-left:4px;animation:pulse 1.5s infinite;">取込中</span></div>
   <div class="nav-item" id="nav-mailbox" onclick="openMailbox()" style="display:none;">📬 メールボックス</div>
@@ -852,6 +853,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <button id="reviewTabCases" onclick="reviewTab='cases';renderReview()" style="font-size:12px;font-weight:700;padding:6px 16px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">案件一覧</button>
     <button id="reviewTabTasks" onclick="reviewTab='tasks';renderReview()" style="font-size:12px;font-weight:700;padding:6px 16px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">タスク一覧 <span id="reviewTasksBadge" style="background:#f97316;color:white;border-radius:99px;padding:0 5px;font-size:10px;margin-left:3px;">0</span></button>
     <button id="reviewTabReplied" onclick="reviewTab='replied';renderReview()" style="font-size:12px;font-weight:700;padding:6px 16px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">回答済 <span id="reviewRepliedBadge" style="background:var(--green);color:white;border-radius:99px;padding:0 5px;font-size:10px;margin-left:3px;display:none;">0</span></button>
+    <button id="reviewTabMadoguchi" onclick="reviewTab='madoguchi';renderReview()" style="font-size:12px;font-weight:700;padding:6px 16px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">🏢 窓口 <span id="reviewMadoguchiB" style="background:#6366f1;color:white;border-radius:99px;padding:0 5px;font-size:10px;margin-left:3px;display:none;">0</span></button>
   </div>
   <div style="flex:1;overflow-y:auto;padding:12px 16px 16px;">
     <div id="reviewContent"></div>
@@ -1001,6 +1003,21 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   </div>
 </div>
 
+<div id="madoguchiScreen" class="main-panel" style="display:none;flex-direction:column;height:100%;">
+  <div class="topbar">
+    <span class="page-title">🏢 窓口</span>
+    <span id="madoguchiCount" style="font-size:12px;color:var(--gray-400);margin-left:8px;"></span>
+    <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+      <select id="madoguchiTeamFilter" onchange="renderMadoguchiScreen()" style="font-size:12px;padding:4px 8px;border:1px solid var(--gray-200);border-radius:6px;background:white;">
+        <option value="all">全チーム</option>
+      </select>
+      <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--gray-400);">
+        <input type="checkbox" id="madoguchiShowPast" onchange="renderMadoguchiScreen()"> 過去分も表示
+      </label>
+    </div>
+  </div>
+  <div id="madoguchiContent" style="flex:1;overflow-y:auto;padding:16px;"></div>
+</div>
 <div id="gmailScreen" class="main-panel" style="display:none;flex-direction:column;height:100%;">
   <div class="topbar">
     <span class="page-title">Gmail取込</span>
@@ -1909,6 +1926,7 @@ function dbRowToCase(r) {
     supportFee: r.support_fee||'', applicantField: r.applicant_field||'',
     jobCategory: r.job_category||'', receiptNo: r.receipt_no||'',
     receiptDate: r.receipt_date||'', docCreateDate: r.doc_create_date||'',
+    madoguchiDate: r.madoguchi_date||'', madoguchiReceiveDate: r.madoguchi_receive_date||'',
     taskDone: r.task_done||0, taskTotal: r.task_total||0,
     driveUrl: r.drive_url||'',
     _caseNo: r.case_no||'',
@@ -1958,6 +1976,7 @@ function persistCasesToDB(casesArray, callback) {
       job_category: c.jobCategory || null,
       receipt_no: c.receiptNo || null,
       receipt_date: safeDate(c.receiptDate),
+      madoguchi_date: safeDate(c.madoguchiDate), madoguchi_receive_date: safeDate(c.madoguchiReceiveDate),
       doc_create_date: safeDate(c.docCreateDate),
       tokurei_date: safeDate(c.tokureiDate),
       folder_no: c.folderNo || null,
@@ -7928,7 +7947,7 @@ function renderDocsContent() {
     if(!items.length) h='<div style="text-align:center;padding:40px;color:var(--gray-400);">該当タスクがありません</div>';
   } else {
     // カンボジア側(0-6) / 日本側(7-)
-    var CAMBODIA_END = 6; // スキャン作成まで
+    var CAMBODIA_END = 10; // 人材情報入力まで
     function renderTaskGroup(fromTi, toTi) {
       var gh = '';
       for(var _ti=fromTi; _ti<=toTi; _ti++) {
@@ -8226,6 +8245,16 @@ function updateReviewBadge() {
   });
   var badge=document.getElementById('review-badge');
   if(badge){badge.textContent=count||'';badge.style.display=count?'inline':'none';}
+  // 窓口バッジ更新
+  var today2 = new Date().toISOString().slice(0,10);
+  var mCount=0;
+  cData.forEach(function(c){
+    if(c.status==='完了') return;
+    if((c.madoguchiDate||'')>=today2) mCount++;
+    if((c.madoguchiReceiveDate||'')>=today2) mCount++;
+  });
+  var mb=document.getElementById('madoguchi-badge');
+  if(mb){mb.textContent=mCount||'';mb.style.display=mCount?'inline':'none';}
 }
 function renderReview() {
   var el = document.getElementById('reviewContent');
@@ -8233,7 +8262,7 @@ function renderReview() {
   var me = currentUser || '';
   var items = Object.keys(caseNotes).filter(function(id){ return caseNotes[id].confirm; });
   // Tab style update
-  ['Mine','All','Cases','Tasks','Replied'].forEach(function(t){
+  ['Mine','All','Cases','Tasks','Replied','Madoguchi'].forEach(function(t){
     var btn=document.getElementById('reviewTab'+t);
     if(!btn) return;
     var active=(reviewTab===t.toLowerCase());
@@ -8300,6 +8329,11 @@ function renderReview() {
   var tasksConfirmCount=0;
   cData.forEach(function(c){if(c.status==='完了')return;for(var i=0;i<TASK_NAMES.length;i++){if((docTaskStatus[c.id+'_'+i]||0)===2)tasksConfirmCount++;}});
   var tb=document.getElementById('reviewTasksBadge');if(tb){tb.textContent=tasksConfirmCount;tb.style.display=tasksConfirmCount?'inline':'none';}
+  // If madoguchi tab
+  if(reviewTab==='madoguchi'){
+    renderReviewMadoguchiTab(el);
+    return;
+  }
   // If tasks tab, render task list instead
   if(reviewTab==='tasks'){
     renderReviewTasksTab(el);
@@ -8366,6 +8400,66 @@ function setDocTaskFromReview(caseId,taskIdx,status){
   applyFilters();renderReview();
   for(var k in openAccs){var acc=document.getElementById('rvTaskAcc_'+k);if(acc){acc.style.display='block';var hdr=acc.previousElementSibling;if(hdr){var da=hdr.querySelector('.da');if(da)da.textContent='▼';}}}
 }
+function renderReviewMadoguchiTab(el) {
+  var today = new Date().toISOString().slice(0,10);
+  // 窓口申請日程 or 窓口受取日程があるアクティブ案件を収集
+  var items = [];
+  cData.forEach(function(c) {
+    if (c.status === '完了') return;
+    // チームフィルター
+    if (reviewTeamFilter !== 'all' && c.team !== reviewTeamFilter) return;
+    if (reviewStaffFilter !== 'all' && c.staff !== reviewStaffFilter) return;
+    var md = c.madoguchiDate || '';
+    var mr = c.madoguchiReceiveDate || '';
+    if (md) items.push({c:c, date:md, type:'申請', label:'🏢 窓口申請'});
+    if (mr) items.push({c:c, date:mr, type:'受取', label:'📦 窓口受取'});
+  });
+  // 日付順ソート
+  items.sort(function(a,b){ return a.date.localeCompare(b.date); });
+  // バッジ更新
+  var badge = document.getElementById('reviewMadoguchiB');
+  if (badge) { badge.textContent = items.length; badge.style.display = items.length ? 'inline' : 'none'; }
+  if (!items.length) {
+    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--gray-400);">窓口申請日程・受取日程が登録されている案件はありません</div>';
+    return;
+  }
+  var h = '';
+  var lastMonth = '';
+  items.forEach(function(item) {
+    var c = item.c;
+    var month = item.date.slice(0,7);
+    var isPast = item.date < today;
+    var isToday = item.date === today;
+    var isSoon = !isPast && item.date <= new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+    if (month !== lastMonth) {
+      lastMonth = month;
+      h += '<div style="font-size:11px;font-weight:800;color:var(--gray-400);margin:12px 0 6px;padding:4px 10px;background:var(--gray-100);border-radius:6px;">' + month.replace('-','年') + '月</div>';
+    }
+    var borderCol = isToday ? '#6366f1' : isSoon ? '#f59e0b' : isPast ? '#d1d5db' : 'var(--gray-200)';
+    var bgCol = isToday ? '#f5f3ff' : isSoon ? '#fffbeb' : isPast ? '#f9fafb' : 'white';
+    var badge2 = isToday ? '<span style="font-size:10px;font-weight:800;color:white;background:#6366f1;border-radius:99px;padding:1px 7px;margin-left:6px;">本日</span>'
+              : isSoon  ? '<span style="font-size:10px;font-weight:800;color:#d97706;background:#fef3c7;border-radius:99px;padding:1px 7px;margin-left:6px;">まもなく</span>'
+              : isPast  ? '<span style="font-size:10px;color:#9ca3af;margin-left:6px;">済</span>' : '';
+    h += '<div style="background:'+bgCol+';border:1.5px solid '+borderCol+';border-radius:10px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:12px;cursor:pointer;" onclick="openCase(\''+c.id+'\')">'; 
+    h += '<div style="text-align:center;min-width:44px;">';
+    h += '<div style="font-size:18px;font-weight:900;color:'+(isToday?'#6366f1':isPast?'#9ca3af':'var(--navy)')+';">'+item.date.slice(8,10)+'</div>';
+    h += '<div style="font-size:9px;color:var(--gray-400);">'+item.date.slice(5,7)+'/'+item.date.slice(8,10)+'</div>';
+    h += '</div>';
+    h += '<div style="width:1px;height:36px;background:var(--gray-200);"></div>';
+    h += '<div style="flex:1;min-width:0;">';
+    h += '<div style="font-size:12px;font-weight:800;color:var(--navy);display:flex;align-items:center;flex-wrap:wrap;gap:4px;">';
+    h += '<span style="font-size:11px;font-weight:700;padding:1px 8px;border-radius:4px;background:'+(item.type==='申請'?'#ede9fe':'#f0fdf4')+';color:'+(item.type==='申請'?'#7c3aed':'#16a34a')+';">' + item.label + '</span>';
+    h += badge2;
+    h += '</div>';
+    h += '<div style="font-size:13px;font-weight:700;margin-top:3px;">' + getDisplayName(c) + '</div>';
+    h += '<div style="font-size:11px;color:var(--gray-400);margin-top:1px;">' + (c.company||'') + (c.staff?' · 👤'+c.staff:'') + '</div>';
+    h += '</div>';
+    h += '<div style="font-size:20px;color:var(--gray-200);">›</div>';
+    h += '</div>';
+  });
+  el.innerHTML = h;
+}
+
 function renderReviewTasksTab(el) {
   var ST_LABEL = ['未着手', '依頼', '着手中', '確認', '完了', '不要'];
   var ST_COLOR = ['#94a3b8', '#2563eb', '#8b5cf6', '#f97316', '#16a34a', '#d97706'];
@@ -13860,7 +13954,7 @@ function showTableLoading(msg) {
 }
 
 
-var TASK_NAMES = ['質問票作成','1-6作成','サイン書類作成','企業押印書類作成','企業押印依頼','オンラインExcel作成','スキャン作成','窓口申請準備','オンライン申請','窓口申請','追加資料提出','預かり証作成','郵送交付','国交省申請','国交省修正','推薦票取り寄せ'];
+var TASK_NAMES = ['質問票作成','1-6作成','サイン書類作成','企業押印書類作成','企業押印依頼','オンラインExcel作成','スキャン作成','所属機関情報入力','雇用条件入力','基本情報入力','人材情報入力','窓口申請準備','オンライン申請','窓口申請','追加資料提出','預かり証作成','郵送交付','国交省申請','国交省修正','推薦票取り寄せ'];
 var DOC_TASKS = TASK_NAMES; // 同じ配列を参照（管理者設定から編集可）
 
 // ===== 必要書類リスト（申請種別ごと）=====
@@ -15638,7 +15732,9 @@ function showTab(tab) {
         {k:'tokureiDate',l:'特例期限',type:'date'},
         {k:'receiptNo',l:'申請受付番号',type:'text'},
         {k:'receiptDate',l:'申請受付日',type:'date'},
-        {k:'docCreateDate',l:'書類作成日',type:'date'}
+        {k:'docCreateDate',l:'書類作成日',type:'date'},
+        {k:'madoguchiDate',l:'窓口申請日程',type:'date'},
+        {k:'madoguchiReceiveDate',l:'窓口受取日程',type:'date'}
       ]},
       {section:'分野・業務', fields:[
         {k:'applicantField',l:'申請分野',type:'esReadonly',esKey:'applicantField',id:'ei-applicantField'},
@@ -16136,7 +16232,14 @@ function showTab(tab) {
       h += '<div style="font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;' + (isDone ? 'text-decoration:line-through;color:var(--gray-400);' : '') + (isUnnec ? 'text-decoration:line-through;color:#9ca3af;' : '') + '">';
       if(isUnnec) h += '<span style="font-size:9px;padding:1px 5px;background:#f3f4f6;color:#9ca3af;border:1px solid #d1d5db;border-radius:4px;font-weight:800;">不要</span>';
       if(tUrgent&&!isUnnec) h += '<span style="font-size:10px;padding:1px 6px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;font-weight:800;">🔥 急ぎ</span>';
-      h += TASK_NAMES[i] + '</div>';
+      // 4入力タスクへのショートカットリンク
+      var _taskShortcut = '';
+      var _tn = TASK_NAMES[i];
+      if(_tn==='所属機関情報入力') _taskShortcut = '<span onclick="event.stopPropagation();showTab(\'company\')" style="font-size:10px;padding:1px 7px;background:#e0f2fe;color:#0284c7;border:1px solid #7dd3fc;border-radius:4px;cursor:pointer;font-weight:700;">🏢 所属機関タブへ</span>';
+      else if(_tn==='雇用条件入力') _taskShortcut = '<span onclick="event.stopPropagation();showTab(\'company\')" style="font-size:10px;padding:1px 7px;background:#e0f2fe;color:#0284c7;border:1px solid #7dd3fc;border-radius:4px;cursor:pointer;font-weight:700;">💼 所属機関タブへ</span>';
+      else if(_tn==='基本情報入力') _taskShortcut = '<span onclick="event.stopPropagation();showTab(\'person\')" style="font-size:10px;padding:1px 7px;background:#f0fdf4;color:#16a34a;border:1px solid #86efac;border-radius:4px;cursor:pointer;font-weight:700;">📋 人材タブへ</span>';
+      else if(_tn==='人材情報入力') _taskShortcut = '<span onclick="event.stopPropagation();showTab(\'person\')" style="font-size:10px;padding:1px 7px;background:#f0fdf4;color:#16a34a;border:1px solid #86efac;border-radius:4px;cursor:pointer;font-weight:700;">👤 人材タブへ</span>';
+      h += _tn + (_taskShortcut ? ' '+_taskShortcut : '') + '</div>';
       var subParts = [];
       if (tDeadline) subParts.push('<span style="font-weight:700;color:' + deadlineColor + ';">📅 ' + tDeadline + '</span>');
       if (tAssign) subParts.push('<span style="color:#0891b2;font-weight:600;">🙋 ' + tAssign + '</span>');
@@ -16216,7 +16319,7 @@ function showTab(tab) {
     setTimeout(function(){
       var cc = currentCase; if (!cc) return;
       // 汎用: 全input/selectにonchange
-      ['name','staff','team','status','appType','residenceStatus','toritsugisha','expire','tokureiDate','receiptNo','receiptDate','docCreateDate','applicantFieldEn','jobCategoryEn'].forEach(function(k){
+      ['name','staff','team','status','appType','residenceStatus','toritsugisha','expire','tokureiDate','receiptNo','receiptDate','docCreateDate','applicantFieldEn','jobCategoryEn','madoguchiDate','madoguchiReceiveDate'].forEach(function(k){
         var el = document.getElementById('ei-'+k);
         if (el) el.onchange = function(){ autoSaveInfo(k, this.value); };
       });
@@ -21286,6 +21389,92 @@ function doSendMail(){
       }
     });
   }
+}
+
+function openMadoguchi() {
+  switchPanel('madoguchiScreen','nav-madoguchi');
+  // チームフィルター選択肢を更新
+  var sel = document.getElementById('madoguchiTeamFilter');
+  if (sel) {
+    var teams = ['all'];
+    cData.forEach(function(c){ if(c.team && teams.indexOf(c.team)===-1) teams.push(c.team); });
+    var cur = sel.value;
+    sel.innerHTML = '<option value="all">全チーム</option>';
+    teams.slice(1).forEach(function(t){ sel.innerHTML += '<option value="'+t+'"'+(t===cur?' selected':'')+'>'+t+'</option>'; });
+  }
+  renderMadoguchiScreen();
+}
+
+function renderMadoguchiScreen() {
+  var el = document.getElementById('madoguchiContent');
+  if (!el) return;
+  var today = new Date().toISOString().slice(0,10);
+  var showPast = document.getElementById('madoguchiShowPast') && document.getElementById('madoguchiShowPast').checked;
+  var teamFilter = (document.getElementById('madoguchiTeamFilter') || {}).value || 'all';
+
+  var items = [];
+  cData.forEach(function(c) {
+    if (c.status === '完了') return;
+    if (teamFilter !== 'all' && c.team !== teamFilter) return;
+    var md = c.madoguchiDate || '';
+    var mr = c.madoguchiReceiveDate || '';
+    if (md && (showPast || md >= today)) items.push({c:c, date:md, type:'申請', label:'🏢 窓口申請'});
+    if (mr && (showPast || mr >= today)) items.push({c:c, date:mr, type:'受取', label:'📦 窓口受取'});
+  });
+  items.sort(function(a,b){ return a.date.localeCompare(b.date); });
+
+  // バッジ更新
+  var allItems = [];
+  cData.forEach(function(c) {
+    if (c.status === '完了') return;
+    var md = c.madoguchiDate || '', mr = c.madoguchiReceiveDate || '';
+    if (md && md >= today) allItems.push(md);
+    if (mr && mr >= today) allItems.push(mr);
+  });
+  var badge = document.getElementById('madoguchi-badge');
+  if (badge) { badge.textContent = allItems.length; badge.style.display = allItems.length ? 'inline' : 'none'; }
+  var cnt = document.getElementById('madoguchiCount');
+  if (cnt) cnt.textContent = items.length + '件';
+
+  if (!items.length) {
+    el.innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--gray-400);">窓口日程が登録されている案件はありません</div>';
+    return;
+  }
+  var h = '';
+  var lastMonth = '';
+  items.forEach(function(item) {
+    var c = item.c;
+    var month = item.date.slice(0,7);
+    var isPast = item.date < today;
+    var isToday = item.date === today;
+    var isSoon = !isPast && item.date <= new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+    if (month !== lastMonth) {
+      lastMonth = month;
+      h += '<div style="font-size:11px;font-weight:800;color:var(--gray-400);margin:14px 0 6px;padding:5px 12px;background:var(--gray-100);border-radius:6px;">' + month.replace('-','年') + '月</div>';
+    }
+    var borderCol = isToday ? '#6366f1' : isSoon ? '#f59e0b' : isPast ? '#d1d5db' : 'var(--gray-200)';
+    var bgCol = isToday ? '#f5f3ff' : isSoon ? '#fffbeb' : isPast ? '#f9fafb' : 'white';
+    var badge2 = isToday ? '<span style="font-size:10px;font-weight:800;color:white;background:#6366f1;border-radius:99px;padding:1px 8px;">本日</span>'
+              : isSoon  ? '<span style="font-size:10px;font-weight:800;color:#d97706;background:#fef3c7;border-radius:99px;padding:1px 8px;">まもなく</span>'
+              : isPast  ? '<span style="font-size:10px;color:#9ca3af;">済</span>' : '';
+    h += '<div style="background:'+bgCol+';border:1.5px solid '+borderCol+';border-radius:12px;padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;gap:14px;cursor:pointer;" onclick="openCase(''+c.id+'')">';
+    h += '<div style="text-align:center;min-width:48px;">';
+    h += '<div style="font-size:22px;font-weight:900;color:'+(isToday?'#6366f1':isPast?'#9ca3af':'var(--navy)')+';">'+item.date.slice(8,10)+'</div>';
+    h += '<div style="font-size:10px;color:var(--gray-400);">'+item.date.slice(5,7)+'/'+item.date.slice(8,10)+'</div>';
+    h += '</div>';
+    h += '<div style="width:1px;height:42px;background:var(--gray-200);flex-shrink:0;"></div>';
+    h += '<div style="flex:1;min-width:0;">';
+    h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:3px;">';
+    h += '<span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:5px;background:'+(item.type==='申請'?'#ede9fe':'#f0fdf4')+';color:'+(item.type==='申請'?'#7c3aed':'#16a34a')+';border:1px solid '+(item.type==='申請'?'#c4b5fd':'#86efac')+';">' + item.label + '</span>';
+    h += badge2;
+    h += '</div>';
+    h += '<div style="font-size:14px;font-weight:700;color:var(--navy);">' + getDisplayName(c) + '</div>';
+    h += '<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">' + (c.company||'') + (c.team?' · '+c.team:'') + (c.staff?' · 👤'+c.staff:'') + '</div>';
+    h += '</div>';
+    h += '<div style="font-size:20px;color:var(--gray-200);">›</div>';
+    h += '</div>';
+  });
+  el.innerHTML = h;
 }
 
 function openGmail() {
