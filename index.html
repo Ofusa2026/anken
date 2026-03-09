@@ -2538,7 +2538,7 @@ function persistUsers(syncToDB){
         return {
           id: u.name,
           name: u.name,
-          password: dbPwMap[u.name] || u.password || '0000', // DB優先、なければローカル
+          password: u.password || dbPwMap[u.name] || '0000', // ローカル優先
           team: u.team || '',
           is_admin: !!u.isAdmin
         };
@@ -7517,7 +7517,7 @@ function renderAdminUsers(){
     h+='<label style="font-size:10px;white-space:nowrap;cursor:pointer;"><input type="checkbox" '+(u.isAdmin?'checked':'')+' onchange="adminUpdateUser('+i+',\'isAdmin\',this.checked)"> 管理者</label>';
     h+='</div>';
   });
-  h+='<button onclick="persistUsers();showToast(\'✅ 保存しました\')" style="margin-top:12px;width:100%;padding:10px;background:var(--blue);color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">💾 保存</button>';
+  h+='<button onclick="persistUsers(true);showToast(\'✅ 保存しました\')" style="margin-top:12px;width:100%;padding:10px;background:var(--blue);color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">💾 保存</button>';
   h+='<button onclick="resetAllPasswords()" style="margin-top:8px;width:100%;padding:8px;background:white;color:#dc2626;border:1.5px solid #fca5a5;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🔑 全員パスワードを0000にリセット</button>';
   // 初期データ一括アップロードボタン
   h+='<div style="margin-top:24px;padding-top:16px;border-top:2px solid var(--gray-200);">';
@@ -7528,7 +7528,17 @@ function renderAdminUsers(){
   h+='</div>';
   el.innerHTML=h;
 }
-function adminUpdateUser(i,field,val){USERS[i][field]=val;persistUsers();}
+function adminUpdateUser(i,field,val){
+  USERS[i][field]=val;
+  try{localStorage.setItem('ofusa_users',JSON.stringify(USERS));}catch(e){}
+  if(DB_READY){
+    var u=USERS[i];
+    var row={id:u.name,name:u.name,team:u.team||'',is_admin:!!u.isAdmin,password:u.password||'0000'};
+    _sb.from('users').upsert(row,{onConflict:'id'}).then(function(r){
+      if(r.error) showToast('❌ 保存失敗','error');
+    });
+  }
+}
 function resetAllPasswords(){
   if(!confirm('全員のパスワードを0000にリセットしますか？'))return;
   USERS.forEach(function(u){u.password='0000';});
@@ -7596,7 +7606,8 @@ function saveMySettings(){
   var oldName=user.name;
   user.name=newName;user.password=newPass;
   currentUser=newName;
-  persistUsers();rebuildLoginSelect();
+  localStorage.setItem('ofusa_currentUser', newName);
+  persistUsers(true);rebuildLoginSelect();
   // サイドバー更新
   var avatar=document.getElementById('sidebarAvatar');if(avatar)avatar.textContent=newName.charAt(0);
   var dn=document.getElementById('sidebarDisplayName');if(dn)dn.textContent=newName;
