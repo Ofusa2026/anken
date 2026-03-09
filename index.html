@@ -254,7 +254,7 @@ tbody td{padding:5px 10px;font-size:12px;vertical-align:middle;}
   .bnav-item.active{color:var(--blue);}
   .bnav-icon{font-size:20px;}
 }
-.person-field{margin-bottom:14px;}
+.person-field{margin-bottom:14px;position:relative;}
 .person-field label{font-size:10px;color:var(--gray-400);font-weight:700;display:block;margin-bottom:4px;}
 .person-field input{width:100%;border:1px solid var(--gray-200);border-radius:8px;padding:9px 12px;font-size:14px;color:var(--navy);background:white;}
 .person-field input:focus{outline:none;border-color:var(--blue);}
@@ -1457,12 +1457,18 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <div class="person-field"><label>取次者</label><input type="text" id="mr_toritsugisha" placeholder="例：田中 綾美"></div>
       <div class="person-field"><label>ステータス</label>
         <select id="mr_status" style="width:100%;padding:9px 12px;font-size:14px;border:1px solid var(--gray-200);border-radius:8px;">
-          <option>申請済</option><option>審査中</option><option>追加資料対応</option><option>完了</option>
+          <option>申請</option><option>申請済(番号待)</option><option>審査中</option><option>要追完</option><option>完了</option>
         </select>
       </div>
       <div class="person-field"><label>登録支援機関</label><select id="mr_org" style="width:100%;padding:9px 12px;font-size:14px;border:1px solid var(--gray-200);border-radius:8px;"><option value="">-- 選択 --</option></select></div>
       <div class="person-field"><label>所属機関</label><input type="text" id="mr_company" placeholder=""></div>
-      <div class="person-field"><label>紐づけ案件 *</label><select id="mr_caseId" style="width:100%;padding:9px 12px;font-size:14px;border:1px solid var(--gray-200);border-radius:8px;"><option value="">-- 案件を選択 --</option></select></div>
+      <div class="person-field"><label>紐づけ案件 *</label>
+  <input type="text" id="mr_caseSearch" placeholder="氏名・企業名で検索..." oninput="filterMrCaseList(this.value)" autocomplete="off"
+    style="width:100%;padding:9px 12px;font-size:14px;border:1.5px solid var(--gray-200);border-radius:8px;box-sizing:border-box;">
+  <input type="hidden" id="mr_caseId">
+  <div id="mr_caseDropdown" style="display:none;position:absolute;z-index:9999;background:white;border:1.5px solid #93c5fd;border-radius:8px;max-height:220px;overflow-y:auto;width:100%;box-shadow:0 4px 16px rgba(0,0,0,.12);"></div>
+  <div id="mr_caseSelected" style="display:none;margin-top:4px;font-size:12px;color:#2563eb;font-weight:700;padding:4px 8px;background:#eff6ff;border-radius:6px;"></div>
+</div>
       <div class="person-field"><label>チーム</label>
         <select id="mr_team" style="width:100%;padding:9px 12px;font-size:14px;border:1px solid var(--gray-200);border-radius:8px;">
           <option>坂齊チーム</option><option>亀谷チーム</option><option>中林チーム</option>
@@ -21573,6 +21579,26 @@ function recRow(label, value) {
 }
 
 // ===== 申請記録 手入力 =====
+function filterMrCaseList(q) {
+  var dd = document.getElementById('mr_caseDropdown');
+  if (!dd) return;
+  var data = window._mrCaseData || [];
+  var filtered = q.trim() === '' ? [] : data.filter(function(c){ return c.search.indexOf(q.toLowerCase()) !== -1; }).slice(0, 30);
+  if (!filtered.length) { dd.style.display='none'; return; }
+  dd.innerHTML = filtered.map(function(c){
+    return '<div data-id="'+c.id+'" style="padding:9px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid #f1f5f9;" onmousedown="selectMrCase(''+c.id+'',''+c.label.replace(/'/g,'')+'')">'+c.label+'</div>';
+  }).join('');
+  dd.style.display = 'block';
+}
+function selectMrCase(id, label) {
+  document.getElementById('mr_caseId').value = id;
+  document.getElementById('mr_caseSearch').value = label;
+  var sel = document.getElementById('mr_caseSelected');
+  sel.textContent = '✓ ' + label;
+  sel.style.display = 'block';
+  var dd = document.getElementById('mr_caseDropdown');
+  if (dd) dd.style.display = 'none';
+}
 function openManualRecord(){
   ['mr_applicant','mr_nationality','mr_name','mr_receiptNo','mr_staff','mr_toritsugisha'].forEach(function(id){document.getElementById(id).value='';});
   // 登録支援機関セレクト
@@ -21582,14 +21608,17 @@ function openManualRecord(){
   orgSel.innerHTML += '<option value="企業単独">企業単独</option>';
   document.getElementById('mr_company').value='';
   // 案件セレクト
-  var caseSel=document.getElementById('mr_caseId');
-  if(caseSel){
-    var _caseOpts='<option value="">-- 案件を選択 --</option>';
-    cData.forEach(function(c){
-      _caseOpts+='<option value="'+c.id+'">'+esc(getDisplayName(c))+' ('+esc(c.appType||'')+' / '+(c.status||'')+')</option>';
-    });
-    caseSel.innerHTML=_caseOpts;
-  }
+  // 案件検索用データ準備
+  window._mrCaseData = cData.map(function(c){
+    return {id:c.id, label:getDisplayName(c)+' ('+( c.appType||'')+' / '+(c.status||'')+')', search:(getDisplayName(c)+' '+(c.company||'')+' '+(c.appType||'')).toLowerCase()};
+  });
+  var caseSearchEl=document.getElementById('mr_caseSearch');
+  var caseHidEl=document.getElementById('mr_caseId');
+  var caseSelEl=document.getElementById('mr_caseSelected');
+  if(caseSearchEl){caseSearchEl.value='';}
+  if(caseHidEl){caseHidEl.value='';}
+  if(caseSelEl){caseSelEl.style.display='none';caseSelEl.textContent='';}
+  var dd=document.getElementById('mr_caseDropdown');if(dd)dd.style.display='none';
   document.getElementById('mr_receiptDate').value=new Date().toISOString().slice(0,10);
   document.getElementById('mr_expire').value='';
   document.getElementById('mr_appType').value='認定';
