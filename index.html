@@ -8399,7 +8399,7 @@ function renderReviewTasksTab(el) {
     var taskItems = [];
     cases.forEach(function(c) {
       var key = c.id + '_' + ti, st = docTaskStatus[key] || 0;
-      if (st !== 2) return; // 確認ステータスのみ
+      if (st !== 3) return; // 確認ステータスのみ
       taskItems.push({c:c, ti:ti, st:st, key:key, deadline:taskDeadline[key]||'', isUrg:!!taskUrgent[key]});
     });
     if (!taskItems.length) return;
@@ -8456,7 +8456,7 @@ function setDocTaskStatus(caseId, taskIdx, status) {
   var c = currentCase;
   if (!c) return;
   var done = 0;
-  for (var i=0;i<TASK_NAMES.length;i++){var _s=(docTaskStatus[c.id+'_'+i]||0);if(_s===3||_s===4) done++;}
+  for (var i=0;i<TASK_NAMES.length;i++){var _s=(docTaskStatus[c.id+'_'+i]||0);if(_s>=4) done++;}
   var caseObj = cData.find(function(x){return x.id===caseId;});
   if (caseObj) {
     caseObj.taskDone=done; caseObj.taskTotal=TASK_NAMES.length;
@@ -8517,7 +8517,7 @@ function bulkCompleteCaseTasks(){
   });
   persistDocTaskStatus();
   if(personUpdated) persistPersonData();
-  var d=0;for(var i=0;i<TASK_NAMES.length;i++){var _s=(docTaskStatus[c.id+'_'+i]||0);if(_s===3||_s===4)d++;}
+  var d=0;for(var i=0;i<TASK_NAMES.length;i++){var _s=(docTaskStatus[c.id+'_'+i]||0);if(_s>=4)d++;}
   c.taskDone=d;c.taskTotal=TASK_NAMES.length;
   updateReviewBadge();applyFilters();showTab('tasks');
   showToast('✅ '+cbs.length+'件のタスクを完了にしました');
@@ -10116,14 +10116,29 @@ function renderCompanyDetail(co){
           var orgName=co.supportOrgName||'';
           var selSo=orgName?supportOrgs.find(function(x){return x.name===orgName;}):null;
           var staffOpts=(selSo&&selSo.supportStaffList)?selSo.supportStaffList.filter(function(s){return s;}):[];
-          h+='<select id="cf_'+f.key+'" onchange="autoSaveCompanyField(\''+co.id+'\',\''+f.key+'\',this.value)" style="width:100%;font-size:13px;font-weight:700;color:var(--navy);padding:4px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;cursor:pointer;outline:none;">';
+          // staffOptsをオブジェクト配列に統一
+          var staffObjs=(selSo&&selSo.supportStaffList)?selSo.supportStaffList.map(function(s){return typeof s==='string'?{name:s,title:'',nameEn:'',titleEn:''}:s;}).filter(function(s){return s.name;}):[];
+          var staffNames=staffObjs.map(function(s){return s.name;});
+          h+='<select id="cf_'+f.key+'" onchange="autoSaveCompanyField(\''+co.id+'\',\''+f.key+'\',this.value);applySupportStaffInfo(\''+co.id+'\',this.value)" style="width:100%;font-size:13px;font-weight:700;color:var(--navy);padding:4px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;cursor:pointer;outline:none;">';
           h+='<option value="">— 選択 —</option>';
-          staffOpts.forEach(function(s){h+='<option value="'+s+'"'+(s===val?' selected':'')+'>'+s+'</option>';});
+          staffObjs.forEach(function(s){h+='<option value="'+s.name+'"'+(s.name===val?' selected':'')+'>'+s.name+(s.title?' ('+s.title+')':'')+'</option>';});
           // 既存値がリストにない場合も表示
-          if(val && staffOpts.indexOf(val)===-1) h+='<option value="'+val+'" selected>'+val+' (旧)</option>';
+          if(val && staffNames.indexOf(val)===-1) h+='<option value="'+val+'" selected>'+val+' (旧)</option>';
           h+='</select>';
           if(!orgName) h+='<div style="font-size:10px;color:var(--gray-400);margin-top:2px;">※ 先に登録支援機関を選択してください</div>';
-          else if(!staffOpts.length) h+='<div style="font-size:10px;color:#f59e0b;margin-top:2px;">※ 登録支援機関に担当者が未登録です</div>';
+          else if(!staffObjs.length) h+='<div style="font-size:10px;color:#f59e0b;margin-top:2px;">※ 登録支援機関に担当者が未登録です</div>';
+          // 選択中担当者の情報をreadonly表示
+          if(val){
+            var selStaff=staffObjs.find(function(s){return s.name===val;});
+            if(selStaff){
+              h+='<div style="margin-top:6px;padding:6px 10px;background:#f0fdf4;border-radius:6px;font-size:11px;color:#374151;border:1px solid #bbf7d0;">';
+              if(selStaff.title) h+='<div>役職: <b>'+selStaff.title+'</b></div>';
+              if(selStaff.nameEn) h+='<div>英語氏名: <b>'+selStaff.nameEn+'</b></div>';
+              if(selStaff.titleEn) h+='<div>英語役職: <b>'+selStaff.titleEn+'</b></div>';
+              h+='<div style="font-size:10px;color:#6b7280;margin-top:3px;">※ 登録支援機関のマスタから自動反映（変更不可）</div>';
+              h+='</div>';
+            }
+          }
         } else if(f.type==='pref'){
           h+='<select id="cf_'+f.key+'" onchange="autoSaveCompanyField(\''+co.id+'\',\''+f.key+'\',this.value)" style="width:100%;font-size:13px;font-weight:700;color:var(--navy);padding:4px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;cursor:pointer;outline:none;">';
           h+='<option value="">— 選択 —</option>';
@@ -10153,7 +10168,14 @@ function renderCompanyDetail(co){
           h+='</select>';
         } else {
           var escaped = (val||'').replace(/"/g,'&quot;');
-          h+='<input id="cf_'+f.key+'" type="text" value="'+escaped+'" placeholder="'+(f.placeholder||'')+'" onchange="autoSaveCompanyField(\''+co.id+'\',\''+f.key+'\',this.value)" style="width:100%;font-size:13px;font-weight:700;color:var(--navy);padding:4px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;outline:none;box-sizing:border-box;" onfocus="this.style.borderBottomColor=\'var(--blue)\'" onblur="this.style.borderBottomColor=\'transparent\'">';
+          var isSupportManagerField = ['supportManagerName','supportManagerTitle','supportManagerNameEn','supportManagerTitleEn'].indexOf(f.key) !== -1;
+          var staffSelected = isSupportManagerField && co.supportStaff;
+          if (staffSelected) {
+            h+='<div id="cf_'+f.key+'" style="font-size:13px;font-weight:700;color:#6b7280;padding:4px 2px;background:#f0fdf4;border-radius:4px;">'+esc(val||'—')+'</div>';
+            h+='<div style="font-size:9px;color:#16a34a;margin-top:1px;">※ 支援担当者マスタから反映</div>';
+          } else {
+            h+='<input id="cf_'+f.key+'" type="text" value="'+escaped+'" placeholder="'+(f.placeholder||'')+'" onchange="autoSaveCompanyField(\''+co.id+'\',\''+f.key+'\',this.value)" style="width:100%;font-size:13px;font-weight:700;color:var(--navy);padding:4px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;outline:none;box-sizing:border-box;" onfocus="this.style.borderBottomColor=\'var(--blue)\'" onblur="this.style.borderBottomColor=\'transparent\'">';
+          }
         }
         h+='</div>';
       });
@@ -10339,6 +10361,32 @@ function removeOfficer(coId, idx) {
   co.officers.splice(idx, 1);
   persistCompanies();
   renderCompanyDetail(co);
+}
+
+function applySupportStaffInfo(coId, staffName) {
+  if (!staffName) return;
+  var co = companies.find(function(x){ return x.id === coId; });
+  if (!co) return;
+  // 登録支援機関のsupportStaffListから当該担当者を検索
+  var orgName = co.supportOrgName || '';
+  var selSo = orgName ? supportOrgs.find(function(x){ return x.name === orgName; }) : null;
+  if (!selSo || !selSo.supportStaffList) return;
+  var staffList = selSo.supportStaffList.map(function(s){
+    return typeof s === 'string' ? {name:s, title:'', nameEn:'', titleEn:''} : s;
+  });
+  var staff = staffList.find(function(s){ return s.name === staffName; });
+  if (!staff) return;
+  // 所属機関側の支援担当者フィールドに反映（上書き）
+  co.supportManagerName   = staff.name    || '';
+  co.supportManagerTitle  = staff.title   || '';
+  co.supportManagerNameEn = staff.nameEn  || '';
+  co.supportManagerTitleEn= staff.titleEn || '';
+  persistCompanies();
+  // 画面上のフィールドも即時更新（読み取り専用として表示）
+  ['supportManagerName','supportManagerTitle','supportManagerNameEn','supportManagerTitleEn'].forEach(function(k){
+    var el = document.getElementById('cf_'+k);
+    if (el) { el.value = co[k]; el.readOnly = true; el.style.background = '#f0fdf4'; el.style.color = '#6b7280'; el.style.cursor = 'not-allowed'; }
+  });
 }
 
 function autoSaveCompanyField(coId, key, value) {
@@ -17210,7 +17258,11 @@ function scanAndRenameFiles(caseId){
 
   folderIds.forEach(function(folderId){
     jsonpPost(driveGasUrl,'getDriveImages',{folderId:folderId},function(res){
-      if(res&&res.status==='ok'&&res.files) allFiles=allFiles.concat(res.files);
+      if(res&&res.status==='ok'&&res.files){
+        allFiles=allFiles.concat(res.files);
+      } else if(res&&res.status==='error'){
+        if(el) el.innerHTML='<div style="padding:12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;font-size:12px;color:#dc2626;">❌ Drive取得エラー: '+esc(res.msg||'不明')+'<br><span style="color:#6b7280;font-size:11px;">※ GASスクリプトが実行されているGoogleアカウントでフォルダにアクセスできるか確認してください</span></div>';
+      }
       pending--;
       if(pending<=0) processRenameFiles(caseId, allFiles, el);
     });
