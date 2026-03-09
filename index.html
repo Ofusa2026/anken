@@ -7266,6 +7266,33 @@ function saveAllPasswords(){
 }
 
 // 全員リセット
+function resetAllTaskStatus(){
+  if(!confirm('全案件・全タスクのステータスを「未着手」にリセットしますか？\nこの操作は元に戻せません。'))return;
+  var el=document.getElementById('taskResetStatus');
+  if(el)el.innerHTML='<span style="color:var(--blue);">⏳ リセット中...</span>';
+  // メモリ上もリセット
+  docTaskStatus={};
+  taskDeadline={};
+  taskMemo={};
+  try{localStorage.removeItem('ofusa_docTaskStatus');localStorage.removeItem('ofusa_taskDeadline');localStorage.removeItem('ofusa_taskMemo');}catch(e){}
+  if(DB_READY){
+    // Supabase: doc_tasks テーブル全件 status=0 に更新
+    _sb.from('doc_tasks').update({status:0,deadline:null,memo:null}).gte('task_index',0).then(function(r){
+      if(r.error){
+        if(el)el.innerHTML='<span style="color:#dc2626;">❌ DB更新失敗: '+JSON.stringify(r.error)+'</span>';
+        showToast('❌ リセット失敗','error');
+      } else {
+        if(el)el.innerHTML='<span style="color:#16a34a;">✅ 全タスクを未着手にリセットしました</span>';
+        showToast('✅ 全タスクを未着手にリセットしました');
+        if(typeof renderDocTasks==='function') renderDocTasks();
+      }
+    });
+  } else {
+    if(el)el.innerHTML='<span style="color:#16a34a;">✅ ローカルリセット完了（DB未接続）</span>';
+    showToast('✅ ローカルリセット完了');
+  }
+}
+
 function resetAllPasswords(){
   if(!confirm('全員のパスワードを 0000 にリセットしますか？'))return;
   USERS.forEach(function(u,i){
@@ -7460,6 +7487,12 @@ function renderAdminUsers(){
   });
   h+='<button onclick="persistUsers(true);showToast(\'✅ 保存しました\')" style="margin-top:12px;width:100%;padding:10px;background:var(--blue);color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">💾 保存</button>';
   h+='<button onclick="resetAllPasswords()" style="margin-top:8px;width:100%;padding:8px;background:white;color:#dc2626;border:1.5px solid #fca5a5;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🔑 全員パスワードを0000にリセット</button>';
+  h+='<div style="margin-top:24px;padding-top:16px;border-top:2px solid var(--gray-200);">';
+  h+='<div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:8px;">🔄 タスクステータス一括リセット</div>';
+  h+='<div style="font-size:11px;color:var(--gray-400);margin-bottom:10px;">全案件・全タスクのステータスを「未着手(0)」にリセットします。</div>';
+  h+='<button onclick="resetAllTaskStatus()" style="width:100%;padding:10px;background:white;color:#d97706;border:1.5px solid #fcd34d;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">⚠️ 全タスクを未着手にリセット</button>';
+  h+='<div id="taskResetStatus" style="margin-top:6px;font-size:11px;color:var(--gray-400);"></div>';
+  h+='</div>';
   // 初期データ一括アップロードボタン
   h+='<div style="margin-top:24px;padding-top:16px;border-top:2px solid var(--gray-200);">';
   h+='<div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:8px;">☁️ データ同期</div>';
