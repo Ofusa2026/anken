@@ -1977,6 +1977,8 @@ function dbRowToCase(r) {
     applicationDeadline: r.application_deadline||'',
     taskDone: r.task_done||0, taskTotal: r.task_total||0,
     driveUrl: r.drive_url||'',
+    applicantFieldEn: r.applicant_field_en||'', jobCategoryEn: r.job_category_en||'',
+    acceptExp: r.accept_exp||'', personOrder: r.person_order||'',
     _caseNo: r.case_no||'',
     folderNo: r.folder_no||'', industry: r.industry||'', memo: r.memo||'',
     shortageMemo: r.shortage_memo||'', companyNote: r.company_note||'',
@@ -2045,7 +2047,11 @@ function persistCasesToDB(casesArray, callback) {
       author_name: c.authorName || null,
       author_title: c.authorTitle || null,
       intake_id: c.intake_id || null,
-      drive_url: c.driveUrl || null
+      drive_url: c.driveUrl || null,
+      applicant_field_en: c.applicantFieldEn || null,
+      job_category_en: c.jobCategoryEn || null,
+      accept_exp: c.acceptExp || null,
+      person_order: c.personOrder || null
     };
   });
   // 重複IDを除去（同一バッチ内の重複でPostgresエラーになるのを防ぐ）
@@ -2177,11 +2183,42 @@ function persistCompaniesToDB(companiesArray) {
       support_org_address: c.supportOrgAddress || null,
       support_org_no: c.supportOrgNo || null,
       ofusa_staff: c.ofusaStaff || null,
+      staff: c.staff || null,
+      last_visit: c.lastVisit || null,
+      drive_url: c.driveUrl || null,
+      drive_url2: c.driveUrl2 || null,
+      spreadsheet_url: c.spreadsheetUrl || null,
+      support_manager_name: c.supportManagerName || null,
+      support_manager_title: c.supportManagerTitle || null,
+      support_manager_name_en: c.supportManagerNameEn || null,
+      support_manager_title_en: c.supportManagerTitleEn || null,
+      support_staff: c.supportStaff || null,
       memo: c.memo || null,
       shortage_memo: c.shortageMemo || null,
       company_note: c.companyNote || null,
       folder_no: c.folderNo || null,
       emp_sets: c.empSets || [],
+      officers: c.officers || [],
+      jp_voluntary_quit: c.jpVoluntaryQuit || null,
+      jp_involuntary_quit: c.jpInvoluntaryQuit || null,
+      fn_voluntary_quit: c.fnVoluntaryQuit || null,
+      fn_involuntary_quit: c.fnInvoluntaryQuit || null,
+      corp_type: c.corpType || null,
+      company_category: c.companyCategory || null,
+      category_code: c.categoryCode || null,
+      occupation_code: c.occupationCode || null,
+      has_job_placement: c.hasJobPlacement || null,
+      jj_name: c.jjName || null,
+      jj_corp_no_type: c.jjCorpNoType || null,
+      jj_corp_no: c.jjCorpNo || null,
+      jj_emp_ins_no: c.jjEmpInsNo || null,
+      jj_zip: c.jjZip || null,
+      jj_pref: c.jjPref || null,
+      jj_city: c.jjCity || null,
+      jj_address_detail: c.jjAddressDetail || null,
+      jj_tel: c.jjTel || null,
+      jj_permit_no: c.jjPermitNo || null,
+      jj_permit_date: c.jjPermitDate || null,
       jp_comp_job_desc: c.jpCompJobDesc || null,
       jp_comp_age: c.jpCompAge || null,
       jp_comp_gender: c.jpCompGender || null,
@@ -3208,6 +3245,11 @@ function openReview() { renderReview(); switchPanel('reviewScreen','nav-review')
 function openSupport(){ renderSupportList(); renderSupportTree(); switchPanel('supportScreen','nav-support'); }
 function openCompany(){ renderSupportTree(); renderCompanyList(); switchPanel('companyScreen','nav-company'); }
 function openDocGen(){ try{syncTemplateCategoriesWithGroups();restoreTemplatesFromStorage();renderDocGenContent();}catch(e){console.error('docGen error:',e);} switchPanel('docGenScreen','nav-docgen'); }
+function openDocGenWithType(docTypeKey){
+  try{syncTemplateCategoriesWithGroups();restoreTemplatesFromStorage();renderDocGenContent();}catch(e){}
+  switchPanel('docGenScreen','nav-docgen');
+  setTimeout(function(){ selectDocType(docTypeKey); }, 100);
+}
 function openDocGenWithCase(caseId, docTypeKey){
   try{syncTemplateCategoriesWithGroups();restoreTemplatesFromStorage();renderDocGenContent();}catch(e){console.error('docGen error:',e);}
   switchPanel('docGenScreen','nav-docgen');
@@ -4155,6 +4197,26 @@ function renderTemplatesContent() {
     h += '</div></div>';
   });
   if (!h) h = '<div style="text-align:center;padding:40px;color:var(--gray-400);">登録済みのテンプレートはありません。<br>上のエリアからアップロードしてください。</div>';
+
+  // ===== 特殊書類セクション（GAS生成・CSV出力） =====
+  h += '<div style="margin-top:24px;border-top:2px solid var(--gray-200);padding-top:16px;">';
+  h += '<div style="font-size:12px;font-weight:800;color:var(--gray-400);margin-bottom:10px;">⚡ 自動生成・CSV出力</div>';
+  var specialDocs = [
+    {key:'shinsei_henko', label:'申請内容変更申出書', icon:'📝', desc:'GAS自動生成 (docx)'},
+    {key:'onlineCSV', label:'オンラインCSV(認定)', icon:'🌐', desc:'CSV出力'},
+    {key:'onlineCSV_renewal', label:'オンラインCSV(更新)', icon:'🔄', desc:'CSV出力'},
+    {key:'onlineCSV_change', label:'オンラインCSV(変更)', icon:'🔀', desc:'CSV出力'},
+  ];
+  specialDocs.forEach(function(sd){
+    h += '<div onclick="openDocGenWithType(\''+sd.key+'\')" style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--gray-200);border-radius:10px;margin-bottom:6px;cursor:pointer;background:white;transition:.15s;" onmouseover="this.style.borderColor=\'var(--blue)\';this.style.background=\'#f0f9ff\'" onmouseout="this.style.borderColor=\'var(--gray-200)\';this.style.background=\'white\'">';
+    h += '<span style="font-size:20px;">'+sd.icon+'</span>';
+    h += '<div style="flex:1;"><div style="font-size:12px;font-weight:700;color:var(--navy);">'+sd.label+'</div>';
+    h += '<div style="font-size:10px;color:var(--gray-400);">'+sd.desc+'</div></div>';
+    h += '<span style="font-size:11px;color:var(--blue);">書類生成へ ›</span>';
+    h += '</div>';
+  });
+  h += '</div>';
+
   h += '<div id="tplDetailArea" style="display:none;margin-top:16px;"></div>';
   el.innerHTML = h;
 }
@@ -7865,6 +7927,7 @@ function renderStats() {
   // 在留期限アラートカード
   var expAlerts = cData.filter(function(c){
     if(!c.expire) return false;
+    if(c.status==='審査中') return false;
     var d=new Date(c.expire); d.setHours(0,0,0,0);
     return Math.ceil((d-today)/86400000)<=10;
   });
@@ -7876,6 +7939,29 @@ function renderStats() {
   if(expAlerts.length) {
     h += '<div style="font-size:22px;font-weight:900;color:#dc2626;line-height:1;">'+expAlerts.length+'<span style="font-size:11px;font-weight:500;"> 件</span></div>';
     h += '<div style="font-size:9px;color:#dc2626;margin-top:3px;">タップして一覧を表示 →</div>';
+  } else {
+    h += '<div style="font-size:12px;color:var(--green);font-weight:700;margin-top:4px;">✓ 対象なし</div>';
+  }
+  h += '</div>';
+
+  // 特例日アラートカード（審査中 + 特例日14日以内）
+  var tokAlerts = cData.filter(function(c){
+    if(c.status !== '審査中') return false;
+    var tokD;
+    if(c.tokureiDate){ tokD = new Date(c.tokureiDate); }
+    else if(c.expire){ tokD = new Date(c.expire); tokD.setMonth(tokD.getMonth()+2); }
+    else return false;
+    tokD.setHours(0,0,0,0);
+    return Math.ceil((tokD-today)/86400000)<=14;
+  });
+  var tokAlertStyle = tokAlerts.length
+    ? 'border:1.5px solid #fbbf24;cursor:pointer;'
+    : 'border:1px solid var(--gray-200);';
+  h += '<div class="stat-card" style="'+tokAlertStyle+'"'+(tokAlerts.length?' data-atype="tokurei" onclick="openAlertModal(this.dataset.atype);"':'')+' >';
+  h += '<div style="font-size:10px;font-weight:700;color:'+(tokAlerts.length?'#b45309':'var(--gray-400)')+';margin-bottom:2px;">⚖️ 特例期限</div>';
+  if(tokAlerts.length) {
+    h += '<div style="font-size:22px;font-weight:900;color:#b45309;line-height:1;">'+tokAlerts.length+'<span style="font-size:11px;font-weight:500;"> 件</span></div>';
+    h += '<div style="font-size:9px;color:#b45309;margin-top:3px;">タップして一覧を表示 →</div>';
   } else {
     h += '<div style="font-size:12px;color:var(--green);font-weight:700;margin-top:4px;">✓ 対象なし</div>';
   }
@@ -7974,6 +8060,41 @@ function openAlertModal(type) {
       var div=document.createElement('div');
       div.style.cssText='padding:12px 20px;border-bottom:1px solid #e2e8f0;cursor:pointer;display:flex;align-items:center;gap:12px;';
       div.innerHTML='<div style="background:'+(isOver?'#fee2e2':'#fff7ed')+';border-radius:8px;padding:6px 10px;text-align:center;flex-shrink:0;">'        +'<div style="font-size:16px;font-weight:900;color:'+col+';">'+(isOver?'期限切れ':'あと'+days+'日')+'</div></div>'        +'<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:700;">'+esc(cas.applicant||cas.name)+'</div>'        +'<div style="font-size:11px;color:#94a3b8;">'+cas.appType+'　'+cas.team+'　'+cas.staff+'</div>'        +'<div style="font-size:11px;color:'+col+';font-weight:700;">申請期限 '+cas.applicationDeadline+'</div></div>'        +'<div style="color:#cbd5e1;font-size:16px;">›</div>';
+      (function(cid){ div.addEventListener('click', function(){ closeAlertModal(); openCase(cid); }); })(cas.id);
+      list.appendChild(div);
+    });
+  } else if(type==='tokurei') {
+    title.innerHTML = '⚖️ 特例期限 14日以内（審査中）'; title.style.color='#b45309';
+    items = cData.filter(function(cas){
+      if(cas.status !== '審査中') return false;
+      var tokD;
+      if(cas.tokureiDate){ tokD = new Date(cas.tokureiDate); }
+      else if(cas.expire){ tokD = new Date(cas.expire); tokD.setMonth(tokD.getMonth()+2); }
+      else return false;
+      tokD.setHours(0,0,0,0);
+      return Math.ceil((tokD-today)/86400000)<=14;
+    }).sort(function(a,b){
+      var getD=function(c){ if(c.tokureiDate) return new Date(c.tokureiDate); var d=new Date(c.expire); d.setMonth(d.getMonth()+2); return d; };
+      return getD(a)-getD(b);
+    });
+    list.innerHTML = '';
+    items.forEach(function(cas){
+      var tokD;
+      if(cas.tokureiDate){ tokD = new Date(cas.tokureiDate); }
+      else { tokD = new Date(cas.expire); tokD.setMonth(tokD.getMonth()+2); }
+      tokD.setHours(0,0,0,0);
+      var days=Math.ceil((tokD-today)/86400000);
+      var isOver=days<=0; var col=isOver?'#dc2626':'#b45309';
+      var tokStr=tokD.toISOString().split('T')[0];
+      var div=document.createElement('div');
+      div.style.cssText='padding:12px 20px;border-bottom:1px solid #e2e8f0;cursor:pointer;display:flex;align-items:center;gap:12px;';
+      div.innerHTML='<div style="background:'+(isOver?'#fee2e2':'#fef3c7')+';border-radius:8px;padding:6px 10px;text-align:center;flex-shrink:0;">'
+        +'<div style="font-size:16px;font-weight:900;color:'+col+';">'+(isOver?'期限切れ':'あと'+days+'日')+'</div></div>'
+        +'<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:700;">'+esc(cas.applicant||cas.name)+'</div>'
+        +'<div style="font-size:11px;color:#94a3b8;">'+esc(cas.appType||'')+'　'+esc(cas.team||'')+'　'+esc(cas.staff||'')+'</div>'
+        +'<div style="font-size:11px;color:'+col+';font-weight:700;">特例期限 '+tokStr+(cas.tokureiDate?'':' (自動計算)')+'</div>'
+        +'<div style="font-size:10px;color:#94a3b8;">在留期限 '+esc(cas.expire||'—')+'</div></div>'
+        +'<div style="color:#cbd5e1;font-size:16px;">›</div>';
       (function(cid){ div.addEventListener('click', function(){ closeAlertModal(); openCase(cid); }); })(cas.id);
       list.appendChild(div);
     });
@@ -8903,6 +9024,13 @@ function autoSaveInfo(key, value) {
       var tokEl = document.getElementById('ei-tokureiDate');
       if (tokEl) tokEl.value = auto;
     }
+    // personData にも同期
+    if (!personData[c.id]) personData[c.id] = {};
+    personData[c.id].expire = value;
+    persistPersonData();
+    // 人材タブの入力欄にも反映
+    var pfExpEl = document.getElementById('pf-expire');
+    if (pfExpEl) pfExpEl.value = value;
   }
   persist();
   // 進捗バー更新（不要項目除外）
@@ -8922,9 +9050,13 @@ function autoSaveInfo(key, value) {
 
 function saveInfoEdit() {
   var c = currentCase; if (!c) return;
-  ['name','staff','team','org','company','appType','residenceStatus','status','expire','tokureiDate','receiptNo','receiptDate','toritsugisha','docCreateDate','applicantField','jobCategory','empSetIdx','supportFee'].forEach(function(k){
+  ['name','staff','team','org','company','appType','residenceStatus','status','expire','tokureiDate','receiptNo','receiptDate','toritsugisha','docCreateDate','applicantField','jobCategory','empSetIdx','supportFee','madoguchiDate','madoguchiReceiveDate','applicationDeadline','applicantFieldEn','jobCategoryEn','otherSupportNote','introFee','acceptExp','personOrder'].forEach(function(k){
     var el=document.getElementById('ei-'+k); if(el) c[k]=el.value;
   });
+  persist();
+  window._infoEditMode=false;
+  applyFilters(); showTab('info');
+}
 
 // 所属機関変更時に雇用条件セットリストを更新
 function onInfoCompanyChange() {
@@ -8933,10 +9065,6 @@ function onInfoCompanyChange() {
   if (compEl) c.company = compEl.value;
   c.empSetIdx = ''; // リセット
   showTab('info');
-}
-  window._infoEditMode=false;
-  
-  applyFilters(); showTab('info');
 }
 
 // ===== SUPPORT ORG =====
@@ -9118,17 +9246,17 @@ var SUPPORT_FIELDS = [
   {key:'jjTel',                 label:'職業紹介事業者 電話番号',        type:'text',  placeholder:'0312345678'},
   {key:'jjPermitNo',            label:'職業紹介事業者 許可届出番号',    type:'text',  placeholder:''},
   {key:'jjPermitDate',          label:'職業紹介事業者 受理年月日',      type:'text',  placeholder:'YYYYMMDD'},
-  {key:'ofusaStaff',            label:'大房担当',                       type:'text',  placeholder:''},
-  {key:'supportManagerName',     label:'支援担当者 氏名',                 type:'text',  placeholder:'山田 太郎'},
-  {key:'supportManagerTitle',    label:'支援担当者 役職',                 type:'text',  placeholder:'支援責任者'},
-  {key:'supportManagerNameEn',   label:'支援担当者 氏名（英語）',         type:'text',  placeholder:'YAMADA TARO'},
-  {key:'supportManagerTitleEn',  label:'支援担当者 役職（英語）',         type:'text',  placeholder:'Support Manager'},
-  {key:'lastVisit',             label:'直近訪問日',                     type:'date',  placeholder:''},
-  {key:'staff',                 label:'担当スタッフ',                   type:'user',  placeholder:''},
-  {key:'driveUrl',              label:'ドライブURL',                    type:'text',  placeholder:'https://drive.google.com/...'},
-  {key:'spreadsheetUrl',        label:'共有スプレッドシートURL',         type:'text',  placeholder:'https://docs.google.com/spreadsheets/...'},
-  {key:'companyNote',           label:'企業注意事項',                   type:'textarea', placeholder:'申請時の注意点・確認事項など'},
-  {key:'memo',                  label:'メモ',                           type:'text',  placeholder:''},
+  {key:'ofusaStaff',            label:'大房担当',                       type:'text',  section:'大房担当', placeholder:''},
+  {key:'supportManagerName',     label:'支援担当者 氏名',                 type:'text',  section:'大房担当', placeholder:'山田 太郎'},
+  {key:'supportManagerTitle',    label:'支援担当者 役職',                 type:'text',  section:'大房担当', placeholder:'支援責任者'},
+  {key:'supportManagerNameEn',   label:'支援担当者 氏名（英語）',         type:'text',  section:'大房担当', placeholder:'YAMADA TARO'},
+  {key:'supportManagerTitleEn',  label:'支援担当者 役職（英語）',         type:'text',  section:'大房担当', placeholder:'Support Manager'},
+  {key:'lastVisit',             label:'直近訪問日',                     type:'date',  section:'大房担当', placeholder:''},
+  {key:'staff',                 label:'担当スタッフ',                   type:'user',  section:'大房担当', placeholder:''},
+  {key:'driveUrl',              label:'ドライブURL',                    type:'text',  section:'大房担当', placeholder:'https://drive.google.com/...'},
+  {key:'spreadsheetUrl',        label:'共有スプレッドシートURL',         type:'text',  section:'大房担当', placeholder:'https://docs.google.com/spreadsheets/...'},
+  {key:'companyNote',           label:'企業注意事項',                   type:'textarea', section:'大房担当', placeholder:'申請時の注意点・確認事項など'},
+  {key:'memo',                  label:'メモ',                           type:'text',  section:'大房担当', placeholder:''},
 ];
 
 // オンラインCSV必須フィールドキー（赤背景+🌐表示用）
@@ -9196,6 +9324,7 @@ var COMPANY_FIELDS = [
   {key:'supportOrgName',label:'登録支援機関名',              type:'support',section:'登録支援機関', placeholder:''},
   {key:'supportStaff',  label:'支援担当者',                  type:'supportStaffSelect',   section:'登録支援機関', placeholder:''},
   {key:'ofusaStaff',    label:'大房担当者',                   type:'hidden',  section:'大房担当', placeholder:''},
+  {key:'companyNote',   label:'企業注意事項',                   type:'textarea',section:'大房担当', placeholder:'申請時の注意点・確認事項など'},
   {key:'memo',          label:'メモ',                         type:'text',  section:'大房担当', placeholder:''},
 ];
 
@@ -10307,13 +10436,13 @@ function renderCompanyDetail(co){
         // 職業紹介事業者「無」の場合、有無以外のjjフィールドを非表示
         if(f.key!=='hasJobPlacement' && f.key.indexOf('jj')===0 && co.hasJobPlacement==='無') return;
         var val=co[f.key]||'';
-        var wide=(f.key==='address'||f.key==='addressEn'||f.key==='memo'||f.key==='driveUrl'||f.key==='driveUrl2');
+        var wide=(f.key==='address'||f.key==='addressEn'||f.key==='memo'||f.key==='companyNote'||f.key==='driveUrl'||f.key==='driveUrl2'||f.key==='spreadsheetUrl');
         var coSkipScope='company_'+co.id+'_basic';
         var coSkipped=isFieldSkipped(coSkipScope,f.key);
         var coEmpty=!val;
         var isCsvField=CSV_COMPANY_KEYS[f.key];
-        var coBg=coSkipped?'#f3f4f6':(coEmpty?(isCsvField?'#fef2f2':'#fffbeb'):'transparent');
-        h+='<div style="'+(wide?'grid-column:span 2;':'')+'background:'+coBg+';border-radius:6px;padding:6px 8px;'+(coEmpty&&isCsvField&&!coSkipped?'border:1px solid #fca5a5;':'')+'">';
+        var coBg=coSkipped?'#f3f4f6':(f.key==='companyNote'?(coEmpty?'#fffbeb':'#fef3c7'):(coEmpty?(isCsvField?'#fef2f2':'#fffbeb'):'transparent'));
+        h+='<div style="'+(wide?'grid-column:span 2;':'')+'background:'+coBg+';border-radius:6px;padding:6px 8px;'+(f.key==='companyNote'&&!coEmpty?'border:2px solid #f59e0b;':(coEmpty&&isCsvField&&!coSkipped?'border:1px solid #fca5a5;':''))+'">';
         h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">';
         h+='<div style="font-size:10px;font-weight:700;color:'+(coSkipped?'var(--gray-300)':'var(--gray-400)')+';">'+(isCsvField&&!coSkipped?'<span style="color:#ef4444;">🌐</span> ':'')+(coSkipped?'<s>'+f.label+'</s>':f.label)+'</div>';
         h+='<button onclick="toggleSkipField(\''+coSkipScope+'\',\''+f.key+'\');renderCompanyDetail(companies.find(function(x){return x.id===\''+co.id+'\';}))" style="font-size:9px;padding:1px 5px;border-radius:3px;border:1px solid '+(coSkipped?'#f59e0b':'var(--gray-200)')+';background:'+(coSkipped?'#fef3c7':'white')+';color:'+(coSkipped?'#b45309':'var(--gray-400)')+';cursor:pointer;font-weight:600;">'+(coSkipped?'✓ 不要':'不要')+'</button>';
@@ -14585,7 +14714,7 @@ function buildCaseRow(c, today, inGroup) {
   var days = Math.ceil((exp - today) / 86400000);
   var pct = (c.taskTotal > 0) ? Math.round(c.taskDone / c.taskTotal * 100) : 0;
   var expStyle = '';
-  if (c.expire) {
+  if (c.expire && c.status !== '審査中') {
     if (days <= 0) expStyle = 'background:#fee2e2;color:#dc2626;font-weight:800;';
     else if (days <= 14) expStyle = 'background:#fff7ed;color:#ea580c;font-weight:700;';
     else if (days <= 30) expStyle = 'color:#d97706;font-weight:700;';
@@ -19843,6 +19972,12 @@ function savePerson(caseId) {
       p[k] = newVal;
     }
   });
+  // expire → cases.expire にも同期
+  var _syncCase = cData.find(function(x){return x.id===caseId;});
+  if (_syncCase && p.expire && _syncCase.expire !== p.expire) {
+    _syncCase.expire = p.expire;
+    persist();
+  }
   // contractStart/End → Y/M/D に自動分割
   if (p.contractStart) {
     var cs = p.contractStart.split('-');
@@ -20901,13 +21036,9 @@ function renderListItems(type, data, borderColor){
     h+='<div'+rowClick+' style="display:flex;align-items:center;gap:6px;background:'+(sel?'#eff6ff':'white')+';border-radius:6px;padding:5px 8px;margin-bottom:3px;border-left:3px solid '+borderColor+';font-size:11px;'+(type==='rec'&&linkedCase?'cursor:pointer;':'')+'transition:background .15s;" '+(type==='rec'&&linkedCase?'onmouseenter="this.style.background=\'#f0f4ff\'" onmouseleave="this.style.background=\''+(sel?'#eff6ff':'white')+'\'"':'')+'>';
     h+='<input type="checkbox" '+(sel?'checked':'')+' onclick="event.stopPropagation()" onchange="listToggleSel(\''+type+'\',\''+d.id+'\')" style="width:14px;height:14px;cursor:pointer;flex-shrink:0;">';
     h+='<span style="flex-shrink:0;width:68px;color:var(--gray-400);">'+(d.date?d.date.slice(0,10):'—')+'</span>';
-    h+='<span style="font-weight:700;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(d.name||'')+'</span>';
-    h+='<span style="color:var(--gray-400);width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;">'+(d.caseNo||'—')+'</span>';
-    h+='<span style="color:var(--gray-400);width:100px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;">'+(d.org||'—')+'</span>';
-    // 案件紐づけ表示（rec/shinsa/cert type）
+    // 案件紐づけ（rec/shinsa/cert）事前解決
     if(type==='rec'||type==='shinsa'||type==='cert'){
-      if(!linkedCase && d.name && type!=='rec'){
-        // shinsa/certでも名前マッチを試行
+      if(!linkedCase && d.name){
         var _matches=cData.filter(function(c){
           var dn=getDisplayName(c).toLowerCase();
           var cn=(c.applicant||'').toLowerCase();
@@ -20917,14 +21048,23 @@ function renderListItems(type, data, borderColor){
         if(_matches.length===1){linkedCase=_matches[0];d.caseId=linkedCase.id;}
       }
       if(d.caseId && !linkedCase) linkedCase=cData.find(function(c){return c.id===d.caseId;});
+    }
+    // 左側：案件名タグ（紐づけあり時）＋申請者名
+    h+='<div style="flex:1;min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden;">';
+    if((type==='rec'||type==='shinsa'||type==='cert') && linkedCase){
+      var _caseName = linkedCase.name || linkedCase.company || linkedCase.org || '';
+      h+='<span onclick="event.stopPropagation();openCase(\''+linkedCase.id+'\')" title="'+esc(_caseName)+'" style="flex-shrink:0;font-size:10px;color:#374151;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:4px;padding:2px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px;cursor:pointer;">'+esc(_caseName).substring(0,30)+'</span>';
+    }
+    h+='<span style="font-weight:700;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(d.name||'')+'</span>';
+    h+='</div>';
+    h+='<span style="color:var(--gray-400);width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;">'+(d.caseNo||'—')+'</span>';
+    h+='<span style="color:var(--gray-400);width:100px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;">'+(d.org||'—')+'</span>';
+    // 右側：紐づけボタン類
+    if(type==='rec'||type==='shinsa'||type==='cert'){
       if(linkedCase){
-        // 案件名を表示（企業名 or 案件表示名）
-        var _caseName = linkedCase.company || linkedCase.org || '';
-        h+='<span onclick="event.stopPropagation();openCase(\''+linkedCase.id+'\')" title="'+esc(_caseName)+'" style="flex-shrink:0;font-size:10px;color:#374151;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:4px;padding:2px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px;cursor:pointer;">'+esc(_caseName).substring(0,15)+'</span>';
         h+='<span onclick="event.stopPropagation();openCase(\''+linkedCase.id+'\')" style="flex-shrink:0;font-size:10px;background:#eef2ff;color:#6366f1;border:1px solid #c7d2fe;border-radius:4px;padding:2px 6px;white-space:nowrap;cursor:pointer;">🔗 '+esc(getDisplayName(linkedCase)).substring(0,10)+'</span>';
         h+='<button onclick="event.stopPropagation();unlinkListItem(\''+type+'\',\''+d.id+'\')" style="flex-shrink:0;font-size:9px;background:white;color:var(--gray-400);border:1px solid var(--gray-200);border-radius:4px;padding:1px 5px;cursor:pointer;" title="紐づけ解除">✕</button>';
       } else {
-        h+='<span style="flex-shrink:0;width:130px;"></span>';
         h+='<button onclick="event.stopPropagation();linkListItemToCase(\''+type+'\',\''+d.id+'\')" style="flex-shrink:0;font-size:10px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;padding:2px 6px;cursor:pointer;white-space:nowrap;">未紐づけ</button>';
       }
     }
@@ -25728,7 +25868,22 @@ function loadAllFromSupabase() {
           foreignEmployees:r.foreign_employees||'', techTrainees:r.tech_trainees||'',
           jpSalary:r.jp_salary||'',
           supportOrgName:r.support_org_name||'', supportOrgAddress:r.support_org_address||'', supportOrgNo:r.support_org_no||'', ofusaStaff:r.ofusa_staff||'', memo:r.memo||'',
-          empSets:r.emp_sets||[], folderNo:r.folder_no||'',
+          empSets:r.emp_sets||[], officers:r.officers||[], folderNo:r.folder_no||'',
+          staff:r.staff||'', lastVisit:r.last_visit||'',
+          driveUrl:r.drive_url||'', driveUrl2:r.drive_url2||'', spreadsheetUrl:r.spreadsheet_url||'',
+          supportManagerName:r.support_manager_name||'', supportManagerTitle:r.support_manager_title||'',
+          supportManagerNameEn:r.support_manager_name_en||'', supportManagerTitleEn:r.support_manager_title_en||'',
+          supportStaff:r.support_staff||'',
+          shortageMemo:r.shortage_memo||'', companyNote:r.company_note||'',
+          corpType:r.corp_type||'', companyCategory:r.company_category||'',
+          categoryCode:r.category_code||'', occupationCode:r.occupation_code||'',
+          hasJobPlacement:r.has_job_placement||'',
+          jjName:r.jj_name||'', jjCorpNoType:r.jj_corp_no_type||'', jjCorpNo:r.jj_corp_no||'',
+          jjEmpInsNo:r.jj_emp_ins_no||'', jjZip:r.jj_zip||'',
+          jjPref:r.jj_pref||'', jjCity:r.jj_city||'', jjAddressDetail:r.jj_address_detail||'',
+          jjTel:r.jj_tel||'', jjPermitNo:r.jj_permit_no||'', jjPermitDate:r.jj_permit_date||'',
+          jpVoluntaryQuit:r.jp_voluntary_quit||'', jpInvoluntaryQuit:r.jp_involuntary_quit||'',
+          fnVoluntaryQuit:r.fn_voluntary_quit||'', fnInvoluntaryQuit:r.fn_involuntary_quit||'',
           jpCompJobDesc:r.jp_comp_job_desc||'', jpCompAge:r.jp_comp_age||'',
           jpCompGender:r.jp_comp_gender||'', jpCompExp:r.jp_comp_exp||'',
           jpCompSalary:r.jp_comp_salary||'', jpCompReason:r.jp_comp_reason||'',
