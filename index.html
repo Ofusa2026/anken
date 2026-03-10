@@ -12485,13 +12485,47 @@ function onDocGenCaseChange() {
     var csvBg = isChange ? '#f5f3ff' : isRenewal ? '#f0fdf4' : '#f0f9ff';
     var csvBorder = isChange ? '#c4b5fd' : isRenewal ? '#6ee7b7' : '#93c5fd';
     var csvFunc = isChange ? 'exportChangeCsv()' : isRenewal ? 'exportRenewalCsv()' : 'exportCOEcsv()';
+    window._csvFuncMain = csvFunc;
     if(s3) {
       s3.style.display = 'block';
-      s3.innerHTML = '<div style="background:'+csvBg+';border:2px solid '+csvBorder+';border-radius:12px;padding:16px;text-align:center;">'
-        +'<div style="font-size:13px;font-weight:800;margin-bottom:10px;">'+csvLabel+' 入管オンライン申請CSV</div>'
-        +'<div style="font-size:11px;color:var(--gray-400);margin-bottom:12px;">'+csvDesc+'（特定技能・区分V）</div>'
-        +'<button onclick="'+csvFunc+'" style="padding:12px 24px;background:'+csvColor+';color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">📥 CSV ダウンロード</button>'
+      var visaTypes = [
+        {v:'tokutei1', l:'特定技能1号'},
+        {v:'tokutei2', l:'特定技能2号'},
+        {v:'tokkatsu', l:'特定活動'},
+        {v:'gijinko',  l:'技術・人文知識・国際業務'}
+      ];
+      var wrap = document.createElement('div');
+      wrap.style.cssText = 'background:'+csvBg+';border:2px solid '+csvBorder+';border-radius:12px;padding:16px;';
+      wrap.innerHTML = '<div style="font-size:13px;font-weight:800;margin-bottom:6px;text-align:center;">'+csvLabel+' 入管オンライン申請CSV</div>'
+        +'<div style="font-size:11px;color:var(--gray-400);margin-bottom:12px;text-align:center;">'+csvDesc+'</div>'
+        +'<div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:8px;">在留資格を選択</div>'
+        +'<div id="csvVisaBtnRow" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;"></div>'
+        +'<div id="csvDlBtn" style="display:none;text-align:center;">'
+        +'<button id="csvDlBtnInner" style="padding:12px 24px;background:'+csvColor+';color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">📥 CSV ダウンロード</button>'
         +'</div>';
+      s3.innerHTML = '';
+      s3.appendChild(wrap);
+      var btnRow = document.getElementById('csvVisaBtnRow');
+      var dlBtn = document.getElementById('csvDlBtnInner');
+      if(dlBtn) dlBtn.addEventListener('click', function(){ _onlineCSVDownload(); });
+      visaTypes.forEach(function(o){
+        var btn = document.createElement('button');
+        btn.textContent = o.l;
+        btn.dataset.v = o.v;
+        btn.style.cssText = 'padding:8px 14px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;background:white;color:#374151;transition:.15s;';
+        btn.addEventListener('click', function(){
+          window._csvVisaType = this.dataset.v;
+          [].forEach.call(document.querySelectorAll('.csv-visa-btn'), function(b){
+            b.style.background='white'; b.style.color='#374151'; b.style.borderColor='#e2e8f0';
+          });
+          this.style.background = ''+csvColor+'';
+          this.style.color = 'white';
+          this.style.borderColor = ''+csvColor+'';
+          document.getElementById('csvDlBtn').style.display = 'block';
+        });
+        btn.className = 'csv-visa-btn';
+        if(btnRow) btnRow.appendChild(btn);
+      });
     }
     return;
   }
@@ -24036,6 +24070,23 @@ function exportCSV(){ exportCases(); }
 // ===== 入管オンライン申請用 CSV出力（認定・区分V）=====
 // フォーマット: UTF-16LE, タブ区切り, 365列, 2行（ヘッダ+データ）
 // ファイル名: SA_03_001_01V1_ver001.csv
+function _onlineCSVDownload() {
+  var t = window._csvVisaType || 'tokutei1';
+  var f = window._csvFuncMain || 'exportCOEcsv()';
+  if (t === 'tokutei1') {
+    // 既存の特定技能1号CSV
+    if (f === 'exportCOEcsv()') exportCOEcsv();
+    else if (f === 'exportRenewalCsv()') exportRenewalCsv();
+    else if (f === 'exportChangeCsv()') exportChangeCsv();
+  } else if (t === 'tokutei2') {
+    showToast('⚠️ 特定技能2号のCSVテンプレートは準備中です');
+  } else if (t === 'tokkatsu') {
+    showToast('⚠️ 特定活動のCSVテンプレートは準備中です');
+  } else if (t === 'gijinko') {
+    showToast('⚠️ 技術・人文知識・国際業務のCSVテンプレートは準備中です');
+  }
+}
+
 function exportCOEcsv(){
   var caseId = document.getElementById('dg_case').value;
   if(!caseId){alert('案件を選択してください');return;}
