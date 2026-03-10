@@ -1368,14 +1368,52 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     </div>
     <div class="modal-body">
       <div class="person-field"><label>申請者氏名（英語）*</label><input type="text" id="nc_applicant" placeholder="例：NGUYEN VAN AN"></div>
-      <div class="person-field"><label>国籍 *</label><input type="text" id="nc_nationality" placeholder="例：ベトナム"></div>
+      <div class="person-field"><label>国籍 *</label>
+        <select id="nc_nationality" style="width:100%;padding:9px 12px;font-size:14px;border:1px solid var(--gray-200);border-radius:8px;">
+          <option value="">-- 選択 --</option>
+          <option>ベトナム</option>
+          <option>カンボジア</option>
+          <option>フィリピン</option>
+          <option>インドネシア</option>
+          <option>ミャンマー</option>
+          <option>タイ</option>
+          <option>中国</option>
+          <option>モンゴル</option>
+          <option>ネパール</option>
+          <option>バングラデシュ</option>
+          <option>スリランカ</option>
+          <option>インド</option>
+          <option>その他</option>
+        </select>
+      </div>
       <div class="person-field"><label>案件名 *</label><input type="text" id="nc_name" placeholder="例：特定技能（食品製造）認定"></div>
       <div class="person-field"><label>申請種別 *</label>
         <select id="nc_appType" class="filter-select" style="width:100%;padding:9px 12px;font-size:14px;">
           <option>認定</option><option>更新</option><option>変更</option><option>申請済</option>
         </select>
       </div>
-      <div class="person-field"><label>現在の在留資格</label><input type="text" id="nc_currentStatus" placeholder="例：技能実習3号"></div>
+      <div class="person-field"><label>現在の在留資格</label>
+        <select id="nc_currentStatus" style="width:100%;padding:9px 12px;font-size:14px;border:1px solid var(--gray-200);border-radius:8px;">
+          <option value="">-- 選択 --</option>
+          <option>特定技能1号</option>
+          <option>特定技能2号</option>
+          <option>技能実習1号イ</option>
+          <option>技能実習1号ロ</option>
+          <option>技能実習2号イ</option>
+          <option>技能実習2号ロ</option>
+          <option>技能実習3号イ</option>
+          <option>技能実習3号ロ</option>
+          <option>育成就労</option>
+          <option>技術・人文知識・国際業務</option>
+          <option>特定活動</option>
+          <option>留学</option>
+          <option>家族滞在</option>
+          <option>日本人の配偶者等</option>
+          <option>永住者</option>
+          <option>定住者</option>
+          <option>その他</option>
+        </select>
+      </div>
       <div class="person-field"><label>希望在留資格</label>
         <select id="nc_residenceSelect" onchange="var o=this.value;var inp=document.getElementById('nc_residenceStatus');if(o==='__other__'){inp.style.display='block';inp.value='';inp.focus();}else{inp.style.display='none';inp.value=o;}" style="width:100%;padding:9px 12px;font-size:14px;border:1px solid var(--gray-200);border-radius:8px;">
           <option value="">-- 選択 --</option>
@@ -7812,21 +7850,6 @@ function renderStats() {
     h += '</div></div>';
   });
 
-  // 企業単独カード
-  var kigyoCases = activeData.filter(function(c){ return c.org==='企業単独'; });
-  var kDocs=kigyoCases.filter(function(c){return c.status!=='審査中'&&c.status!=='完了'&&c.status!=='要追完'&&c.status!=='申請';}).length;
-  var kRev=kigyoCases.filter(function(c){return c.status==='審査中';}).length;
-  var kAdd=kigyoCases.filter(function(c){return c.status==='要追完';}).length;
-  h += '<div class="stat-card" onclick="document.getElementById(\'fTeam\').value=\'全チーム\';applyFilters();">';
-  h += '<div style="font-size:10px;font-weight:700;color:var(--gray-400);margin-bottom:2px;">企業単独</div>';
-  h += '<div style="font-size:22px;font-weight:900;color:#7c3aed;line-height:1;">'+kigyoCases.length+'<span style="font-size:11px;color:var(--gray-400);font-weight:500;"> 件</span></div>';
-  h += '<div style="margin-top:3px;display:flex;gap:5px;flex-wrap:wrap;">';
-  if(kDocs) h+='<span style="font-size:9px;color:#2563eb;font-weight:700;">書類'+kDocs+'</span>';
-  if(kRev)  h+='<span style="font-size:9px;color:#d97706;font-weight:700;">審査'+kRev+'</span>';
-  if(kAdd)  h+='<span style="font-size:9px;color:#dc2626;font-weight:700;">⚠'+kAdd+'</span>';
-  if(!kDocs&&!kRev&&!kAdd) h+='<span style="font-size:9px;color:var(--gray-400);">異常なし</span>';
-  h += '</div></div>';
-
   // 在留期限アラートカード
   var expAlerts = cData.filter(function(c){
     if(!c.expire) return false;
@@ -7867,6 +7890,26 @@ function renderStats() {
   }
   h += '</div>';
 
+  // 申請期限アラートカード（7日以内）
+  var dlAlerts = cData.filter(function(c){
+    if(!c.applicationDeadline||c.status==='完了'||c.status==='審査完了') return false;
+    var d=new Date(c.applicationDeadline); d.setHours(0,0,0,0);
+    var days=Math.ceil((d-today)/86400000);
+    return days<=7;
+  });
+  var dlStyle = dlAlerts.length
+    ? 'border:1.5px solid #fca5a5;cursor:pointer;'
+    : 'border:1px solid var(--gray-200);';
+  h += '<div class="stat-card" style="'+dlStyle+'"'+(dlAlerts.length?' data-atype="deadline" onclick="openAlertModal(this.dataset.atype);"':'')+' >';
+  h += '<div style="font-size:10px;font-weight:700;color:'+(dlAlerts.length?'#dc2626':'var(--gray-400)')+';margin-bottom:2px;">📅 申請期限</div>';
+  if(dlAlerts.length) {
+    h += '<div style="font-size:22px;font-weight:900;color:#dc2626;line-height:1;">'+dlAlerts.length+'<span style="font-size:11px;font-weight:500;"> 件</span></div>';
+    h += '<div style="font-size:9px;color:#dc2626;margin-top:3px;">タップして一覧を表示 →</div>';
+  } else {
+    h += '<div style="font-size:12px;color:var(--green);font-weight:700;margin-top:4px;">✓ 対象なし</div>';
+  }
+  h += '</div>';
+
   document.getElementById('statsGrid').innerHTML = h;
   // サイドバーバッジ更新（無効化）
   var sb = document.getElementById('sidebar-badge');
@@ -7901,6 +7944,24 @@ function openAlertModal(type) {
         +'<div style="font-size:11px;color:#94a3b8;">'+cas.appType+'　'+cas.team+'　'+cas.staff+'</div>'
         +'<div style="font-size:11px;color:'+col+';font-weight:700;">期限 '+cas.expire+'</div></div>'
         +'<div style="color:#cbd5e1;font-size:16px;">›</div>';
+      (function(cid){ div.addEventListener('click', function(){ closeAlertModal(); openCase(cid); }); })(cas.id);
+      list.appendChild(div);
+    });
+  } else if(type==='deadline') {
+    title.innerHTML = '📅 申請期限 7日以内'; title.style.color='#dc2626';
+    items = cData.filter(function(cas){
+      if(!cas.applicationDeadline||cas.status==='完了'||cas.status==='審査完了') return false;
+      var d=new Date(cas.applicationDeadline); d.setHours(0,0,0,0);
+      return Math.ceil((d-today)/86400000)<=7;
+    }).sort(function(a,b){return new Date(a.applicationDeadline)-new Date(b.applicationDeadline);});
+    list.innerHTML = '';
+    items.forEach(function(cas){
+      var d=new Date(cas.applicationDeadline); d.setHours(0,0,0,0);
+      var days=Math.ceil((d-today)/86400000);
+      var isOver=days<=0; var col=isOver?'#dc2626':'#ea580c';
+      var div=document.createElement('div');
+      div.style.cssText='padding:12px 20px;border-bottom:1px solid #e2e8f0;cursor:pointer;display:flex;align-items:center;gap:12px;';
+      div.innerHTML='<div style="background:'+(isOver?'#fee2e2':'#fff7ed')+';border-radius:8px;padding:6px 10px;text-align:center;flex-shrink:0;">'        +'<div style="font-size:16px;font-weight:900;color:'+col+';">'+(isOver?'期限切れ':'あと'+days+'日')+'</div></div>'        +'<div style="flex:1;min-width:0;"><div style="font-size:13px;font-weight:700;">'+esc(cas.applicant||cas.name)+'</div>'        +'<div style="font-size:11px;color:#94a3b8;">'+cas.appType+'　'+cas.team+'　'+cas.staff+'</div>'        +'<div style="font-size:11px;color:'+col+';font-weight:700;">申請期限 '+cas.applicationDeadline+'</div></div>'        +'<div style="color:#cbd5e1;font-size:16px;">›</div>';
       (function(cid){ div.addEventListener('click', function(){ closeAlertModal(); openCase(cid); }); })(cas.id);
       list.appendChild(div);
     });
@@ -14897,7 +14958,8 @@ function applyFilters(resetPage) {
       'name':'name','applicant':'applicant','org':'org','company':'company',
       'appType':'app_type','team':'team','staff':'staff','status':'status',
       'expire':'expire','receiptDate':'receipt_date','receiptNo':'receipt_no',
-      'shinsaDate':'shinsa_date'
+      'shinsaDate':'shinsa_date',
+      'applicationDeadline':'application_deadline'
     };
     var colSt = colSortState.main;
     var dbColSort = (!sort && colSt.col && colSortMap[colSt.col])
