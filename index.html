@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260311_0703 -->
+<!-- OFUSA_VERSION 20260311_0710 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -9188,23 +9188,59 @@ function persistSupportOrgs() {
     var rows = supportOrgs.map(function(s) {
       return {
         id: s.id, name: s.name||'', name_en: s.nameEn||null, name_kana: s.nameKana||null,
-        corp_no: s.corpNo||null,
+        corp_no: s.corpNo||null, emp_ins_no: s.empInsNo||null,
         reg_no: s.regNo||null, reg_date: s.regDate||null, zip: s.zip||null,
         pref: s.pref||null, city: s.city||null, address_detail: s.addressDetail||null,
-        address_en: s.addressEn||null, tel: s.tel||null, rep_name: s.repName||null,
+        address: s.address||null, address_en: s.addressEn||null,
+        tel: s.tel||null, rep_name: s.repName||null,
         rep_name_en: s.repNameEn||null, rep_name_kana: s.repNameKana||null, languages: s.languages||null,
+        display_name: s.displayName||null,
         office_name: s.officeName||null, office_zip: s.officeZip||null,
         office_pref: s.officePref||null, office_city: s.officeCity||null,
         office_address_detail: s.officeAddressDetail||null, office_tel: s.officeTel||null,
-        office_address_en: s.officeAddressEn||null, support_manager: s.supportManager||null,
+        office_address_en: s.officeAddressEn||null,
+        support_manager: s.supportManager||null,
         support_manager_kana: s.supportManagerKana||null, support_manager_title: s.supportManagerTitle||null,
         supporter_count: s.supporterCount||null, support_staff_count: s.supportStaffCount||null,
         support_staff: s.supportStaff||null, support_staff_list: s.supportStaffList||[],
         job_permit_no: s.jobPermitNo||null, job_permit_date: s.jobPermitDate||null,
+        jj_name: s.jjName||null, jj_corp_no_type: s.jjCorpNoType||null, jj_corp_no: s.jjCorpNo||null,
+        jj_emp_ins_no: s.jjEmpInsNo||null, jj_zip: s.jjZip||null, jj_pref: s.jjPref||null,
+        jj_city: s.jjCity||null, jj_address_detail: s.jjAddressDetail||null, jj_tel: s.jjTel||null,
+        jj_permit_no: s.jjPermitNo||null, jj_permit_date: s.jjPermitDate||null,
+        support_manager_name: s.supportManagerName||null, support_manager_name_en: s.supportManagerNameEn||null,
+        support_manager_title_en: s.supportManagerTitleEn||null,
+        staff: s.staff||null, last_visit: s.lastVisit||null,
+        drive_url: s.driveUrl||null, spreadsheet_url: s.spreadsheetUrl||null,
+        company_note: s.companyNote||null,
         ofusa_staff: s.ofusaStaff||null, memo: s.memo||null, folder_no: s.folderNo||null
       };
     });
-    _sb.from('support_orgs').upsert(rows,{onConflict:'id'}).then(function(r){if(r.error)console.error('supportOrgs sync err:',r.error);});
+    // dataカラム（JSONB）にまるごと保存 → 読み込み時に優先使用
+    rows = rows.map(function(r, i) {
+      var s = supportOrgs[i];
+      r.data = s;
+      r.offices = s.offices || [];
+      r.support_staff_list = s.supportStaffList || [];
+      return r;
+    });
+    _sb.from('support_orgs').upsert(rows,{onConflict:'id'}).then(function(r){
+      if(r && r.error){
+        console.error('❌ supportOrgs save error:', r.error.message);
+        // dataカラム/officesカラムなど不足時のフォールバック: data以外で再試行
+        if(r.error.message){
+          var fallbackRows = rows.map(function(row){
+            var fr = Object.assign({}, row);
+            if(r.error.message.indexOf('data')!==-1) delete fr.data;
+            if(r.error.message.indexOf('offices')!==-1) delete fr.offices;
+            return fr;
+          });
+          _sb.from('support_orgs').upsert(fallbackRows,{onConflict:'id'}).then(function(r2){
+            if(r2&&r2.error) console.error('❌ supportOrgs fallback error:', r2.error.message);
+          });
+        }
+      }
+    });
   }
 }
 var _persistCompaniesTimer = null;
@@ -26639,10 +26675,12 @@ function loadAllFromSupabase() {
         }
         return {
           id:r.id, name:r.name||'', nameEn:r.name_en||'', nameKana:r.name_kana||'', corpNo:r.corp_no||'',
+          empInsNo:r.emp_ins_no||'',
           regNo:r.reg_no||'', regDate:r.reg_date||'', zip:r.zip||'',
           pref:r.pref||'', city:r.city||'', addressDetail:r.address_detail||'',
-          addressEn:r.address_en||'', tel:r.tel||'', repName:r.rep_name||'',
+          address:r.address||'', addressEn:r.address_en||'', tel:r.tel||'', repName:r.rep_name||'',
           repNameEn:r.rep_name_en||'', repNameKana:r.rep_name_kana||'', languages:r.languages||'',
+          displayName:r.display_name||'',
           officeName:r.office_name||'', officeZip:r.office_zip||'',
           officePref:r.office_pref||'', officeCity:r.office_city||'',
           officeAddressDetail:r.office_address_detail||'', officeTel:r.office_tel||'',
@@ -26651,10 +26689,15 @@ function loadAllFromSupabase() {
           supporterCount:r.supporter_count||'', supportStaffCount:r.support_staff_count||'',
           supportStaff:r.support_staff||'', supportStaffList:r.support_staff_list||[],
           jobPermitNo:r.job_permit_no||'', jobPermitDate:r.job_permit_date||'',
+          jjName:r.jj_name||'', jjCorpNoType:r.jj_corp_no_type||'', jjCorpNo:r.jj_corp_no||'',
+          jjEmpInsNo:r.jj_emp_ins_no||'', jjZip:r.jj_zip||'', jjPref:r.jj_pref||'',
+          jjCity:r.jj_city||'', jjAddressDetail:r.jj_address_detail||'', jjTel:r.jj_tel||'',
+          jjPermitNo:r.jj_permit_no||'', jjPermitDate:r.jj_permit_date||'',
+          supportManagerName:r.support_manager_name||'', supportManagerNameEn:r.support_manager_name_en||'',
+          supportManagerTitleEn:r.support_manager_title_en||'',
           ofusaStaff:r.ofusa_staff||'', memo:r.memo||'', folderNo:r.folder_no||'',
           offices:r.offices||[], staff:r.staff||'', lastVisit:r.last_visit||'',
-          empInsNo:r.emp_ins_no||'', address:r.address||'', driveUrl:r.drive_url||'',
-          displayName:r.display_name||''
+          driveUrl:r.drive_url||'', spreadsheetUrl:r.spreadsheet_url||'', companyNote:r.company_note||''
         };
       });
       loaded.forEach(function(o){
@@ -26924,8 +26967,7 @@ function gasGmailPost(action, data) {
 // データ変更時のGAS同期 → 廃止（Supabase直接書き込みに移行）
 // === Supabase同期ラッパー（GAS廃止済み）===
 // 各persistXxx()にSupabase書き込みを追加
-var _origPersistSupportOrgs = persistSupportOrgs;
-persistSupportOrgs = function(){_origPersistSupportOrgs();if(DB_READY)supportOrgs.forEach(function(so){_sb.from('support_orgs').upsert({id:so.id,name:so.name,data:so},{onConflict:'id'}).then(function(){});});};
+// support_orgs DB保存は persistSupportOrgs 内で処理済み
 // persistCompanies は persistCompaniesToDB で処理済み
 var _origPersistCaseNotes = persistCaseNotes;
 persistCaseNotes = function(){_origPersistCaseNotes();if(DB_READY){var vi={};cData.forEach(function(c){vi[c.id]=true;});Object.keys(caseNotes).forEach(function(k){if(!vi[k])return;_sb.from('case_notes').upsert({case_id:k,note:caseNotes[k]},{onConflict:'case_id'}).then(function(){});});}};
