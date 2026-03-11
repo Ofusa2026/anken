@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260311_0518 -->
+<!-- OFUSA_VERSION 20260311_0526 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -15221,12 +15221,17 @@ function applyFilters(resetPage) {
       'applicationDeadline':'application_deadline'
     };
     var colSt = colSortState.main;
-    var dbColSort = (!sort && colSt.col && colSortMap[colSt.col])
+    // tempReturnはpersonsテーブル経由のため特別扱い
+    var effectiveSort = sort;
+    if (!sort && colSt.col === 'tempReturn') {
+      effectiveSort = colSt.dir === 'asc' ? 'return-asc' : 'return-desc';
+    }
+    var dbColSort = (!effectiveSort && colSt.col && colSortMap[colSt.col])
       ? {col: colSortMap[colSt.col], dir: colSt.dir}
       : null;
     sbFetchCases({
       page: currentPage, pageSize: PAGE_SIZE,
-      team: team, appType: type, status: status, staff: staff, search: q, sort: sort,
+      team: team, appType: type, status: status, staff: staff, search: q, sort: effectiveSort,
       colSort: dbColSort
     }, function(cases, total) {
       filteredTotalCount = total;
@@ -15405,9 +15410,15 @@ function applyDoneFilters(resetPage){
   var sort=(document.getElementById('doneSort')||{}).value||'';
   
   if (DB_READY) {
+    // tempReturnはpersonsテーブル経由のため特別扱い
+    var doneColSt = colSortState.done;
+    var effectiveDoneSort = sort;
+    if (!sort && doneColSt && doneColSt.col === 'tempReturn') {
+      effectiveDoneSort = doneColSt.dir === 'asc' ? 'return-asc' : 'return-desc';
+    }
     sbFetchDoneCases({
       page: doneCurrentPage, pageSize: PAGE_SIZE,
-      team: team, appType: type, staff: staff, search: q, sort: sort
+      team: team, appType: type, staff: staff, search: q, sort: effectiveDoneSort
     }, function(cases, total) {
       // cDataキャッシュにマージ
       cases.forEach(function(c) {
@@ -15415,7 +15426,7 @@ function applyDoneFilters(resetPage){
         if (idx >= 0) cData[idx] = c; else cData.push(c);
       });
       var sorted = cases.slice();
-      if(!sort && colSortState.done && colSortState.done.col) sorted = sortByColumn(sorted, 'done');
+      if(!effectiveDoneSort && doneColSt && doneColSt.col) sorted = sortByColumn(sorted, 'done');
       renderDoneCaseTable(sorted);
       renderDonePagination(total, doneCurrentPage, PAGE_SIZE);
       var cnt=document.getElementById('doneCaseCount');
