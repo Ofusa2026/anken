@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260311_0827 -->
+<!-- OFUSA_VERSION 20260311_0835 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -9118,7 +9118,9 @@ function autoSaveInfo(key, value) {
       if (tokEl) tokEl.value = auto;
     }
   }
-  persist();
+  // 変更した1件だけDB保存（全件送らない）
+  persistCasesToDB([c]);
+  try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){}
   if (key === 'status') applyFilters(); // ステータス変更時は案件一覧も再描画
   // 進捗バー更新（不要項目除外）
   var infoKeys = ['name','staff','org','company','empSetIdx','supportFee','appType','residenceStatus','tokureiDate','receiptNo','receiptDate','toritsugisha','docCreateDate','applicantField','jobCategory'];
@@ -9140,7 +9142,8 @@ function saveInfoEdit() {
   ['name','staff','team','org','company','appType','residenceStatus','status','expire','tokureiDate','receiptNo','receiptDate','toritsugisha','docCreateDate','applicantField','jobCategory','empSetIdx','supportFee','madoguchiDate','madoguchiReceiveDate','applicationDeadline','applicantFieldEn','jobCategoryEn','otherSupportNote','introFee','acceptExp','personOrder'].forEach(function(k){
     var el=document.getElementById('ei-'+k); if(el) c[k]=el.value;
   });
-  persist();
+  // 変更した1件だけDB保存
+  if(c){ persistCasesToDB([c]); try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){} }
   window._infoEditMode=false;
   applyFilters(); showTab('info');
 }
@@ -15619,9 +15622,19 @@ function changeCaseStatus(caseId, newStatus){
   if(!c) return;
   c.status=newStatus;
   _markCaseChanged(caseId);
-  // 変更した1件だけDB保存（全件送らない）
-  persistCasesToDB([c]);
   try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){}
+  // ステータスだけ軽量update（タイムアウト回避）
+  if(DB_READY){
+    _sb.from('cases').update({status:newStatus}).eq('id',caseId).then(function(r){
+      if(r&&r.error){
+        console.error('status update err:', r.error.message);
+        // フォールバック: 全フィールドupsert
+        persistCasesToDB([c]);
+      } else {
+        console.log('✅ status saved:', caseId, newStatus);
+      }
+    });
+  }
   applyFilters();
 }
 
