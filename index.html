@@ -2233,18 +2233,6 @@ function persistCompaniesToDB(companiesArray) {
       net_assets_y1: c.netAssetsY1 || null,
       net_assets_y2: c.netAssetsY2 || null,
       net_assets_y3: c.netAssetsY3 || null,
-      sales_y1: c.salesY1 || null,
-      sales_y2: c.salesY2 || null,
-      sales_y3: c.salesY3 || null,
-      ordinary_pl_y1: c.ordinaryPLY1 || null,
-      ordinary_pl_y2: c.ordinaryPLY2 || null,
-      ordinary_pl_y3: c.ordinaryPLY3 || null,
-      net_pl_y1: c.netPLY1 || null,
-      net_pl_y2: c.netPLY2 || null,
-      net_pl_y3: c.netPLY3 || null,
-      net_assets_y1: c.netAssetsY1 || null,
-      net_assets_y2: c.netAssetsY2 || null,
-      net_assets_y3: c.netAssetsY3 || null,
       jp_comp_job_desc: c.jpCompJobDesc || null,
       jp_comp_age: c.jpCompAge || null,
       jp_comp_gender: c.jpCompGender || null,
@@ -2255,7 +2243,7 @@ function persistCompaniesToDB(companiesArray) {
       extra: c.extra || {}
     };
   });
-  // 既知の除外カラムを事前に除外
+  // 既知の除外カラムを事前に除外（extraが存在しないテーブルのために初期除外に含める場合も対応）
   rows = rows.map(function(r) {
     var nr = {};
     Object.keys(r).forEach(function(k){ if(!_dbExcludedColsCo[k]) nr[k]=r[k]; });
@@ -2265,8 +2253,9 @@ function persistCompaniesToDB(companiesArray) {
   function tryUpsertCo(rowsToTry, attempt) {
     _sb.from('companies').upsert(rowsToTry, {onConflict: 'id'}).then(function(res) {
       if (res.error) {
-        var msg = res.error.message || '';
-        var m = msg.match(/find the '([^']+)' column/);
+        var msg = res.error.message || res.error.details || JSON.stringify(res.error);
+        console.error('persistCompaniesToDB error (attempt ' + attempt + '):', msg);
+        var m = msg.match(/find the '([^']+)' column/) || msg.match(/column[^"]*"([^"]+)"[^d]*does not exist/);
         if (m && attempt < 10) {
           var badCol = m[1];
           _dbExcludedColsCo[badCol] = true;
@@ -2276,7 +2265,8 @@ function persistCompaniesToDB(companiesArray) {
           });
           tryUpsertCo(fixed, attempt + 1);
         } else {
-          console.error('persistCompaniesToDB error:', res.error);
+          console.error('persistCompaniesToDB 最終エラー:', res.error);
+          showToast('⚠️ 所属機関DB保存エラー: ' + (res.error.message||res.error.details||JSON.stringify(res.error)).substring(0,80), 'error');
         }
       } else {
         console.log('📦 companies synced to DB:', rowsToTry.length);
@@ -25952,10 +25942,6 @@ function loadAllFromSupabase() {
           jjTel:r.jj_tel||'', jjPermitNo:r.jj_permit_no||'', jjPermitDate:r.jj_permit_date||'',
           jpVoluntaryQuit:r.jp_voluntary_quit||'', jpInvoluntaryQuit:r.jp_involuntary_quit||'',
           fnVoluntaryQuit:r.fn_voluntary_quit||'', fnInvoluntaryQuit:r.fn_involuntary_quit||'',
-          salesY1:r.sales_y1||'', salesY2:r.sales_y2||'', salesY3:r.sales_y3||'',
-          ordinaryPLY1:r.ordinary_pl_y1||'', ordinaryPLY2:r.ordinary_pl_y2||'', ordinaryPLY3:r.ordinary_pl_y3||'',
-          netPLY1:r.net_pl_y1||'', netPLY2:r.net_pl_y2||'', netPLY3:r.net_pl_y3||'',
-          netAssetsY1:r.net_assets_y1||'', netAssetsY2:r.net_assets_y2||'', netAssetsY3:r.net_assets_y3||'',
           salesY1:r.sales_y1||'', salesY2:r.sales_y2||'', salesY3:r.sales_y3||'',
           ordinaryPLY1:r.ordinary_pl_y1||'', ordinaryPLY2:r.ordinary_pl_y2||'', ordinaryPLY3:r.ordinary_pl_y3||'',
           netPLY1:r.net_pl_y1||'', netPLY2:r.net_pl_y2||'', netPLY3:r.net_pl_y3||'',
