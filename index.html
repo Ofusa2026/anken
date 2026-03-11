@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260311_1143 -->
+<!-- OFUSA_VERSION 20260311_1201 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -2364,7 +2364,10 @@ function persistPersonToDB(caseId, p) {
     pastEntryFrom:'past_entry_from', pastEntryTo:'past_entry_to',
     pastCOE:'past_coe', pastCOECount:'past_coe_count', pastCOEDenied:'past_coe_denied',
     deportationDate:'deportation_date',
-    stayPeriod:'stay_period', stayPeriodOther:'stay_period_other'
+    stayPeriod:'stay_period', stayPeriodOther:'stay_period_other',
+    eduCountry:'edu_country', education:'education', schoolName:'school_name',
+    completionDate:'completion_date', major:'major', majorDetail:'major_detail',
+    jpAddress:'jp_address'
   };
   Object.keys(mapping).forEach(function(jsKey) {
     var dbKey = mapping[jsKey];
@@ -17059,11 +17062,14 @@ function showTab(tab) {
       {key:'totalStayYear',label:'特定技能1号 通算在留期間(年)',type:'select',opts:['0','1','2','3','4','5'],req:1},
       {key:'totalStayMonth',label:'特定技能1号 通算在留期間(月)',type:'select',opts:['0','1','2','3','4','5','6','7','8','9','10','11'],req:1},
       {key:'_s4',label:'🎓 技人国入力用',type:'gijinkoGroup'},
-      {key:'education',label:'最終学歴',type:'select',opts:['小学・中学校','高等学校','短期大学・専門学校','大学','大学院','その他'],ph:''},
-      {key:'schoolName',label:'学校名',type:'text',ph:'例：〇〇大学'},
-      {key:'major',label:'専攻・専修（科目）',type:'text',ph:'例：情報工学'}
+      {key:'eduCountry',label:'最終学歴(1) 本邦/外国',type:'select',opts:['外国','本邦'],ph:''},
+      {key:'education',label:'最終学歴(2) 学歴区分',type:'select',opts:['小学・中学校','高等学校','短期大学・専門学校','大学','大学院','その他'],ph:''},
+      {key:'schoolName',label:'最終学歴(3) 学校名',type:'text',ph:'例：〇〇大学'},
+      {key:'completionDate',label:'最終学歴(4) 卒業年月日',type:'date',ph:''},
+      {key:'major',label:'専門専攻分野',type:'majorSelect',ph:''},
+      {key:'majorDetail',label:'専攻詳細（自由記述）',type:'text',ph:'例：情報工学、コンピュータサイエンス等'}
     ];
-    var GIJINKO_KEYS = ['education','schoolName','major'];
+    var GIJINKO_KEYS = ['eduCountry','education','schoolName','completionDate','major','majorDetail'];
     var gijinkoSkipScope = 'case_'+c.id+'_person';
     var gijinkoAllSkipped = GIJINKO_KEYS.every(function(k){ return isFieldSkipped(gijinkoSkipScope, k); });
     olFields.forEach(function(f){
@@ -17072,7 +17078,7 @@ function showTab(tab) {
         h+='<div style="margin-top:16px;margin-bottom:8px;padding:8px 10px;background:'+(gijinkoAllSkipped?'#d1d5db':'#0f4c81')+';border-radius:8px;display:flex;align-items:center;justify-content:space-between;">';
         h+='<span style="font-size:12px;font-weight:800;color:white;">'+(gijinkoAllSkipped?'<s>'+f.label+'</s>':f.label)+'</span>';
         h+='<button onclick="(function(){'
-          +'var keys=[\'education\',\'schoolName\',\'major\'];'
+          +'var keys=[\'eduCountry\',\'education\',\'schoolName\',\'completionDate\',\'major\',\'majorDetail\'];'
           +'var sc=\'case_'+c.id+'_person\';'
           +'var allSkp=keys.every(function(k){return isFieldSkipped(sc,k);});'
           +'if(allSkp){keys.forEach(function(k){var idx=(skippedFields[sc]||[]).indexOf(k);if(idx!==-1)skippedFields[sc].splice(idx,1);});}'
@@ -17094,7 +17100,27 @@ function showTab(tab) {
       h+='</div>';
       if(skp){h+='<div style="font-size:11px;color:var(--gray-300);padding:2px 0;">—</div>';}
       else if(isDis){h+='<div style="font-size:11px;color:var(--gray-300);padding:2px 0;">— 該当なし —</div>';}
-      else if(f.type==='select'){
+      else if(f.type==='majorSelect'){
+        var eduVal=p.education||'';
+        var isUniv=(eduVal.indexOf('大学')>=0);       // 大学・大学院
+        var isTanki=(eduVal.indexOf('短期')>=0||eduVal.indexOf('短大')>=0); // 短期大学
+        var isSenmon=(eduVal.indexOf('専門')>=0);     // 専門学校
+        if(isUniv||isTanki){
+          // 大学・短大・大学院：学問分野リスト
+          var majorOpts=['選択してください','法学 Law','経済学 Economics','政治学 Politics','商学 Commercial science','経営学 Business administration','文学 Literature','語学 Linguistics','社会学 Sociology','歴史学 History','心理学 Psychology','教育学 Education','芸術学 Science of art','その他人文・社会科学 Others(Cultural science/Social science)','理学 Science','化学 Chemistry','工学 Engineer','農学 Agriculture','水産学 Fisheries','薬学 Pharmacy','医学 Medicine','歯学 Dentistry','その他自然科学 Others(Natural science)','体育学 Sports science','介護福祉 Nursing care and welfare','その他 Others'];
+          h+='<select id="pf-'+f.key+'" style="width:100%;font-size:12px;padding:5px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;outline:none;">';
+          majorOpts.forEach(function(o){h+='<option value="'+(o==='選択してください'?'':o)+'"'+(o===val?' selected':'')+'>'+o+'</option>';});
+          h+='</select>';
+        }else if(isSenmon){
+          // 専門学校：課程区分リスト
+          var senmonOpts=['選択してください','工業 Engineering','農業 Agriculture','医療・衛生 Medical services/Hygienics','教育・社会福祉 Education/Social welfare','法律 Law','商業実務 Practical commercial business','服飾・家政 Dress design/Home economics','文化・教養 Culture / Education','介護福祉 Nursing care and welfare','その他 Others'];
+          h+='<select id="pf-'+f.key+'" style="width:100%;font-size:12px;padding:5px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;outline:none;">';
+          senmonOpts.forEach(function(o){h+='<option value="'+(o==='選択してください'?'':o)+'"'+(o===val?' selected':'')+'>'+o+'</option>';});
+          h+='</select>';
+        }else{
+          h+='<div style="font-size:11px;color:var(--gray-300);padding:2px 0;">— 大学・短大・専門学校選択後に表示 —</div>';
+        }
+      }else if(f.type==='select'){
         var autoRe=(f.key==='pastEntry'||f.key==='pastCOE'||f.key==='deportation'||f.key==='skillEvalType'||f.key==='jpEvalType'||f.key==='spouse');
         h+='<select id="pf-'+f.key+'" '+(autoRe?'onchange="if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');showTab(\'person\')" ':'')+' style="width:100%;font-size:12px;padding:5px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;outline:none;">';
         h+='<option value="">— 選択 —</option>';
@@ -25028,8 +25054,10 @@ function _onlineCSVDownload() {
     else if (isChange) exportChangeCsv_tokkatsu();
     else showToast('⚠️ 特定活動の認定CSVは準備中です');
   } else if (t === 'gijinko') {
-    if (isRenewal) exportRenewalCsv_gijinko();
-    else showToast('⚠️ 技術・人文知識・国際業務の認定/変更CSVは準備中です');
+    if (isCOE)         exportApprovalCsv_gijinko();
+    else if (isRenewal) exportRenewalCsv_gijinko();
+    else if (isChange)  exportChangeCsv_gijinko();
+    else showToast('⚠️ 申請種別を確認してください');
   }
 }
 
@@ -25588,6 +25616,238 @@ function exportChangeCsv_tokkatsu(){
   showToast('🔀 特定活動変更CSV出力完了: '+(c.applicant||''));
 }
 
+function exportApprovalCsv_gijinko(){
+  var caseId=document.getElementById('dg_case').value;
+  if(!caseId){alert('案件を選択してください');return;}
+  var c=cData.find(function(x){return x.id===caseId;});
+  if(!c){alert('案件が見つかりません');return;}
+  var p=personData[c.id]||{};
+  var co=companies.find(function(x){return x.name===c.company;})||{};
+  var es=(co.empSets&&co.empSets.length>0)?co.empSets[c.empSetIdx||0]||co.empSets[0]:{};
+
+  function resolveNatCode(name){if(!name||typeof IMM_CODES==='undefined')return '';for(var k in IMM_CODES.nat){if(name.indexOf(k)>=0)return IMM_CODES.nat[k];}return '';}
+  function resolveAddrCode(addr){if(!addr||typeof IMM_CODES==='undefined')return '';for(var k in IMM_CODES.addr){if(addr.indexOf(k)>=0)return IMM_CODES.addr[k];}return '';}
+  // 学歴コード（selEducation: 1=小中,2=高校,3=短大・専門,4=大学,5=大学院,6=その他）
+  var eduMap={'小学':1,'中学':1,'高校':2,'高等学校':2,'短大':3,'専門':3,'専修':3,'大学院':5,'大学':4,'その他':6};
+  var eduCode='';var edu=p.education||'';for(var ek in eduMap){if(edu.indexOf(ek)>=0){eduCode=String(eduMap[ek]);break;}}if(!eduCode)eduCode='3';
+  // 本邦/外国（1=本邦,2=外国）
+  var eduCountryCode=(p.eduCountry==='本邦'||p.eduCountry==='1')?'1':'2';
+  // 専門分野コード
+  // 専門専攻分野コード（入管システムの選択値に対応）
+  // 大学系 + 専門学校系の両方を含む
+  var majorFullMap={'法学':101,'経済学':102,'政治学':103,'商学':104,'経営学':105,'文学':106,'語学':107,'社会学':108,'歴史学':109,'心理学':110,'教育学':111,'芸術学':112,'その他人文':113,'理学':201,'化学':202,'工学':203,'農学':204,'水産学':205,'薬学':206,'医学':207,'歯学':208,'その他自然科学':209,'体育学':301,'介護福祉':401,
+    '工業':501,'農業':502,'医療・衛生':503,'教育・社会福祉':504,'法律':505,'商業実務':506,'服飾・家政':507,'文化・教養':508,'その他':999};
+  var majorCode='';var major=p.major||p.majorDetail||'';
+  for(var mk in majorFullMap){if(major.indexOf(mk)>=0){majorCode=String(majorFullMap[mk]);break;}}
+  if(!majorCode)majorCode='999';
+  var gradDate=(p.completionDate||'').replace(/-/g,'');
+  var schoolName=p.schoolName||'';
+  // 住居地（日本の住所）
+  var jpPostalCode=(p.jpPostalCode||'').replace(/-/g,'').replace(/^〒/,'');
+  var jpAddrCode=p.addressCode||resolveAddrCode(p.jpAddress||p.address||'')||jpPostalCode;
+  var jpDetailAddr=p.jpAddress||p.address||'';
+  // 所属機関
+  var coZip=(co.zip||'').replace(/-/g,'').replace(/^〒/,'');
+  var coAddrCode=resolveAddrCode(co.address||'')||coZip;
+  var skName=co.name||c.company||'';var skHujnNo=co.corporateNo||co.corpNo||'';
+  var skAddr=co.address||'';var skTel=co.tel||'';
+  var skShnkn=String(es.salary||co.salary||p.salary||0).replace(/[^0-9]/g,'');
+  var skEmployee=String(co.employee||co.staffCount||'1');
+  var koyoStart=(es.startDate||co.contractStart||'').replace(/-/g,'');
+  var koyoY=koyoStart.substring(0,4)||'';var koyoM=koyoStart.substring(4,6)||'';var koyoD=koyoStart.substring(6,8)||'';
+  // 取次者（大房行政書士法人）
+  var TORI_NAME='田中綾美'; // 田中綾美
+  var TORI_POST='1440052';
+  var TORI_ADRES_CODE='144052';
+  var TORI_ADRES='東京都大田区蒲田５丁目１１−１０＀ＦＵＮＤＥＳ蒲田８階'; // 東京都大田区蒲田５丁目１１−１０　FUNDES蒲田8階
+  var TORI_SZKN='大房行政書士法人'; // 大房行政書士法人
+  var TORI_TEL='0364248849';
+
+  var HDR=["","","","WCCBS010Dto:selNationalityAndRegion","txtName","radSex","selDateOfBirthYear(4),selDateOfBirthMonth(2),selDateOfBirthDay(2)","radSpouse","txtJob","txtHomeCountryAddress","WCCBS010Dto:hdnSearchedAddress","txtDetailHomeAddress","txtTelNum","txtCelPhoneNum","txtMailAddress","txtPassportNum","selPassportExpirationYear(4),selPassportExpirationMonth(2),selPassportExpirationDay(2)","radHnziUm1","txtHnziNiyu","radZincSnzkUm1","zincSnzkList[1].selNationalityAndRegion","zincSnzkList[1].txtName","zincSnzkList[1].selDateOfBirthYear(4),selDateOfBirthMonth(2),selDateOfBirthDay(2)","zincSnzkList[1].selZkgr","zincSnzkList[1].radDukyUm","zincSnzkList[1].txtWorkPlaceOrTugkskName","zincSnzkList[1].txtZiryCardNumOrTkeiNum","zincSnzkList[2].selNationalityAndRegion","zincSnzkList[2].txtName","zincSnzkList[2].selDateOfBirthYear(4),selDateOfBirthMonth(2),selDateOfBirthDay(2)","zincSnzkList[2].selZkgr","zincSnzkList[2].radDukyUm","zincSnzkList[2].txtWorkPlaceOrTugkskName","zincSnzkList[2].txtZiryCardNumOrTkeiNum","zincSnzkList[3].selNationalityAndRegion","zincSnzkList[3].txtName","zincSnzkList[3].selDateOfBirthYear(4),selDateOfBirthMonth(2),selDateOfBirthDay(2)","zincSnzkList[3].selZkgr","zincSnzkList[3].radDukyUm","zincSnzkList[3].txtWorkPlaceOrTugkskName","zincSnzkList[3].txtZiryCardNumOrTkeiNum","zincSnzkList[4].selNationalityAndRegion","zincSnzkList[4].txtName","zincSnzkList[4].selDateOfBirthYear(4),selDateOfBirthMonth(2),selDateOfBirthDay(2)","zincSnzkList[4].selZkgr","zincSnzkList[4].radDukyUm","zincSnzkList[4].txtWorkPlaceOrTugkskName","zincSnzkList[4].txtZiryCardNumOrTkeiNum","zincSnzkList[5].selNationalityAndRegion","zincSnzkList[5].txtName","zincSnzkList[5].selDateOfBirthYear(4),selDateOfBirthMonth(2),selDateOfBirthDay(2)","zincSnzkList[5].selZkgr","zincSnzkList[5].radDukyUm","zincSnzkList[5].txtWorkPlaceOrTugkskName","zincSnzkList[5].txtZiryCardNumOrTkeiNum","zincSnzkList[6].selNationalityAndRegion","zincSnzkList[6].txtName","zincSnzkList[6].selDateOfBirthYear(4),selDateOfBirthMonth(2),selDateOfBirthDay(2)","zincSnzkList[6].selZkgr","zincSnzkList[6].radDukyUm","zincSnzkList[6].txtWorkPlaceOrTugkskName","zincSnzkList[6].txtZiryCardNumOrTkeiNum","radZiryCardJryHuhu","txtTucSusnMailAddress","txtSyst","selNykkMktk","txtNykkYtiDate","txtJurkYtiPort","selTiziYtiPeriodYear","selTiziYtiPeriodMonth","radDuhnshUm","txtSshuSnsYtic","radPastShtnykkHis","txtKkKisu","selShtnykkHisDateStartYear(4),selShtnykkHisDateStartMonth(2),selShtnykkHisDateStartDay(2)","selShtnykkHisDateEndYear(4),selShtnykkHisDateEndMonth(2),selShtnykkHisDateEndDay(2)","radShkkUm","txtKsKisu","selSuknHisDateYear(4),selSuknHisDateMonth(2),selSuknHisDateDay(2)","txtDirnnName","txtDirnnZkgr","hdnSearchAddressCode","txtDetailDirnnAddress","txtDirnnTelNum","txtDirnnCelPhoneNum","txtTrtgshName","chkDui","WCCCS030Dto:radKkoKhsnsUmFlg","WCCCS030Dto:txtKkoKhsnsCnt","WCCCS030Dto:txtUchiHkhCnt","selEducation","txtOtherEducation","txtSchoolName","selGraduationDateYear(4),selGraduationDateMonth(2),selGraduationDateDay(2)","selMajorDigkinTnkDigk","txtOtherMajorDigkinTnkDigk","selMajorSnmn","txtOtherMajorSnmn","empHisList[1].txtWorkPlaceName","empHisList[1].selJobStartDateYear","empHisList[1].selJobStartDateMonth","empHisList[1].selJobEndDateYear","empHisList[1].selJobEndDateMonth","empHisList[2].txtWorkPlaceName","empHisList[2].selJobStartDateYear","empHisList[2].selJobStartDateMonth","empHisList[2].selJobEndDateYear","empHisList[2].selJobEndDateMonth","empHisList[3].txtWorkPlaceName","empHisList[3].selJobStartDateYear","empHisList[3].selJobStartDateMonth","empHisList[3].selJobEndDateYear","empHisList[3].selJobEndDateMonth","empHisList[4].txtWorkPlaceName","empHisList[4].selJobStartDateYear","empHisList[4].selJobStartDateMonth","empHisList[4].selJobEndDateYear","empHisList[4].selJobEndDateMonth","empHisList[5].txtWorkPlaceName","empHisList[5].selJobStartDateYear","empHisList[5].selJobStartDateMonth","empHisList[5].selJobEndDateYear","empHisList[5].selJobEndDateMonth","empHisList[6].txtWorkPlaceName","empHisList[6].selJobStartDateYear","empHisList[6].selJobStartDateMonth","empHisList[6].selJobEndDateYear","empHisList[6].selJobEndDateMonth","","","","","","","","","","","","","","","","","","","","","txtShzkKknKiykSkName","txtShzkKknKiykSkHujnNum","txtShzkKknKiykSkStnJgysh","hdnSearchedShzkKknKiykSkAddress","txtDetailShzkKknKiykSkAddress","txtShzkKknKiykSkTelNum","txtShzkKknKiykSkShnkn","txtShzkKknKiykSkUragdk","txtShzkKknKiykSkEmployee","txtShzkKknKiykSkForeignWorker","txtHknSkName","txtHknSkHujnNum","txtHknSkStnJgysh","hdnSearchedHknSkAddress","txtDetailHknSkAddress","txtHknSkTelNum","txtHknSkShnkn","txtHknSkUragdk","radKiykKiti","txtOtherKiykKiti","txaShkmNiyuShsi","radActDetail","txaActDetail","txtJtmKiknYears","knkyuJhsgUmFlg","knkyuJhsgName","txtHknPeriod","radWorkPosition","txtWorkPositionName","txtAllowancesAndSalary","WCCDS060Dto:selSzknMainGyosCode","WCCDS060Dto:selSzknOtheGyosCode1","WCCDS060Dto:selSzknOtheGyosCode2","WCCDS060Dto:txtSzknSkillNinzu","WCCDS060Dto:selHknskMainGyosCode","WCCDS060Dto:selHknskOtheGyosCode1","WCCDS060Dto:selHknskOtheGyosCode2","WCCDS060Dto:selSnsiKtdMainSyokusCode","WCCDS060Dto:selSnsiKtdOtheSyokusCode1","WCCDS060Dto:selSnsiKtdOtheSyokusCode2","WCCES010Dto:selGkrkCode","WCCES010Dto:selHksGakiGtumCode","WCCES010Dto:selSykrkCode","WCCES010Dto:selNnriCode","WCCES010Dto:selNnsuCode","WCCES010Dto:selTiCode","","WCCES010Dto:chkKkjskTkhmAriFlg","WCCES010Dto:chkKkjskSkkkAriFlg","WCCES010Dto:chkKkjskRbksAriFlg","WCCES010Dto:chkKkjskSntAriFlg","WCCES010Dto:selSkkCode","WCCES010Dto:selKykkFstGtumCode","WCCES010Dto:selKykkSecGtumCode","WCCES010Dto:selKykkTrdGtumCode","WCCES010Dto:selSswrGtumCode","WCCES010Dto:txtSkkkh","WCCES010Dto:txtUrAgDk","WCCES010Dto:txtSswa","WCCES010Dto:selGkSkGtumCode","WCCES010Dto:selKndgNhgnrCode","WCCES010Dto:selPrjtGtumCode","WCCES010Dto:selTtdgGtumCode","WCCES010Dto:chkTtdgRkAriFlg","WCCES010Dto:txtRkFstJni","WCCES010Dto:txtRkSecJni","WCCES010Dto:txtRkTrdJni","WCCES010Dto:chkTtdgMbkgsAriFlg","WCCES010Dto:chkTtdgGmsAriFlg","WCCES010Dto:selJicaGtumCode","WCCES010Dto:selTosiGtumCode","","WCCDS060Dto:radTmntGkrkShtkCountryCode","WCCDS060Dto:txtSzknKyhkntkyjgyshNo","WCCDS060Dto:txtSzknMainGyosSnta","WCCDS060Dto:txtSzknOtheGyos1Snta","WCCDS060Dto:txtSzknOtheGyos2Snta","WCCDS060Dto:txtHksKyhkntkyjgyshNo","WCCDS060Dto:txtHknskMainGyosSnta","WCCDS060Dto:txtHknskOtheGyos1Snta","WCCDS060Dto:txtHknskOtheGyos2Snta","WCCDS060Dto:selSnsiKtdOtheSyokusCode3","WCCDS060Dto:radSyurPlnTrmUmFlg","WCCDS060Dto:selSyurPlnTrmYear","WCCDS060Dto:selSyurPlnTrmMonth","WCCDS060Dto:selKoyoStartYear","WCCDS060Dto:selKoyoStartMonth","WCCDS060Dto:selKoyoStartDay","","","WCCBS010Dto:lblFreeInputC","WCCDS060Dto:radKirkUmFlg","empHisList[1].selCountryCode","","empHisList[1].txtKkanNameEng","","empHisList[2].selCountryCode","","empHisList[2].txtKkanNameEng","","empHisList[3].selCountryCode","","empHisList[3].txtKkanNameEng","","empHisList[4].selCountryCode","","empHisList[4].txtKkanNameEng","","empHisList[5].selCountryCode","","empHisList[5].txtKkanNameEng","","empHisList[6].selCountryCode","","empHisList[6].txtKkanNameEng","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","empHisList[1].jobStartYmFshoYear","","empHisList[1].jobEndYmFshoYear","","empHisList[1].txtSdkyinName","empHisList[1].txtKnkyustName","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","kjyuPostNo","jyrkYtiPort","empHisList[1].jobStartYmFshoCd","","empHisList[1].jobEndYmFshoCd","","empHisList[2].jobStartYmFshoCd","empHisList[2].jobStartYmFshoYear","empHisList[2].jobEndYmFshoCd","empHisList[2].jobEndYmFshoYear","empHisList[3].jobStartYmFshoCd","empHisList[3].jobStartYmFshoYear","empHisList[3].jobEndYmFshoCd","empHisList[3].jobEndYmFshoYear","empHisList[4].jobStartYmFshoCd","empHisList[4].jobStartYmFshoYear","empHisList[4].jobEndYmFshoCd","empHisList[4].jobEndYmFshoYear","empHisList[5].jobStartYmFshoCd","empHisList[5].jobStartYmFshoYear","empHisList[5].jobEndYmFshoCd","empHisList[5].jobEndYmFshoYear","empHisList[6].jobStartYmFshoCd","empHisList[6].jobStartYmFshoYear","empHisList[6].jobEndYmFshoCd","empHisList[6].jobEndYmFshoYear","dirnPostNo","toriPostNo","toriAdresCode","toriAdres","toriSzkn","toriTelNo","szknHujnNoUmFlg","szknSzaiPostNo","hknskHujnNoUmFlg","hknskSzaiPostNo","jskipUmFlg","kykkFstGtumCode","kykkSecGtumCode","kykkTrdGtumCode","WCCES010Dto:txtRkFstJniFlg","WCCES010Dto:txtRkSecJniFlg","WCCES010Dto:txtRkTrdJniFlg","tosiJyujGtumCode",""];
+
+  var D=new Array(457).fill('');
+  D[0]='1';D[1]='01N';D[2]='01N2';
+  D[3]=p.nationalityCode||resolveNatCode(p.nationality||c.nationality)||'';
+  D[4]=c.applicant||p.applicantNameEn||'';
+  D[5]=p.gender==='男'||p.gender==='male'?'1':p.gender==='女'||p.gender==='female'?'2':'2';
+  D[6]=(p.birthdate||'').replace(/-/g,'');
+  D[7]=p.spouse==='有'?'1':'0';
+  D[8]=p.occupation||'会社員';
+  D[9]=p.homeCountryAddress||p.birthPlace||'';
+  D[10]=jpAddrCode; // 住居地住所コード
+  D[11]=jpDetailAddr; // 住居地詳細住所
+  D[12]=p.telNum||p.phone||'';
+  D[13]=p.celPhone||'';
+  D[14]=p.email||'';
+  D[15]=p.passport||'';
+  D[16]=(p.passportExpiry||'').replace(/-/g,'');
+  D[17]='0';D[19]='0';
+  // 認定特有: 在留カード提示なし=03
+  D[62]='03'; // radZiryCardJryHuhu（認定=03）
+  D[63]=p.notificationEmail||p.email||''; // txtTucSusnMailAddress
+  D[70]='0'; // radDuhnshUm
+  D[72]='0'; // radPastShtnykkHis
+  D[73]='0'; // txtKkKisu
+  D[76]='0'; // radShkkUm
+  D[85]=TORI_NAME; // txtTrtgshName 取次者氏名
+  D[86]='1'; // chkDui
+  D[87]='0'; // radKkoKhsnsUmFlg
+  D[90]=eduCode; // selEducation 最終学歴(2)
+  D[91]=eduCountryCode; // txtOtherEducation → 本邦(1)/外国(2) ※最終学歴(1)
+  D[92]=schoolName; // txtSchoolName 学校名
+  D[93]=gradDate; // selGraduationDate 卒業年月日
+  D[94]=majorCode; // selMajorDigkinTnkDigk 専門専攻分野
+  D[148]=skName;D[149]=skHujnNo;D[150]=skName;
+  D[151]=coAddrCode;D[152]=skAddr;D[153]=skTel;
+  D[154]=skShnkn;D[155]='0';D[156]=skEmployee||'1';D[157]='0';
+  D[166]='0'; // radKiykKiti
+  D[168]='理由書および雇用契約書参照';
+  D[169]='0'; // radActDetail
+  D[171]='36'; // txtJtmKiknYears
+  D[175]='0'; // radWorkPosition
+  D[177]=koyoStart||''; // txtAllowancesAndSalary（雇用開始日）
+  D[178]=co.industryCode||'O44';
+  D[181]='0';
+  D[185]=co.occupationCode||'K87';
+  D[220]='02';
+  D[222]=co.industryName||'その他';
+  D[230]='0'; // radSyurPlnTrmUmFlg
+  D[233]=koyoY;D[234]=koyoM;D[235]=koyoD;
+  D[238]='職歴は履歴書を参照ください';
+  D[239]='0';
+  D[412]=jpPostalCode||'0000000'; // kjyuPostNo 住居地郵便番号
+  D[438]='0000000'; // dirnPostNo
+  D[439]=TORI_POST;D[440]=TORI_ADRES_CODE;D[441]=TORI_ADRES;
+  D[442]=TORI_SZKN;D[443]=TORI_TEL;D[444]='1';D[445]='0000000';
+
+  var csvContent=HDR.join('\t')+'\r\n'+D.join('\t');
+  var buf=new ArrayBuffer(2+csvContent.length*2);
+  var view=new DataView(buf);
+  view.setUint8(0,0xFF);view.setUint8(1,0xFE);
+  for(var i=0;i<csvContent.length;i++) view.setUint16(2+i*2,csvContent.charCodeAt(i),true);
+  var blob=new Blob([buf],{type:'text/csv;charset=UTF-16LE'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='SA_03_002_01N2_ver001.csv';a.click();
+  URL.revokeObjectURL(url);
+  showToast('✅ 技人国認定CSV出力完了');
+}
+
+function exportChangeCsv_gijinko(){
+  var caseId=document.getElementById('dg_case').value;
+  if(!caseId){alert('案件を選択してください');return;}
+  var c=cData.find(function(x){return x.id===caseId;});
+  if(!c){alert('案件が見つかりません');return;}
+  var p=personData[c.id]||{};
+  var co=companies.find(function(x){return x.name===c.company;})||{};
+  var es=(co.empSets&&co.empSets.length>0)?co.empSets[c.empSetIdx||0]||co.empSets[0]:{};
+
+  function resolveNatCode(name){if(!name||typeof IMM_CODES==='undefined')return '';for(var k in IMM_CODES.nat){if(name.indexOf(k)>=0)return IMM_CODES.nat[k];}return '';}
+  function resolveAddrCode(addr){if(!addr||typeof IMM_CODES==='undefined')return '';for(var k in IMM_CODES.addr){if(addr.indexOf(k)>=0)return IMM_CODES.addr[k];}return '';}
+  function resolveZiryuPeriodOnly(period){if(!period)return '0300000';if(period.indexOf('5年')>=0)return '0500000';if(period.indexOf('3年')>=0)return '0300000';if(period.indexOf('1年')>=0)return '0100000';if(period.indexOf('6月')>=0)return '0006000';if(period.indexOf('3月')>=0)return '0003000';return '0300000';}
+  var eduMap={'小学':1,'中学':1,'高校':2,'高等学校':2,'短大':3,'専門':3,'専修':3,'大学院':5,'大学':4,'その他':6};
+  var eduCode='';var edu=p.education||'';for(var ek in eduMap){if(edu.indexOf(ek)>=0){eduCode=String(eduMap[ek]);break;}}if(!eduCode)eduCode='3';
+  var eduCountryCode=(p.eduCountry==='本邦'||p.eduCountry==='1')?'1':'2';
+  // 専門専攻分野コード（入管システムの選択値に対応）
+  // 大学系 + 専門学校系の両方を含む
+  var majorFullMap={'法学':101,'経済学':102,'政治学':103,'商学':104,'経営学':105,'文学':106,'語学':107,'社会学':108,'歴史学':109,'心理学':110,'教育学':111,'芸術学':112,'その他人文':113,'理学':201,'化学':202,'工学':203,'農学':204,'水産学':205,'薬学':206,'医学':207,'歯学':208,'その他自然科学':209,'体育学':301,'介護福祉':401,
+    '工業':501,'農業':502,'医療・衛生':503,'教育・社会福祉':504,'法律':505,'商業実務':506,'服飾・家政':507,'文化・教養':508,'その他':999};
+  var majorCode='';var major=p.major||p.majorDetail||'';
+  for(var mk in majorFullMap){if(major.indexOf(mk)>=0){majorCode=String(majorFullMap[mk]);break;}}
+  if(!majorCode)majorCode='999';
+  var gradDate=(p.completionDate||'').replace(/-/g,'');
+  var schoolName=p.schoolName||'';
+  var jpPostalCode=(p.jpPostalCode||'').replace(/-/g,'').replace(/^〒/,'');
+  var jpAddrCode=p.addressCode||resolveAddrCode(p.jpAddress||p.address||'')||jpPostalCode;
+  var jpDetailAddr=p.jpAddress||p.address||'';
+  var coZip=(co.zip||'').replace(/-/g,'').replace(/^〒/,'');
+  var coAddrCode=resolveAddrCode(co.address||'')||coZip;
+  var skName=co.name||c.company||'';var skHujnNo=co.corporateNo||co.corpNo||'';
+  var skAddr=co.address||'';var skTel=co.tel||'';
+  var skShnkn=String(es.salary||co.salary||p.salary||0).replace(/[^0-9]/g,'');
+  var skEmployee=String(co.employee||co.staffCount||'1');
+  var koyoStart=(es.startDate||co.contractStart||'').replace(/-/g,'');
+  var koyoY=koyoStart.substring(0,4)||'';var koyoM=koyoStart.substring(4,6)||'';var koyoD=koyoStart.substring(6,8)||'';
+  var TORI_NAME='田中綾美';
+  var TORI_POST='1440052';var TORI_ADRES_CODE='144052';
+  var TORI_ADRES='東京都大田区蒲田５丁目１１−１０　ＦＵＮＤＥＳ蒲田８階';
+  var TORI_SZKN='大房行政書士法人';var TORI_TEL='0364248849';
+  var expireStr=(c.expire||p.expire||'').replace(/-/g,'');
+  var currentPeriod=p.stayPeriod||'';
+  var currentPeriodCode=resolveZiryuPeriodOnly(currentPeriod);
+
+  var HDR=["","","","WCCBS010Dto:selNationalityAndRegion","txtName","radSex","selDateOfBirthYear(4),selDateOfBirthMonth(2),selDateOfBirthDay(2)","radSpouse","txtJob","txtHomeCountryAddress","WCCBS010Dto:hdnSearchedAddress","txtDetailHomeAddress","txtTelNum","txtCelPhoneNum","txtMailAddress","txtPassportNum","selPassportExpirationYear(4),selPassportExpirationMonth(2),selPassportExpirationDay(2)","radHnziUm1","txtHnziNiyu","radZincSnzkUm1","zincSnzkList[1].selNationalityAndRegion","zincSnzkList[1].txtName","zincSnzkList[1].selDateOfBirthYear(4),selDateOfBirthMonth(2),selDateOfBirthDay(2)","zincSnzkList[1].selZkgr","zincSnzkList[1].radDukyUm","zincSnzkList[1].txtWorkPlaceOrTugkskName","zincSnzkList[1].txtZiryCardNumOrTkeiNum","zincSnzkList[2].selNationalityAndRegion","zincSnzkList[2].txtName","zincSnzkList[2].selDateOfBirthYear(4),selDateOfBirthMonth(2),selDateOfBirthDay(2)","zincSnzkList[2].selZkgr","zincSnzkList[2].radDukyUm","zincSnzkList[2].txtWorkPlaceOrTugkskName","zincSnzkList[2].txtZiryCardNumOrTkeiNum","zincSnzkList[3].selNationalityAndRegion","zincSnzkList[3].txtName","zincSnzkList[3].selDateOfBirthYear(4),selDateOfBirthMonth(2),selDateOfBirthDay(2)","zincSnzkList[3].selZkgr","zincSnzkList[3].radDukyUm","zincSnzkList[3].txtWorkPlaceOrTugkskName","zincSnzkList[3].txtZiryCardNumOrTkeiNum","zincSnzkList[4].selNationalityAndRegion","zincSnzkList[4].txtName","zincSnzkList[4].selDateOfBirthYear(4),selDateOfBirthMonth(2),selDateOfBirthDay(2)","zincSnzkList[4].selZkgr","zincSnzkList[4].radDukyUm","zincSnzkList[4].txtWorkPlaceOrTugkskName","zincSnzkList[4].txtZiryCardNumOrTkeiNum","zincSnzkList[5].selNationalityAndRegion","zincSnzkList[5].txtName","zincSnzkList[5].selDateOfBirthYear(4),selDateOfBirthMonth(2),selDateOfBirthDay(2)","zincSnzkList[5].selZkgr","zincSnzkList[5].radDukyUm","zincSnzkList[5].txtWorkPlaceOrTugkskName","zincSnzkList[5].txtZiryCardNumOrTkeiNum","zincSnzkList[6].selNationalityAndRegion","zincSnzkList[6].txtName","zincSnzkList[6].selDateOfBirthYear(4),selDateOfBirthMonth(2),selDateOfBirthDay(2)","zincSnzkList[6].selZkgr","zincSnzkList[6].radDukyUm","zincSnzkList[6].txtWorkPlaceOrTugkskName","zincSnzkList[6].txtZiryCardNumOrTkeiNum","","radZiryCardJryHuhu","selJryuKnsh","txtTucSusnMailAddress","txtSyst","selCurrentZirySkk","WCCCS040Dto:selZiryPeriod","selExpirationDateYear(4),selExpirationDateMonth(2),selExpirationDateDay(2)","WCCCS040Dto:txtZiryCardNum","txtEdNumEng","txtEdNumNum","selNewZirySkk","selNewZiryPeriod","WCCCS040Dto:txtKusnReason","txtDirnnName","txtDirnnZkgr","hdnSearchAddressCode","txtDetailDirnnAddress","txtDirnnTelNum","txtDirnnCelPhoneNum","txtTrtgshName","chkDui","selEducation","txtOtherEducation","txtSchoolName","selGraduationDateYear(4),selGraduationDateMonth(2),selGraduationDateDay(2)","selMajorDigkinTnkDigk","txtOtherMajorDigkinTnkDigk","selMajorSnmn","txtOtherMajorSnmn","empHisList[1].txtWorkPlaceName","empHisList[1].selJobStartDateYear","empHisList[1].selJobStartDateMonth","empHisList[1].selJobEndDateYear","empHisList[1].selJobEndDateMonth","empHisList[2].txtWorkPlaceName","empHisList[2].selJobStartDateYear","empHisList[2].selJobStartDateMonth","empHisList[2].selJobEndDateYear","empHisList[2].selJobEndDateMonth","empHisList[3].txtWorkPlaceName","empHisList[3].selJobStartDateYear","empHisList[3].selJobStartDateMonth","empHisList[3].selJobEndDateYear","empHisList[3].selJobEndDateMonth","empHisList[4].txtWorkPlaceName","empHisList[4].selJobStartDateYear","empHisList[4].selJobStartDateMonth","empHisList[4].selJobEndDateYear","empHisList[4].selJobEndDateMonth","empHisList[5].txtWorkPlaceName","empHisList[5].selJobStartDateYear","empHisList[5].selJobStartDateMonth","empHisList[5].selJobEndDateYear","empHisList[5].selJobEndDateMonth","empHisList[6].txtWorkPlaceName","empHisList[6].selJobStartDateYear","empHisList[6].selJobStartDateMonth","empHisList[6].selJobEndDateYear","empHisList[6].selJobEndDateMonth","","","","","","","","","","","","","","","","","","","","","txtShzkKknKiykSkName","txtShzkKknKiykSkHujnNum","txtShzkKknKiykSkStnJgysh","hdnSearchedShzkKknKiykSkAddress","txtDetailShzkKknKiykSkAddress","txtShzkKknKiykSkTelNum","txtShzkKknKiykSkShnkn","txtShzkKknKiykSkUragdk","txtShzkKknKiykSkEmployee","txtShzkKknKiykSkForeignWorker","txtHknSkName","txtHknSkHujnNum","txtHknSkStnJgysh","hdnSearchedHknSkAddress","txtDetailHknSkAddress","txtHknSkTelNum","txtHknSkShnkn","txtHknSkUragdk","radKiykKiti","txtOtherKiykKiti","txaShkmNiyuShsi","radActDetail","txaActDetail","txtJtmKiknYears","knkyuJhsgUmFlg","knkyuJhsgName","txtHknPeriod","radWorkPosition","txtWorkPositionName","txtAllowancesAndSalary","WCCDS060Dto:selSzknMainGyosCode","WCCDS060Dto:selSzknOtheGyosCode1","WCCDS060Dto:selSzknOtheGyosCode2","WCCDS060Dto:txtSzknSkillNinzu","WCCDS060Dto:selHknskMainGyosCode","WCCDS060Dto:selHknskOtheGyosCode1","WCCDS060Dto:selHknskOtheGyosCode2","WCCDS060Dto:selSnsiKtdMainSyokusCode","WCCDS060Dto:selSnsiKtdOtheSyokusCode1","WCCDS060Dto:selSnsiKtdOtheSyokusCode2","WCCES010Dto:selGkrkCode","WCCES010Dto:selHksGakiGtumCode","WCCES010Dto:selSykrkCode","WCCES010Dto:selNnriCode","WCCES010Dto:selNnsuCode","WCCES010Dto:selTiCode","","WCCES010Dto:chkKkjskTkhmAriFlg","WCCES010Dto:chkKkjskSkkkAriFlg","WCCES010Dto:chkKkjskRbksAriFlg","WCCES010Dto:chkKkjskSntAriFlg","WCCES010Dto:selSkkCode","WCCES010Dto:selKykkFstGtumCode","WCCES010Dto:selKykkSecGtumCode","WCCES010Dto:selKykkTrdGtumCode","WCCES010Dto:selSswrGtumCode","WCCES010Dto:txtSkkkh","WCCES010Dto:txtUrAgDk","WCCES010Dto:txtSswa","WCCES010Dto:selGkSkGtumCode","WCCES010Dto:selKndgNhgnrCode","WCCES010Dto:selPrjtGtumCode","WCCES010Dto:selTtdgGtumCode","WCCES010Dto:chkTtdgRkAriFlg","WCCES010Dto:txtRkFstJni","WCCES010Dto:txtRkSecJni","WCCES010Dto:txtRkTrdJni","WCCES010Dto:chkTtdgMbkgsAriFlg","WCCES010Dto:chkTtdgGmsAriFlg","WCCES010Dto:selJicaGtumCode","WCCES010Dto:selTosiGtumCode","","WCCDS060Dto:radTmntGkrkShtkCountryCode","WCCDS060Dto:txtSzknKyhkntkyjgyshNo","WCCDS060Dto:txtSzknMainGyosSnta","WCCDS060Dto:txtSzknOtheGyos1Snta","WCCDS060Dto:txtSzknOtheGyos2Snta","WCCDS060Dto:txtHksKyhkntkyjgyshNo","WCCDS060Dto:txtHknskMainGyosSnta","WCCDS060Dto:txtHknskOtheGyos1Snta","WCCDS060Dto:txtHknskOtheGyos2Snta","WCCDS060Dto:selSnsiKtdOtheSyokusCode3","WCCDS060Dto:radSyurPlnTrmUmFlg","WCCDS060Dto:selSyurPlnTrmYear","WCCDS060Dto:selSyurPlnTrmMonth","WCCDS060Dto:selKoyoStartYear","WCCDS060Dto:selKoyoStartMonth","WCCDS060Dto:selKoyoStartDay","WCCDS060Dto:selKoyoKktiTmngCode","WCCDS060Dto:txtKoyoOtheKktiTmngSnta","WCCBS010Dto:lblFreeInputC","WCCDS060Dto:radKirkUmFlg","empHisList[1].selCountryCode","","empHisList[1].txtKkanNameEng","","empHisList[2].selCountryCode","","empHisList[2].txtKkanNameEng","","empHisList[3].selCountryCode","","empHisList[3].txtKkanNameEng","","empHisList[4].selCountryCode","","empHisList[4].txtKkanNameEng","","empHisList[5].selCountryCode","","empHisList[5].txtKkanNameEng","","empHisList[6].selCountryCode","","empHisList[6].txtKkanNameEng","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","","kjyuPostNo","zrteCardUmFlg","empHisList[1].jobStartYmFshoCd","empHisList[1].jobStartYmFshoYear","empHisList[1].jobEndYmFshoCd","empHisList[1].jobEndYmFshoYear","empHisList[2].jobStartYmFshoCd","empHisList[2].jobStartYmFshoYear","empHisList[2].jobEndYmFshoCd","empHisList[2].jobEndYmFshoYear","empHisList[3].jobStartYmFshoCd","empHisList[3].jobStartYmFshoYear","empHisList[3].jobEndYmFshoCd","empHisList[3].jobEndYmFshoYear","empHisList[4].jobStartYmFshoCd","empHisList[4].jobStartYmFshoYear","empHisList[4].jobEndYmFshoCd","empHisList[4].jobEndYmFshoYear","empHisList[5].jobStartYmFshoCd","empHisList[5].jobStartYmFshoYear","empHisList[5].jobEndYmFshoCd","empHisList[5].jobEndYmFshoYear","empHisList[6].jobStartYmFshoCd","empHisList[6].jobStartYmFshoYear","empHisList[6].jobEndYmFshoCd","empHisList[6].jobEndYmFshoYear","dirnPostNo","toriPostNo","toriAdresCode","toriAdres","toriSzkn","toriTelNo","szknHujnNoUmFlg","szknSzaiPostNo","hknskHujnNoUmFlg","hknskSzaiPostNo","jskipUmFlg","kykkFstGtumCode","kykkSecGtumCode","kykkTrdGtumCode","WCCES010Dto:txtRkFstJniFlg","WCCES010Dto:txtRkSecJniFlg","WCCES010Dto:txtRkTrdJniFlg","tosiJyujGtumCode","addressCode","doji.reRasSnsiSybtCode","doji.skgiRasSnsiSybtCode","doji.syurRasSnsiSybtCode","doji.nationCode","doji.birthYmd","doji.nameEng","doji.sexCode","doji.kjyuPostNo","doji.kjyuAdresCode","doji.kjyuAdres","doji.tel1","doji.tel2","doji.passNo","doji.passYukoPriodYmd","doji.rasZirySkkCode","doji.rasZirySkkKknCode","doji.gnyuStayPriodYmd","doji.zrteCardUmFlg","doji.gnyuZrteCardNo","doji.edNoEng","doji.edNoNum","re.knchTokoPurpsMti","re.tokoPurpsCode","re.tokoPurpsSnta","re.ytiTokoMti","re.ytiTokoKkumi","re.skkYtiMti","re.skkYtiYmdY","re.skkYtiYmdM","re.skkYtiYmdD","re.skkYtiMntMti","re.skkYtiMnt","re.reYtiMtiFlg","re.reYtiYmdY","re.reYtiYmdM","re.reYtiYmdD","re.reYtiMntMti","re.reYtiMnt","re.reKbuReKykCode","re.reHnziSbnUmFlg","re.reHnziSbnDetailFr","re.reKktimeKijsibnUmFlg","re.reKktimeKijsibnDetail","re.rePassStkHkRyu","re.dirnName","re.dirnSnsiHnnnKnki","re.dirnPostNo","re.dirnAdresCode","re.dirnAdres","re.dirnTel1","re.dirnTel2","re.toriName","re.toriPostNo","re.toriAdresCode","re.toriAdres","re.toriSzkn","re.toriTelNo","skgi.gnziKtdDetail","skgi.sykmDetailMiteiUmFlg","skgi.rasSykmDetailCode","skgi.sykmDetailSnta","skgi.koyoKiykTrmYmMiteiUmFlg","skgi.koyoKiykTrmYmY","skgi.koyoKiykTrmYmM","skgi.skgiWeekJikanMiteiUmFlg","skgi.skgiWeekSumWorkJikanSu","skgi.monthHoshKngkMiteiUmFlg","skgi.monthHoshKngk","skgi.knmskNameMiteiUmFlg","skgi.knmskName","skgi.knmskSzaiMiteiUmFlg","skgi.knmskSzaiPostNo","skgi.knmskSzaiAdresCode","skgi.knmskSzaiAdres","skgi.knmskDnbgMiteiUmFlg","skgi.knmskDnbg","skgi.skgiKinmGsyuMiteiUmFlg","skgi.skgiKinmGsyuCode","skgi.skgiKinmGsyuCodeSnta","skgi.dirnName","skgi.dirnSnsiHnnnKnki","skgi.dirnPostNo","skgi.dirnAdresCode","skgi.dirnAdres","skgi.dirnTel1","skgi.dirnTel2","skgi.toriName","skgi.toriPostNo","skgi.toriAdresCode","skgi.toriAdres","skgi.toriSzkn","skgi.toriTelNo","syur.rasSrkdDetail","syur.syruKkStaYmd","syur.syurKyokPriodYmd","syur.upRsn","syur.dirnName","syur.dirnSnsiHnnnKnki","syur.dirnPostNo","syur.dirnAdresCode","syur.dirnAdres","syur.dirnTel1","syur.dirnTel2","syur.toriName","syur.toriPostNo","syur.toriAdresCode","syur.toriAdres","syur.toriSzkn","syur.toriTelNo",""];
+
+  var D=new Array(561).fill('');
+  D[0]='1';D[1]='05N';D[2]='05N2';
+  D[3]=p.nationalityCode||resolveNatCode(p.nationality||c.nationality)||'';
+  D[4]=c.applicant||p.applicantNameEn||'';
+  D[5]=p.gender==='男'||p.gender==='male'?'1':p.gender==='女'||p.gender==='female'?'2':'2';
+  D[6]=(p.birthdate||'').replace(/-/g,'');
+  D[7]=p.spouse==='有'?'1':'0';
+  D[8]=p.occupation||'会社員';
+  D[9]=p.homeCountryAddress||p.birthPlace||'';
+  D[10]=jpAddrCode; // 住居地住所コード
+  D[11]=jpDetailAddr; // 住居地詳細住所
+  D[12]=p.telNum||p.phone||'';
+  D[13]=p.celPhone||'';
+  D[14]=p.email||'';
+  D[15]=p.passport||'';
+  D[16]=(p.passportExpiry||'').replace(/-/g,'');
+  D[17]='0';D[19]='0';
+  D[63]='01'; // radZiryCardJryHuhu
+  D[65]=p.notificationEmail||p.email||''; // txtTucSusnMailAddress
+  D[67]='T26'; // selCurrentZirySkk（変更前=技人国）
+  D[68]=currentPeriodCode; // 現在の在留期間
+  D[69]=expireStr; // 在留期限
+  D[70]=p.residenceCard||''; // 在留カード番号
+  D[73]='T26'; // selNewZirySkk（変更後=技人国）
+  D[74]='0500000'; // selNewZiryPeriod（5年）
+  D[75]='技術・人文知識・国際業務で就労するため'; // 変更理由
+  D[82]=TORI_NAME; // txtTrtgshName 取次者氏名
+  D[83]='1'; // chkDui
+  D[84]=eduCode; // selEducation
+  D[85]=eduCountryCode; // 本邦(1)/外国(2)
+  D[86]=schoolName; // txtSchoolName
+  D[87]=gradDate; // selGraduationDate
+  D[88]=majorCode; // selMajorDigkinTnkDigk
+  D[142]=skName;D[143]=skHujnNo;D[144]=skName;
+  D[145]=coAddrCode;D[146]=skAddr;D[147]=skTel;
+  D[148]=skShnkn;D[149]='0';D[150]=skEmployee||'1';D[151]='0';
+  D[160]='0'; // radKiykKiti
+  D[162]='理由書および雇用契約書参照';
+  D[163]='0'; // radActDetail
+  D[165]='0'; // txtJtmKiknYears（変更は0）
+  D[169]='0'; // radWorkPosition
+  D[172]=co.industryCode||'O44';
+  D[175]='0';
+  D[179]=co.occupationCode||'K87';
+  D[214]='02';
+  D[216]=co.industryName||'その他';
+  D[224]='0'; // radSyurPlnTrmUmFlg
+  D[227]=koyoY;D[228]=koyoM;D[229]=koyoD;
+  D[230]='01'; // selKoyoKktiTmngCode
+  D[232]='職歴は履歴書を参照ください';
+  D[233]='0';
+  D[406]=jpPostalCode||'0000000'; // kjyuPostNo 住居地郵便番号
+  D[407]='1'; // zrteCardUmFlg
+  D[433]=TORI_POST;D[434]=TORI_ADRES_CODE;D[435]=TORI_ADRES;
+  D[436]=TORI_SZKN;D[437]=TORI_TEL;D[438]='1';D[439]='0000000';
+  D[451]='0';D[452]='0';D[453]='0';
+
+  var csvContent=HDR.join('\t')+'\r\n'+D.join('\t');
+  var buf=new ArrayBuffer(2+csvContent.length*2);
+  var view=new DataView(buf);
+  view.setUint8(0,0xFF);view.setUint8(1,0xFE);
+  for(var i=0;i<csvContent.length;i++) view.setUint16(2+i*2,csvContent.charCodeAt(i),true);
+  var blob=new Blob([buf],{type:'text/csv;charset=UTF-16LE'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');
+  a.href=url;a.download='SA_03_002_05N2_ver001.csv';a.click();
+  URL.revokeObjectURL(url);
+  showToast('✅ 技人国変更CSV出力完了');
+}
+
 function exportRenewalCsv_gijinko(){
   var caseId = document.getElementById('dg_case').value;
   if(!caseId){alert('案件を選択してください');return;}
@@ -25665,10 +25925,13 @@ function exportRenewalCsv_gijinko(){
   // 在留期限
   var expireStr = (c.expire||p.expire||'').replace(/-/g,'');
 
-  // 取次者
-  var toritsugisha = c.toritsugisha||p.toritsugisha||'';
+  // 取次者（大房行政書士法人）
+  var TORI_NAME='田中綾美';
+  var TORI_POST='1440052';var TORI_ADRES_CODE='144052';
+  var TORI_ADRES='東京都大田区蒲田５丁目１１−１０　ＦＵＮＤＥＳ蒲田８階';
+  var TORI_SZKN='大房行政書士法人';var TORI_TEL='0364248849';
 
-  // 会社住所コード（郵便番号→住所コード）
+  // 会社住所コード
   var coZip = (co.zip||'').replace(/-/g,'').replace(/^〒/,'');
   var coAddrCode = resolveAddrCode(co.address||'')||coZip;
 
@@ -25678,22 +25941,31 @@ function exportRenewalCsv_gijinko(){
   var koyoM = koyoStart.substring(4,6)||'';
   var koyoD = koyoStart.substring(6,8)||'';
 
-  // 最終学歴コード（selEducation: 1=小学/中学, 2=高校, 3=短大/専門, 4=大学, 5=大学院, 6=その他）
+  // 住居地（日本の住所）
+  var jpPostalCode=(p.jpPostalCode||'').replace(/-/g,'').replace(/^〒/,'');
+  var jpAddrCode=p.addressCode||resolveAddrCode(p.jpAddress||p.address||'')||jpPostalCode;
+  var jpDetailAddr=p.jpAddress||p.address||'';
+
+  // 学歴コード
   var eduMap = {'小学':1,'中学':1,'高校':2,'高等学校':2,'短大':3,'専門':3,'専修':3,'大学院':5,'大学':4,'その他':6};
   var eduCode = '';
   var edu = p.education||'';
   for(var ek in eduMap){ if(edu.indexOf(ek)>=0){ eduCode=String(eduMap[ek]); break; } }
   if(!eduCode) eduCode = '3';
+  // 本邦/外国（1=本邦,2=外国）
+  var eduCountryCode=(p.eduCountry==='本邦'||p.eduCountry==='1')?'1':'2';
 
-  // 専攻分野コード（selMajorDigkinTnkDigk）
-  // 101=工学/理工系, 102=理学, 103=農学, 104=医・歯・薬, 105=人文・社会, 106=芸術, 107=教育, 108=その他
-  var majorMap = {'工学':101,'理工':101,'情報':101,'機械':101,'電気':101,'電子':101,'コンピュータ':101,'理学':102,'農学':103,'医':104,'歯':104,'薬':104,'人文':105,'社会':105,'経済':105,'経営':105,'商':105,'法':105,'文':105,'芸術':106,'デザイン':106,'教育':107};
+  // 専門専攻分野コード（入管システムの選択値に対応）
+  // 大学系 + 専門学校系の両方を含む
+  var majorFullMap={'法学':101,'経済学':102,'政治学':103,'商学':104,'経営学':105,'文学':106,'語学':107,'社会学':108,'歴史学':109,'心理学':110,'教育学':111,'芸術学':112,'その他人文':113,'理学':201,'化学':202,'工学':203,'農学':204,'水産学':205,'薬学':206,'医学':207,'歯学':208,'その他自然科学':209,'体育学':301,'介護福祉':401,
+    '工業':501,'農業':502,'医療・衛生':503,'教育・社会福祉':504,'法律':505,'商業実務':506,'服飾・家政':507,'文化・教養':508,'その他':999};
   var majorCode = '';
-  var major = p.major||p.education||'';
-  for(var mk in majorMap){ if(major.indexOf(mk)>=0){ majorCode=String(majorMap[mk]); break; } }
-  if(!majorCode) majorCode = '108';
+  var major = p.major||p.majorDetail||'';
+  for(var mk in majorFullMap){ if(major.indexOf(mk)>=0){ majorCode=String(majorFullMap[mk]); break; } }
+  if(!majorCode) majorCode = '999';
 
-  // 卒業年月日
+  // 学校名・卒業年月日
+  var schoolName = p.schoolName||'';
   var gradDate = (p.completionDate||'').replace(/-/g,'');
 
   // 所属機関
@@ -25739,8 +26011,8 @@ function exportRenewalCsv_gijinko(){
   D[7] = p.spouse==='有'?'1':'0';
   D[8] = p.occupation||'会社員';
   D[9] = p.homeCountryAddress||p.birthPlace||'';
-  D[10] = resolveAddrCode(p.address||'')||p.jpPostalCode||'';
-  D[11] = p.jpDetailAddress||p.address||'';
+  D[10] = jpAddrCode; // 住居地住所コード
+  D[11] = jpDetailAddr; // 住居地詳細住所
   D[12] = p.telNum||p.phone||co.tel||'';
   D[13] = p.celPhone||'';
   D[14] = p.email||'';
@@ -25759,15 +26031,16 @@ function exportRenewalCsv_gijinko(){
   D[72] = 'T260500000'; // 新在留期間（技人国5年固定）
   D[73] = '引き続き技術・人文知識・国際業務で就労するため';
 
-  // 取次者
-  D[80] = toritsugisha||c.staff||'';
+  // 取次者氏名
+  D[80] = TORI_NAME;
   D[81] = '1'; // 代理人なし
 
   // 学歴
-  D[82] = eduCode;
-  D[84] = p.schoolName||'';
-  D[85] = gradDate;
-  D[86] = majorCode;
+  D[82] = eduCode; // selEducation
+  D[83] = eduCountryCode; // 本邦(1)/外国(2)
+  D[84] = schoolName; // 学校名
+  D[85] = gradDate; // 卒業年月日
+  D[86] = majorCode; // 専門分野
 
   // 所属機関（雇用先）[140-149]
   D[140] = skName;
@@ -25804,13 +26077,13 @@ function exportRenewalCsv_gijinko(){
   D[231] = '0'; // 機構なし
 
   // 取次者情報 [431-437]
-  D[404] = '0000000'; // 居住郵便番号
+  D[404] = jpPostalCode||'0000000'; // 住居地郵便番号
   D[405] = '1'; // 在留カードあり
-  D[431] = toriPostNo;
-  D[432] = toriAdresCode;
-  D[433] = toriAdres;
-  D[434] = toriSzkn;
-  D[435] = toriTelNo;
+  D[431] = TORI_POST;
+  D[432] = TORI_ADRES_CODE;
+  D[433] = TORI_ADRES;
+  D[434] = TORI_SZKN;
+  D[435] = TORI_TEL;
   D[436] = '1'; // 法人番号あり
   D[437] = '0000000';
 
@@ -25832,7 +26105,7 @@ function exportRenewalCsv_gijinko(){
   var blob = new Blob([buf], {type:'text/csv;charset=UTF-16LE'});
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
-  var fname = 'SA_03_002_05N2_ver001.csv';
+  var fname = 'SA_03_002_04N2_ver001.csv';
   a.href=url; a.download=fname; a.click();
   URL.revokeObjectURL(url);
   showToast('✅ 技人国更新CSV出力: '+fname);
