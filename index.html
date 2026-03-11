@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260311_0645 -->
+<!-- OFUSA_VERSION 20260311_0649 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -9453,6 +9453,7 @@ function renderSupportDetail(o) {
   h+='</div>';
   h+='<div style="display:flex;gap:6px;">';
   h+='<label ondragover="event.preventDefault();this.style.background=\'#dbeafe\';this.style.borderColor=\'var(--blue)\'" ondragleave="this.style.background=\'#f0fdf4\';this.style.borderColor=\'var(--green)\'" style="font-size:12px;padding:5px 12px;background:#f0fdf4;color:var(--green);border:1.5px dashed var(--green);border-radius:8px;cursor:pointer;font-weight:700;display:inline-flex;align-items:center;gap:3px;transition:.15s;">📥 Excel<input type="file" accept=".xlsx,.xls" data-action="excel-import" data-id="'+o.id+'" style="display:none;"></label>';
+  h+='<label style="font-size:12px;padding:5px 12px;background:#fef3c7;color:#92400e;border:1.5px solid #fbbf24;border-radius:8px;cursor:pointer;font-weight:700;display:inline-flex;align-items:center;gap:3px;">📎 OCR取込<input type="file" accept=".pdf,.jpg,.jpeg,.png" onchange="supportOcrImportDetail(\''+o.id+'\',this)" style="display:none;"></label>';
   h+='<button onclick="deleteSupport(\''+o.id+'\') " style="font-size:12px;padding:6px 10px;background:white;color:var(--red);border:1px solid var(--red);border-radius:8px;cursor:pointer;font-weight:700;">削除</button>';
   h+='</div></div>';
   // --- インライン編集セクション ---
@@ -10021,6 +10022,115 @@ function saveSupportFolderNo(id,val){
 }
 
 // === 登録支援機関フィールド即時保存 ===
+
+// 登録支援機関 詳細画面用OCR取込
+function supportOcrImportDetail(orgId, input) {
+  var file = input.files && input.files[0];
+  if (!file) return;
+  input.value = '';
+
+  var apiKey = getApiKey ? getApiKey() : (localStorage.getItem('ofusa_apiKey') || '');
+  if (!apiKey) { showToast('❌ APIキーが設定されていません（管理者設定→APIキー）', 'error'); return; }
+
+  var o = supportOrgs.find(function(x) { return x.id === orgId; });
+  if (!o) { showToast('❌ 機関データが見つかりません', 'error'); return; }
+
+  showToast('📎 OCR読み取り中...', 'info');
+
+  var isPdf = file.name.toLowerCase().endsWith('.pdf') || (file.type === 'application/pdf');
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var base64 = e.target.result.split(',')[1];
+    var mimeType = isPdf ? 'application/pdf' : (file.type || 'image/jpeg');
+
+    var promptText = [
+      '以下の画像は登録支援機関の登録証・届出証明書・パンフレット等です。',
+      '読み取れる情報をすべて以下のJSONフォーマットで返してください。',
+      '値が読み取れない場合はそのキーを省略してください。JSONのみ返し、説明文は不要です。',
+      '',
+      '{',
+      '  "name": "登録支援機関名（法人名）",',
+      '  "nameEn": "英語名",',
+      '  "corpNo": "法人番号（数字13桁）",',
+      '  "regNo": "登録番号（例：１９登－000001）",',
+      '  "regDate": "登録年月日（YYYYMMDD形式）",',
+      '  "zip": "郵便番号",',
+      '  "pref": "都道府県",',
+      '  "city": "市区町村",',
+      '  "addressDetail": "町名丁目番地号等",',
+      '  "address": "住所（都道府県から全部）",',
+      '  "tel": "電話番号",',
+      '  "repName": "代表者氏名",',
+      '  "empInsNo": "雇用保険適用事業所番号",',
+      '  "languages": "対応可能言語",',
+      '  "jobPermitNo": "職業紹介事業者許可番号",',
+      '  "jobPermitDate": "職業紹介事業受理年月日（YYYYMMDD形式）",',
+      '  "jjName": "職業紹介事業者名称",',
+      '  "jjCorpNo": "職業紹介事業者法人番号",',
+      '  "jjZip": "職業紹介事業者郵便番号",',
+      '  "jjPref": "職業紹介事業者都道府県",',
+      '  "jjCity": "職業紹介事業者市区町村",',
+      '  "jjAddressDetail": "職業紹介事業者町名丁目番地号等",',
+      '  "jjTel": "職業紹介事業者電話番号",',
+      '  "jjPermitNo": "職業紹介事業者許可届出番号",',
+      '  "jjPermitDate": "職業紹介事業者受理年月日（YYYYMMDD形式）"',
+      '}'
+    ].join('\n');
+
+    var msgContent = isPdf
+      ? [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } }, { type: 'text', text: promptText }]
+      : [{ type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } }, { type: 'text', text: promptText }];
+
+    fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1500, messages: [{ role: 'user', content: msgContent }] })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var text = (data.content && data.content[0] && data.content[0].text) || '';
+      var match = text.match(/\{[\s\S]*\}/);
+      if (!match) { showToast('❌ OCR結果を解析できませんでした', 'error'); return; }
+      var parsed;
+      try { parsed = JSON.parse(match[0]); } catch(e) { showToast('❌ JSON解析エラー', 'error'); return; }
+
+      // supportOrgsに反映 + 画面上の入力フィールドも更新
+      var filled = 0;
+      Object.keys(parsed).forEach(function(key) {
+        if (!parsed[key]) return;
+        // データ更新
+        o[key] = parsed[key];
+        filled++;
+        // 画面上のinputを探して値とハイライトを反映
+        var els = document.querySelectorAll('[data-org="' + orgId + '"][data-fk="' + key + '"]');
+        els.forEach(function(el) {
+          el.value = parsed[key];
+          el.style.background = '#fefce8';
+          el.style.borderColor = '#f59e0b';
+        });
+      });
+
+      if (filled > 0) {
+        persistSupportOrgs();
+        renderSupportList(); renderSupportTree();
+        showToast('✅ ' + filled + '項目を読み取りました。内容を確認してください。');
+      } else {
+        showToast('⚠️ 読み取れる情報がありませんでした', 'error');
+      }
+    })
+    .catch(function(err) {
+      console.error('OCR error:', err);
+      showToast('❌ OCRエラー: ' + err.message, 'error');
+    });
+  };
+  reader.readAsDataURL(file);
+}
+
 function updateSupportField(el){
   var orgId=el.getAttribute('data-org'),fk=el.getAttribute('data-fk');
   var o=supportOrgs.find(function(x){return x.id===orgId;});
