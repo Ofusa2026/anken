@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260304_1535 -->
+<!-- OFUSA_VERSION 20260311_0432 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -1990,9 +1990,7 @@ function dbRowToCase(r) {
 // ===== localStorage → Supabase 変換ヘルパー =====
 
 // 案件データ: cData をDBに保存
-var _dbExcludedCols = {}; // 存在しないカラムをキャッシュ（cases用）
-var _dbExcludedColsCo = {}; // 存在しないカラムをキャッシュ（companies用）
-var _dbExcludedColsPerson = {}; // 存在しないカラムをキャッシュ（persons用）
+var _dbExcludedCols = {}; // 存在しないカラムをキャッシュ
 function persistCasesToDB(casesArray, callback) {
   if (!DB_READY || !casesArray || !casesArray.length) return;
   // 日付フィールドのサニタイズ: 空・1900年代・不正値はnullに変換
@@ -2233,6 +2231,18 @@ function persistCompaniesToDB(companiesArray) {
       net_assets_y1: c.netAssetsY1 || null,
       net_assets_y2: c.netAssetsY2 || null,
       net_assets_y3: c.netAssetsY3 || null,
+      sales_y1: c.salesY1 || null,
+      sales_y2: c.salesY2 || null,
+      sales_y3: c.salesY3 || null,
+      ordinary_pl_y1: c.ordinaryPLY1 || null,
+      ordinary_pl_y2: c.ordinaryPLY2 || null,
+      ordinary_pl_y3: c.ordinaryPLY3 || null,
+      net_pl_y1: c.netPLY1 || null,
+      net_pl_y2: c.netPLY2 || null,
+      net_pl_y3: c.netPLY3 || null,
+      net_assets_y1: c.netAssetsY1 || null,
+      net_assets_y2: c.netAssetsY2 || null,
+      net_assets_y3: c.netAssetsY3 || null,
       jp_comp_job_desc: c.jpCompJobDesc || null,
       jp_comp_age: c.jpCompAge || null,
       jp_comp_gender: c.jpCompGender || null,
@@ -2243,37 +2253,36 @@ function persistCompaniesToDB(companiesArray) {
       extra: c.extra || {}
     };
   });
-  // 既知の除外カラムを事前に除外（extraが存在しないテーブルのために初期除外に含める場合も対応）
+  // 既知の除外カラムを事前に除外
   rows = rows.map(function(r) {
     var nr = {};
-    Object.keys(r).forEach(function(k){ if(!_dbExcludedColsCo[k]) nr[k]=r[k]; });
+    Object.keys(r).forEach(function(k){ if(!_dbExcludedCols[k]) nr[k]=r[k]; });
     return nr;
   });
+  if (!rows.length) return;
   // PGRST204エラー（カラム不存在）の場合、該当カラムをキャッシュして再試行
-  function tryUpsertCo(rowsToTry, attempt) {
+  function tryUpsertCompanies(rowsToTry, attempt) {
     _sb.from('companies').upsert(rowsToTry, {onConflict: 'id'}).then(function(res) {
       if (res.error) {
-        var msg = res.error.message || res.error.details || JSON.stringify(res.error);
-        console.error('persistCompaniesToDB error (attempt ' + attempt + '):', msg);
-        var m = msg.match(/find the '([^']+)' column/) || msg.match(/column[^"]*"([^"]+)"[^d]*does not exist/);
+        var msg = res.error.message || '';
+        var m = msg.match(/find the '([^']+)' column/);
         if (m && attempt < 10) {
           var badCol = m[1];
-          _dbExcludedColsCo[badCol] = true;
+          _dbExcludedCols[badCol] = true;
           console.warn('⚠️ companies列が存在しません: ' + badCol + ' → 除外して再試行');
           var fixed = rowsToTry.map(function(r) {
             var nr = {}; Object.keys(r).forEach(function(k){ if(k!==badCol) nr[k]=r[k]; }); return nr;
           });
-          tryUpsertCo(fixed, attempt + 1);
+          tryUpsertCompanies(fixed, attempt + 1);
         } else {
-          console.error('persistCompaniesToDB 最終エラー:', res.error);
-          showToast('⚠️ 所属機関DB保存エラー: ' + (res.error.message||res.error.details||JSON.stringify(res.error)).substring(0,80), 'error');
+          console.error('persistCompaniesToDB error:', res.error);
         }
       } else {
         console.log('📦 companies synced to DB:', rowsToTry.length);
       }
     });
   }
-  tryUpsertCo(rows, 0);
+  tryUpsertCompanies(rows, 0);
 }
 
 // 人材データ: personData をDBに保存
@@ -2313,11 +2322,17 @@ function persistPersonToDB(caseId, p) {
     hireDate:'hire_date', salary:'salary',
     pastEntryFrom:'past_entry_from', pastEntryTo:'past_entry_to',
     pastCOE:'past_coe', pastCOECount:'past_coe_count', pastCOEDenied:'past_coe_denied',
-    deportationDate:'deportation_date'
+    deportationDate:'deportation_date',
+    stayPeriod:'stay_period', stayPeriodOther:'stay_period_other'
   };
   Object.keys(mapping).forEach(function(jsKey) {
     var dbKey = mapping[jsKey];
-    if (p[jsKey] != null && p[jsKey] !== '') row[dbKey] = String(p[jsKey]);
+    if (p[jsKey] != null && p[jsKey] !== '') {
+      row[dbKey] = String(p[jsKey]);
+    } else if (jsKey in p) {
+      // 明示的に空にされた場合はNULLで上書き（空文字を無視すると古い値が残る）
+      row[dbKey] = null;
+    }
   });
   // 未マッピングのフィールドはextraに格納
   var extraFields = {};
@@ -2326,28 +2341,9 @@ function persistPersonToDB(caseId, p) {
   });
   if (Object.keys(extraFields).length) row.extra = extraFields;
 
-  // 既知の除外カラムを事前に除外
-  var rowFiltered = {};
-  Object.keys(row).forEach(function(k){ if(!_dbExcludedColsPerson[k]) rowFiltered[k]=row[k]; });
-
-  function tryUpsertPerson(rowToTry, attempt) {
-    _sb.from('persons').upsert(rowToTry, {onConflict: 'case_id'}).then(function(res) {
-      if (res.error) {
-        var msg = res.error.message || '';
-        var m = msg.match(/find the '([^']+)' column/);
-        if (m && attempt < 10) {
-          var badCol = m[1];
-          _dbExcludedColsPerson[badCol] = true;
-          console.warn('⚠️ persons列が存在しません: ' + badCol + ' → 除外して再試行');
-          var fixed = {}; Object.keys(rowToTry).forEach(function(k){ if(k!==badCol) fixed[k]=rowToTry[k]; });
-          tryUpsertPerson(fixed, attempt + 1);
-        } else {
-          console.error('persistPersonToDB error:', res.error);
-        }
-      }
-    });
-  }
-  tryUpsertPerson(rowFiltered, 0);
+  _sb.from('persons').upsert(row, {onConflict: 'case_id'}).then(function(res) {
+    if (res.error) console.error('persistPersonToDB error:', res.error);
+  });
 }
 
 // ===== 初回データ同期（localStorage → Supabase）=====
@@ -10662,7 +10658,7 @@ function renderCompanyForm(co){
     fields.forEach(function(f){
       var wideKeys=['addressEn','address','driveUrl']; var fullKeys=['memo'];
       var span=fullKeys.indexOf(f.key)!==-1?3:wideKeys.indexOf(f.key)!==-1?2:1;
-      var val=String(co[f.key]!=null?co[f.key]:'').replace(/"/g,'&quot;');
+      var val=(co[f.key]||'').replace(/"/g,'&quot;');
       h+='<div style="grid-column:span '+span+';">';
       h+='<label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">'+f.label+'</label>';
       if(f.type==='support'){
@@ -10687,15 +10683,6 @@ function renderCompanyForm(co){
         h+='</select>';
       } else if(f.type==='readonly'){
         h+='<input type="text" id="cf_'+f.key+'" value="'+val+'" readonly style="'+inputStyle+'background:#f8fafc;color:var(--gray-400);">';
-      } else if(f.type==='select'){
-        h+='<select id="cf_'+f.key+'" style="'+inputStyle+'background:white;"><option value="">選択してください</option>';
-        (f.opts||[]).forEach(function(opt){h+='<option value="'+opt+'"'+(co[f.key]===opt?' selected':'')+'>'+opt+'</option>';});
-        h+='</select>';
-      } else if(f.type==='immSelect'){
-        var immList=(typeof IMM_CODES!=='undefined'&&f.immKey&&IMM_CODES[f.immKey])?IMM_CODES[f.immKey]:[];
-        h+='<select id="cf_'+f.key+'" style="'+inputStyle+'background:white;font-size:12px;"><option value="">選択してください</option>';
-        immList.forEach(function(item){var optVal=item.c;var optLabel=item.l.length>40?item.l.substring(0,40)+'…':item.l;h+='<option value="'+optVal+'"'+(optVal===co[f.key]?' selected':'')+'>'+optVal+' - '+optLabel+'</option>';});
-        h+='</select>';
       } else if(f.key==='memo'){
         h+='<textarea id="cf_'+f.key+'" placeholder="'+(f.placeholder||'')+'" rows="3" style="'+inputStyle+'resize:vertical;">'+(co[f.key]||'')+'</textarea>';
       } else {
@@ -25942,6 +25929,10 @@ function loadAllFromSupabase() {
           jjTel:r.jj_tel||'', jjPermitNo:r.jj_permit_no||'', jjPermitDate:r.jj_permit_date||'',
           jpVoluntaryQuit:r.jp_voluntary_quit||'', jpInvoluntaryQuit:r.jp_involuntary_quit||'',
           fnVoluntaryQuit:r.fn_voluntary_quit||'', fnInvoluntaryQuit:r.fn_involuntary_quit||'',
+          salesY1:r.sales_y1||'', salesY2:r.sales_y2||'', salesY3:r.sales_y3||'',
+          ordinaryPLY1:r.ordinary_pl_y1||'', ordinaryPLY2:r.ordinary_pl_y2||'', ordinaryPLY3:r.ordinary_pl_y3||'',
+          netPLY1:r.net_pl_y1||'', netPLY2:r.net_pl_y2||'', netPLY3:r.net_pl_y3||'',
+          netAssetsY1:r.net_assets_y1||'', netAssetsY2:r.net_assets_y2||'', netAssetsY3:r.net_assets_y3||'',
           salesY1:r.sales_y1||'', salesY2:r.sales_y2||'', salesY3:r.sales_y3||'',
           ordinaryPLY1:r.ordinary_pl_y1||'', ordinaryPLY2:r.ordinary_pl_y2||'', ordinaryPLY3:r.ordinary_pl_y3||'',
           netPLY1:r.net_pl_y1||'', netPLY2:r.net_pl_y2||'', netPLY3:r.net_pl_y3||'',
