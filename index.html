@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260311_0855 -->
+<!-- OFUSA_VERSION 20260311_0920 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -15318,8 +15318,11 @@ function buildCaseRow(c, today, inGroup) {
   var priBadgeBg = priVal ? (priColors[priVal]||'#6b7280') : '#e5e7eb';
   var priBadgeCol = priVal ? 'white' : '#9ca3af';
   var priBadgeShow = priVal ? 'inline-flex' : 'none';
+  // 担当者の案件数を取得して選択肢を絞る
+  var staffCaseCount = cData.filter(function(x){ return x.staff === c.staff && x.status !== '完了' && x.status !== '審査完了'; }).length;
+  var priMax = Math.min(Math.max(staffCaseCount + 1, priVal || 1, 5), 20);
   var priOpts = '<option value="">—</option>';
-  for(var pi=1;pi<=20;pi++){ priOpts += '<option value="'+pi+'"'+(priVal==pi?' selected':'')+'>'+(pi<=3?['🥇','🥈','🥉'][pi-1]+' ':'')+pi+'位</option>'; }
+  for(var pi=1;pi<=priMax;pi++){ priOpts += '<option value="'+pi+'"'+(priVal==pi?' selected':'')+'>'+(pi<=3?['🥇','🥈','🥉'][pi-1]+' ':'')+pi+'位</option>'; }
 
   var h = '<tr onclick="openCase(\'' + c.id + '\')" style="' + rowStyle + '">';
   h += '<td onclick="event.stopPropagation()" style="text-align:center;'+cs+'padding:4px 2px;">'
@@ -15628,10 +15631,12 @@ function changeCaseStatus(caseId, newStatus){
     _sb.from('cases').update({status:newStatus}).eq('id',caseId).then(function(r){
       if(r&&r.error){
         console.error('status update err:', r.error.message);
+        showToast('❌ ステータス保存失敗: ' + r.error.message, 'error');
         // フォールバック: 全フィールドupsert
         persistCasesToDB([c]);
       } else {
         console.log('✅ status saved:', caseId, newStatus);
+        showToast('✅ ' + newStatus + ' で保存しました');
       }
     });
   }
@@ -26533,13 +26538,7 @@ function loadAllFromSupabase() {
     if (rows.length) {
       cData = rows.map(function(r) { return dbRowToCase(r); });
       console.log('📥 cases loaded:', cData.length);
-      // 書類作成中→未着手に一括正規化してDBに書き戻す
-      var needFix = cData.filter(function(c){ return c.status==='書類作成中'; });
-      if (needFix.length) {
-        needFix.forEach(function(c){ c.status='未着手'; });
-        persistCasesToDB(needFix);
-        console.log('🔧 書類作成中→未着手に正規化:', needFix.length, '件');
-      }
+
     }
     done();
     // doc_tasksはpendingに含めず非同期でバックグラウンドロード
@@ -26989,7 +26988,7 @@ function handleRealtimeChange(table, payload) {
       if (idx >= 0) {
         // 自分が直近（3秒以内）に変更したcaseはステータス・重要フィールドを保護
         var localCase = cData[idx];
-        var recentlyChanged = _recentlyChangedCases && _recentlyChangedCases[updated.id] && (Date.now() - _recentlyChangedCases[updated.id] < 3000);
+        var recentlyChanged = _recentlyChangedCases && _recentlyChangedCases[updated.id] && (Date.now() - _recentlyChangedCases[updated.id] < 10000);
         if (recentlyChanged) {
           updated.status = localCase.status;
           updated.expire = localCase.expire;
