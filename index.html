@@ -1990,7 +1990,8 @@ function dbRowToCase(r) {
 // ===== localStorage → Supabase 変換ヘルパー =====
 
 // 案件データ: cData をDBに保存
-var _dbExcludedCols = {}; // 存在しないカラムをキャッシュ
+var _dbExcludedCols = {}; // 存在しないカラムをキャッシュ（cases用）
+var _dbExcludedColsCo = {}; // 存在しないカラムをキャッシュ（companies用）
 function persistCasesToDB(casesArray, callback) {
   if (!DB_READY || !casesArray || !casesArray.length) return;
   // 日付フィールドのサニタイズ: 空・1900年代・不正値はnullに変換
@@ -2253,10 +2254,35 @@ function persistCompaniesToDB(companiesArray) {
       extra: c.extra || {}
     };
   });
-  _sb.from('companies').upsert(rows, {onConflict: 'id'}).then(function(res) {
-    if (res.error) console.error('persistCompaniesToDB error:', res.error);
-    else console.log('📦 companies synced to DB:', rows.length);
+  // 既知の除外カラムを事前に除外
+  rows = rows.map(function(r) {
+    var nr = {};
+    Object.keys(r).forEach(function(k){ if(!_dbExcludedColsCo[k]) nr[k]=r[k]; });
+    return nr;
   });
+  // PGRST204エラー（カラム不存在）の場合、該当カラムをキャッシュして再試行
+  function tryUpsertCo(rowsToTry, attempt) {
+    _sb.from('companies').upsert(rowsToTry, {onConflict: 'id'}).then(function(res) {
+      if (res.error) {
+        var msg = res.error.message || '';
+        var m = msg.match(/find the '([^']+)' column/);
+        if (m && attempt < 10) {
+          var badCol = m[1];
+          _dbExcludedColsCo[badCol] = true;
+          console.warn('⚠️ companies列が存在しません: ' + badCol + ' → 除外して再試行');
+          var fixed = rowsToTry.map(function(r) {
+            var nr = {}; Object.keys(r).forEach(function(k){ if(k!==badCol) nr[k]=r[k]; }); return nr;
+          });
+          tryUpsertCo(fixed, attempt + 1);
+        } else {
+          console.error('persistCompaniesToDB error:', res.error);
+        }
+      } else {
+        console.log('📦 companies synced to DB:', rowsToTry.length);
+      }
+    });
+  }
+  tryUpsertCo(rows, 0);
 }
 
 // 人材データ: personData をDBに保存
@@ -10627,7 +10653,7 @@ function renderCompanyForm(co){
     fields.forEach(function(f){
       var wideKeys=['addressEn','address','driveUrl']; var fullKeys=['memo'];
       var span=fullKeys.indexOf(f.key)!==-1?3:wideKeys.indexOf(f.key)!==-1?2:1;
-      var val=(co[f.key]||'').replace(/"/g,'&quot;');
+      var val=String(co[f.key]!=null?co[f.key]:'').replace(/"/g,'&quot;');
       h+='<div style="grid-column:span '+span+';">';
       h+='<label style="font-size:11px;font-weight:700;color:#64748b;display:block;margin-bottom:4px;">'+f.label+'</label>';
       if(f.type==='support'){
@@ -10652,6 +10678,15 @@ function renderCompanyForm(co){
         h+='</select>';
       } else if(f.type==='readonly'){
         h+='<input type="text" id="cf_'+f.key+'" value="'+val+'" readonly style="'+inputStyle+'background:#f8fafc;color:var(--gray-400);">';
+      } else if(f.type==='select'){
+        h+='<select id="cf_'+f.key+'" style="'+inputStyle+'background:white;"><option value="">選択してください</option>';
+        (f.opts||[]).forEach(function(opt){h+='<option value="'+opt+'"'+(co[f.key]===opt?' selected':'')+'>'+opt+'</option>';});
+        h+='</select>';
+      } else if(f.type==='immSelect'){
+        var immList=(typeof IMM_CODES!=='undefined'&&f.immKey&&IMM_CODES[f.immKey])?IMM_CODES[f.immKey]:[];
+        h+='<select id="cf_'+f.key+'" style="'+inputStyle+'background:white;font-size:12px;"><option value="">選択してください</option>';
+        immList.forEach(function(item){var optVal=item.c;var optLabel=item.l.length>40?item.l.substring(0,40)+'…':item.l;h+='<option value="'+optVal+'"'+(optVal===co[f.key]?' selected':'')+'>'+optVal+' - '+optLabel+'</option>';});
+        h+='</select>';
       } else if(f.key==='memo'){
         h+='<textarea id="cf_'+f.key+'" placeholder="'+(f.placeholder||'')+'" rows="3" style="'+inputStyle+'resize:vertical;">'+(co[f.key]||'')+'</textarea>';
       } else {
