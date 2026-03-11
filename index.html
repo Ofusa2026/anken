@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260311_0727 -->
+<!-- OFUSA_VERSION 20260311_0738 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -2825,13 +2825,17 @@ function syncUsersFromTeamData(){
   if(teamNames.length === 0) return;
   var newUsers = [];
   teamNames.forEach(function(tm){
-    var nn = tm.name.replace(/\s+/g,'').replace(/　/g,'');
-    var existing = USERS.find(function(u){ return u.name === tm.name || u.name.replace(/\s+/g,'').replace(/　/g,'') === nn; });
+    var nn = tm.name.replace(/[\s　]/g,'').toLowerCase();
+    var existing = USERS.find(function(u){ return u.name === tm.name; }) ||
+                   USERS.find(function(u){ return u.name.replace(/[\s　]/g,'').toLowerCase() === nn; });
+    // DBロード直後(_dbUsersLoaded=true)はDBのパスワード・管理者権限を絶対優先
+    var pw = (window._dbUsersLoaded && existing) ? existing.password : (existing ? existing.password : '0000');
+    var adm = (window._dbUsersLoaded && existing) ? existing.isAdmin : (existing ? existing.isAdmin : tm.isAdmin);
     newUsers.push({
       name: tm.name,
-      password: existing ? existing.password : '0000',
+      password: pw,
       team: tm.team,
-      isAdmin: tm.isAdmin
+      isAdmin: adm
     });
   });
   USERS = newUsers;
@@ -7729,8 +7733,16 @@ function adminUpdateUser(i,field,val){
     var u=USERS[i];
     var row={id:u.name,name:u.name,team:u.team||'',is_admin:!!u.isAdmin,password:u.password||'0000'};
     _sb.from('users').upsert(row,{onConflict:'id'}).then(function(r){
-      if(r.error) showToast('❌ 保存失敗','error');
+      if(r&&r.error){
+        console.error('❌ adminUpdateUser error:', JSON.stringify(r.error));
+        showToast('❌ 保存失敗: '+r.error.message,'error');
+      } else {
+        console.log('✅ user saved:', u.name, field, '=', val);
+        showToast('✅ 保存しました');
+      }
     });
+  } else {
+    showToast('⚠️ Supabase未接続 - ローカルのみ保存','warning');
   }
 }
 function resetAllPasswords(){
@@ -10314,6 +10326,16 @@ function applyOcrResult(orgId) {
     }
     applied++;
   });
+  // 住所結合を再計算
+  o.address = (o.pref||'')+(o.city||'')+(o.addressDetail||'');
+  var _addrEl = document.querySelector('[data-org="' + orgId + '"][data-fk="address"]');
+  if (_addrEl) { _addrEl.value = o.address; _addrEl.style.background = '#fefce8'; }
+  if (o.offices && o.offices[0]) {
+    var _ofc = o.offices[0];
+    _ofc.officeAddress = (_ofc.officePref||'')+(_ofc.officeCity||'')+(_ofc.officeAddressDetail||'');
+    var _oAddrEl = document.querySelector('[data-org="' + orgId + '"][data-oi="0"][data-fk="officeAddress"]');
+    if (_oAddrEl) { _oAddrEl.value = _ofc.officeAddress; _oAddrEl.style.background = '#fefce8'; }
+  }
 
   // 支援担当者リスト追記
   staffItems.forEach(function(s, i) {
@@ -10351,6 +10373,12 @@ function updateSupportField(el){
   var o=supportOrgs.find(function(x){return x.id===orgId;});
   if(!o)return;
   o[fk]=el.value.trim();
+  // 住所（結合）自動生成
+  if(fk==='pref'||fk==='city'||fk==='addressDetail'){
+    o.address=(o.pref||'')+(o.city||'')+(o.addressDetail||'');
+    var addrEl=document.querySelector('[data-org="'+orgId+'"][data-fk="address"]');
+    if(addrEl){addrEl.value=o.address;}
+  }
   persistSupportOrgs();
   // 名称変更時はリスト更新
   if(fk==='name'||fk==='displayName'||fk==='ofusaStaff'||fk==='folderNo'){
@@ -10404,6 +10432,13 @@ function updateOfficeField(el){
   var o=supportOrgs.find(function(x){return x.id===orgId;});
   if(!o||!o.offices||!o.offices[oi])return;
   o.offices[oi][fk]=el.value.trim();
+  // 事業所住所（結合）自動生成
+  if(fk==='officePref'||fk==='officeCity'||fk==='officeAddressDetail'){
+    var ofc=o.offices[oi];
+    ofc.officeAddress=(ofc.officePref||'')+(ofc.officeCity||'')+(ofc.officeAddressDetail||'');
+    var addrEl=document.querySelector('[data-org="'+orgId+'"][data-oi="'+oi+'"][data-fk="officeAddress"]');
+    if(addrEl){addrEl.value=ofc.officeAddress;}
+  }
   persistSupportOrgs();
   // 事業所名変更時はヘッダも更新
   if(fk==='officeName'){
@@ -26338,7 +26373,10 @@ function loadAllFromSupabase() {
       USERS.length = 0;
       dbUsers.forEach(function(u){ USERS.push(u); });
       try { localStorage.setItem('ofusa_users', JSON.stringify(USERS)); } catch(e){}
+      // DBロード直後はsyncUsersFromTeamDataがパスワードを上書きしないようフラグ保護
+      window._dbUsersLoaded = true;
       rebuildLoginSelect();
+      window._dbUsersLoaded = false;
       console.log('📥 users loaded from Supabase:', USERS.length);
     }
     done();
