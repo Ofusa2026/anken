@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260311_0654 -->
+<!-- OFUSA_VERSION 20260311_0703 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -10075,7 +10075,16 @@ function supportOcrImportDetail(orgId, input) {
       '  "jjAddressDetail": "職業紹介事業者町名丁目番地号等",',
       '  "jjTel": "職業紹介事業者電話番号",',
       '  "jjPermitNo": "職業紹介事業者許可届出番号",',
-      '  "jjPermitDate": "職業紹介事業者受理年月日（YYYYMMDD形式）"',
+      '  "jjPermitDate": "職業紹介事業者受理年月日（YYYYMMDD形式）",',
+      '  "supportManager": "支援責任者 氏名",',
+      '  "supportManagerKana": "支援責任者 ふりがな",',
+      '  "supportManagerTitle": "支援責任者 役職",',
+      '  "supporterCount": "支援者数（数字）",',
+      '  "supportStaffCount": "支援担当者数（数字）",',
+      '  "supportStaffList": [',
+      '    { "name": "支援担当者①氏名", "nameKana": "ふりがな", "title": "役職" },',
+      '    { "name": "支援担当者②氏名", "nameKana": "ふりがな", "title": "役職" }',
+      '  ]',
       '}'
     ].join('\n');
 
@@ -10091,7 +10100,7 @@ function supportOcrImportDetail(orgId, input) {
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true'
       },
-      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1500, messages: [{ role: 'user', content: msgContent }] })
+      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 2000, messages: [{ role: 'user', content: msgContent }] })
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
@@ -10101,29 +10110,44 @@ function supportOcrImportDetail(orgId, input) {
       var parsed;
       try { parsed = JSON.parse(match[0]); } catch(e) { showToast('❌ JSON解析エラー', 'error'); return; }
 
-      // supportOrgsに反映 + 画面上の入力フィールドも更新
-      var filled = 0;
+      // OCR結果の確認モーダルを表示（即時保存しない）
+      var labelMap = {
+        name:'登録支援機関名', nameEn:'英語名', corpNo:'法人番号',
+        regNo:'登録番号', regDate:'登録年月日',
+        zip:'郵便番号', pref:'都道府県', city:'市区町村',
+        addressDetail:'町名丁目番地号等', address:'住所（結合）',
+        tel:'電話番号', repName:'代表者氏名', empInsNo:'雇保番号',
+        languages:'対応可能言語',
+        jobPermitNo:'職業紹介許可番号（機関）', jobPermitDate:'職業紹介受理年月日（機関）',
+        jjName:'職業紹介事業者名', jjCorpNo:'職業紹介事業者法人番号',
+        jjZip:'職業紹介事業者郵便番号', jjPref:'職業紹介事業者都道府県',
+        jjCity:'職業紹介事業者市区町村', jjAddressDetail:'職業紹介事業者番地',
+        jjTel:'職業紹介事業者電話番号', jjPermitNo:'職業紹介届出番号', jjPermitDate:'職業紹介受理年月日',
+        supportManager:'支援責任者', supportManagerKana:'支援責任者ふりがな',
+        supportManagerTitle:'支援責任者役職', supporterCount:'支援者数', supportStaffCount:'支援担当者数'
+      };
+
+      var items = [];
       Object.keys(parsed).forEach(function(key) {
         if (!parsed[key]) return;
-        // データ更新
-        o[key] = parsed[key];
-        filled++;
-        // 画面上のinputを探して値とハイライトを反映
-        var els = document.querySelectorAll('[data-org="' + orgId + '"][data-fk="' + key + '"]');
-        els.forEach(function(el) {
-          el.value = parsed[key];
-          el.style.background = '#fefce8';
-          el.style.borderColor = '#f59e0b';
-        });
+        if (key === 'supportStaffList') return; // 別途処理
+        items.push({ key: key, label: labelMap[key] || key, newVal: parsed[key], oldVal: o[key] || '', type: 'org' });
       });
 
-      if (filled > 0) {
-        persistSupportOrgs();
-        renderSupportList(); renderSupportTree();
-        showToast('✅ ' + filled + '項目を読み取りました。内容を確認してください。');
-      } else {
-        showToast('⚠️ 読み取れる情報がありませんでした', 'error');
+      // 支援担当者リスト
+      var staffItems = [];
+      if (Array.isArray(parsed.supportStaffList)) {
+        parsed.supportStaffList.forEach(function(s, i) {
+          if (s.name) staffItems.push({ index: i, name: s.name, nameKana: s.nameKana||'', title: s.title||'' });
+        });
       }
+
+      if (items.length === 0 && staffItems.length === 0) {
+        showToast('⚠️ 読み取れる情報がありませんでした', 'error');
+        return;
+      }
+
+      showOcrConfirmModal(orgId, items, staffItems);
     })
     .catch(function(err) {
       console.error('OCR error:', err);
@@ -10131,6 +10155,131 @@ function supportOcrImportDetail(orgId, input) {
     });
   };
   reader.readAsDataURL(file);
+}
+
+
+// OCR確認モーダル
+function escapeHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function showOcrConfirmModal(orgId, items, staffItems) {
+  staffItems = staffItems || [];
+  var existing = document.getElementById('ocrConfirmOverlay');
+  if (existing) existing.remove();
+
+  var rows = items.map(function(it) {
+    var changed = it.oldVal && it.oldVal !== it.newVal;
+    var rowBg = changed ? '#fffbeb' : '#f0fdf4';
+    var badge = changed
+      ? '<span style="font-size:10px;background:#fef3c7;color:#b45309;border:1px solid #fbbf24;border-radius:4px;padding:1px 6px;margin-left:6px;">上書き</span>'
+      : '<span style="font-size:10px;background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:4px;padding:1px 6px;margin-left:6px;">新規</span>';
+    var oldRow = changed
+      ? '<div style="font-size:11px;color:#9ca3af;text-decoration:line-through;margin-top:2px;">現在: ' + escapeHtml(it.oldVal) + '</div>'
+      : '';
+    return '<div style="background:' + rowBg + ';border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px;display:flex;align-items:flex-start;gap:10px;">'
+      + '<input type="checkbox" id="ocr_chk_' + it.key + '" checked style="margin-top:3px;width:16px;height:16px;accent-color:#f59e0b;flex-shrink:0;">'
+      + '<div style="flex:1;">'
+      + '<div style="font-size:11px;font-weight:700;color:#6b7280;">' + escapeHtml(it.label) + badge + '</div>'
+      + '<div style="font-size:13px;font-weight:800;color:#1e293b;margin-top:3px;">' + escapeHtml(it.newVal) + '</div>'
+      + oldRow
+      + '</div></div>';
+  }).join('');
+
+  // 支援担当者セクション
+  var staffRows = '';
+  if (staffItems.length > 0) {
+    staffRows += '<div style="margin-top:4px;padding-top:12px;border-top:2px solid #ede9fe;">'
+      + '<div style="font-size:12px;font-weight:800;color:#7c3aed;margin-bottom:8px;">👤 支援担当者リスト（' + staffItems.length + '名）</div>'
+      + '<div style="font-size:11px;color:#6b7280;margin-bottom:8px;">以下の担当者を追加します（既存リストに追記）</div>';
+    staffItems.forEach(function(s, i) {
+      var parts = [s.name];
+      if (s.nameKana) parts.push('（' + s.nameKana + '）');
+      if (s.title) parts.push('／' + s.title);
+      staffRows += '<div style="background:#f5f3ff;border:1px solid #c4b5fd;border-radius:8px;padding:10px 14px;display:flex;align-items:center;gap:10px;">'
+        + '<input type="checkbox" id="ocr_staff_chk_' + i + '" checked style="width:16px;height:16px;accent-color:#7c3aed;flex-shrink:0;">'
+        + '<div>'
+        + '<div style="font-size:13px;font-weight:800;color:#1e293b;">' + escapeHtml(parts.join(' ')) + '</div>'
+        + '</div></div>';
+    });
+    staffRows += '</div>';
+  }
+
+  var html = '<div id="ocrConfirmOverlay" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:3000;display:flex;align-items:center;justify-content:center;padding:20px;">'
+    + '<div style="background:white;border-radius:14px;width:100%;max-width:560px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);">'
+    + '<div style="padding:18px 22px 14px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">'
+    + '<div>'
+    + '<div style="font-size:16px;font-weight:900;color:#1e293b;">📎 OCR読み取り結果</div>'
+    + '<div style="font-size:12px;color:#6b7280;margin-top:2px;">チェックした項目を適用します</div>'
+    + '</div>'
+    + '<button onclick="document.getElementById(\'ocrConfirmOverlay\').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#9ca3af;line-height:1;">✕</button>'
+    + '</div>'
+    + '<div style="padding:16px 22px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;">'
+    + rows
+    + staffRows
+    + '</div>'
+    + '<div style="padding:14px 22px;border-top:1px solid #e5e7eb;display:flex;gap:8px;justify-content:flex-end;">'
+    + '<button onclick="document.getElementById(\'ocrConfirmOverlay\').remove()" style="padding:8px 20px;border:1.5px solid #e5e7eb;border-radius:8px;background:white;font-size:13px;font-weight:700;cursor:pointer;color:#6b7280;">キャンセル</button>'
+    + '<button onclick="applyOcrResult(\'' + orgId + '\')" style="padding:8px 24px;border:none;border-radius:8px;background:#f59e0b;color:white;font-size:13px;font-weight:800;cursor:pointer;">✅ 選択した項目を適用</button>'
+    + '</div>'
+    + '</div></div>';
+
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  // itemsをグローバルに一時保存
+  window._ocrPendingItems = items;
+  window._ocrPendingStaffItems = staffItems;
+}
+
+function applyOcrResult(orgId) {
+  var o = supportOrgs.find(function(x) { return x.id === orgId; });
+  if (!o) return;
+  var items = window._ocrPendingItems || [];
+  var staffItems = window._ocrPendingStaffItems || [];
+  var applied = 0;
+
+  // 通常フィールド反映
+  items.forEach(function(it) {
+    var chk = document.getElementById('ocr_chk_' + it.key);
+    if (!chk || !chk.checked) return;
+    // offices[0] のフィールドか org フィールドか判定
+    var officeKeys = ['officeName','officeZip','officePref','officeCity','officeAddressDetail','officeAddress','officeAddressEn','officeTel',
+                      'supportManager','supportManagerKana','supportManagerTitle','supportManagerTitleEn','supporterCount','supportStaffCount'];
+    if (officeKeys.indexOf(it.key) !== -1) {
+      if (!o.offices) o.offices = [{}];
+      if (!o.offices[0]) o.offices[0] = {};
+      o.offices[0][it.key] = it.newVal;
+      // 画面上のofficeフィールド更新（data-oi="0"）
+      var els = document.querySelectorAll('[data-org="' + orgId + '"][data-oi="0"][data-fk="' + it.key + '"]');
+      els.forEach(function(el) { el.value = it.newVal; el.style.background = '#fefce8'; el.style.borderColor = '#f59e0b'; });
+    } else {
+      o[it.key] = it.newVal;
+      var els = document.querySelectorAll('[data-org="' + orgId + '"][data-fk="' + it.key + '"]');
+      els.forEach(function(el) { el.value = it.newVal; el.style.background = '#fefce8'; el.style.borderColor = '#f59e0b'; });
+    }
+    applied++;
+  });
+
+  // 支援担当者リスト追記
+  staffItems.forEach(function(s, i) {
+    var chk = document.getElementById('ocr_staff_chk_' + i);
+    if (!chk || !chk.checked) return;
+    if (!o.supportStaffList) o.supportStaffList = [];
+    // 同名重複チェック
+    var exists = o.supportStaffList.some(function(x) { return (typeof x === 'object' ? x.name : x) === s.name; });
+    if (!exists) {
+      o.supportStaffList.push({ name: s.name, nameKana: s.nameKana||'', title: s.title||'', nameEn:'', titleEn:'' });
+      applied++;
+    }
+  });
+
+  document.getElementById('ocrConfirmOverlay').remove();
+  if (applied > 0) {
+    persistSupportOrgs();
+    var so = supportOrgs.find(function(x){return x.id===orgId;});
+    if(so) renderSupportDetail(so);
+    renderSupportList(); renderSupportTree();
+    showToast('✅ ' + applied + '項目を適用しました');
+  }
 }
 
 function updateSupportField(el){
