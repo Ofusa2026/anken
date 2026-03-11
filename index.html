@@ -1992,6 +1992,7 @@ function dbRowToCase(r) {
 // 案件データ: cData をDBに保存
 var _dbExcludedCols = {}; // 存在しないカラムをキャッシュ（cases用）
 var _dbExcludedColsCo = {}; // 存在しないカラムをキャッシュ（companies用）
+var _dbExcludedColsPerson = {}; // 存在しないカラムをキャッシュ（persons用）
 function persistCasesToDB(casesArray, callback) {
   if (!DB_READY || !casesArray || !casesArray.length) return;
   // 日付フィールドのサニタイズ: 空・1900年代・不正値はnullに変換
@@ -2322,8 +2323,7 @@ function persistPersonToDB(caseId, p) {
     hireDate:'hire_date', salary:'salary',
     pastEntryFrom:'past_entry_from', pastEntryTo:'past_entry_to',
     pastCOE:'past_coe', pastCOECount:'past_coe_count', pastCOEDenied:'past_coe_denied',
-    deportationDate:'deportation_date',
-    stayPeriod:'stay_period', stayPeriodOther:'stay_period_other'
+    deportationDate:'deportation_date'
   };
   Object.keys(mapping).forEach(function(jsKey) {
     var dbKey = mapping[jsKey];
@@ -2336,9 +2336,28 @@ function persistPersonToDB(caseId, p) {
   });
   if (Object.keys(extraFields).length) row.extra = extraFields;
 
-  _sb.from('persons').upsert(row, {onConflict: 'case_id'}).then(function(res) {
-    if (res.error) console.error('persistPersonToDB error:', res.error);
-  });
+  // 既知の除外カラムを事前に除外
+  var rowFiltered = {};
+  Object.keys(row).forEach(function(k){ if(!_dbExcludedColsPerson[k]) rowFiltered[k]=row[k]; });
+
+  function tryUpsertPerson(rowToTry, attempt) {
+    _sb.from('persons').upsert(rowToTry, {onConflict: 'case_id'}).then(function(res) {
+      if (res.error) {
+        var msg = res.error.message || '';
+        var m = msg.match(/find the '([^']+)' column/);
+        if (m && attempt < 10) {
+          var badCol = m[1];
+          _dbExcludedColsPerson[badCol] = true;
+          console.warn('⚠️ persons列が存在しません: ' + badCol + ' → 除外して再試行');
+          var fixed = {}; Object.keys(rowToTry).forEach(function(k){ if(k!==badCol) fixed[k]=rowToTry[k]; });
+          tryUpsertPerson(fixed, attempt + 1);
+        } else {
+          console.error('persistPersonToDB error:', res.error);
+        }
+      }
+    });
+  }
+  tryUpsertPerson(rowFiltered, 0);
 }
 
 // ===== 初回データ同期（localStorage → Supabase）=====
