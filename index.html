@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260311_0738 -->
+<!-- OFUSA_VERSION 20260311_0756 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -562,6 +562,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <option value="expire-empty">在留期限：未入力のみ</option>
         <option value="return-asc">一時帰国：近い順</option>
         <option value="return-desc">一時帰国：遠い順</option>
+        <option value="priority">🏅 優先順位順</option>
       </select>
     </div>
   </div>
@@ -580,6 +581,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <table>
         <thead>
           <tr>
+            <th style="width:42px;text-align:center;font-size:9px;color:#6b7280;" title="優先順位（担当者ベース）">優先</th>
             <th style="width:32px;"><input type="checkbox" id="groupSelectAll" onchange="toggleGroupSelectAll(this)" style="width:15px;height:15px;cursor:pointer;accent-color:#2563eb;" title="グループ化する案件を選択"></th>
             <th class="sortable-th" onclick="colSort('main','id')" style="width:70px;">番号 <span id="si-main-id"></span></th><th class="sortable-th" onclick="colSort('main','name')">案件名/申請者 <span id="si-main-name"></span></th><th class="sortable-th" onclick="colSort('main','org')" style="max-width:100px;">企業/支援機関 <span id="si-main-org"></span></th>
             <th class="sortable-th" onclick="colSort('main','appType')" style="width:50px;">種別 <span id="si-main-appType"></span></th><th class="sortable-th" onclick="colSort('main','team')" style="width:70px;">担当 <span id="si-main-team"></span></th><th class="sortable-th" onclick="colSort('main','status')" style="width:80px;">状態 <span id="si-main-status"></span></th><th class="sortable-th" onclick="colSort('main','taskPct')" style="width:70px;">進捗 <span id="si-main-taskPct"></span></th><th class="sortable-th" onclick="colSort('main','expire')" style="width:85px;">在留期限<br>特例日 <span id="si-main-expire"></span></th><th class="sortable-th" onclick="colSort('main','tempReturn')">帰国予定 <span id="si-main-tempReturn"></span></th><th class="sortable-th" onclick="colSort('main','applicationDeadline')" style="width:70px;">申請期限 <span id="si-main-applicationDeadline"></span></th><th class="sortable-th" onclick="colSort('main','shinsaDate')" style="width:80px;">審査完了 <span id="si-main-shinsaDate"></span></th><th class="sortable-th" onclick="colSort('main','receiptDate')" style="min-width:70px;">受付番号<br><span style="font-size:9px;font-weight:400;color:#94a3b8;">申請日</span> <span id="si-main-receiptDate"></span></th>
@@ -1809,6 +1811,8 @@ function sbFetchCases(opts, callback) {
     dataQuery = dataQuery.order('expire', {ascending: true, nullsFirst: false});
   } else if (opts.sort === 'expire-desc') {
     dataQuery = dataQuery.order('expire', {ascending: false, nullsFirst: false});
+  } else if (opts.sort === 'priority') {
+    dataQuery = dataQuery.order('priority', {ascending: true, nullsFirst: false});
   } else if (opts.colSort) {
     dataQuery = dataQuery.order(opts.colSort.col, {ascending: opts.colSort.dir==='asc', nullsFirst: false});
   } else {
@@ -2014,7 +2018,8 @@ function dbRowToCase(r) {
     shortageMemo: r.shortage_memo||'', companyNote: r.company_note||'',
     authorName: r.author_name||'', authorTitle: r.author_title||'',
     intake_id: r.intake_id||'',
-    members: (function(){try{return r.members?(typeof r.members==='string'?JSON.parse(r.members):r.members):[];}catch(e){return [];}})()
+    members: (function(){try{return r.members?(typeof r.members==='string'?JSON.parse(r.members):r.members):[];}catch(e){return [];}}())
+    ,priority: (r.priority != null ? r.priority : null)
   };
 }
 
@@ -2082,7 +2087,8 @@ function persistCasesToDB(casesArray, callback) {
       job_category_en: c.jobCategoryEn || null,
       accept_exp: c.acceptExp || null,
       person_order: c.personOrder || null,
-      has_job_placement: c.hasJobPlacement || null
+      has_job_placement: c.hasJobPlacement || null,
+      priority: (c.priority != null ? c.priority : null)
     };
   });
   // 重複IDを除去（同一バッチ内の重複でPostgresエラーになるのを防ぐ）
@@ -9278,15 +9284,21 @@ function persistCompanies() {
     persistCompaniesToDB(companies);
   }, 500);
 }
+var _persistCaseNotesTimer = null;
 function persistCaseNotes() {
   try { localStorage.setItem('ofusa_caseNotes', JSON.stringify(caseNotes)); } catch(e) {}
-  if(DB_READY) {
+  clearTimeout(_persistCaseNotesTimer);
+  _persistCaseNotesTimer = setTimeout(function() {
+    if(!DB_READY) return;
     var validIds={};cData.forEach(function(c){validIds[c.id]=true;});
-    Object.keys(caseNotes).forEach(function(caseId) {
-      if(!validIds[caseId]) return;
-      _sb.from('case_notes').upsert({case_id:caseId, note:caseNotes[caseId]||''},{onConflict:'case_id'}).then(function(r){if(r.error)console.error('caseNotes sync err:',r.error);});
+    var rows = Object.keys(caseNotes).filter(function(id){return validIds[id];}).map(function(id){
+      return {case_id:id, note:caseNotes[id]};
     });
-  }
+    if(!rows.length) return;
+    _sb.from('case_notes').upsert(rows,{onConflict:'case_id'}).then(function(r){
+      if(r.error) console.error('caseNotes sync err:', r.error.message);
+    });
+  }, 500);
 }
 function persistDocCheck() {
   try { localStorage.setItem('ofusa_docCheck', JSON.stringify(docCheck)); } catch(e) {}
@@ -15285,7 +15297,24 @@ function buildCaseRow(c, today, inGroup) {
   var teamShort = (c.team||'').replace(/チーム$/,'').replace(/\s*チーム/,'');
   // 担当者苗字のみ
   var staffShort = (c.staff||'').split(/[\s\u3000]/)[0];
+  // 優先順位バッジ・セレクト
+  var priColors = ['','#dc2626','#ea580c','#d97706','#ca8a04','#65a30d',
+    '#16a34a','#059669','#0891b2','#0284c7','#2563eb',
+    '#4f46e5','#7c3aed','#9333ea','#c026d3','#db2777',
+    '#e11d48','#64748b','#64748b','#64748b','#64748b'];
+  var priVal = c.priority || '';
+  var priBadgeBg = priVal ? (priColors[priVal]||'#6b7280') : '#e5e7eb';
+  var priBadgeCol = priVal ? 'white' : '#9ca3af';
+  var priBadgeShow = priVal ? 'inline-flex' : 'none';
+  var priOpts = '<option value="">—</option>';
+  for(var pi=1;pi<=20;pi++){ priOpts += '<option value="'+pi+'"'+(priVal==pi?' selected':'')+'>'+(pi<=3?['🥇','🥈','🥉'][pi-1]+' ':'')+pi+'位</option>'; }
+
   var h = '<tr onclick="openCase(\'' + c.id + '\')" style="' + rowStyle + '">';
+  h += '<td onclick="event.stopPropagation()" style="text-align:center;'+cs+'padding:4px 2px;">'
+    + '<span id="pri_badge_'+c.id+'" style="display:'+priBadgeShow+';align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:'+priBadgeBg+';color:'+priBadgeCol+';font-size:9px;font-weight:800;margin:0 auto 2px;">'+( priVal||'—')+'</span>'
+    + '<select id="pri_sel_'+c.id+'" onclick="event.stopPropagation()" onchange="setCasePriority(\'' + c.id + '\',this.value)" style="font-size:9px;padding:1px 2px;border:1px solid #e5e7eb;border-radius:4px;background:white;width:36px;cursor:pointer;">'
+    + priOpts + '</select>'
+    + '</td>';
   h += '<td onclick="event.stopPropagation()" style="text-align:center;'+cs+'"><input type="checkbox" class="group-sel-cb" data-id="'+c.id+'" onchange="updateGroupSelectBar();updateDoneBulkBar();" style="width:14px;height:14px;cursor:pointer;accent-color:#2563eb;"></td>';
   h += '<td style="'+cs+'font-size:10px;color:var(--gray-400);font-weight:600;">'+caseNo+'</td>';
   // 案件名+申請者 2段
@@ -15382,6 +15411,92 @@ function buildCaseRow(c, today, inGroup) {
   return h;
 }
 function renderAlerts() {}
+
+// ===== 優先順位管理 =====
+function setCasePriority(caseId, newPriority) {
+  // newPriority: 1〜20 or null（未設定）
+  var c = cData.find(function(x){ return x.id === caseId; });
+  if (!c) return;
+  var staff = c.staff || '';
+  newPriority = newPriority ? parseInt(newPriority) : null;
+
+  if (newPriority !== null) {
+    // 同担当者の同順位の案件を検出してずらす
+    var sameStaffCases = cData.filter(function(x){
+      return x.staff === staff && x.id !== caseId && x.priority != null;
+    }).sort(function(a,b){ return a.priority - b.priority; });
+
+    // 被った案件から順に+1ずつずらす（20超えたらnull）
+    var bump = newPriority;
+    var changed = [];
+    sameStaffCases.forEach(function(x) {
+      if (x.priority === bump) {
+        bump++;
+        x.priority = bump <= 20 ? bump : null;
+        changed.push(x);
+      }
+    });
+    // 変更が連鎖する場合
+    var maxLoop = 20;
+    while (maxLoop-- > 0) {
+      var conflict = false;
+      sameStaffCases.forEach(function(x) {
+        if (x.priority == null) return;
+        var dup = sameStaffCases.find(function(y){ return y.id !== x.id && y.priority === x.priority; });
+        if (dup) {
+          dup.priority = dup.priority < 20 ? dup.priority + 1 : null;
+          if (changed.indexOf(dup) === -1) changed.push(dup);
+          conflict = true;
+        }
+      });
+      if (!conflict) break;
+    }
+
+    // 変更した案件をDB保存
+    if (changed.length) {
+      persistCasesToDB(changed);
+    }
+  }
+
+  c.priority = newPriority;
+  persistCasesToDB([c]);
+
+  // テーブル再描画（ソートが優先順位なら全体、それ以外は行だけ更新）
+  var fSort = (document.getElementById('fSort')||{}).value||'';
+  if (fSort === 'priority') {
+    applyFilters();
+  } else {
+    // 行内のセレクトだけ更新（全描画避ける）
+    var sel = document.getElementById('pri_sel_' + caseId);
+    if (sel) sel.value = newPriority || '';
+    // 変更した他の行も更新
+    changed.forEach(function(x) {
+      var s = document.getElementById('pri_sel_' + x.id);
+      if (s) s.value = x.priority || '';
+    });
+    // バッジ更新
+    _updatePriorityBadge(caseId, newPriority, staff);
+    changed.forEach(function(x){ _updatePriorityBadge(x.id, x.priority, x.staff); });
+  }
+}
+
+function _updatePriorityBadge(caseId, priority, staff) {
+  var badge = document.getElementById('pri_badge_' + caseId);
+  if (!badge) return;
+  if (priority) {
+    badge.textContent = priority;
+    badge.style.display = 'inline-flex';
+    var colors = ['','#dc2626','#ea580c','#d97706','#ca8a04','#65a30d',
+                  '#16a34a','#059669','#0891b2','#0284c7','#2563eb',
+                  '#4f46e5','#7c3aed','#9333ea','#c026d3','#db2777',
+                  '#e11d48','#64748b','#64748b','#64748b','#64748b'];
+    var col = colors[priority] || '#6b7280';
+    badge.style.background = col;
+  } else {
+    badge.textContent = '—';
+    badge.style.display = 'none';
+  }
+}
 
 // ===== グループ管理 =====
 function updateGroupSelectBar(){
@@ -15689,7 +15804,8 @@ function applyFilters(resetPage) {
       'appType':'app_type','team':'team','staff':'staff','status':'status',
       'expire':'expire','receiptDate':'receipt_date','receiptNo':'receipt_no',
       'shinsaDate':'shinsa_date',
-      'applicationDeadline':'application_deadline'
+      'applicationDeadline':'application_deadline',
+      'priority':'priority'
     };
     var colSt = colSortState.main;
     // tempReturnはpersonsテーブル経由のため特別扱い
@@ -15726,6 +15842,11 @@ function applyFilters(resetPage) {
     });
     if (sort === 'expire-asc') filtered.sort(function(a,b){ return new Date(a.expire) - new Date(b.expire); });
     else if (sort === 'expire-desc') filtered.sort(function(a,b){ return new Date(b.expire) - new Date(a.expire); });
+    else if (sort === 'priority') filtered.sort(function(a,b){
+      var pa = a.priority != null ? a.priority : 999;
+      var pb = b.priority != null ? b.priority : 999;
+      return pa - pb;
+    });
     else if (sort === 'return-asc' || sort === 'return-desc') {
       filtered.sort(function(a,b){
         var da = personData[a.id] && personData[a.id].tempReturn ? new Date(personData[a.id].tempReturn) : null;
