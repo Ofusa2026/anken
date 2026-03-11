@@ -2659,18 +2659,9 @@ var DEFAULT_USERS = [
 var USERS = (function(){
   var stored = null;
   try { stored = JSON.parse(localStorage.getItem('ofusa_users')); } catch(e){}
-  if (!stored || !stored.length) return JSON.parse(JSON.stringify(DEFAULT_USERS));
-  // DEFAULT_USERSに新しいメンバーがいたら追加、既存メンバーはstored優先
-  var merged = [];
-  DEFAULT_USERS.forEach(function(du){
-    var found = stored.find(function(s){ return s.name === du.name; });
-    merged.push(found || JSON.parse(JSON.stringify(du)));
-  });
-  // storedにしかいないメンバー（手動追加分）も残す
-  stored.forEach(function(s){
-    if(!merged.find(function(m){return m.name===s.name;})) merged.push(s);
-  });
-  return merged;
+  // localStorage優先（DB読み込み後に上書き）、なければDEFAULT_USERS
+  if (stored && stored.length) return stored;
+  return JSON.parse(JSON.stringify(DEFAULT_USERS));
 })();
 function persistUsers(syncToDB){
   try{localStorage.setItem('ofusa_users',JSON.stringify(USERS));}catch(e){}
@@ -7650,16 +7641,18 @@ function showLineCopyModal(label, msg) {
 
 function renderAdminUsers(){
   var el=document.getElementById('adminContent');if(!el)return;
-  var h='<div style="font-size:12px;color:var(--gray-400);margin-bottom:12px;">全ユーザーの名前・パスワードを変更できます。</div>';
+  var h='<div style="font-size:12px;color:var(--gray-400);margin-bottom:4px;">パスワード・管理者権限を変更できます。</div>';
+  h+='<div style="font-size:11px;color:#3b82f6;margin-bottom:10px;">※ ユーザーの追加・削除はチーム管理画面から行ってください。</div>';
+  h+='<div style="display:grid;grid-template-columns:1fr 80px 110px 60px;gap:4px;padding:4px 8px;font-size:10px;font-weight:700;color:var(--gray-400);border-bottom:2px solid var(--gray-200);">名前<span>チーム</span><span>パスワード</span><span>管理者</span></div>';
   USERS.forEach(function(u,i){
-    h+='<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--gray-200);">';
-    h+='<input value="'+u.name.replace(/"/g,'&quot;')+'" onchange="adminUpdateUser('+i+',\'name\',this.value)" style="flex:1;font-size:13px;font-weight:600;padding:5px 8px;border:1px solid var(--gray-200);border-radius:6px;">';
-    h+='<span style="font-size:10px;color:var(--gray-400);width:80px;text-align:center;">'+u.team+'</span>';
-    h+='<input value="'+u.password.replace(/"/g,'&quot;')+'" onchange="adminUpdateUser('+i+',\'password\',this.value)" style="width:120px;font-size:12px;padding:5px 8px;border:1px solid var(--gray-200);border-radius:6px;font-family:monospace;">';
-    h+='<label style="font-size:10px;white-space:nowrap;cursor:pointer;"><input type="checkbox" '+(u.isAdmin?'checked':'')+' onchange="adminUpdateUser('+i+',\'isAdmin\',this.checked)"> 管理者</label>';
+    h+='<div style="display:grid;grid-template-columns:1fr 80px 110px 60px;gap:4px;align-items:center;padding:6px 8px;border-bottom:1px solid var(--gray-200);">';
+    h+='<div style="font-size:13px;font-weight:600;padding:4px 0;">'+u.name+'</div>';
+    h+='<div style="font-size:11px;color:var(--gray-400);">'+u.team+'</div>';
+    h+='<input value="'+(u.password||'').replace(/"/g,'&quot;')+'" onchange="adminUpdateUser('+i+',\'password\',this.value)" style="font-size:12px;padding:5px 6px;border:1px solid var(--gray-200);border-radius:6px;font-family:monospace;">';
+    h+='<label style="font-size:10px;white-space:nowrap;cursor:pointer;text-align:center;"><input type="checkbox" '+(u.isAdmin?'checked':'')+' onchange="adminUpdateUser('+i+',\'isAdmin\',this.checked)"> 管理者</label>';
     h+='</div>';
   });
-  h+='<button onclick="persistUsers(true);showToast(\'✅ 保存しました\')" style="margin-top:12px;width:100%;padding:10px;background:var(--blue);color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">💾 保存</button>';
+  h+='<button onclick="persistUsers(true);showToast(\'✅ Supabaseに保存しました\')" style="margin-top:12px;width:100%;padding:10px;background:var(--blue);color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">💾 保存（Supabase同期）</button>';
   h+='<button onclick="resetAllPasswords()" style="margin-top:8px;width:100%;padding:8px;background:white;color:#dc2626;border:1.5px solid #fca5a5;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🔑 全員パスワードを0000にリセット</button>';
   h+='<div style="margin-top:24px;padding-top:16px;border-top:2px solid var(--gray-200);">';
   h+='<div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:8px;">🔄 タスクステータス一括リセット</div>';
@@ -25821,15 +25814,15 @@ function loadAllFromSupabase() {
   // 0. ユーザー（パスワード含む）
   _sb.from('users').select('*').then(function(res) {
     if (!res.error && res.data && res.data.length) {
-      res.data.forEach(function(row) {
-        var u = USERS.find(function(x){ return x.name === row.name || x.name === row.id; });
-        if (u) {
-          if (row.password) u.password = row.password;
-          if (row.is_admin !== undefined) u.isAdmin = row.is_admin;
-          if (row.team) u.team = row.team;
-        }
+      // DB優先：DBのユーザー一覧でUSERS全体を置き換え
+      var dbUsers = res.data.map(function(row) {
+        return { name: row.name||row.id, password: row.password||'0000', team: row.team||'', isAdmin: !!row.is_admin };
       });
-      console.log('📥 users loaded from Supabase:', res.data.length);
+      USERS.length = 0;
+      dbUsers.forEach(function(u){ USERS.push(u); });
+      try { localStorage.setItem('ofusa_users', JSON.stringify(USERS)); } catch(e){}
+      rebuildLoginSelect();
+      console.log('📥 users loaded from Supabase:', USERS.length);
     }
     done();
   }).catch(function(e) { console.error('users load err:', e); done(); });
