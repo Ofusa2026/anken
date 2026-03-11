@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260311_0526 -->
+<!-- OFUSA_VERSION 20260311_0536 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -2725,25 +2725,19 @@ var USERS = (function(){
 })();
 function persistUsers(syncToDB){
   try{localStorage.setItem('ofusa_users',JSON.stringify(USERS));}catch(e){}
-  // syncToDB=trueの時のみSupabaseに同期（パスワードはSupabase優先のためupsert時はDBの値を保持）
   if(syncToDB && DB_READY && USERS.length) {
-    // まずDBの現在のパスワードを取得してからupsert
-    _sb.from('users').select('id,password').then(function(r){
-      var dbPwMap = {};
-      if(!r.error && r.data) r.data.forEach(function(row){ dbPwMap[row.id] = row.password; });
-      var rows = USERS.map(function(u){
-        return {
-          id: u.name,
-          name: u.name,
-          password: u.password || dbPwMap[u.name] || '0000', // ローカル優先
-          team: u.team || '',
-          is_admin: !!u.isAdmin
-        };
-      });
-      _sb.from('users').upsert(rows,{onConflict:'id'}).then(function(r){
-        if(r.error) console.error('users sync err:', JSON.stringify(r.error));
-        else console.log('📥 users synced to DB:', rows.length);
-      });
+    var rows = USERS.map(function(u){
+      return {
+        id: u.name,
+        name: u.name,
+        password: u.password || '0000',
+        team: u.team || '',
+        is_admin: !!u.isAdmin
+      };
+    });
+    _sb.from('users').upsert(rows,{onConflict:'id'}).then(function(r){
+      if(r.error) console.error('users sync err:', JSON.stringify(r.error));
+      else console.log('📥 users synced to DB:', rows.length);
     });
   }
 }
@@ -2841,7 +2835,7 @@ function syncUsersFromTeamData(){
     });
   });
   USERS = newUsers;
-  persistUsers(true); // チーム変更時はDBにも同期
+  // ※persistUsers()は呼び出し元で行う。ここでDBに書くとusersロード前に0000で上書きする危険があるため削除
 }
 
 function doLogin() {
@@ -7485,7 +7479,7 @@ function saveAllPasswords(){
     var inp=document.getElementById('pw_'+i);
     if(inp) u.password=inp.value.trim()||'0000';
   });
-  persistUsers();
+  persistUsers(true);
   showToast('✅ 全員のパスワードを保存しました');
 }
 
@@ -26057,7 +26051,6 @@ function loadAllFromSupabase() {
             teamData = JSON.parse(s.value);
             try{localStorage.setItem('ofusa_teamData',JSON.stringify(teamData));}catch(e){}
             syncUsersFromTeamData();
-            persistUsers(true);
             rebuildLoginSelect();
           }
           if(s.key==='case_chats') { caseChats = JSON.parse(s.value); }
