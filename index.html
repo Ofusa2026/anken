@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260311_0819 -->
+<!-- OFUSA_VERSION 20260311_0825 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -2034,6 +2034,8 @@ function persistCasesToDB(casesArray, callback) {
     if (!v) return null;
     var s = String(v).trim();
     if (!s) return null;
+    // スラッシュ区切りをハイフンに変換 (2025/05/05 → 2025-05-05)
+    s = s.replace(/^(\d{4})\/(\d{2})\/(\d{2})/, '$1-$2-$3');
     var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (!m) return null;
     if (parseInt(m[1]) < 1901) return null;
@@ -9290,7 +9292,15 @@ function persistCaseNotes() {
   clearTimeout(_persistCaseNotesTimer);
   _persistCaseNotesTimer = setTimeout(function() {
     if(!DB_READY) return;
-    var rows = Object.keys(caseNotes).map(function(id){
+    // cDataが読み込み済みの場合のみ外部キー制約に合わせてフィルタ
+    // cDataが空(まだ読み込み中)の場合はスキップせず全件送る
+    var keys = Object.keys(caseNotes);
+    if(cData.length > 0) {
+      var validIds = {};
+      cData.forEach(function(c){ validIds[c.id] = true; });
+      keys = keys.filter(function(id){ return validIds[id]; });
+    }
+    var rows = keys.map(function(id){
       return {case_id:id, note:caseNotes[id]};
     });
     if(!rows.length) return;
