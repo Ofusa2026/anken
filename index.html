@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260311_0450 -->
+<!-- OFUSA_VERSION 20260311_0518 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -1818,37 +1818,44 @@ function sbFetchCases(opts, callback) {
   var isReturnSort = (opts.sort === 'return-asc' || opts.sort === 'return-desc');
 
   if (isReturnSort) {
-    // 帰国予定ソート: personsテーブルから全件temp_returnを取得→フィルタ済みIDで絞り→ソート→ページング
+    // 帰国予定ソート: personsからtemp_return全取得 + フィルタ済みcase_id全取得 → クライアントソート → ページング
+    // idのみ全件取得用クエリを独立して構築
+    var idQuery = _sb.from('cases').select('id');
+    if (opts.team && opts.team !== '全チーム') idQuery = idQuery.eq('team', opts.team);
+    if (opts.appType && opts.appType !== '全種別') idQuery = idQuery.eq('app_type', opts.appType);
+    if (opts.status && opts.status !== '全ステータス') {
+      idQuery = idQuery.eq('status', opts.status);
+    } else if (!opts.includeDone) {
+      idQuery = idQuery.not('status', 'in', '("完了","審査完了")');
+    }
+    if (opts.staff && opts.staff !== '全担当者') idQuery = idQuery.eq('staff', opts.staff);
+    if (opts.search) {
+      var sq2 = '%' + opts.search + '%';
+      idQuery = idQuery.or('applicant.ilike.' + sq2 + ',company.ilike.' + sq2 + ',org.ilike.' + sq2 + ',name.ilike.' + sq2 + ',team.ilike.' + sq2 + ',staff.ilike.' + sq2 + ',receipt_no.ilike.' + sq2);
+    }
     Promise.all([
-      countQuery.then(function(r) { return r; }),
-      // フィルタ条件を満たす全case_idを取得（ページネーションなし）
-      dataQuery.select('id').then(function(r) { return r; }),
-      // personsから全temp_returnを取得
-      _sb.from('persons').select('case_id,temp_return').not('temp_return', 'is', null).then(function(r) { return r; })
+      countQuery,
+      idQuery.range(0, 9999),
+      _sb.from('persons').select('case_id,temp_return').not('temp_return', 'is', null)
     ]).then(function(results) {
       var total = (results[0] && results[0].count) || 0;
       var allIds = ((results[1] && results[1].data) || []).map(function(r) { return r.id; });
       var personRows = (results[2] && results[2].data) || [];
-      // case_id → temp_return マップ
       var trMap = {};
       personRows.forEach(function(p) { if (p.temp_return) trMap[p.case_id] = p.temp_return; });
-      // ソート: 帰国予定ありを先頭に日付順、なしは末尾
       var asc = (opts.sort === 'return-asc');
       allIds.sort(function(a, b) {
         var da = trMap[a] ? new Date(trMap[a]).getTime() : (asc ? 9999999999999 : -1);
         var db = trMap[b] ? new Date(trMap[b]).getTime() : (asc ? 9999999999999 : -1);
         return asc ? da - db : db - da;
       });
-      // ページング
       var pagedIds = allIds.slice(from, from + pageSize);
       if (!pagedIds.length) { callback([], total); return; }
       _sb.from('cases').select('*').in('id', pagedIds).then(function(res) {
         var rows = (res && res.data) || [];
-        // idの順序を保持
         var rowMap = {};
         rows.forEach(function(r) { rowMap[r.id] = r; });
         var cases = pagedIds.map(function(id) { return rowMap[id] ? dbRowToCase(rowMap[id]) : null; }).filter(Boolean);
-        // personDataキャッシュ更新
         personRows.forEach(function(p) {
           if (!personData[p.case_id]) personData[p.case_id] = {};
           if (p.temp_return) personData[p.case_id].tempReturn = p.temp_return;
@@ -1924,10 +1931,18 @@ function sbFetchDoneCases(opts, callback) {
   var isReturnSort = (opts.sort === 'return-asc' || opts.sort === 'return-desc');
 
   if (isReturnSort) {
+    var idQuery2 = _sb.from('cases').select('id').in('status', ['完了', '審査完了']);
+    if (opts.team && opts.team !== '全チーム') idQuery2 = idQuery2.eq('team', opts.team);
+    if (opts.appType && opts.appType !== '全種別') idQuery2 = idQuery2.eq('app_type', opts.appType);
+    if (opts.staff && opts.staff !== '全担当者') idQuery2 = idQuery2.eq('staff', opts.staff);
+    if (opts.search) {
+      var sq3 = '%' + opts.search + '%';
+      idQuery2 = idQuery2.or('applicant.ilike.' + sq3 + ',company.ilike.' + sq3 + ',org.ilike.' + sq3 + ',name.ilike.' + sq3 + ',team.ilike.' + sq3 + ',staff.ilike.' + sq3);
+    }
     Promise.all([
-      countQuery.then(function(r) { return r; }),
-      dataQuery.select('id').then(function(r) { return r; }),
-      _sb.from('persons').select('case_id,temp_return').not('temp_return', 'is', null).then(function(r) { return r; })
+      countQuery,
+      idQuery2.range(0, 9999),
+      _sb.from('persons').select('case_id,temp_return').not('temp_return', 'is', null)
     ]).then(function(results) {
       var total = (results[0] && results[0].count) || 0;
       var allIds = ((results[1] && results[1].data) || []).map(function(r) { return r.id; });
@@ -10898,13 +10913,19 @@ function exportCompanyCsv(){
 function deleteCompany(id){
   var co=companies.find(function(x){return x.id===id;});
   if(!co||!confirm(co.name+' を削除しますか？')) return;
+  // 先にメモリとlocalStorageから削除（upsertで復活しないよう先に配列を更新）
   companies=companies.filter(function(x){return x.id!==id;});
   try{localStorage.setItem('ofusa_companies',JSON.stringify(companies));}catch(e){}
+  // 進行中のpersistCompaniesタイマーをキャンセル＆再セット（削除済み配列で）
+  clearTimeout(_persistCompaniesTimer);
   if(window._selectedCompanyId===id){window._selectedCompanyId=null;var el=document.getElementById('companyDetail');if(el)el.innerHTML='';}
   if(DB_READY){
+    // DBから削除してからupsertタイマーをセット（競合防止）
     _sb.from('companies').delete().eq('id',id).then(function(res){
-      if(res.error)console.error('DB delete company error:',res.error);
+      if(res.error) console.error('DB delete company error:',res.error);
       else console.log('🗑️ DB deleted company:',id);
+      // 削除確定後に残りをupsert（削除済みIDは配列にないので復活しない）
+      persistCompaniesToDB(companies);
       renderCompanyList();renderSupportTree();
     });
   } else {
@@ -26292,6 +26313,10 @@ function initRealtime() {
       console.log('🔔 Realtime cases:', payload.eventType, payload.new && payload.new.id);
       handleRealtimeChange('cases', payload);
     })
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'companies' }, function(payload) {
+      console.log('🔔 Realtime companies DELETE:', payload.old && payload.old.id);
+      handleRealtimeChange('companies', payload);
+    })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'persons' }, function(payload) {
       console.log('🔔 Realtime persons:', payload.eventType);
       handleRealtimeChange('persons', payload);
@@ -26343,6 +26368,14 @@ function handleRealtimeChange(table, payload) {
     debouncedRealtimeRefresh();
   }
   
+  else if (table === 'companies') {
+    if (evt === 'DELETE' && oldRow && oldRow.id) {
+      companies = companies.filter(function(c) { return c.id !== oldRow.id; });
+      try{localStorage.setItem('ofusa_companies',JSON.stringify(companies));}catch(e){}
+      renderCompanyList(); renderSupportTree();
+    }
+  }
+
   else if (table === 'persons' && newRow) {
     var caseId = newRow.case_id;
     if (caseId) {
