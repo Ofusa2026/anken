@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260311_0439 -->
+<!-- OFUSA_VERSION 20260311_0450 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -1809,34 +1809,73 @@ function sbFetchCases(opts, callback) {
     dataQuery = dataQuery.order('expire', {ascending: true, nullsFirst: false});
   } else if (opts.sort === 'expire-desc') {
     dataQuery = dataQuery.order('expire', {ascending: false, nullsFirst: false});
-  } else if (opts.sort === 'return-asc' || opts.sort === 'return-desc') {
-    // 一時帰国ソート: casesテーブルのtemp_returnカラムでDB側ソート（全件対象）
-    dataQuery = dataQuery.order('temp_return', {ascending: opts.sort === 'return-asc', nullsFirst: false});
   } else if (opts.colSort) {
     dataQuery = dataQuery.order(opts.colSort.col, {ascending: opts.colSort.dir==='asc', nullsFirst: false});
   } else {
     dataQuery = dataQuery.order('created_at', {ascending: false, nullsFirst: false});
   }
-  
+
   var isReturnSort = (opts.sort === 'return-asc' || opts.sort === 'return-desc');
-  dataQuery = dataQuery.range(from, to);
-  
-  // 並行実行
-  Promise.all([
-    countQuery.then(function(r) { return r; }),
-    dataQuery.then(function(r) { return r; })
-  ]).then(function(results) {
-    var countRes = results[0];
-    var dataRes = results[1];
-    var total = (countRes && countRes.count) || 0;
-    var rows = (dataRes && dataRes.data) || [];
-    var cases = rows.map(function(r) { return dbRowToCase(r); });
-    
-    callback(cases, total);
-  }).catch(function(err) {
-    console.error('sbFetchCases error:', err);
-    callback([], 0);
-  });
+
+  if (isReturnSort) {
+    // 帰国予定ソート: personsテーブルから全件temp_returnを取得→フィルタ済みIDで絞り→ソート→ページング
+    Promise.all([
+      countQuery.then(function(r) { return r; }),
+      // フィルタ条件を満たす全case_idを取得（ページネーションなし）
+      dataQuery.select('id').then(function(r) { return r; }),
+      // personsから全temp_returnを取得
+      _sb.from('persons').select('case_id,temp_return').not('temp_return', 'is', null).then(function(r) { return r; })
+    ]).then(function(results) {
+      var total = (results[0] && results[0].count) || 0;
+      var allIds = ((results[1] && results[1].data) || []).map(function(r) { return r.id; });
+      var personRows = (results[2] && results[2].data) || [];
+      // case_id → temp_return マップ
+      var trMap = {};
+      personRows.forEach(function(p) { if (p.temp_return) trMap[p.case_id] = p.temp_return; });
+      // ソート: 帰国予定ありを先頭に日付順、なしは末尾
+      var asc = (opts.sort === 'return-asc');
+      allIds.sort(function(a, b) {
+        var da = trMap[a] ? new Date(trMap[a]).getTime() : (asc ? 9999999999999 : -1);
+        var db = trMap[b] ? new Date(trMap[b]).getTime() : (asc ? 9999999999999 : -1);
+        return asc ? da - db : db - da;
+      });
+      // ページング
+      var pagedIds = allIds.slice(from, from + pageSize);
+      if (!pagedIds.length) { callback([], total); return; }
+      _sb.from('cases').select('*').in('id', pagedIds).then(function(res) {
+        var rows = (res && res.data) || [];
+        // idの順序を保持
+        var rowMap = {};
+        rows.forEach(function(r) { rowMap[r.id] = r; });
+        var cases = pagedIds.map(function(id) { return rowMap[id] ? dbRowToCase(rowMap[id]) : null; }).filter(Boolean);
+        // personDataキャッシュ更新
+        personRows.forEach(function(p) {
+          if (!personData[p.case_id]) personData[p.case_id] = {};
+          if (p.temp_return) personData[p.case_id].tempReturn = p.temp_return;
+        });
+        callback(cases, total);
+      }).catch(function() { callback([], total); });
+    }).catch(function(err) {
+      console.error('sbFetchCases(returnSort) error:', err);
+      callback([], 0);
+    });
+  } else {
+    dataQuery = dataQuery.range(from, to);
+    Promise.all([
+      countQuery.then(function(r) { return r; }),
+      dataQuery.then(function(r) { return r; })
+    ]).then(function(results) {
+      var countRes = results[0];
+      var dataRes = results[1];
+      var total = (countRes && countRes.count) || 0;
+      var rows = (dataRes && dataRes.data) || [];
+      var cases = rows.map(function(r) { return dbRowToCase(r); });
+      callback(cases, total);
+    }).catch(function(err) {
+      console.error('sbFetchCases error:', err);
+      callback([], 0);
+    });
+  }
 }
 
 // 完了案件をSupabaseから取得
@@ -1880,27 +1919,59 @@ function sbFetchDoneCases(opts, callback) {
     dataQuery = dataQuery.order('created_at', {ascending: false, nullsFirst: false});
   } else if (opts.sort === 'expire-asc') dataQuery = dataQuery.order('expire', {ascending: true, nullsFirst: false});
   else if (opts.sort === 'expire-desc') dataQuery = dataQuery.order('expire', {ascending: false, nullsFirst: false});
-  else if (opts.sort === 'return-asc' || opts.sort === 'return-desc') {
-    dataQuery = dataQuery.order('temp_return', {ascending: opts.sort === 'return-asc', nullsFirst: false});
-  }
   else dataQuery = dataQuery.order('created_at', {ascending: false, nullsFirst: false});
 
   var isReturnSort = (opts.sort === 'return-asc' || opts.sort === 'return-desc');
-  dataQuery = dataQuery.range(from, to);
-  
-  Promise.all([
-    countQuery.then(function(r) { return r; }),
-    dataQuery.then(function(r) { return r; })
-  ]).then(function(results) {
-    var total = (results[0] && results[0].count) || 0;
-    var rows = (results[1] && results[1].data) || [];
-    var cases = rows.map(function(r) { return dbRowToCase(r); });
-    
-    callback(cases, total);
-  }).catch(function(err) {
-    console.error('sbFetchDoneCases error:', err);
-    callback([], 0);
-  });
+
+  if (isReturnSort) {
+    Promise.all([
+      countQuery.then(function(r) { return r; }),
+      dataQuery.select('id').then(function(r) { return r; }),
+      _sb.from('persons').select('case_id,temp_return').not('temp_return', 'is', null).then(function(r) { return r; })
+    ]).then(function(results) {
+      var total = (results[0] && results[0].count) || 0;
+      var allIds = ((results[1] && results[1].data) || []).map(function(r) { return r.id; });
+      var personRows = (results[2] && results[2].data) || [];
+      var trMap = {};
+      personRows.forEach(function(p) { if (p.temp_return) trMap[p.case_id] = p.temp_return; });
+      var asc = (opts.sort === 'return-asc');
+      allIds.sort(function(a, b) {
+        var da = trMap[a] ? new Date(trMap[a]).getTime() : (asc ? 9999999999999 : -1);
+        var db = trMap[b] ? new Date(trMap[b]).getTime() : (asc ? 9999999999999 : -1);
+        return asc ? da - db : db - da;
+      });
+      var pagedIds = allIds.slice(from, from + pageSize);
+      if (!pagedIds.length) { callback([], total); return; }
+      _sb.from('cases').select('*').in('id', pagedIds).then(function(res) {
+        var rows = (res && res.data) || [];
+        var rowMap = {};
+        rows.forEach(function(r) { rowMap[r.id] = r; });
+        var cases = pagedIds.map(function(id) { return rowMap[id] ? dbRowToCase(rowMap[id]) : null; }).filter(Boolean);
+        personRows.forEach(function(p) {
+          if (!personData[p.case_id]) personData[p.case_id] = {};
+          if (p.temp_return) personData[p.case_id].tempReturn = p.temp_return;
+        });
+        callback(cases, total);
+      }).catch(function() { callback([], total); });
+    }).catch(function(err) {
+      console.error('sbFetchDoneCases(returnSort) error:', err);
+      callback([], 0);
+    });
+  } else {
+    dataQuery = dataQuery.range(from, to);
+    Promise.all([
+      countQuery.then(function(r) { return r; }),
+      dataQuery.then(function(r) { return r; })
+    ]).then(function(results) {
+      var total = (results[0] && results[0].count) || 0;
+      var rows = (results[1] && results[1].data) || [];
+      var cases = rows.map(function(r) { return dbRowToCase(r); });
+      callback(cases, total);
+    }).catch(function(err) {
+      console.error('sbFetchDoneCases error:', err);
+      callback([], 0);
+    });
+  }
 }
 
 // DB行 → cData形式に変換
