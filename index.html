@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260311_0710 -->
+<!-- OFUSA_VERSION 20260311_0716 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -9182,8 +9182,12 @@ supportOrgs.forEach(function(o){
 var companies = [];
 
 // ===== データ永続化（localStorage）=====
+var _persistSupportOrgsTimer = null;
 function persistSupportOrgs() {
   try { localStorage.setItem('ofusa_supportOrgs', JSON.stringify(supportOrgs)); } catch(e) {}
+  // デバウンス: 500ms以内の連続呼び出しをまとめて1回だけDB送信
+  clearTimeout(_persistSupportOrgsTimer);
+  _persistSupportOrgsTimer = setTimeout(function() {
   if(DB_READY && supportOrgs.length) {
     var rows = supportOrgs.map(function(s) {
       return {
@@ -9224,24 +9228,34 @@ function persistSupportOrgs() {
       r.support_staff_list = s.supportStaffList || [];
       return r;
     });
-    _sb.from('support_orgs').upsert(rows,{onConflict:'id'}).then(function(r){
-      if(r && r.error){
-        console.error('❌ supportOrgs save error:', r.error.message);
-        // dataカラム/officesカラムなど不足時のフォールバック: data以外で再試行
-        if(r.error.message){
-          var fallbackRows = rows.map(function(row){
-            var fr = Object.assign({}, row);
-            if(r.error.message.indexOf('data')!==-1) delete fr.data;
-            if(r.error.message.indexOf('offices')!==-1) delete fr.offices;
-            return fr;
-          });
-          _sb.from('support_orgs').upsert(fallbackRows,{onConflict:'id'}).then(function(r2){
-            if(r2&&r2.error) console.error('❌ supportOrgs fallback error:', r2.error.message);
-          });
+    // _dbExcludedCols方式：存在しないカラムをキャッシュして除外しながら再試行
+    function _soUpsert(tryRows, attempt) {
+      // キャッシュ済み除外カラムを適用
+      tryRows = tryRows.map(function(row) {
+        var nr = {};
+        Object.keys(row).forEach(function(k) {
+          if (!_dbExcludedCols['so_' + k]) nr[k] = row[k];
+        });
+        return nr;
+      });
+      _sb.from('support_orgs').upsert(tryRows, {onConflict:'id'}).then(function(res) {
+        if (!res || !res.error) return; // 成功
+        var msg = res.error.message || '';
+        // "Could not find the 'xxx' column" パターンからカラム名を抽出
+        var m = msg.match(/Could not find the '([^']+)' column/);
+        if (m && attempt < 30) {
+          var badCol = m[1];
+          _dbExcludedCols['so_' + badCol] = true;
+          console.warn('⚠️ support_orgs: カラム除外 →', badCol);
+          _soUpsert(tryRows, attempt + 1);
+        } else {
+          console.error('❌ supportOrgs save error:', msg);
         }
-      }
-    });
+      });
+    }
+    _soUpsert(rows, 0);
   }
+  }, 500); // デバウンス終了
 }
 var _persistCompaniesTimer = null;
 function persistCompanies() {
