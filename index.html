@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260312_0608 -->
+<!-- OFUSA_VERSION 20260312_0618 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -14011,13 +14011,20 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
   // TEMPLATE_CATEGORIESのtemplatesが空でも、localStorageに直接データがあるか全キーを検索
   var entry=tplData[tplKey];
   if(!entry||!entry.data){
-    // tplGroupに一致するエントリをlocalStorageから検索
-    var foundKey=null;
+    // tplGroupに一致するエントリをlocalStorageから検索（_selectedTplIdx番目を優先）
+    var groupEntries=[];
     Object.keys(tplData).forEach(function(k){
       var t=tplData[k];
-      if(t&&t.group===tplGroup&&t.data) foundKey=k;
+      if(t&&t.group===tplGroup&&t.data) groupEntries.push({key:k,data:t});
     });
-    if(foundKey) entry=tplData[foundKey];
+    // groupEntriesを並べ替え（キーのインデックス部分でソート）
+    groupEntries.sort(function(a,b){
+      var ai=parseInt((a.key.match(/_(\d+)$/)||[0,0])[1],10);
+      var bi=parseInt((b.key.match(/_(\d+)$/)||[0,0])[1],10);
+      return ai-bi;
+    });
+    var targetEntry=groupEntries[_selectedTplIdx]||groupEntries[0];
+    if(targetEntry) entry=targetEntry.data;
   }
   if(!entry||!entry.data){
     // Supabase Storageからフォールバック取得
@@ -14056,7 +14063,9 @@ function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zip
   if(typeof JSZip==='undefined'){alert('JSZipが読み込まれていません');return;}
 
   // テンプレート名からxlsxかdocxか判定
-  var tplName = (TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].templates&&TEMPLATE_CATEGORIES[ci].templates[0]&&TEMPLATE_CATEGORIES[ci].templates[0].filename)||'';
+  var _tplIdxPN = (typeof _selectedTplIdx === 'number') ? _selectedTplIdx : 0;
+  var _tplEntryPN = TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].templates&&(TEMPLATE_CATEGORIES[ci].templates[_tplIdxPN]||TEMPLATE_CATEGORIES[ci].templates[0]);
+  var tplName = (_tplEntryPN&&_tplEntryPN.filename)||(_tplEntryPN&&_tplEntryPN.name)||'';
   var isXlsx = /\.xlsx?$/i.test(tplName) || (TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].name==='窓口申請書');
 
   if (isXlsx) {
@@ -14095,7 +14104,9 @@ function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zip
         return zip.generateAsync({type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
       });
     }).then(function(blob){
-      var catName = (TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].name)||'書類';
+      var _tplIdxForNameX = (typeof _selectedTplIdx === 'number') ? _selectedTplIdx : 0;
+      var _tplForNameX = TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].templates[_tplIdxForNameX];
+      var catName = ((_tplForNameX&&_tplForNameX.name)||(_tplForNameX&&_tplForNameX.filename)||(TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].name)||'書類');
       var fname = catName + '_' + getDisplayName(c) + '.xlsx';
       if (typeof zipCallback === 'function') { zipCallback(blob, fname); return; }
       var a=document.createElement('a');
@@ -14151,7 +14162,9 @@ function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zip
       return zip.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
     });
   }).then(function(blob){
-    var fname = ((TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].templates[0]&&TEMPLATE_CATEGORIES[ci].templates[0].name)||(TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].name)||'書類')+'_'+getDisplayName(c)+'.docx';
+    var _tplIdxForName = (typeof _selectedTplIdx === 'number') ? _selectedTplIdx : 0;
+    var _tplForName = TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].templates[_tplIdxForName];
+    var fname = ((_tplForName&&_tplForName.name)||(_tplForName&&_tplForName.filename)||(TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].name)||'書類')+'_'+getDisplayName(c)+'.docx';
     // ZIP一括生成モードの場合はコールバックに渡す
     if (typeof zipCallback === 'function') { zipCallback(blob, fname); return; }
     var a=document.createElement('a');
@@ -16668,7 +16681,7 @@ function getPersonCompleteInfo(caseId){
 function togglePersonManualComplete(caseId){
   if(!personData[caseId]) personData[caseId]={};
   personData[caseId]._manualComplete = !personData[caseId]._manualComplete;
-  persistPersonData();
+  persistPersonData(caseId);
   showTab('person');
 }
 
@@ -18005,7 +18018,7 @@ function renderLineGroupListInTab(caseId, groups, currentGid){
 function selectLineGroupFromTab(caseId,groupId,groupName){
   if(!personData[caseId]) personData[caseId]={};
   personData[caseId].lineGroupId=groupId;
-  persistPersonData();
+  persistPersonData(caseId);
   var cas=cData.find(function(c){return c.id===caseId;});
   var caseName=cas?cas.name||cas.applicant:caseId;
   var driveGasUrl=GAS_URL;
@@ -20951,7 +20964,7 @@ function selectLineGroup(caseId, groupId, groupName) {
   // personDataに即時保存
   if (caseId && personData[caseId]) {
     personData[caseId].lineGroupId = groupId;
-    persistPersonData();
+    persistPersonData(caseId);
   }
   // GASに案件ラベルを保存
   var cas = cData.find(function(c){return c.id===caseId;});
@@ -20989,7 +21002,7 @@ function setDocLocation(caseId, field, value, btn) {
   } else {
     personData[caseId][field] = value;
   }
-  persistPersonData();
+  persistPersonData(caseId);
   // ボタン状態更新
   var wrap = btn.parentElement;
   if(wrap) {
@@ -21137,7 +21150,7 @@ function ruleBasedPersonExtract(fileData, caseId){
       applied++;
     }
   });
-  persistPersonData();
+  persistPersonData(caseId);
   // DOM更新（人材タブ表示中の場合）
   Object.keys(result).forEach(function(key){
     var el=document.getElementById('pf-'+key);
@@ -21252,7 +21265,7 @@ function applyAiPersonData(parsed, caseId){
     }
   });
   // 保存
-  persistPersonData();
+  if(typeof caseId!=='undefined') persistPersonData(caseId); else persistPersonData();
 
   // DOM上のinput更新（人材データタブ表示中の場合）
   Object.keys(parsed).forEach(function(key){
@@ -24776,14 +24789,14 @@ function generateDocText(caseId,ruleId){
         p.residenceStatus=el.value;
         if(!personData[caseId])personData[caseId]={};
         personData[caseId].residenceStatus=el.value;
-        persistPersonData();
+        persistPersonData(caseId);
       }
       else if(k==='residenceStatus'){cas.residenceStatus=el.value;updateCaseField(caseId,'residenceStatus',el.value);}
       else if(k==='nationality'){
         cas.nationality=el.value;updateCaseField(caseId,'nationality',el.value);
         if(!personData[caseId])personData[caseId]={};
         personData[caseId].nationality=el.value;
-        persistPersonData();
+        persistPersonData(caseId);
       }
     }
   });
@@ -27854,13 +27867,14 @@ var _origPersistSkippedFields = persistSkippedFields;
 persistSkippedFields = function(){_origPersistSkippedFields();if(DB_READY)_sb.from('settings').upsert({key:'skippedFields',value:skippedFields},{onConflict:'key'}).then(function(){});};
 
 // === personData の Supabase直接書き込み ===
-function persistPersonData(){
-  // Supabase直接書き込み
-  Object.keys(personData).forEach(function(caseId) {
-    persistPersonToDB(caseId, personData[caseId]);
-  });
-  // localStorageキャッシュ
+function persistPersonData(specificCaseId){
+  // localStorageキャッシュ（常に全件）
   try{localStorage.setItem('ofusa_personData',JSON.stringify(personData));}catch(e){}
+  // DB書き込み: specificCaseIdが指定された場合はその1件のみ、なければスキップ
+  // （全件ループはリクエスト爆発の原因になるため廃止）
+  if(specificCaseId && DB_READY){
+    persistPersonToDB(specificCaseId, personData[specificCaseId]);
+  }
 }
 
 // 初期化：ログインユーザー一覧を構築
