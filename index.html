@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260311_1201 -->
+<!-- OFUSA_VERSION 20260312_0214 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -8446,7 +8446,13 @@ function buildDocCard(c,taskName,ti,st,key,deadline,today,ST_LABEL,ST_COLOR,ST_B
   h+=getDisplayName(c);
   if(dlLabel) h+=' <span style="font-size:10px;color:'+dlColor+';font-weight:400;">'+dlLabel+'</span>';
   h+='</div>';
-  h+='<div style="font-size:10px;color:var(--gray-400);'+(isUnnecessary?'text-decoration:line-through;':'')+'">'+c.id+'　'+c.name+'　'+c.team+'　'+c.staff+'</div>';
+  var _taskAssign = taskAssignee[key]||'';
+  var _assignOpts = '<option value="">-- 対応者 --</option>'+USERS.map(function(u){return '<option value="'+u.name+'"'+(_taskAssign===u.name?' selected':'')+'>'+u.name+'</option>';}).join('');
+  var _assignColor = _taskAssign ? '#6366f1' : '#94a3b8';
+  var _assignBorder = _taskAssign ? '#c7d2fe' : '#e2e8f0';
+  var _assignPrefix = _taskAssign ? '👤 ' : '';
+  var _assignHtml = '<select onchange="event.stopPropagation();saveTaskAssignee(\''+key+'\',this.value);renderDocsContent()" onclick="event.stopPropagation()" style="font-size:10px;border:1px solid '+_assignBorder+';border-radius:4px;padding:1px 4px;color:'+_assignColor+';font-weight:'+(  _taskAssign?'700':'400')+';">'+(_taskAssign?'<option value="'+_taskAssign+'" selected>👤 '+_taskAssign+'</option>':'')+_assignOpts+'</select>';
+  h+='<div style="font-size:10px;color:var(--gray-400);'+(isUnnecessary?'text-decoration:line-through;':'')+'">'+c.id+'　'+c.name+'　'+c.team+'　'+c.staff+'　'+_assignHtml+'</div>';
   if(showTask)h+='<div style="font-size:10px;color:var(--blue);font-weight:600;margin-top:1px;'+(isUnnecessary?'text-decoration:line-through;':'')+'">📋 '+taskName+'</div>';
   h+='</div>';
   h+='<div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0;">';
@@ -16668,9 +16674,21 @@ function showTab(tab) {
     var TYPE_LIST_E  = ['認定','更新','変更','その他'];
     var FIELD_LIST = ['','介護分野','ビルクリーニング分野（特定技能１号）','ビルクリーニング分野（特定技能２号）','素形材・産業機械・電気電子（特定技能１号）','素形材・産業機械・電気電子（特定技能２号）','建設分野（特定技能１号）','建設分野（特定技能２号）','造船・舶用工業分野（特定技能１号）','造船・舶用工業分野（特定技能２号）','自動車整備分野（特定技能１号）','自動車整備分野（特定技能２号）','航空分野（特定技能１号）','航空分野（特定技能２号）','宿泊分野（特定技能１号）','宿泊分野（特定技能２号）','農業分野（特定技能１号）','農業分野（特定技能２号）','漁業分野（特定技能１号）','漁業分野（特定技能２号）','飲食料品製造業分野（特定技能１号）','飲食料品製造業分野（特定技能２号）','外食業分野（特定技能１号）','外食業分野（特定技能２号）'];
     // 登録支援機関の名前リスト
-    var orgNames = supportOrgs.map(function(o){ return o.name; });
+    // フォルダ番号順にソートした登録支援機関リスト
+    var sortedOrgs = supportOrgs.slice().sort(function(a,b){
+      var fa=a.folderNo?parseInt(a.folderNo)||99999:99999;
+      var fb=b.folderNo?parseInt(b.folderNo)||99999:99999;
+      return fa-fb;
+    });
+    var orgNames = sortedOrgs.map(function(o){ return o.name; });
+    var orgLabels = sortedOrgs.map(function(o){ return (o.folderNo?'['+o.folderNo+'] ':'')+o.name; });
     // 選択中の登録支援機関に紐づく所属機関(雇用企業)
-    var linkedCompanies = c.org ? companies.filter(function(co){ return co.supportOrgName === c.org; }) : companies;
+    var _allLinked = c.org ? companies.filter(function(co){ return co.supportOrgName === c.org; }) : companies;
+    var linkedCompanies = _allLinked.slice().sort(function(a,b){
+      var fa=a.folderNo?parseInt(a.folderNo)||99999:99999;
+      var fb=b.folderNo?parseInt(b.folderNo)||99999:99999;
+      return fa-fb;
+    });
     // 入力進捗計算
     var infoKeys = ['name','staff','org','company','empSetIdx','supportFee','appType','residenceStatus','expire','tokureiDate','receiptNo','receiptDate','toritsugisha','docCreateDate','applicantField','jobCategory','applicationDeadline','madoguchiDate','madoguchiReceiveDate'];
     var skipScope = 'case_'+c.id+'_info';
@@ -16813,12 +16831,16 @@ function showTab(tab) {
           h += '<select id="' + (f.id||'ei-'+f.k) + '" onchange="autoSaveInfo(\''+f.k+'\',this.value)" style="width:100%;font-size:13px;font-weight:700;color:var(--navy);padding:5px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;cursor:pointer;outline:none;">';
           if(f.k !== 'status') h += '<option value="">— 選択 —</option>';
           var optsList = typeof f.opts === 'string' ? window[f.opts] || [] : (f.opts||[]);
-          optsList.forEach(function(o){ h += '<option value="'+o+'"'+(o===val?' selected':'')+'>'+o+'</option>'; });
+          var labelList = (f.k==='org' && typeof orgLabels !== 'undefined') ? orgLabels : optsList;
+          optsList.forEach(function(o,oi){ h += '<option value="'+o+'"'+(o===val?' selected':'')+'>'+(labelList[oi]||o)+'</option>'; });
           h += '</select>';
         } else if (f.type === 'companySelect') {
           h += '<select id="' + (f.id||'ei-'+f.k) + '" onchange="onInfoCompanyChange()" style="width:100%;font-size:13px;font-weight:700;color:var(--navy);padding:5px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;cursor:pointer;outline:none;">';
           h += '<option value="">— 選択 —</option>';
-          linkedCompanies.forEach(function(co){ h += '<option value="'+co.name+'"'+(co.name===c.company?' selected':'')+'>'+co.name+'</option>'; });
+          linkedCompanies.forEach(function(co){
+            var label = (co.folderNo ? '['+co.folderNo+'] ' : '') + co.name;
+            h += '<option value="'+co.name+'"'+(co.name===c.company?' selected':'')+'>'+label+'</option>';
+          });
           h += '</select>';
 
         } else if (f.type === 'empSetSelect') {
@@ -22700,7 +22722,7 @@ function openManualRecord(){
   // 登録支援機関セレクト
   var orgSel = document.getElementById('mr_org');
   orgSel.innerHTML = '<option value="">-- 選択 --</option>';
-  supportOrgs.filter(function(o){return o.name!=='その他'&&o.name!=='企業単独';}).forEach(function(o){ orgSel.innerHTML += '<option value="'+o.name+'">'+o.name+'</option>'; });
+  supportOrgs.filter(function(o){return o.name!=='その他'&&o.name!=='企業単独';}).slice().sort(function(a,b){var fa=a.folderNo?parseInt(a.folderNo)||99999:99999,fb=b.folderNo?parseInt(b.folderNo)||99999:99999;return fa-fb;}).forEach(function(o){ var lbl=(o.folderNo?'['+o.folderNo+'] ':'')+o.name; orgSel.innerHTML += '<option value="'+o.name+'">'+lbl+'</option>'; });
   orgSel.innerHTML += '<option value="企業単独">企業単独</option>';
   document.getElementById('mr_company').value='';
   // 案件セレクト
@@ -22777,7 +22799,7 @@ function openNewCase() {
   // 登録支援機関セレクト動的生成
   var orgSel = document.getElementById('nc_org');
   orgSel.innerHTML = '<option value="">-- 選択 --</option>';
-  supportOrgs.filter(function(o){return o.name!=='その他'&&o.name!=='企業単独';}).forEach(function(o){ orgSel.innerHTML += '<option value="'+o.name+'">'+o.name+'</option>'; });
+  supportOrgs.filter(function(o){return o.name!=='その他'&&o.name!=='企業単独';}).slice().sort(function(a,b){var fa=a.folderNo?parseInt(a.folderNo)||99999:99999,fb=b.folderNo?parseInt(b.folderNo)||99999:99999;return fa-fb;}).forEach(function(o){ var lbl=(o.folderNo?'['+o.folderNo+'] ':'')+o.name; orgSel.innerHTML += '<option value="'+o.name+'">'+lbl+'</option>'; });
   orgSel.innerHTML += '<option value="企業単独">企業単独</option>';
   // 所属機関(雇用企業)：検索用データ準備
   document.getElementById('nc_companySearch').value='';
