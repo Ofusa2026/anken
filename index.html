@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260312_0754 -->
+<!-- OFUSA_VERSION 20260312_0758 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -9457,7 +9457,8 @@ function persistCaseNotes() {
     });
     if(!rows.length) return;
     _sb.from('case_notes').upsert(rows,{onConflict:'case_id'}).then(function(r){
-      if(r.error) console.error('caseNotes sync err:', r.error.message);
+      if(r.error) console.error('❌ [OFUSA] caseNotes sync err:', r.error.message);
+      else console.info('✅ [OFUSA] caseNotes synced:', rows.length, '件');
     });
   }, 500);
 }
@@ -15355,7 +15356,10 @@ function saveProgressMemo(caseId) {
   if (!ta) return;
   if (!caseNotes[caseId]) caseNotes[caseId] = { text:'', confirm:false, assignee:'', reply:'', replied:false };
   caseNotes[caseId].progressMemo = ta.value;
+  _skipCaseNotesRealtime = true;
+  setTimeout(function(){ _skipCaseNotesRealtime = false; }, 2000);
   persistCaseNotes();
+  console.info('✅ [OFUSA] progressMemo saved:', caseId, ta.value.length + '文字');
 }
 
 function saveCaseNote(caseId) {
@@ -27853,23 +27857,34 @@ function handleRealtimeChange(table, payload) {
   
   else if (table === 'case_notes' && newRow) {
     if (_skipCaseNotesRealtime) return;
-    // DBからのnoteをマージ（ローカル変更を上書きしないように）
+    // DBからのnoteを受信 → DB値を優先（他ユーザーの更新を反映）
     var dbNote = newRow.note;
     if (typeof dbNote === 'string') { try { dbNote = JSON.parse(dbNote); } catch(e) { dbNote = {text: dbNote}; } }
     if (dbNote && typeof dbNote === 'object') {
-      var local = caseNotes[newRow.case_id];
-      if (!local) {
-        caseNotes[newRow.case_id] = dbNote;
-      } else {
-        // ローカルにconfirmState等の新フィールドがある場合は保持
-        var merged = {};
-        for (var mk in dbNote) { merged[mk] = dbNote[mk]; }
-        for (var lk in local) { if (local[lk] !== undefined && local[lk] !== '') merged[lk] = local[lk]; }
-        caseNotes[newRow.case_id] = merged;
+      var local = caseNotes[newRow.case_id] || {};
+      // DB値を基本とし、ローカルで現在編集中のフィールドのみ保持
+      var merged = {};
+      for (var mk in dbNote) { merged[mk] = dbNote[mk]; }
+      // 現在フォーカス中（編集中）のフィールドのみローカル値を保持
+      var activeEl = document.activeElement;
+      var activeId = activeEl ? activeEl.id : '';
+      var cid = newRow.case_id;
+      if (activeId === 'progressMemo_' + cid && local.progressMemo !== undefined) merged.progressMemo = local.progressMemo;
+      if (activeId === 'caseNote_' + cid && local.text !== undefined) merged.text = local.text;
+      caseNotes[cid] = merged;
+      // UI上のテキストエリアも更新（フォーカス中でなければ）
+      if (activeId !== 'progressMemo_' + cid) {
+        var pmEl = document.getElementById('progressMemo_' + cid);
+        if (pmEl) pmEl.value = merged.progressMemo || '';
+      }
+      if (activeId !== 'caseNote_' + cid) {
+        var cnEl = document.getElementById('caseNote_' + cid);
+        if (cnEl) cnEl.value = merged.text || '';
       }
     } else {
       if (!caseNotes[newRow.case_id]) caseNotes[newRow.case_id] = dbNote;
     }
+    try{localStorage.setItem('ofusa_caseNotes',JSON.stringify(caseNotes));}catch(e){}
   }
 }
 
