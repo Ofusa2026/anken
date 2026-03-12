@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260312_0742 -->
+<!-- OFUSA_VERSION 20260312_0749 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -3980,6 +3980,7 @@ function reScanTpl(ci, ti) {
   var cat = TEMPLATE_CATEGORIES[ci];
   var tpl = cat && cat.templates[ti];
   if (!tpl) return;
+  window._reScanCi = ci; window._reScanTi = ti;
   showToast('🔍 変数スキャン中...');
 
   // 1. localStorageから取得を試みる
@@ -4072,6 +4073,12 @@ function scanDocxPlaceholders(base64raw){
         }
         var allVars=Object.keys(found);
         console.log('📋 docxプレースホルダー検出:', allVars);
+        // スキャン結果を保存（一覧での件数表示に使用）
+        if(window._reScanCi!=null && window._reScanTi!=null){
+          var _svKey='ofusa_tplPhVars_'+_reScanCi+'_'+_reScanTi;
+          try{localStorage.setItem(_svKey,JSON.stringify(allVars));}catch(e){}
+          renderTemplatesContent();
+        }
         if(!allVars.length){
           showToast('⚠️ テンプレート変数（{{...}}）が見つかりませんでした');
           return;
@@ -4281,11 +4288,21 @@ function renderTemplatesContent() {
       if (t.lang) h += '<span style="font-size:11px;">' + t.lang + '</span>';
       h += '<span style="font-size:12px;font-weight:600;color:var(--navy);">' + t.name + '</span>';
       var mKey = getTplMappingKey(ci, realIdx);
-      // showTplDetailと同じロジックでカウント（保存済みとデフォルトの大きい方）
+      var _isDocx = t.filename && t.filename.match(/\.docx$/i);
       var _mSaved = (tplMappings[mKey]||[]).length;
       var _mDef = cat.name.indexOf('1-16')>=0?CELL_MAPPING_116.length:cat.name.indexOf('1-6')>=0?CELL_MAPPING_16.length:cat.name.indexOf('1-4')>=0?CELL_MAPPING_14.length:cat.name.indexOf('1-17')>=0?CELL_MAPPING_17.length:cat.name.indexOf('1-11')>=0?CELL_MAPPING_111.length:cat.name.indexOf('1-23')>=0?CELL_MAPPING_123.length:cat.name.indexOf('1-25')>=0?CELL_MAPPING_125.length:cat.name.indexOf('1-29')>=0?CELL_MAPPING_129.length:0;
       var mCount = _mSaved || _mDef;
-      h += '<span style="font-size:10px;color:var(--blue);margin-left:4px;">📋 マッピング'+(mCount?' ('+mCount+')':'')+' ›</span>';
+      // docxはスキャン済み変数数を優先表示
+      var mLabel = _isDocx ? '変数' : 'マッピング';
+      if(_isDocx){
+        try{
+          var _svk='ofusa_tplPhVars_'+ci+'_'+realIdx;
+          var _svd=localStorage.getItem(_svk);
+          if(_svd){ var _svArr=JSON.parse(_svd); mCount=_svArr.length; }
+          else mCount=0;
+        }catch(e){mCount=0;}
+      }
+      h += '<span style="font-size:10px;color:var(--blue);margin-left:4px;">📋 '+mLabel+(mCount?' ('+mCount+')':'')+' ›</span>';
       h += '</div>';
       h += '<div style="display:flex;align-items:center;gap:6px;">';
       if (t.uploadDate) h += '<span style="font-size:9px;color:var(--gray-400);">' + t.uploadDate + ' ' + (t.uploadTime||'') + '</span>';
