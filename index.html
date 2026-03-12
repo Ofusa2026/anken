@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260312_0647 -->
+<!-- OFUSA_VERSION 20260312_0726 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -4113,12 +4113,15 @@ function showPHMappingModal(unknownVars, knownVars){
 
   h+='<div style="display:flex;flex-direction:column;gap:10px;" id="phMapRows">';
   unknownVars.forEach(function(v, idx){
-    // 既存ユーザーマッピングがあればプリセット
-    var existing=_userPHMap[v]||'';
-    h+='<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">';
-    h+='<div style="flex:0 0 auto;font-size:11px;font-weight:700;color:#1e3a5f;min-width:160px;word-break:break-all;">{{'+v+'}}</div>';
+    // 既存ユーザーマッピング → PLACEHOLDER_MAP自動推測 の順でプリセット
+    var existing=_userPHMap[v]||PLACEHOLDER_MAP[v]||'';
+    // 自動推測できた場合は即座にユーザーマップにも記録（次回以降スキップ）
+    if(!_userPHMap[v] && PLACEHOLDER_MAP[v]) _userPHMap[v] = PLACEHOLDER_MAP[v];
+    var autoTag = (!_userPHMap[v] && existing) ? ' <span style="font-size:9px;background:#dbeafe;color:#1e40af;border-radius:3px;padding:1px 4px;">自動</span>' : '';
+    h+='<div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:'+(existing?'#f0fdf4':'#f8fafc')+';border-radius:8px;border:1px solid '+(existing?'#86efac':'#e2e8f0')+';">';
+    h+='<div style="flex:0 0 auto;font-size:11px;font-weight:700;color:#1e3a5f;min-width:160px;word-break:break-all;">{{'+v+'}}'+autoTag+'</div>';
     h+='<div style="font-size:14px;color:#94a3b8;">→</div>';
-    h+='<select id="phMap_'+idx+'" data-phkey="'+v.replace(/"/g,'&quot;')+'" style="flex:1;font-size:11px;padding:6px 8px;border:1.5px solid #cbd5e1;border-radius:6px;background:white;">';
+    h+='<select id="phMap_'+idx+'" data-phkey="'+v.replace(/"/g,'&quot;')+'" style="flex:1;font-size:11px;padding:6px 8px;border:1.5px solid '+(existing?'#86efac':'#cbd5e1')+';border-radius:6px;background:white;">';
     h+=optionsHtml.replace('value="'+existing+'"','value="'+existing+'" selected');
     h+='</select>';
     h+='</div>';
@@ -13229,6 +13232,9 @@ function showMappingPreview() {
     if(field==='co.authorTitleName') return ((co.authorTitle||'')+' '+(co.authorName||'')).trim();
     if(field==='co.repTitleName') return ((co.repTitle||'')+' '+(co.repName||'')).trim();
     if(field==='case.docCreateDate') return c.docCreateDate||'';
+    if(field==='case.docYear'){var _dy=c.docCreateDate||'';if(_dy){var _dp=_dy.split(/[-\/]/);return _dp[0]||'';}return '';}
+    if(field==='case.docMonth'){var _dm=c.docCreateDate||'';if(_dm){var _dpm=_dm.split(/[-\/]/);return _dpm[1]?String(parseInt(_dpm[1],10)):'';}return '';}
+    if(field==='case.docDay'){var _dd=c.docCreateDate||'';if(_dd){var _dpd=_dd.split(/[-\/]/);return _dpd[2]?String(parseInt(_dpd[2],10)):'';}return '';}
     // 在留期限分割
     if(field==='p.expireY'){var ex=p.expire||c.expire||'';var ep=ex.split(/[-\/]/);return ep[0]||'';}
     if(field==='p.expireM'){var ex2=p.expire||c.expire||'';var ep2=ex2.split(/[-\/]/);return ep2[1]?String(parseInt(ep2[1],10)):'';}
@@ -13264,7 +13270,22 @@ function showMappingPreview() {
     if(field.indexOf('p.')===0) return p[field.substring(2)]||'';
     if(field.indexOf('co.')===0) return co[field.substring(3)]||'';
     if(field.indexOf('es.')===0){var k=field.substring(3);return es[k]!=null&&es[k]!=='' ? String(es[k]) : '';}
-    if(field.indexOf('so.')===0){var _soName=co.supportOrgName||c.org||'';var _so=supportOrgs.find(function(x){return x.name===_soName;})||{};return _so[field.substring(3)]||'';}
+    if(field.indexOf('so.')===0){var _soName=co.supportOrgName||c.org||'';var _so=supportOrgs.find(function(x){return x.name===_soName;})||{};
+      var _soF=field.substring(3);
+      // 登録年月日の分割
+      if(_soF==='regY'||_soF==='regM'||_soF==='regD'){var _rd=(_so.regDate||'').split('-');if(_soF==='regY')return _rd[0]||'';if(_soF==='regM')return _rd[1]?String(parseInt(_rd[1])):'';if(_soF==='regD')return _rd[2]?String(parseInt(_rd[2])):'';}
+      // 代表者ふりがな
+      if(_soF==='repNameKana') return _so.repNameKana||_so.repName||'';
+      // 代表者英語
+      if(_soF==='repNameEn') return _so.repNameEn||'';
+      // 支援責任者
+      if(_soF==='supportManager') return _so.supportManager||_so.supportManagerName||'';
+      if(_soF==='supportManagerKana') return _so.supportManagerKana||'';
+      if(_soF==='supportManagerEn') return _so.supportManagerNameEn||'';
+      if(_soF==='supportManagerTitle') return _so.supportManagerTitle||'';
+      if(_soF==='supportManagerTitleEn') return _so.supportManagerTitleEn||'';
+      return _so[_soF]||'';
+    }
     if(field==='applicantName') return getDisplayName(c);
     if(field==='applicantNameEn') return p.applicantNameEn||p.nameEn||c.applicant||'';
     return '';
@@ -13711,6 +13732,9 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
     if(field==='co.authorTitleName') return ((co.authorTitle||'')+' '+(co.authorName||'')).trim();
     if(field==='co.repTitleName') return ((co.repTitle||'')+' '+(co.repName||'')).trim();
     if(field==='case.docCreateDate') return c.docCreateDate||'';
+    if(field==='case.docYear'){var _dy=c.docCreateDate||'';if(_dy){var _dp=_dy.split(/[-\/]/);return _dp[0]||'';}return '';}
+    if(field==='case.docMonth'){var _dm=c.docCreateDate||'';if(_dm){var _dpm=_dm.split(/[-\/]/);return _dpm[1]?String(parseInt(_dpm[1],10)):'';}return '';}
+    if(field==='case.docDay'){var _dd=c.docCreateDate||'';if(_dd){var _dpd=_dd.split(/[-\/]/);return _dpd[2]?String(parseInt(_dpd[2],10)):'';}return '';}
     // 在留期限分割
     if(field==='p.expireY'){var ex=p.expire||c.expire||'';var ep=ex.split(/[-\/]/);return ep[0]||'';}
     if(field==='p.expireM'){var ex2=p.expire||c.expire||'';var ep2=ex2.split(/[-\/]/);return ep2[1]?String(parseInt(ep2[1],10)):'';}
@@ -13774,7 +13798,22 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
       if(k==='salaryHourly') return es.salaryHourly||es.hourlyRate||'';
       return es[k]!=null&&es[k]!=='' ? String(es[k]) : '';
     }
-    if(field.indexOf('so.')===0){var _soName=co.supportOrgName||c.org||'';var _so=supportOrgs.find(function(x){return x.name===_soName;})||{};return _so[field.substring(3)]||'';}
+    if(field.indexOf('so.')===0){var _soName=co.supportOrgName||c.org||'';var _so=supportOrgs.find(function(x){return x.name===_soName;})||{};
+      var _soF=field.substring(3);
+      // 登録年月日の分割
+      if(_soF==='regY'||_soF==='regM'||_soF==='regD'){var _rd=(_so.regDate||'').split('-');if(_soF==='regY')return _rd[0]||'';if(_soF==='regM')return _rd[1]?String(parseInt(_rd[1])):'';if(_soF==='regD')return _rd[2]?String(parseInt(_rd[2])):'';}
+      // 代表者ふりがな
+      if(_soF==='repNameKana') return _so.repNameKana||_so.repName||'';
+      // 代表者英語
+      if(_soF==='repNameEn') return _so.repNameEn||'';
+      // 支援責任者
+      if(_soF==='supportManager') return _so.supportManager||_so.supportManagerName||'';
+      if(_soF==='supportManagerKana') return _so.supportManagerKana||'';
+      if(_soF==='supportManagerEn') return _so.supportManagerNameEn||'';
+      if(_soF==='supportManagerTitle') return _so.supportManagerTitle||'';
+      if(_soF==='supportManagerTitleEn') return _so.supportManagerTitleEn||'';
+      return _so[_soF]||'';
+    }
     if(field==='applicantName') return getDisplayName(c);
     if(field==='applicantNameEn') return p.applicantNameEn||p.nameEn||c.applicant||'';
     if(field==='applicantField') return c.applicantField||es.applicantField||es.field||'';
@@ -13910,6 +13949,17 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
     '登録支援機関番号':'so.regNo',
     '登録支援機関電話番号':'so.tel',
     '登録支援機関代表者名':'so.repName',
+    '登録支援機関代表者':'so.repName',
+    '登録支援機関代表者ふりがな':'so.repNameKana',
+    '登録支援機関代表者英語':'so.repNameEn',
+    '登録年月日':'so.regDate',
+    '登録支援機関登録年月日':'so.regDate',
+    '所属機関.支援担当者役職':'co.supportManagerTitle',
+    '所属機関.支援担当者英語氏名':'co.supportManagerNameEn',
+    '所属機関.支援担当者英語役職':'co.supportManagerTitleEn',
+    '書類作成日(年)':'case.docYear',
+    '書類作成日(月)':'case.docMonth',
+    '書類作成日(日)':'case.docDay',
     '登録支援機関支援事業所名':'so.officeName',
     '登録支援機関支援事業所住所':'so.officeAddress',
     '登録支援機関対応言語':'so.language',
@@ -14095,13 +14145,25 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
         if(res.error||!res.data||!res.data.length){alert('テンプレートファイルが見つかりません。\n📁 書類テンプレからアップロードしてください。\n（ネットワークエラーの場合はページをリロードして再試行してください）');return;}
         var tplRow=res.data[Math.min(_selectedTplIdx, res.data.length-1)];
         if(!tplRow.storage_path){alert('テンプレートのStorageパスが未設定です。再アップロードしてください。');return;}
-        _sb.storage.from('templates').download(tplRow.storage_path).then(function(dlRes){
-          if(dlRes.error||!dlRes.data){alert('テンプレートのダウンロードに失敗しました。');return;}
-          dlRes.data.arrayBuffer().then(function(ab){
-            var bytes=new Uint8Array(ab);
-            processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zipCallback);
+        console.info('📥 [OFUSA] Storage download path:', tplRow.storage_path);
+        // sanitizedパスでも試みる
+        var dlPath = tplRow.storage_path;
+        var dlPathSan = sanitizeStoragePath(dlPath);
+        function tryDl(path, fallbackPath) {
+          _sb.storage.from('templates').download(path).then(function(dlRes){
+            if((dlRes.error||!dlRes.data) && fallbackPath && fallbackPath!==path){
+              console.warn('⚠️ [OFUSA] path失敗、sanitized再試行:', fallbackPath);
+              tryDl(fallbackPath, null);
+              return;
+            }
+            if(dlRes.error||!dlRes.data){alert('テンプレートのダウンロードに失敗しました。\npath: '+path+'\nerror: '+(dlRes.error&&dlRes.error.message));return;}
+            dlRes.data.arrayBuffer().then(function(ab){
+              var bytes=new Uint8Array(ab);
+              processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zipCallback);
+            });
           });
-        });
+        }
+        tryDl(dlPath, dlPathSan);
       });
       return; // 非同期なのでここでreturn
     }
@@ -14349,6 +14411,9 @@ function checkMappingFields(caseId, empSetIdx, mappingArr, onComplete) {
     if(field==='co.authorTitleName') return ((co.authorTitle||'')+' '+(co.authorName||'')).trim();
     if(field==='co.repTitleName') return ((co.repTitle||'')+' '+(co.repName||'')).trim();
     if(field==='case.docCreateDate') return c.docCreateDate||'';
+    if(field==='case.docYear'){var _dy=c.docCreateDate||'';if(_dy){var _dp=_dy.split(/[-\/]/);return _dp[0]||'';}return '';}
+    if(field==='case.docMonth'){var _dm=c.docCreateDate||'';if(_dm){var _dpm=_dm.split(/[-\/]/);return _dpm[1]?String(parseInt(_dpm[1],10)):'';}return '';}
+    if(field==='case.docDay'){var _dd=c.docCreateDate||'';if(_dd){var _dpd=_dd.split(/[-\/]/);return _dpd[2]?String(parseInt(_dpd[2],10)):'';}return '';}
     // 在留期限分割
     if(field==='p.expireY'){var ex=p.expire||c.expire||'';var ep=ex.split(/[-\/]/);return ep[0]||'';}
     if(field==='p.expireM'){var ex2=p.expire||c.expire||'';var ep2=ex2.split(/[-\/]/);return ep2[1]?String(parseInt(ep2[1],10)):'';}
