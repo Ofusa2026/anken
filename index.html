@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260312_0618 -->
+<!-- OFUSA_VERSION 20260312_0631 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -2030,6 +2030,7 @@ var _dbExcludedCols = {}; // 存在しないカラムをキャッシュ
 function persistCasesToDB(casesArray, callback) {
   if (!casesArray || !casesArray.length) { if(typeof callback==='function') callback(null); return; }
   if (!DB_READY) {
+    console.warn('⚠️ [OFUSA] DB_READY=false: 案件保存スキップ');
     showToast('⚠️ DB未接続のため保存されませんでした', 'error');
     if (typeof callback === 'function') callback(new Error('DB_NOT_READY'));
     return;
@@ -2143,7 +2144,7 @@ function persistCasesToDB(casesArray, callback) {
           if (typeof callback === 'function') callback(res.error);
         }
       } else {
-        console.log('📦 cases synced to DB:', rowsToTry.length);
+        console.info('✅ [OFUSA] cases synced to DB:', rowsToTry.length, '件');
         if (typeof callback === 'function') callback(null);
       }
     });
@@ -9155,14 +9156,41 @@ function autoSaveInfo(key, value) {
     });
     applyFilters();
   } else {
-    persistCasesToDB([c], function(err) {
-      if (err) {
-        showToast('❌ 保存失敗: ' + err, 'error');
-      } else {
-        showToast('✅ 保存しました');
-        _markCaseChanged(c.id); // DB保存完了後にも保護タイマーをリセット
-      }
-    });
+    // 変更したフィールドだけPATCH（他スタッフの変更を上書きしない）
+    var _COL_MAP = {
+      name:'name', staff:'staff', team:'team', org:'org', company:'company',
+      appType:'app_type', residenceStatus:'residence_status', currentStatus:'current_status',
+      expire:'expire', tokureiDate:'tokurei_date', receiptNo:'receipt_no',
+      receiptDate:'receipt_date', toritsugisha:'toritsugisha', docCreateDate:'doc_create_date',
+      applicantField:'applicant_field', jobCategory:'job_category', empSetIdx:'emp_set_idx',
+      supportFee:'support_fee', madoguchiDate:'madoguchi_date',
+      madoguchiReceiveDate:'madoguchi_receive_date', applicationDeadline:'application_deadline',
+      applicantFieldEn:'applicant_field_en', jobCategoryEn:'job_category_en',
+      otherSupportNote:'other_support_note', introFee:'intro_fee',
+      acceptExp:'accept_exp', personOrder:'person_order', memo:'memo',
+      shortageMemo:'shortage_memo', companyNote:'company_note', priority:'priority',
+      driveUrl:'drive_url', folderNo:'folder_no', industry:'industry'
+    };
+    var colName = _COL_MAP[key] || key;
+    var patchVal = value;
+    // 日付フィールドは空文字→nullに
+    var _dateCols = ['expire','tokurei_date','receipt_date','doc_create_date','madoguchi_date','madoguchi_receive_date','application_deadline'];
+    if(_dateCols.indexOf(colName)>=0) patchVal = value || null;
+    if(DB_READY){
+      _sb.from('cases').update({[colName]: patchVal}).eq('id', c.id).then(function(r){
+        if(r && r.error){
+          console.error('autoSaveInfo patch error:', r.error);
+          showToast('❌ 保存失敗: ' + (r.error.message||'').substring(0,60), 'error');
+        } else {
+          console.info('✅ [OFUSA] cases patch:', colName, '=', patchVal);
+          showToast('✅ 保存しました');
+          _markCaseChanged(c.id);
+        }
+      });
+    } else {
+      console.warn('⚠️ [OFUSA] DB_READY=false: autoSaveInfo patch skipped');
+      showToast('⚠️ DB未接続のため保存されませんでした', 'error');
+    }
   }
   // 進捗バー更新（不要項目除外）
   var infoKeys = ['name','staff','org','company','empSetIdx','supportFee','appType','residenceStatus','tokureiDate','receiptNo','receiptDate','toritsugisha','docCreateDate','applicantField','jobCategory'];
