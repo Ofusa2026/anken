@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260312_0808 -->
+<!-- OFUSA_VERSION 20260312_0813 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -15368,10 +15368,17 @@ function saveProgressMemo(caseId) {
   if (!ta) return;
   if (!caseNotes[caseId]) caseNotes[caseId] = { text:'', confirm:false, assignee:'', reply:'', replied:false };
   caseNotes[caseId].progressMemo = ta.value;
+  // localStorageに保存
+  try { localStorage.setItem('ofusa_caseNotes', JSON.stringify(caseNotes)); } catch(e) {}
+  // DBには1件だけ送信（全件送信を避ける）
   _skipCaseNotesRealtime = true;
-  setTimeout(function(){ _skipCaseNotesRealtime = false; }, 2000);
-  persistCaseNotes();
-  console.info('✅ [OFUSA] progressMemo saved:', caseId, ta.value.length + '文字');
+  setTimeout(function(){ _skipCaseNotesRealtime = false; }, 3000);
+  if (DB_READY) {
+    _sb.from('case_notes').upsert({case_id: caseId, note: caseNotes[caseId]}, {onConflict:'case_id'}).then(function(r){
+      if (r.error) console.error('❌ [OFUSA] progressMemo DB err:', r.error.message);
+      else console.info('✅ [OFUSA] progressMemo saved to DB:', caseId, ta.value.length + '文字');
+    });
+  }
 }
 
 function saveCaseNote(caseId) {
@@ -28016,8 +28023,7 @@ function gasGmailPost(action, data) {
 // 各persistXxx()にSupabase書き込みを追加
 // support_orgs DB保存は persistSupportOrgs 内で処理済み
 // persistCompanies は persistCompaniesToDB で処理済み
-var _origPersistCaseNotes = persistCaseNotes;
-persistCaseNotes = function(){_origPersistCaseNotes();if(DB_READY){var vi={};cData.forEach(function(c){vi[c.id]=true;});Object.keys(caseNotes).forEach(function(k){if(!vi[k])return;_sb.from('case_notes').upsert({case_id:k,note:caseNotes[k]},{onConflict:'case_id'}).then(function(){});});}};
+// persistCaseNotes override removed (duplicate)
 var _origPersistDocCheck = persistDocCheck;
 persistDocCheck = function(){_origPersistDocCheck();if(DB_READY)_sb.from('settings').upsert({key:'docCheck',value:docCheck},{onConflict:'key'}).then(function(){});};
 var _origPersistDocTaskStatus = persistDocTaskStatus;
