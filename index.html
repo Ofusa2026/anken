@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260312_0214 -->
+<!-- OFUSA_VERSION 20260312_0546 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -2120,7 +2120,9 @@ function persistCasesToDB(casesArray, callback) {
     _sb.from('cases').upsert(rowsToTry, {onConflict: 'id'}).then(function(res) {
       if (res.error) {
         var msg = res.error.message || '';
-        var m = msg.match(/find the '([^']+)' column/);
+        var m = msg.match(/find the '([^']+)' column/) ||
+                msg.match(/column "([^"]+)" of relation/) ||
+                msg.match(/unrecognized field name: (\S+)/);
         if (m && attempt < 10) {
           var badCol = m[1];
           _dbExcludedCols[badCol] = true; // セッション内でキャッシュ
@@ -2131,6 +2133,8 @@ function persistCasesToDB(casesArray, callback) {
           tryUpsert(fixed, attempt + 1);
         } else {
           console.error('persistCasesToDB error:', res.error);
+          var errMsg = (res.error.message||'').substring(0,80);
+          showToast('❌ 案件保存失敗: ' + errMsg, 'error');
           if (typeof callback === 'function') callback(res.error);
         }
       } else {
@@ -2304,7 +2308,9 @@ function persistCompaniesToDB(companiesArray, silent) {
     _sb.from('companies').upsert(rowsToTry, {onConflict: 'id'}).then(function(res) {
       if (res.error) {
         var msg = res.error.message || '';
-        var m = msg.match(/find the '([^']+)' column/);
+        var m = msg.match(/find the '([^']+)' column/) ||
+                msg.match(/column "([^"]+)" of relation/) ||
+                msg.match(/unrecognized field name: (\S+)/);
         if (m && attempt < 10) {
           var badCol = m[1];
           _dbExcludedCols[badCol] = true;
@@ -2341,7 +2347,8 @@ function persistPersonToDB(caseId, p) {
     addressCode:'address_code', jpDetailAddress:'jp_detail_address', address:'address',
     telNum:'tel_num', phone:'phone', celPhone:'cel_phone', email:'email',
     notificationEmail:'notification_email', residenceStatus:'residence_status',
-    expire:'expire', entryDate:'entry_date', arrivalPort:'arrival_port',
+    // expire は cases テーブルで管理するため persons には書き込まない
+    entryDate:'entry_date', arrivalPort:'arrival_port',
     stayYears:'stay_years', stayMonths:'stay_months', visaPlace:'visa_place',
     contractStart:'contract_start', contractEnd:'contract_end',
     skillEvalType:'skill_eval_type', skillExam1:'skill_exam_1',
@@ -9153,6 +9160,7 @@ function autoSaveInfo(key, value) {
         showToast('❌ 保存失敗: ' + err, 'error');
       } else {
         showToast('✅ 保存しました');
+        _markCaseChanged(c.id); // DB保存完了後にも保護タイマーをリセット
       }
     });
   }
@@ -9277,15 +9285,17 @@ function persistSupportOrgs() {
         ofusa_staff: s.ofusaStaff||null, memo: s.memo||null, folder_no: s.folderNo||null
       };
     });
-    // dataカラム（JSONB）にまるごと保存 → 読み込み時に優先使用
     rows = rows.map(function(r, i) {
       var s = supportOrgs[i];
-      r.data = s;
       r.offices = s.offices || [];
       r.support_staff_list = s.supportStaffList || [];
       return r;
     });
     // _dbExcludedCols方式：存在しないカラムをキャッシュして除外しながら再試行
+    // DBに存在しないことが既知のカラムを事前に除外
+    var _SO_KNOWN_MISSING = ['name_kana','rep_name_kana'];
+    _SO_KNOWN_MISSING.forEach(function(k){ _dbExcludedCols['so_'+k]=true; });
+
     function _soUpsert(tryRows, attempt) {
       // キャッシュ済み除外カラムを適用
       tryRows = tryRows.map(function(row) {
@@ -9296,17 +9306,21 @@ function persistSupportOrgs() {
         return nr;
       });
       _sb.from('support_orgs').upsert(tryRows, {onConflict:'id'}).then(function(res) {
-        if (!res || !res.error) return; // 成功
+        if (!res || !res.error) { console.log('📦 support_orgs synced'); return; }
         var msg = res.error.message || '';
-        // "Could not find the 'xxx' column" パターンからカラム名を抽出
-        var m = msg.match(/Could not find the '([^']+)' column/);
+        var code = res.error.code || '';
+        // カラム不存在パターン（複数形式に対応）
+        var m = msg.match(/Could not find the '([^']+)' column/) ||
+                msg.match(/column "([^"]+)" of relation/) ||
+                msg.match(/unrecognized field name: ([^\s,)]+)/);
         if (m && attempt < 30) {
           var badCol = m[1];
           _dbExcludedCols['so_' + badCol] = true;
           console.warn('⚠️ support_orgs: カラム除外 →', badCol);
           _soUpsert(tryRows, attempt + 1);
         } else {
-          console.error('❌ supportOrgs save error:', msg);
+          console.error('❌ supportOrgs save error:', msg, 'code:', code);
+          showToast('❌ 登録支援機関の保存失敗: ' + msg.substring(0,60), 'error');
         }
       });
     }
@@ -27231,7 +27245,8 @@ function loadAllFromSupabase() {
           address_code:'addressCode', jp_detail_address:'jpDetailAddress', address:'address',
           tel_num:'telNum', phone:'phone', cel_phone:'celPhone', email:'email',
           notification_email:'notificationEmail', residence_status:'residenceStatus',
-          expire:'expire', entry_date:'entryDate', arrival_port:'arrivalPort',
+          // expire は cases テーブルで管理するため persons からは取り込まない
+          entry_date:'entryDate', arrival_port:'arrivalPort',
           stay_years:'stayYears', stay_months:'stayMonths', visa_place:'visaPlace',
           contract_start:'contractStart', contract_end:'contractEnd',
           skill_eval_type:'skillEvalType', skill_exam_1:'skillExam1',
@@ -27480,11 +27495,7 @@ function loadAllFromSupabase() {
     }
     if (res.data && res.data.length) {
       var loaded = res.data.map(function(r) {
-        if (r.data && typeof r.data === 'object' && r.data.id) {
-          var o = r.data;
-          o.id = r.id;
-          return o;
-        }
+        // 各カラムから復元（dataカラムのJSONBキャッシュは使わない）
         return {
           id:r.id, name:r.name||'', nameEn:r.name_en||'', nameKana:r.name_kana||'', corpNo:r.corp_no||'',
           empInsNo:r.emp_ins_no||'',
@@ -27535,8 +27546,12 @@ var _realtimeDebounce = null;
 var _recentlyChangedCases = {}; // 直近に自分が変更したcaseId→タイムスタンプ
 function _markCaseChanged(caseId) {
   _recentlyChangedCases[caseId] = Date.now();
-  // 10秒後に削除
-  setTimeout(function(){ delete _recentlyChangedCases[caseId]; }, 10000);
+  // 60秒後に削除（Realtimeの遅延・再接続を考慮）
+  clearTimeout(_recentlyChangedCases[caseId + '_timer']);
+  _recentlyChangedCases[caseId + '_timer'] = setTimeout(function(){ 
+    delete _recentlyChangedCases[caseId]; 
+    delete _recentlyChangedCases[caseId + '_timer'];
+  }, 60000);
 }
 
 function initRealtime() {
@@ -27548,7 +27563,12 @@ function initRealtime() {
   _realtimeChannel = _sb.channel('db-changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'cases' }, function(payload) {
       console.log('🔔 Realtime cases:', payload.eventType, payload.new && payload.new.id);
-      handleRealtimeChange('cases', payload);
+      // UPDATE/INSERTは自分自身の変更が戻ってくるだけなので無視
+      // （persistCasesToDB完了時点でcDataは正確な値になっている）
+      // DELETEのみ処理する
+      if (payload.eventType === 'DELETE') {
+        handleRealtimeChange('cases', payload);
+      }
     })
     .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'companies' }, function(payload) {
       console.log('🔔 Realtime companies DELETE:', payload.old && payload.old.id);
@@ -27590,11 +27610,13 @@ function handleRealtimeChange(table, payload) {
       if (idx >= 0) {
         // 自分が直近（3秒以内）に変更したcaseはステータス・重要フィールドを保護
         var localCase = cData[idx];
-        var recentlyChanged = _recentlyChangedCases && _recentlyChangedCases[updated.id] && (Date.now() - _recentlyChangedCases[updated.id] < 10000);
+        var recentlyChanged = _recentlyChangedCases && _recentlyChangedCases[updated.id] && (Date.now() - _recentlyChangedCases[updated.id] < 60000);
         if (recentlyChanged) {
-          updated.status = localCase.status;
-          updated.expire = localCase.expire;
-          updated.tokureiDate = localCase.tokureiDate;
+          // 自分が最近変更したcaseはすべてのフィールドをローカル値で保護
+          console.log('🛡️ Realtime上書き防止:', updated.id);
+          Object.keys(localCase).forEach(function(k) {
+            updated[k] = localCase[k];
+          });
         }
         cData[idx] = updated;
       } else {
@@ -27620,6 +27642,8 @@ function handleRealtimeChange(table, payload) {
       if (newRow.temp_return) p.tempReturn = newRow.temp_return;
       if (newRow.applicant_name_en) p.applicantNameEn = newRow.applicant_name_en;
       if (newRow.extra && typeof newRow.extra === 'object') Object.assign(p, newRow.extra);
+      // expireはcasesテーブルで管理するためpersonsからは取り込まない
+      delete p.expire;
       personData[caseId] = p;
     }
   }
