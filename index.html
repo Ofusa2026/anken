@@ -7727,11 +7727,11 @@ function pushAllToGAS(){
   persistCasesToDB(cData);done++;
   // companies
   companies.forEach(function(co){
-    _sb.from('companies').upsert({id:co.id,name:co.name,data:co},{onConflict:'id'}).then(function(){}).catch(function(){});
+    _sb.from('companies').upsert({id:co.id,name:co.name},{onConflict:'id'}).then(function(){}).catch(function(){});
   });done++;
   // supportOrgs
   supportOrgs.forEach(function(so){
-    _sb.from('support_orgs').upsert({id:so.id,name:so.name,data:so},{onConflict:'id'}).then(function(){}).catch(function(){});
+    _sb.from('support_orgs').upsert({id:so.id,name:so.name},{onConflict:'id'}).then(function(){}).catch(function(){});
   });done++;
   // settings (teamData, docTaskStatus, caseNotes, docCheck, coDocCheck)
   var settingsItems=[
@@ -8853,7 +8853,7 @@ function setDocTaskStatus(caseId, taskIdx, status) {
       var row = {case_id:caseId, task_index:ti, status:docTaskStatus[key]||0, deadline:taskDeadline[key]||null, memo:taskMemo[key]||null};
       Promise.all([
         _sb.from('doc_tasks').upsert([row], {onConflict:'case_id,task_index'}),
-        _sb.from('cases').update({task_done:done, task_total:TASK_NAMES.length}).eq('id',caseId)
+        _sb.from('cases').update({task_done:done, task_total:TASK_NAMES.length, updated_at: new Date().toISOString()}).eq('id',caseId)
       ]).then(function(results){
         var errs = results.filter(function(r){return r.error;});
         if(errs.length) { console.error('DB save err:', errs); showToast('⚠️ 保存に失敗しました'); }
@@ -9080,7 +9080,7 @@ function autoSaveInfo(key, value) {
   try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){}
   if (key === 'status' && DB_READY) {
     // ステータスだけ軽量update
-    _sb.from('cases').update({status: value}).eq('id', c.id).then(function(r) {
+    _sb.from('cases').update({status: value, updated_at: new Date().toISOString()}).eq('id', c.id).then(function(r) {
       if (r && r.error) {
         showToast('❌ ステータス保存失敗: ' + r.error.message, 'error');
         console.error('status save err:', r.error);
@@ -9112,7 +9112,7 @@ function autoSaveInfo(key, value) {
     var _dateCols = ['expire','tokurei_date','receipt_date','doc_create_date','madoguchi_date','madoguchi_receive_date','application_deadline'];
     if(_dateCols.indexOf(colName)>=0) patchVal = value || null;
     if(DB_READY){
-      _sb.from('cases').update({[colName]: patchVal}).eq('id', c.id).then(function(r){
+      _sb.from('cases').update({[colName]: patchVal, updated_at: new Date().toISOString()}).eq('id', c.id).then(function(r){
         if(r && r.error){
           console.error('autoSaveInfo patch error:', r.error);
           showToast('❌ 保存失敗: ' + (r.error.message||'').substring(0,60), 'error');
@@ -9170,6 +9170,7 @@ function saveInfoEdit() {
   try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){}
   // 変更フィールドのみPATCH（他スタッフの変更を上書きしない）
   if (DB_READY && Object.keys(patch).length) {
+    patch.updated_at = new Date().toISOString();
     _sb.from('cases').update(patch).eq('id', c.id).then(function(r){
       if (r && r.error) {
         console.error('saveInfoEdit patch error:', r.error);
@@ -9261,7 +9262,7 @@ function persistSupportOrgs(soId) {
         support_manager: s.supportManager||null,
         support_manager_kana: s.supportManagerKana||null, support_manager_title: s.supportManagerTitle||null,
         supporter_count: s.supporterCount||null, support_staff_count: s.supportStaffCount||null,
-        support_staff: s.supportStaff||null, support_staff_list: s.supportStaffList||[],
+        support_staff_list: s.supportStaffList||[],
         job_permit_no: s.jobPermitNo||null, job_permit_date: s.jobPermitDate||null,
         jj_name: s.jjName||null, jj_corp_no_type: s.jjCorpNoType||null, jj_corp_no: s.jjCorpNo||null,
         jj_emp_ins_no: s.jjEmpInsNo||null, jj_zip: s.jjZip||null, jj_pref: s.jjPref||null,
@@ -9277,7 +9278,7 @@ function persistSupportOrgs(soId) {
       };
     });
     rows = rows.map(function(r, i) {
-      var s = targetOrgs[i];
+      var s = supportOrgs[i];
       r.offices = s.offices || [];
       r.support_staff_list = s.supportStaffList || [];
       return r;
@@ -10971,7 +10972,7 @@ function selectMergeTarget(sourceId, targetId) {
   // 2. DB更新（案件）
   if(DB_READY && updated.length){
     updated.forEach(function(c){
-      _sb.from('cases').update({company: tgt.name}).eq('id', c.id).then(function(r){
+      _sb.from('cases').update({company: tgt.name, updated_at: new Date().toISOString()}).eq('id', c.id).then(function(r){
         if(r.error) console.error('merge case update err:', r.error);
       });
     });
@@ -14495,11 +14496,11 @@ function checkMappingFields(caseId, empSetIdx, mappingArr, onComplete) {
         es[field.substring(3)]=val;
       } else if(field==='case.docCreateDate'){
         c.docCreateDate=val;
-        if(DB_READY) _sb.from('cases').update({doc_create_date:val}).eq('id',caseId).then(function(){});
+        if(DB_READY) _sb.from('cases').update({doc_create_date:val, updated_at: new Date().toISOString()}).eq('id',caseId).then(function(){});
         persist();
       } else if(field==='case.company'){
         c.company=val;
-        if(DB_READY) _sb.from('cases').update({company:val}).eq('id',caseId).then(function(){});
+        if(DB_READY) _sb.from('cases').update({company:val, updated_at: new Date().toISOString()}).eq('id',caseId).then(function(){});
         persist();
       }
     }
@@ -15809,7 +15810,7 @@ function bulkChangeStatus(){
   ids.forEach(function(cid){
     var c = cData.find(function(x){ return x.id === cid; });
     if(c) c.status = newStatus;
-    if(DB_READY) _sb.from('cases').update({status: newStatus}).eq('id', cid).then(function(r){ if(r.error) console.error('status patch err:', r.error); });
+    if(DB_READY) _sb.from('cases').update({status: newStatus, updated_at: new Date().toISOString()}).eq('id', cid).then(function(r){ if(r.error) console.error('status patch err:', r.error); });
   });
   persist();
   cancelGroupSelect();
@@ -15827,7 +15828,7 @@ function changeCaseStatus(caseId, newStatus){
   try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){}
   // ステータスだけ軽量update（タイムアウト回避）
   if(DB_READY){
-    _sb.from('cases').update({status:newStatus}).eq('id',caseId).then(function(r){
+    _sb.from('cases').update({status:newStatus, updated_at: new Date().toISOString()}).eq('id',caseId).then(function(r){
       if(r&&r.error){
         console.error('status update err:', r.error.message);
         showToast('❌ ステータス保存失敗: ' + r.error.message, 'error');
@@ -15852,7 +15853,7 @@ function toggleShinsa(el){
     if(!shinsaData[id].date) shinsaData[id].date=new Date().toISOString().slice(0,10);
     // ステータスも審査完了に変更
     var c=cData.find(function(x){return x.id===id;});
-    if(c){c.status='審査完了'; if(DB_READY)_sb.from('cases').update({status:'審査完了'}).eq('id',id).then(function(){});persist();}
+    if(c){c.status='審査完了'; if(DB_READY)_sb.from('cases').update({status:'審査完了', updated_at: new Date().toISOString()}).eq('id',id).then(function(){});persist();}
     // 全タスクを完了(3)にする
     for(var i=0;i<TASK_NAMES.length;i++){
       var key=id+'_'+i;
@@ -15868,7 +15869,7 @@ function toggleShinsa(el){
     shinsaData[id].done=false;
     // ステータスを審査中に戻す
     var c=cData.find(function(x){return x.id===id;});
-    if(c&&c.status==='審査完了'){c.status='審査中'; if(DB_READY)_sb.from('cases').update({status:'審査中'}).eq('id',id).then(function(){});persist();}
+    if(c&&c.status==='審査完了'){c.status='審査中'; if(DB_READY)_sb.from('cases').update({status:'審査中', updated_at: new Date().toISOString()}).eq('id',id).then(function(){});persist();}
   }
   persistShinsaData();
   
@@ -16187,7 +16188,7 @@ function applyDoneBulkStatus() {
     var c = cData.find(function(x){ return x.id === id; });
     if (c) c.status = newStatus;
     if (DB_READY) {
-      _sb.from('cases').update({status: newStatus}).eq('id', id).then(function(r) {
+      _sb.from('cases').update({status: newStatus, updated_at: new Date().toISOString()}).eq('id', id).then(function(r) {
         done++;
         if (done === total) {
           persist();
@@ -27686,7 +27687,7 @@ function loadAllFromSupabase() {
           officeAddressEn:r.office_address_en||'', supportManager:r.support_manager||'',
           supportManagerKana:r.support_manager_kana||'', supportManagerTitle:r.support_manager_title||'',
           supporterCount:r.supporter_count||'', supportStaffCount:r.support_staff_count||'',
-          supportStaff:r.support_staff||'', supportStaffList:r.support_staff_list||[],
+          supportStaffList:r.support_staff_list||[],
           jobPermitNo:r.job_permit_no||'', jobPermitDate:r.job_permit_date||'',
           jjName:r.jj_name||'', jjCorpNoType:r.jj_corp_no_type||'', jjCorpNo:r.jj_corp_no||'',
           jjEmpInsNo:r.jj_emp_ins_no||'', jjZip:r.jj_zip||'', jjPref:r.jj_pref||'',
