@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260313_0406 -->
+<!-- OFUSA_VERSION 20260313_0500 -->
 <!-- OFUSA v19 - 2026-03-04 13:00 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -2408,118 +2408,6 @@ function persistPersonToDB(caseId, p) {
   });
 }
 
-// ===== 初回データ同期（localStorage → Supabase）=====
-function initialSyncToSupabase() {
-  if (!DB_READY) return;
-  console.log('🔄 初回同期開始...');
-
-  // 有効なcaseIdセット
-  var validCaseIds = {};
-  cData.forEach(function(c){ validCaseIds[c.id] = true; });
-
-  // Phase 1: casesを先にupsert → 完了後にPhase2
-  var casesRows = [];
-  try {
-    var cases = JSON.parse(localStorage.getItem('ofusa_cases') || '[]');
-    casesRows = cases.map(function(c) {
-      return {
-        id:c.id, applicant:c.applicant||null, name:c.name||null, nationality:c.nationality||null,
-        org:c.org||null, company:c.company||null, app_type:c.appType||null,
-        residence_status:c.residenceStatus||null, current_status:c.currentStatus||null,
-        team:c.team||null, staff:c.staff||null, toritsugisha:c.toritsugisha||null, intro_fee:c.introFee||null, other_support_note:c.otherSupportNote||null,
-        expire:c.expire||null, status:c.status||'未着手',
-        emp_set_idx:c.empSetIdx!=null?String(c.empSetIdx):null,
-        support_fee:c.supportFee||null, applicant_field:c.applicantField||null,
-        job_category:c.jobCategory||null, receipt_no:c.receiptNo||null,
-        receipt_date:c.receiptDate||null, doc_create_date:c.docCreateDate||null,
-        folder_no:c.folderNo||null, industry:c.industry||null, memo:c.memo||null,
-        shortage_memo:c.shortageMemo||null, company_note:c.companyNote||null,
-        industry:c.industry||null,
-        members:c.members?JSON.stringify(c.members):null
-      };
-    });
-  } catch(e) {}
-
-  var afterCases = function() {
-    // Phase 2: cases完了後に依存テーブルを同期
-
-    // 人材データ: 起動時の全件一括送信は廃止（リクエスト数爆発防止）
-    // 各案件モーダルを開いた時・人材タブ保存時に個別送信する
-
-    // 企業
-    try {
-      var comps = JSON.parse(localStorage.getItem('ofusa_companies') || '[]');
-      if (comps.length) persistCompaniesToDB(comps);
-    } catch(e) {}
-
-    // 支援機関
-    try { persistSupportOrgs(); } catch(e) {}
-
-    // 書類タスク: DB最優先のためlocalStorageからの同期は廃止
-    // (削除済み)
-
-    // 審査データ
-    try {
-      var sd = JSON.parse(localStorage.getItem('ofusa_shinsaData') || '{}');
-      Object.keys(sd).forEach(function(caseId) {
-        if(!validCaseIds[caseId]) return;
-        var s=sd[caseId]||{};
-        _sb.from('shinsa_data').upsert({case_id:caseId,done:s.done||false,date:s.date||null,items:s},{onConflict:'case_id'}).then(function(r){if(r.error)console.error('shinsa sync err:',r.error);});
-      });
-    } catch(e) {}
-
-    // 案件メモ
-    try {
-      var cn = JSON.parse(localStorage.getItem('ofusa_caseNotes') || '{}');
-      var noteRows = [];
-      Object.keys(cn).forEach(function(cid){if(validCaseIds[cid])noteRows.push({case_id:cid,note:cn[cid]||''});});
-      if(noteRows.length) _sb.from('case_notes').upsert(noteRows,{onConflict:'case_id'}).then(function(r){if(r.error)console.error('caseNotes sync err:',r.error);else console.log('📦 caseNotes synced:',noteRows.length);});
-    } catch(e) {}
-
-    // settings系一括
-    var settingsKeys = [
-      {ls:'ofusa_docCheck',db:'doc_check'},{ls:'ofusa_coDocCheck',db:'co_doc_check'},
-      {ls:'ofusa_teamData',db:'team_data'},{ls:'ofusa_caseChats',db:'case_chats'},
-      {ls:'ofusa_editHistory',db:'edit_history'},{ls:'ofusa_shinsaList',db:'shinsa_list'},
-      {ls:'ofusa_certList',db:'cert_list'},{ls:'ofusa_receiptList',db:'receipt_list'},
-      {ls:'ofusa_savedMails',db:'saved_mails'},{ls:'ofusa_aiCheckRules',db:'ai_check_rules_data'},
-      {ls:'ofusa_tplMappings',db:'tplMappings'},{ls:'ofusa_skippedFields',db:'skipped_fields'},
-      {ls:'ofusa_lineSentHistory',db:'line_sent_history'},
-      {ls:'ofusa_userPHMap',db:'userPHMap'},
-      {ls:'ofusa_coRenameCatsBase',db:'co_rename_cats_base'},
-      {ls:'ofusa_coRenameCats',db:'co_rename_cats_extra'},
-      {ls:'ofusa_requiredDocsCo',db:'required_docs_co'},
-      {ls:'ofusa_requiredDocsCoField',db:'required_docs_co_field'},
-      {ls:'ofusa_requiredDocsCoKojin',db:'required_docs_co_kojin'},
-      {ls:'ofusa_requiredDocs',db:'required_docs'},
-      {ls:'ofusa_requiredDocsRyugaku',db:'required_docs_ryugaku'},
-      {ls:'ofusa_requiredDocsNationality',db:'required_docs_nationality'}
-    ];
-    var sRows = [];
-    settingsKeys.forEach(function(sk){try{var v=localStorage.getItem(sk.ls);if(v)sRows.push({key:sk.db,value:v});}catch(e){}});
-    try{var ak=localStorage.getItem('ofusa_apiKey');if(ak)sRows.push({key:'api_key',value:ak});}catch(e){}
-    try{var lt=localStorage.getItem('ofusa_lineToken');if(lt)sRows.push({key:'line_token',value:lt});}catch(e){}
-    try{var lg=localStorage.getItem('ofusa_lineGroupId');if(lg)sRows.push({key:'line_group_id',value:lg});}catch(e){}
-    try{var mu=localStorage.getItem('ofusa_mailboxUrl');if(mu)sRows.push({key:'gas_mailbox_url',value:mu});}catch(e){}
-    if(sRows.length) _sb.from('settings').upsert(sRows,{onConflict:'key'}).then(function(r){if(r.error)console.error('settings sync err:',r.error);else console.log('📦 settings synced:',sRows.length,'keys');});
-
-    // ユーザー同期はしない（パスワードをSupabaseから読むため）
-    // try { persistUsers(); } catch(e) {}
-
-    console.log('🔄 初回同期キュー投入完了（全データ）');
-  };
-
-  // cases upsert → then Phase2
-  if (casesRows.length) {
-    _sb.from('cases').upsert(casesRows,{onConflict:'id'}).then(function(r) {
-      if(r.error) console.error('cases sync err:',r.error);
-      else console.log('📦 cases synced to DB:',casesRows.length);
-      afterCases();
-    });
-  } else {
-    afterCases();
-  }
-}
 
 
 // ===== Supabaseからデータ読み込み =====
@@ -6882,7 +6770,7 @@ if(aiCheckFields.length===0){
   ];
   localStorage.setItem('ofusa_aiCheckFields',JSON.stringify(aiCheckFields));
 }
-function persistAICheckFields(){try{localStorage.setItem('ofusa_aiCheckFields',JSON.stringify(aiCheckFields));}catch(e){}}
+function persistAICheckFields(){try{localStorage.setItem('ofusa_aiCheckFields',JSON.stringify(aiCheckFields));}catch(e){} if(DB_READY)_sb.from('settings').upsert({key:'aiCheckFields',value:JSON.stringify(aiCheckFields)},{onConflict:'key'}).then(function(r){if(r.error)console.error('persistAICheckFields err:',r.error);});}
 
 function openAICheckMaster(){renderAICheckContent();switchPanel('aiCheckScreen','nav-aicheck');}
 
@@ -8521,7 +8409,7 @@ function setDocTaskFromList(caseId,taskIdx,status){
   docTaskStatus[caseId+'_'+taskIdx]=status;persistDocTaskStatus();
   var co=cData.find(function(x){return x.id===caseId;});
   if(co){var d=0;for(var i=0;i<TASK_NAMES.length;i++){var _st=(docTaskStatus[co.id+'_'+i]||0);if(_st>=4)d++;}co.taskDone=d;co.taskTotal=TASK_NAMES.length;}
-  if(status===3){if(!caseNotes[caseId])caseNotes[caseId]={text:'',confirm:false,assignee:'',reply:'',replied:false};caseNotes[caseId].confirm=true;caseNotes[caseId].taskName=TASK_NAMES[taskIdx];if(!caseNotes[caseId].text)caseNotes[caseId].text=TASK_NAMES[taskIdx]+' の確認依頼';persistCaseNotes();}
+  if(status===3){if(!caseNotes[caseId])caseNotes[caseId]={text:'',confirm:false,assignee:'',reply:'',replied:false};caseNotes[caseId].confirm=true;caseNotes[caseId].taskName=TASK_NAMES[taskIdx];if(!caseNotes[caseId].text)caseNotes[caseId].text=TASK_NAMES[taskIdx]+' の確認依頼';_persistOneNote(caseId);}
   updateReviewBadge();
   
   applyFilters();renderDocsContent();
@@ -8769,7 +8657,7 @@ function setDocTaskFromReview(caseId,taskIdx,status){
   docTaskStatus[caseId+'_'+taskIdx]=status;persistDocTaskStatus();
   var co=cData.find(function(x){return x.id===caseId;});
   if(co){var d=0;for(var i=0;i<TASK_NAMES.length;i++){var _st=(docTaskStatus[co.id+'_'+i]||0);if(_st>=4)d++;}co.taskDone=d;co.taskTotal=TASK_NAMES.length;}
-  if(status===3){if(!caseNotes[caseId])caseNotes[caseId]={text:'',confirm:false,assignee:'',reply:'',replied:false};caseNotes[caseId].confirm=true;caseNotes[caseId].taskName=TASK_NAMES[taskIdx];if(!caseNotes[caseId].text)caseNotes[caseId].text=TASK_NAMES[taskIdx]+' の確認依頼';persistCaseNotes();}
+  if(status===3){if(!caseNotes[caseId])caseNotes[caseId]={text:'',confirm:false,assignee:'',reply:'',replied:false};caseNotes[caseId].confirm=true;caseNotes[caseId].taskName=TASK_NAMES[taskIdx];if(!caseNotes[caseId].text)caseNotes[caseId].text=TASK_NAMES[taskIdx]+' の確認依頼';_persistOneNote(caseId);}
   updateReviewBadge();
   
   applyFilters();renderReview();
@@ -8986,7 +8874,7 @@ function setDocTaskStatus(caseId, taskIdx, status) {
     if(comment) caseNotes[caseId].text=comment;
     if(!caseNotes[caseId].text) caseNotes[caseId].text=taskName+' の確認依頼';
     caseNotes[caseId].replied=false;
-    persistCaseNotes();
+    _persistOneNote(caseId);
     updateReviewBadge();
   }
   applyFilters();
@@ -9048,7 +8936,7 @@ function saveTaskConfirm(tkey){
     if(comment && !caseNotes[caseId].text) caseNotes[caseId].text=comment;
     if(!caseNotes[caseId].text) caseNotes[caseId].text=taskName+' の確認依頼';
     caseNotes[caseId].replied=false;
-    persistCaseNotes();
+    _persistOneNote(caseId);
     updateReviewBadge();
   }
   showTab('tasks'); 
@@ -14588,12 +14476,18 @@ function checkMappingFields(caseId, empSetIdx, mappingArr, onComplete) {
       } else if(field.indexOf('es.')===0){
         es[field.substring(3)]=val;
       } else if(field==='case.docCreateDate'){
-        c.docCreateDate=val; persist();
+        c.docCreateDate=val;
+        if(DB_READY) _sb.from('cases').update({doc_create_date:val}).eq('id',caseId).then(function(){});
+        persist();
       } else if(field==='case.company'){
-        c.company=val; persist();
+        c.company=val;
+        if(DB_READY) _sb.from('cases').update({company:val}).eq('id',caseId).then(function(){});
+        persist();
       }
     }
-    persistCompanies(); persistPersonData();
+    var _dg_coId = currentCase ? currentCase.company : null;
+    if(_dg_coId) persistCompanies(_dg_coId); else persistCompanies();
+    persistPersonData(currentCase ? currentCase.id : null);
     area.style.display='none';
     showToast('✅ データを保存しました');
     if(onComplete) onComplete();
@@ -14694,8 +14588,9 @@ function saveDgMissing(count, caseId, empSetIdx) {
       }
     }
   }
-  persistCompanies();
-  persistPersonData();
+  var _miss_coId = currentCase ? currentCase.company : null;
+  if(_miss_coId) persistCompanies(_miss_coId); else persistCompanies();
+  persistPersonData(currentCase ? currentCase.id : null);
   document.getElementById('dg_missing_edit').style.display = 'none';
   showToast('✅ データを保存しました');
   // 案件一覧にも反映
@@ -15389,14 +15284,18 @@ function _persistOneNote(caseId) {
     if (r.error) console.error('❌ [OFUSA] caseNote DB err:', r.error.message);
   });
 }
+var _saveCaseNoteTimer = {};
 function saveCaseNote(caseId) {
   var ta = document.getElementById('caseNote_' + caseId);
   if (!ta) return;
   if (!caseNotes[caseId]) caseNotes[caseId] = { text:'', confirm:false, assignee:'', reply:'', replied:false };
   caseNotes[caseId].text = ta.value;
-  _skipCaseNotesRealtime = true;
-  setTimeout(function(){ _skipCaseNotesRealtime = false; }, 3000);
-  _persistOneNote(caseId);
+  clearTimeout(_saveCaseNoteTimer[caseId]);
+  _saveCaseNoteTimer[caseId] = setTimeout(function() {
+    _skipCaseNotesRealtime = true;
+    setTimeout(function(){ _skipCaseNotesRealtime = false; }, 3000);
+    _persistOneNote(caseId);
+  }, 800);
 }
 
 function saveCaseNoteAssignee(caseId, val) {
@@ -15405,11 +15304,16 @@ function saveCaseNoteAssignee(caseId, val) {
   _persistOneNote(caseId);
 }
 
+var _saveCaseReplyTimer = {};
 function saveCaseReply(caseId) {
   var ta = document.getElementById('caseReply_' + caseId);
   if (!ta) return;
   if (!caseNotes[caseId]) caseNotes[caseId] = { text:'', confirm:false, assignee:'', reply:'', replied:false };
   caseNotes[caseId].reply = ta.value;
+  clearTimeout(_saveCaseReplyTimer[caseId]);
+  _saveCaseReplyTimer[caseId] = setTimeout(function() {
+    _persistOneNote(caseId);
+  }, 800);
 }
 
 function markRepliedRead(caseId) {
@@ -15423,6 +15327,7 @@ function markRepliedRead(caseId) {
 function saveCaseReplyAssignee(caseId, val) {
   if (!caseNotes[caseId]) caseNotes[caseId] = { text:'', confirm:false, assignee:'', reply:'', replied:false, replyAssignee:'' };
   caseNotes[caseId].replyAssignee = val;
+  _persistOneNote(caseId);
 }
 
 function toggleReply(caseId) {
@@ -15886,6 +15791,7 @@ function bulkChangeStatus(){
   ids.forEach(function(cid){
     var c = cData.find(function(x){ return x.id === cid; });
     if(c) c.status = newStatus;
+    if(DB_READY) _sb.from('cases').update({status: newStatus}).eq('id', cid).then(function(r){ if(r.error) console.error('status patch err:', r.error); });
   });
   persist();
   cancelGroupSelect();
@@ -15928,7 +15834,7 @@ function toggleShinsa(el){
     if(!shinsaData[id].date) shinsaData[id].date=new Date().toISOString().slice(0,10);
     // ステータスも審査完了に変更
     var c=cData.find(function(x){return x.id===id;});
-    if(c){c.status='審査完了';persist();}
+    if(c){c.status='審査完了'; if(DB_READY)_sb.from('cases').update({status:'審査完了'}).eq('id',id).then(function(){});persist();}
     // 全タスクを完了(3)にする
     for(var i=0;i<TASK_NAMES.length;i++){
       var key=id+'_'+i;
@@ -15944,7 +15850,7 @@ function toggleShinsa(el){
     shinsaData[id].done=false;
     // ステータスを審査中に戻す
     var c=cData.find(function(x){return x.id===id;});
-    if(c&&c.status==='審査完了'){c.status='審査中';persist();}
+    if(c&&c.status==='審査完了'){c.status='審査中'; if(DB_READY)_sb.from('cases').update({status:'審査中'}).eq('id',id).then(function(){});persist();}
   }
   persistShinsaData();
   
@@ -16946,7 +16852,7 @@ function showTab(tab) {
     h += '<div style="margin-bottom:12px;background:white;border-radius:10px;padding:14px;border:1px solid var(--gray-200);">';
     h += '<div style="font-size:11px;font-weight:700;color:var(--gray-400);margin-bottom:8px;">❓ 質問</div>';
     h += '<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:8px;">';
-    h += '<textarea id="caseNote_' + c.id + '" onchange="saveCaseNote(\'' + c.id + '\')" style="flex:1;padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;resize:vertical;min-height:60px;font-family:inherit;" placeholder="質問を入力...">' + esc(noteVal) + '</textarea>';
+    h += '<textarea id="caseNote_' + c.id + '" oninput="saveCaseNote(\'' + c.id + '\')" style="flex:1;padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;resize:vertical;min-height:60px;font-family:inherit;" placeholder="質問を入力...">' + esc(noteVal) + '</textarea>';
     h += '<div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;">';
     h += '<select id="noteAssignee_' + c.id + '" onchange="saveCaseNoteAssignee(\'' + c.id + '\',this.value)" style="font-size:11px;padding:4px 6px;border:1px solid var(--gray-200);border-radius:6px;">';
     h += '<option value="">担当選択</option>';
@@ -16963,7 +16869,7 @@ function showTab(tab) {
     USERS.forEach(function(u) { h += '<option value="' + u.name + '"' + (noteReplyAssignee===u.name?' selected':'') + '>' + u.name + '</option>'; });
     h += '</select></div>';
     h += '<div style="display:flex;gap:8px;align-items:flex-start;">';
-    h += '<textarea id="caseReply_' + c.id + '" onchange="saveCaseReply(\'' + c.id + '\')" style="flex:1;padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;resize:vertical;min-height:44px;font-family:inherit;" placeholder="回答を入力...">' + esc(noteReply) + '</textarea>';
+    h += '<textarea id="caseReply_' + c.id + '" oninput="saveCaseReply(\'' + c.id + '\')" style="flex:1;padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;resize:vertical;min-height:44px;font-family:inherit;" placeholder="回答を入力...">' + esc(noteReply) + '</textarea>';
     h += '<button id="replyBtn_' + c.id + '" onclick="toggleReply(\'' + c.id + '\')" style="padding:6px 10px;border-radius:8px;border:2px solid ' + (noteReplied?'var(--green)':'var(--gray-200)') + ';background:' + (noteReplied?'var(--green)':'white') + ';color:' + (noteReplied?'white':'var(--gray-400)') + ';font-size:11px;font-weight:800;cursor:pointer;flex-shrink:0;">' + (noteReplied?'✓ 回答済':'回答') + '</button>';
     h += '</div></div></div>';
     // 進捗バー
@@ -21031,7 +20937,10 @@ function savePerson(caseId) {
   }
   personData[caseId] = p;
   try { localStorage.setItem('ofusa_personData', JSON.stringify(personData)); } catch(e) {}
-  if (DB_READY) persistPersonToDB(caseId, p);
+  if (DB_READY) {
+    persistPersonToDB(caseId, p);
+    showToast('✅ 人材データを保存しました');
+  }
 }
 
 function addPersonDriveUrl(caseId){
@@ -27137,7 +27046,7 @@ function submitNewCase() {
       var autoSupportOrg = data.org || '要振り分け';
       var newCo = { id: 'c' + Date.now(), name: companyVal, supportOrgName: autoSupportOrg };
       companies.push(newCo);
-      persistCompanies();
+      persistCompanies(newCo.id);
       var msg = data.org
         ? '🏢 所属機関「' + companyVal + '」を自動登録しました'
         : '🏢 所属機関「' + companyVal + '」を「要振り分け」として自動登録しました';
@@ -27522,6 +27431,38 @@ function loadAllFromSupabase() {
               try{localStorage.setItem('ofusa_tplMappings',JSON.stringify(tplMappings));}catch(e){}
               console.log('📦 tplMappings restored from DB ('+Object.keys(dbMap).length+' keys)');
             }
+          }
+          if(s.key==='aiCheckFields') {
+            try {
+              var dbACF = typeof s.value === 'string' ? JSON.parse(s.value) : s.value;
+              if(dbACF && typeof dbACF === 'object') {
+                aiCheckFields = dbACF;
+                try{localStorage.setItem('ofusa_aiCheckFields',JSON.stringify(aiCheckFields));}catch(e){}
+                console.log('📦 aiCheckFields restored from DB');
+              }
+            } catch(e) {}
+          }
+          if(s.key==='tplGroups') {
+            try {
+              var dbGroups = typeof s.value === 'string' ? JSON.parse(s.value) : s.value;
+              if(dbGroups && Array.isArray(dbGroups)) {
+                tplGroups = dbGroups;
+                try{localStorage.setItem('ofusa_tplGroups',JSON.stringify(tplGroups));}catch(e){}
+                console.log('📦 tplGroups restored from DB ('+tplGroups.length+' groups)');
+                try{ rebuildTplGroupSelect(); }catch(e){}
+              }
+            } catch(e) {}
+          }
+          if(s.key==='tplLangs') {
+            try {
+              var dbLangs = typeof s.value === 'string' ? JSON.parse(s.value) : s.value;
+              if(dbLangs && Array.isArray(dbLangs)) {
+                tplLangs = dbLangs;
+                try{localStorage.setItem('ofusa_tplLangs',JSON.stringify(tplLangs));}catch(e){}
+                console.log('📦 tplLangs restored from DB ('+tplLangs.length+' langs)');
+                try{ rebuildTplLangSelect(); }catch(e){}
+              }
+            } catch(e) {}
           }
           if(s.key==='skipped_fields') {
             try{var sf=typeof s.value==='string'?JSON.parse(s.value):s.value;if(sf){localStorage.setItem('ofusa_skippedFields',JSON.stringify(sf));}}catch(e){}
@@ -28046,9 +27987,8 @@ persistTplTexts = function(){_origPersistTplTexts();if(DB_READY)_sb.from('settin
 
 // === persist() : cData (案件データ) をSupabase + localStorageキャッシュ ===
 function persist(){
-  // Supabase直接書き込み（プライマリ）
-  persistCasesToDB(cData);
-  // localStorageキャッシュ（オフラインフォールバック）
+  // localStorageキャッシュのみ（全件upsertはしない）
+  // 個別変更はautoSaveInfo/saveInfoEditのPATCHで処理
   try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){}
 }
 
