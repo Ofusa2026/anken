@@ -21976,11 +21976,31 @@ function unlinkListItem(type, itemId){
   showToast('🔗 紐づけを解除しました');
 }
 
+function toggleReported(type, id) {
+  var arr = type==='rec' ? receiptListData : type==='shinsa' ? shinsaListData : certListData;
+  var item = arr.find(function(x){return x.id===id;});
+  if(!item) return;
+  item.reported = !item.reported;
+  item.reportedAt = item.reported ? new Date().toISOString() : null;
+  if(type==='rec') persistReceiptList();
+  else if(type==='shinsa') persistShinsaList();
+  if(type==='rec') renderRecords();
+  else if(type==='shinsa') renderShinsaList();
+  else renderCertList();
+}
+
 function renderListItems(type, data, borderColor){
   var cfg=getListConfig(type);
-  var h='<div style="font-size:11px;color:var(--gray-400);margin-bottom:6px;">'+data.length+'件</div>';
+  var reported=data.filter(function(d){return d.reported;}).length;
+  var unreported=data.length-reported;
+  var h='<div style="font-size:11px;color:var(--gray-400);margin-bottom:6px;display:flex;align-items:center;gap:10px;">';
+  h+='<span>'+data.length+'件</span>';
+  if(reported>0) h+='<span style="color:#16a34a;font-weight:700;">✅ 対応済 '+reported+'件</span>';
+  if(unreported>0) h+='<span style="color:#dc2626;font-weight:700;">⏳ 未対応 '+unreported+'件</span>';
+  h+='</div>';
   data.forEach(function(d){
     var sel=!!cfg.sel[d.id];
+    var isReported=!!d.reported;
     // 案件を解決（caseId or 名前マッチ）
     var linkedCase=null;
     if(type==='rec'||type==='shinsa'||type==='cert'){
@@ -21999,7 +22019,9 @@ function renderListItems(type, data, borderColor){
     if(type==='rec' && linkedCase){
       rowClick=' onclick="openCase(\''+linkedCase.id+'\')"';
     }
-    h+='<div'+rowClick+' style="display:flex;align-items:center;gap:6px;background:'+(sel?'#eff6ff':'white')+';border-radius:6px;padding:5px 8px;margin-bottom:3px;border-left:3px solid '+borderColor+';font-size:11px;'+(type==='rec'&&linkedCase?'cursor:pointer;':'')+'transition:background .15s;" '+(type==='rec'&&linkedCase?'onmouseenter="this.style.background=\'#f0f4ff\'" onmouseleave="this.style.background=\''+(sel?'#eff6ff':'white')+'\'"':'')+'>';
+    var rowBg = isReported ? '#f3f4f6' : (sel?'#eff6ff':'white');
+    var rowBorderColor = isReported ? '#9ca3af' : borderColor;
+    h+='<div'+rowClick+' style="display:flex;align-items:center;gap:6px;background:'+rowBg+';border-radius:6px;padding:5px 8px;margin-bottom:3px;border-left:3px solid '+rowBorderColor+';font-size:11px;'+(isReported?'opacity:0.55;':'')+''+(type==='rec'&&linkedCase?'cursor:pointer;':'')+'transition:background .15s;" '+(type==='rec'&&linkedCase?'onmouseenter="this.style.background=\'#f0f4ff\'" onmouseleave="this.style.background=\''+rowBg+'\'"':'')+'>';
     h+='<input type="checkbox" '+(sel?'checked':'')+' onclick="event.stopPropagation()" onchange="listToggleSel(\''+type+'\',\''+d.id+'\')" style="width:14px;height:14px;cursor:pointer;flex-shrink:0;">';
     h+='<span style="flex-shrink:0;width:68px;color:var(--gray-400);">'+(d.date?d.date.slice(0,10):'—')+'</span>';
     // 案件紐づけ（rec/shinsa/cert）事前解決
@@ -22034,6 +22056,7 @@ function renderListItems(type, data, borderColor){
         h+='<button onclick="event.stopPropagation();linkListItemToCase(\''+type+'\',\''+d.id+'\')" style="flex-shrink:0;font-size:10px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;padding:2px 6px;cursor:pointer;white-space:nowrap;">未紐づけ</button>';
       }
     }
+    h+='<button onclick="event.stopPropagation();toggleReported(\''+type+'\',\''+d.id+'\')" title="'+(isReported?'対応済み（クリックで解除）':'未対応（クリックで対応済みにする）')+'" style="flex-shrink:0;font-size:10px;background:'+(isReported?'#d1fae5':'#fef9c3')+';color:'+(isReported?'#059669':'#92400e')+';border:1px solid '+(isReported?'#6ee7b7':'#fde68a')+';border-radius:4px;padding:2px 7px;cursor:pointer;font-weight:700;white-space:nowrap;">'+(isReported?'✅ 対応済':'⏳ 未対応')+'</button>';
     h+='<button onclick="event.stopPropagation();listEditItem(\''+type+'\',\''+d.id+'\')" style="flex-shrink:0;font-size:10px;background:#eff6ff;color:#2563eb;border:none;border-radius:4px;padding:2px 6px;cursor:pointer;">✏️</button>';
     if(type==='rec'){
       h+='<button onclick="event.stopPropagation();confirmDeleteRecord(\''+d.id+'\')" style="flex-shrink:0;font-size:10px;background:#fee2e2;color:#dc2626;border:none;border-radius:4px;padding:2px 6px;cursor:pointer;">🗑</button>';
