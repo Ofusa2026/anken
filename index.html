@@ -21480,14 +21480,58 @@ var savedMails = []; try{savedMails=JSON.parse(localStorage.getItem('ofusa_saved
 // 各リストの選択状態
 var recSel={}, shinsaSel={}, certSel={};
 
-function persistShinsaList(){try{localStorage.setItem('ofusa_shinsaList',JSON.stringify(shinsaListData));}catch(e){}
-  if(DB_READY){_sb.from('settings').upsert({key:'shinsa_list',value:JSON.stringify(shinsaListData)},{onConflict:'key'}).then(function(r){if(r.error)console.error('shinsaList sync err:',r.error);});}
+function _listItemToRow(d) {
+  return {
+    id: d.id, name: d.name||null, date: d.date||null,
+    case_no: d.caseNo||null, org: d.org||null, sub: d.sub||null,
+    moved_at: d.movedAt||null, case_id: d.caseId||null,
+    reported: d.reported||false,
+    reported_at: d.reportedAt||null,
+    updated_at: new Date().toISOString()
+  };
 }
-function persistCertList(){try{localStorage.setItem('ofusa_certList',JSON.stringify(certListData));}catch(e){}
-  if(DB_READY){_sb.from('settings').upsert({key:'cert_list',value:JSON.stringify(certListData)},{onConflict:'key'}).then(function(r){if(r.error)console.error('certList sync err:',r.error);});}
+function _rowToListItem(r) {
+  return {
+    id: r.id, name: r.name||'', date: r.date||'',
+    caseNo: r.case_no||'', org: r.org||'', sub: r.sub||'',
+    movedAt: r.moved_at||'', caseId: r.case_id||'',
+    reported: r.reported||false, reportedAt: r.reported_at||null
+  };
 }
-function persistReceiptList(){try{localStorage.setItem('ofusa_receiptList',JSON.stringify(receiptListData));}catch(e){}
-  if(DB_READY){_sb.from('settings').upsert({key:'receipt_list',value:JSON.stringify(receiptListData)},{onConflict:'key'}).then(function(r){if(r.error)console.error('receiptList sync err:',r.error);});}
+function persistShinsaList(changedId){
+  try{localStorage.setItem('ofusa_shinsaList',JSON.stringify(shinsaListData));}catch(e){}
+  if(!DB_READY) return;
+  if(changedId) {
+    // 1件だけupsert
+    var item = shinsaListData.find(function(x){return x.id===changedId;});
+    if(item) _sb.from('shinsa_list').upsert(_listItemToRow(item),{onConflict:'id'}).then(function(r){if(r&&r.error)console.error('shinsaList upsert err:',r.error);});
+  } else {
+    // 全件upsert（初回・一括操作時）
+    var rows = shinsaListData.map(_listItemToRow);
+    if(rows.length) _sb.from('shinsa_list').upsert(rows,{onConflict:'id'}).then(function(r){if(r&&r.error)console.error('shinsaList bulk err:',r.error);});
+  }
+}
+function persistCertList(changedId){
+  try{localStorage.setItem('ofusa_certList',JSON.stringify(certListData));}catch(e){}
+  if(!DB_READY) return;
+  if(changedId) {
+    var item = certListData.find(function(x){return x.id===changedId;});
+    if(item) _sb.from('cert_list').upsert(_listItemToRow(item),{onConflict:'id'}).then(function(r){if(r&&r.error)console.error('certList upsert err:',r.error);});
+  } else {
+    var rows = certListData.map(_listItemToRow);
+    if(rows.length) _sb.from('cert_list').upsert(rows,{onConflict:'id'}).then(function(r){if(r&&r.error)console.error('certList bulk err:',r.error);});
+  }
+}
+function persistReceiptList(changedId){
+  try{localStorage.setItem('ofusa_receiptList',JSON.stringify(receiptListData));}catch(e){}
+  if(!DB_READY) return;
+  if(changedId) {
+    var item = receiptListData.find(function(x){return x.id===changedId;});
+    if(item) _sb.from('receipt_list').upsert(_listItemToRow(item),{onConflict:'id'}).then(function(r){if(r&&r.error)console.error('receiptList upsert err:',r.error);});
+  } else {
+    var rows = receiptListData.map(_listItemToRow);
+    if(rows.length) _sb.from('receipt_list').upsert(rows,{onConflict:'id'}).then(function(r){if(r&&r.error)console.error('receiptList bulk err:',r.error);});
+  }
 }
 function persistSavedMails(){try{localStorage.setItem('ofusa_savedMails',JSON.stringify(savedMails));}catch(e){}
   if(DB_READY){_sb.from('settings').upsert({key:'saved_mails',value:JSON.stringify(savedMails)},{onConflict:'key'}).then(function(r){if(r.error)console.error('savedMails sync err:',r.error);});}
@@ -21742,6 +21786,12 @@ function listBulkDelete(type){
   if(type==='rec') receiptListData=receiptListData.filter(function(d){return !cfg.sel[d.id];});
   if(type==='shinsa') shinsaListData=shinsaListData.filter(function(d){return !cfg.sel[d.id];});
   if(type==='cert') certListData=certListData.filter(function(d){return !cfg.sel[d.id];});
+  if(DB_READY){
+    var tbl = type==='rec'?'receipt_list':type==='shinsa'?'shinsa_list':'cert_list';
+    ids.forEach(function(delId){
+      _sb.from(tbl).delete().eq('id',delId).then(function(r){if(r&&r.error)console.error(tbl+' bulk delete err:',r.error);});
+    });
+  }
   for(var k in cfg.sel) delete cfg.sel[k];
   cfg.persist();
   updateListSelBar(type);
@@ -21788,6 +21838,11 @@ function listDeleteItem(type,id){
   if(type==='cert') certListData=certListData.filter(function(d){return d.id!==id;});
   delete cfg.sel[id];
   cfg.persist();
+  // 専用テーブルからも削除
+  if(DB_READY){
+    var tbl = type==='rec'?'receipt_list':type==='shinsa'?'shinsa_list':'cert_list';
+    _sb.from(tbl).delete().eq('id',id).then(function(r){if(r&&r.error)console.error(tbl+' delete err:',r.error);});
+  }
   updateListSelBar(type);
   cfg.render();
 }
@@ -22022,8 +22077,10 @@ function toggleReported(type, id) {
   if(!item) return;
   item.reported = !item.reported;
   item.reportedAt = item.reported ? new Date().toISOString() : null;
-  if(type==='rec') persistReceiptList();
-  else if(type==='shinsa') persistShinsaList();
+  // 1件だけDB更新（changedIdを渡す）
+  if(type==='rec') persistReceiptList(id);
+  else if(type==='shinsa') persistShinsaList(id);
+  else persistCertList(id);
   if(type==='rec') renderRecords();
   else if(type==='shinsa') renderShinsaList();
   else renderCertList();
@@ -27272,7 +27329,7 @@ function loadAllFromSupabase() {
     fetchPage();
   }
   
-  var pending = 9;
+  var pending = 10;
   // 20秒後に強制的にローディングを終了するフォールバック
   setTimeout(function() {
     if (isLoading) {
@@ -27548,15 +27605,7 @@ function loadAllFromSupabase() {
           if(s.key==='saved_mails') {
             try{var sm=typeof s.value==='string'?JSON.parse(s.value):s.value;if(sm&&Array.isArray(sm)){savedMails=sm;localStorage.setItem('ofusa_savedMails',JSON.stringify(sm));}}catch(e){}
           }
-          if(s.key==='shinsa_list') {
-            try{var sl=typeof s.value==='string'?JSON.parse(s.value):s.value;if(sl){localStorage.setItem('ofusa_shinsaList',JSON.stringify(sl));}}catch(e){}
-          }
-          if(s.key==='cert_list') {
-            try{var cl=typeof s.value==='string'?JSON.parse(s.value):s.value;if(cl){localStorage.setItem('ofusa_certList',JSON.stringify(cl));}}catch(e){}
-          }
-          if(s.key==='receipt_list') {
-            try{var rl=typeof s.value==='string'?JSON.parse(s.value):s.value;if(rl){localStorage.setItem('ofusa_receiptList',JSON.stringify(rl));}}catch(e){}
-          }
+          // shinsa_list/cert_list/receipt_list は専用テーブルから読み込むためsettingsからは不要
           if(s.key==='edit_history') {
             try{var eh=typeof s.value==='string'?JSON.parse(s.value):s.value;if(eh){localStorage.setItem('ofusa_editHistory',JSON.stringify(eh));}}catch(e){}
           }
@@ -27770,6 +27819,66 @@ function loadAllFromSupabase() {
     }
     done();
   }).catch(function(e) { console.error('supportOrgs load err:', e); done(); });
+
+  // 10. receipt/shinsa/cert リスト（専用テーブル）
+  Promise.all([
+    _sb.from('receipt_list').select('*').order('date',{ascending:false}),
+    _sb.from('shinsa_list').select('*').order('date',{ascending:false}),
+    _sb.from('cert_list').select('*').order('date',{ascending:false})
+  ]).then(function(results) {
+    var rRes=results[0], sRes=results[1], cRes=results[2];
+    if(rRes.data && rRes.data.length){
+      receiptListData=rRes.data.map(_rowToListItem);
+      try{localStorage.setItem('ofusa_receiptList',JSON.stringify(receiptListData));}catch(e){}
+      console.log('📥 receipt_list loaded:', receiptListData.length);
+    }
+    if(sRes.data && sRes.data.length){
+      shinsaListData=sRes.data.map(_rowToListItem);
+      try{localStorage.setItem('ofusa_shinsaList',JSON.stringify(shinsaListData));}catch(e){}
+      console.log('📥 shinsa_list loaded:', shinsaListData.length);
+    }
+    if(cRes.data && cRes.data.length){
+      certListData=cRes.data.map(_rowToListItem);
+      try{localStorage.setItem('ofusa_certList',JSON.stringify(certListData));}catch(e){}
+      console.log('📥 cert_list loaded:', certListData.length);
+    }
+    done();
+  }).catch(function(e){ console.error('list tables load err:', e); done(); });
+}
+
+// ===== 専用テーブルからのリストデータロード =====
+function loadListTables() {
+  if(!DB_READY) return;
+  // receipt_list
+  _sb.from('receipt_list').select('*').order('date', {ascending:false}).then(function(res) {
+    if(res.error){console.error('receipt_list load err:', res.error);return;}
+    if(res.data && res.data.length) {
+      receiptListData = res.data.map(_rowToListItem);
+      try{localStorage.setItem('ofusa_receiptList',JSON.stringify(receiptListData));}catch(e){}
+      console.log('📥 receipt_list loaded:', receiptListData.length);
+      if(typeof renderRecords==='function') try{renderRecords();}catch(e){}
+    }
+  });
+  // shinsa_list
+  _sb.from('shinsa_list').select('*').order('date', {ascending:false}).then(function(res) {
+    if(res.error){console.error('shinsa_list load err:', res.error);return;}
+    if(res.data && res.data.length) {
+      shinsaListData = res.data.map(_rowToListItem);
+      try{localStorage.setItem('ofusa_shinsaList',JSON.stringify(shinsaListData));}catch(e){}
+      console.log('📥 shinsa_list loaded:', shinsaListData.length);
+      if(typeof renderShinsaList==='function') try{renderShinsaList();}catch(e){}
+    }
+  });
+  // cert_list
+  _sb.from('cert_list').select('*').order('date', {ascending:false}).then(function(res) {
+    if(res.error){console.error('cert_list load err:', res.error);return;}
+    if(res.data && res.data.length) {
+      certListData = res.data.map(_rowToListItem);
+      try{localStorage.setItem('ofusa_certList',JSON.stringify(certListData));}catch(e){}
+      console.log('📥 cert_list loaded:', certListData.length);
+      if(typeof renderCertList==='function') try{renderCertList();}catch(e){}
+    }
+  });
 }
 
 // ===== Supabase Realtime（複数ユーザー同時編集対応）=====
@@ -28076,12 +28185,7 @@ var _origPersistChats = persistChats;
 persistChats = function(){_origPersistChats();if(DB_READY)_sb.from('settings').upsert({key:'caseChats',value:caseChats},{onConflict:'key'}).then(function(){});};
 var _origPersistCoDocCheck = persistCoDocCheck;
 persistCoDocCheck = function(){_origPersistCoDocCheck();if(DB_READY)_sb.from('settings').upsert({key:'coDocCheck',value:coDocCheck},{onConflict:'key'}).then(function(){});};
-var _origPersistShinsaList = persistShinsaList;
-persistShinsaList = function(){_origPersistShinsaList();if(DB_READY)_sb.from('settings').upsert({key:'shinsaList',value:shinsaListData},{onConflict:'key'}).then(function(){});};
-var _origPersistCertList = persistCertList;
-persistCertList = function(){_origPersistCertList();if(DB_READY)_sb.from('settings').upsert({key:'certList',value:certListData},{onConflict:'key'}).then(function(){});};
-var _origPersistReceiptList = persistReceiptList;
-persistReceiptList = function(){_origPersistReceiptList();if(DB_READY)_sb.from('settings').upsert({key:'receiptList',value:receiptListData},{onConflict:'key'}).then(function(){});};
+// shinsaList/certList/receiptList は専用テーブルに移行済みのためsettingsオーバーライド不要
 var _origPersistSavedMails = persistSavedMails;
 persistSavedMails = function(){_origPersistSavedMails();if(DB_READY)_sb.from('settings').upsert({key:'savedMails',value:savedMails},{onConflict:'key'}).then(function(){});};
 var _origPersistTrash = persistTrash;
