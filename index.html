@@ -9150,6 +9150,15 @@ function openFormUrl(caseId, type) {
   if (el) window.open(el.value, '_blank');
 }
 
+function updatePersonFormUrl2(caseId, formType) {
+  // 人材データタブのURL更新
+  var c = cData.find(function(x){ return x.id === caseId; });
+  if (!c) return;
+  var url = FORM_BASE_URL + '?case=' + encodeURIComponent(caseId) + '&type=' + formType + '&name=' + encodeURIComponent(c.applicant||c.name||'');
+  var el = document.getElementById('pPersonFormUrl_' + caseId);
+  if (el) el.value = url;
+}
+
 function updatePersonFormUrl(caseId, formType) {
   // フォーム種別セレクタ変更時にURLを更新
   var c = cData.find(function(x){ return x.id === caseId; });
@@ -9165,29 +9174,172 @@ function updatePersonFormUrl(caseId, formType) {
 
 function renderFormResponseBadge(caseId) {
   if (!DB_READY) return;
-  var el = document.getElementById('formResponseBadge_' + caseId);
-  if (!el) return;
-  el.innerHTML = '<span style="font-size:10px;color:#6b7280;">確認中...</span>';
-  _sb.from('form_responses').select('id,form_type,submitted_at,imported_at').eq('case_id', caseId).order('submitted_at', {ascending:false}).then(function(res) {
-    if (res.error || !res.data) { el.innerHTML = ''; return; }
+  // 人材データタブ用と基本情報タブ用の両方を更新
+  var elIds = ['formResponseBadge_' + caseId, 'formResponseBadge_p_' + caseId];
+  var els = elIds.map(function(id){ return document.getElementById(id); }).filter(Boolean);
+  if (!els.length) return;
+  els.forEach(function(el){ el.innerHTML = '<span style="font-size:10px;color:#6b7280;">確認中...</span>'; });
+  _sb.from('form_responses').select('id,form_type,submitted_at,imported_at,response').eq('case_id', caseId).order('submitted_at', {ascending:false}).then(function(res) {
+    if (res.error || !res.data) { els.forEach(function(el){ el.innerHTML = ''; }); return; }
     if (!res.data.length) {
-      el.innerHTML = '<div style="font-size:11px;color:#9ca3af;">まだ回答がありません</div>';
+      els.forEach(function(el){ el.innerHTML = '<div style="font-size:11px;color:#9ca3af;">まだ回答がありません</div>'; });
       return;
     }
+    // form_typeラベル（新旧対応）
+    var _ftLabel = function(ft) {
+      var map = {
+        'person':'👤 人材', 'company':'🏢 企業',
+        'tokutei_nintei':'👤 特定技能・認定', 'tokutei_koushin':'👤 特定技能・更新', 'tokutei_henkou':'👤 特定技能・変更',
+        'gijinkoku_nintei':'👤 技人国・認定', 'gijinkoku_koushin':'👤 技人国・更新', 'gijinkoku_henkou':'👤 技人国・変更'
+      };
+      return map[ft] || ('📋 ' + ft);
+    };
+    var _isPersonType = function(ft) {
+      return ft !== 'company';
+    };
     var h = '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">';
     res.data.forEach(function(r) {
-      var typeLabel = r.form_type === 'person' ? '👤 人材' : '🏢 企業';
+      var typeLabel = _ftLabel(r.form_type);
       var dt = r.submitted_at ? new Date(r.submitted_at) : null;
       var dtStr = dt ? (dt.getMonth()+1) + '/' + dt.getDate() + ' ' + dt.getHours() + ':' + ('0'+dt.getMinutes()).slice(-2) : '';
       var imported = !!r.imported_at;
-      h += '<div style="display:flex;align-items:center;gap:4px;background:' + (imported?'#f0fdf4':'#eff6ff') + ';border:1px solid ' + (imported?'#86efac':'#bfdbfe') + ';border-radius:6px;padding:4px 8px;">';
+      var isPerson = _isPersonType(r.form_type);
+      h += '<div style="background:' + (imported?'#f0fdf4':'#eff6ff') + ';border:1px solid ' + (imported?'#86efac':'#bfdbfe') + ';border-radius:8px;padding:6px 10px;width:100%;">';
+      h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">';
       h += '<span style="font-size:11px;font-weight:700;">' + typeLabel + '</span>';
       h += '<span style="font-size:10px;color:#6b7280;">' + dtStr + '</span>';
-      if (!imported) {
-        h += '<button onclick="importFormResponse(\'' + r.id + '\',\'' + caseId + '\',\'' + r.form_type + '\')" style="font-size:10px;padding:2px 8px;background:#2563eb;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:700;">取込</button>';
+      if (imported) {
+        h += '<span style="font-size:10px;color:#16a34a;font-weight:700;margin-left:auto;">✅ 取込済</span>';
       } else {
-        h += '<span style="font-size:10px;color:#16a34a;font-weight:700;">✅ 取込済</span>';
+        h += '<button onclick="previewFormResponse(\'' + r.id + '\',\'' + r.form_type + '\')" style="margin-left:auto;font-size:10px;padding:2px 8px;background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;border-radius:4px;cursor:pointer;">👁 プレビュー</button>';
+        h += '<button onclick="importFormResponse(\'' + r.id + '\',\'' + caseId + '\',\'' + r.form_type + '\')" style="font-size:10px;padding:2px 8px;background:#2563eb;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:700;">取込</button>';
       }
+      h += '</div>';
+      // プレビューエリア（非表示）
+      h += '<div id="formPreview_' + r.id + '" style="display:none;"></div>';
+      h += '</div>';
+    });
+    h += '</div>';
+    els.forEach(function(el){ el.innerHTML = h; });
+  });
+}
+
+function previewFormResponse(responseId, formType) {
+  var el = document.getElementById('formPreview_' + responseId);
+  if (!el) return;
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  el.innerHTML = '<div style="font-size:10px;color:#6b7280;padding:6px 0;">読み込み中...</div>';
+  el.style.display = 'block';
+  _sb.from('form_responses').select('response').eq('id', responseId).then(function(res) {
+    if (res.error || !res.data || !res.data.length) { el.innerHTML = '<div style="font-size:10px;color:#dc2626;">取得失敗</div>'; return; }
+    var resp = res.data[0].response;
+
+    // フォームtypeごとの表示定義
+    var isCompany = formType === 'company';
+    var isNintei  = formType === 'tokutei_nintei' || formType === 'gijinkoku_nintei';
+    var isKoushin = formType === 'tokutei_koushin' || formType === 'gijinkoku_koushin';
+    var isHenkou  = formType === 'tokutei_henkou'  || formType === 'gijinkoku_henkou';
+    var isGiji    = formType === 'gijinkoku_nintei' || formType === 'gijinkoku_koushin' || formType === 'gijinkoku_henkou';
+
+    // セクション定義（フォームtypeに応じて項目を整理）
+    var sections = [];
+
+    if (!isCompany) {
+      // 人材系共通
+      sections.push({ title:'基本情報', fields:[
+        { k:'applicantNameEn', l:'氏名（パスポート）' },
+        { k:'birthdate',       l:'生年月日' },
+        { k:'nationality',     l:'国籍' },
+        { k:'passport',        l:'パスポート番号' },
+        { k:'passportExpiry',  l:'パスポート有効期限' },
+        { k:'married',         l:'結婚' },
+        { k:'email',           l:'メールアドレス' },
+        { k:'phone',           l:'電話番号' },
+        { k:'residenceCard',   l:'在留カード番号' },
+        { k:'address',         l:'現住所（日本）' }
+      ]});
+
+      if (isNintei) {
+        sections.push({ title:'来日・在留歴', fields:[
+          { k:'entryCount',    l:'来日回数' },
+          { k:'coeCount',      l:'COE申請回数' },
+          { k:'coeDenied',     l:'不許可回数' },
+          { k:'lastEntryFrom', l:'最後に来日した日' },
+          { k:'lastEntryTo',   l:'帰国した日' }
+        ]});
+      }
+
+      if (isKoushin || isHenkou) {
+        sections.push({ title:'在留歴', fields:[
+          { k:'firstEntry', l:'特定技能で初めて来日した日' }
+        ]});
+      }
+
+      if (isGiji) {
+        sections.push({ title:'学歴', fields:[
+          { k:'eduCountry',      l:'出身国' },
+          { k:'education',       l:'最終学歴' },
+          { k:'schoolName',      l:'学校名' },
+          { k:'completionDate',  l:'卒業年月' },
+          { k:'major',           l:'専攻' }
+        ]});
+      }
+    } else {
+      // 企業系
+      sections.push({ title:'企業基本情報', fields:[
+        { k:'name',        l:'会社名' },
+        { k:'nameKana',    l:'会社名（ひらがな）' },
+        { k:'nameEn',      l:'会社名（英語）' },
+        { k:'corpNo',      l:'法人番号' },
+        { k:'empInsNo',    l:'雇用保険番号' },
+        { k:'laborInsNo',  l:'労働保険番号' },
+        { k:'employees',   l:'常勤職員数' },
+        { k:'capital',     l:'資本金' },
+        { k:'annualSales', l:'年間売上' }
+      ]});
+      sections.push({ title:'所在地', fields:[
+        { k:'zip', l:'郵便番号' }, { k:'pref', l:'都道府県' }, { k:'city', l:'市区町村' },
+        { k:'address', l:'住所' }, { k:'tel', l:'電話番号' }
+      ]});
+      sections.push({ title:'代表者・作成責任者', fields:[
+        { k:'repName', l:'代表者氏名' }, { k:'repTitle', l:'代表者役職' },
+        { k:'repNameEn', l:'代表者氏名（英語）' },
+        { k:'authorName', l:'作成責任者氏名' }, { k:'authorTitle', l:'作成責任者役職' },
+        { k:'authorNameEn', l:'作成責任者氏名（英語）' }
+      ]});
+      sections.push({ title:'雇用条件', fields:[
+        { k:'salaryType', l:'給与形態' }, { k:'salaryAmt', l:'金額（円）' },
+        { k:'contractStart', l:'契約開始' }, { k:'contractEnd', l:'契約終了' },
+        { k:'officeName', l:'事業所名' }, { k:'officePref', l:'都道府県' }, { k:'officeCity', l:'市区町村' },
+        { k:'startTime', l:'始業' }, { k:'endTime', l:'終業' },
+        { k:'breakTime', l:'休憩（分）' }, { k:'dailyHours', l:'所定労働時間' },
+        { k:'fixedDay1', l:'定休日' }, { k:'annualHolidays', l:'年間休日' },
+        { k:'allowance1Name', l:'手当①名' }, { k:'allowance1Amt', l:'手当①金額' },
+        { k:'allowance2Name', l:'手当②名' }, { k:'allowance2Amt', l:'手当②金額' },
+        { k:'deductHousing', l:'居住費控除' }, { k:'deductFood', l:'食費控除' },
+        { k:'insurance', l:'加入保険' }, { k:'payCutoff', l:'締め日' }, { k:'payDay', l:'支払日' }
+      ]});
+      sections.push({ title:'比較対象日本人', fields:[
+        { k:'jpCompAge', l:'年齢' }, { k:'jpCompGender', l:'性別' }, { k:'jpCompExp', l:'経験年数' },
+        { k:'jpCompJobDesc', l:'職務内容' }, { k:'jpCompSalary', l:'月額賃金' }, { k:'jpCompReason', l:'同等以上の理由' }
+      ]});
+    }
+
+    // 描画
+    var h = '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #e5e7eb;">';
+    sections.forEach(function(sec) {
+      var hasData = sec.fields.some(function(f){ return resp[f.k] && resp[f.k] !== ''; });
+      if (!hasData) return;
+      h += '<div style="font-size:10px;font-weight:800;color:#6b7280;margin:6px 0 4px;text-transform:uppercase;letter-spacing:.05em;">' + sec.title + '</div>';
+      h += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;">';
+      sec.fields.forEach(function(f) {
+        var v = resp[f.k];
+        if (!v || v === '') return;
+        h += '<div style="font-size:11px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:3px 8px;">';
+        h += '<span style="color:#9ca3af;">' + esc(f.l) + '</span>';
+        h += '<span style="color:#1f2937;font-weight:700;margin-left:4px;">' + esc(String(v)) + '</span>';
+        h += '</div>';
+      });
       h += '</div>';
     });
     h += '</div>';
@@ -17306,18 +17458,18 @@ function showTab(tab) {
     var _resStatus = c.residenceStatus || c.currentStatus || '';
     var _appTypeMissing = !_appType;
     var _resStatusMissing = !_resStatus;
-    var _isKoushin = _appType.indexOf('更新') >= 0 || _appType.indexOf('変更') >= 0;
-    var _isNintei  = _appType.indexOf('認定') >= 0 || (!_isKoushin && _appType !== '');
+    var _isKoushin = _appType.indexOf('更新') >= 0;
+    var _isHenkou  = _appType.indexOf('変更') >= 0;
     var _isGiji = _resStatus.indexOf('技術') >= 0 || _resStatus.indexOf('技人国') >= 0 || _resStatus.indexOf('人文') >= 0 || _resStatus.indexOf('国際業務') >= 0;
     var _formType;
     if (_isGiji) {
-      _formType = _isKoushin ? 'gijinkoku_koushin' : 'gijinkoku_nintei';
+      _formType = _isKoushin ? 'gijinkoku_koushin' : (_isHenkou ? 'gijinkoku_henkou' : 'gijinkoku_nintei');
     } else {
-      _formType = _isKoushin ? 'tokutei_koushin' : 'tokutei_nintei';
+      _formType = _isKoushin ? 'tokutei_koushin' : (_isHenkou ? 'tokutei_henkou' : 'tokutei_nintei');
     }
     var _formTypeLabel = {
-      tokutei_nintei:'特定技能・認定', tokutei_koushin:'特定技能・変更/更新',
-      gijinkoku_nintei:'技人国・認定', gijinkoku_koushin:'技人国・変更/更新'
+      tokutei_nintei:'特定技能・認定', tokutei_koushin:'特定技能・更新', tokutei_henkou:'特定技能・変更',
+      gijinkoku_nintei:'技人国・認定', gijinkoku_koushin:'技人国・更新', gijinkoku_henkou:'技人国・変更'
     }[_formType] || '特定技能・認定';
     var _hasWarning = _appTypeMissing || _resStatusMissing;
 
@@ -17353,9 +17505,11 @@ function showTab(tab) {
     h += '<span style="font-size:11px;font-weight:800;color:#4f46e5;background:#ede9fe;padding:2px 8px;border-radius:4px;">' + esc(_formTypeLabel) + '</span>';
     h += '<select id="formTypeSelect_' + c.id + '" onchange="updatePersonFormUrl(\'' + c.id + '\',this.value)" style="margin-left:auto;font-size:10px;padding:3px 6px;border:1px solid #e5e7eb;border-radius:6px;background:white;cursor:pointer;">';
     h += '<option value="tokutei_nintei"' + (_formType==='tokutei_nintei'?' selected':'') + '>特定技能・認定</option>';
-    h += '<option value="tokutei_koushin"' + (_formType==='tokutei_koushin'?' selected':'') + '>特定技能・変更/更新</option>';
+    h += '<option value="tokutei_koushin"' + (_formType==='tokutei_koushin'?' selected':'') + '>特定技能・更新</option>';
+    h += '<option value="tokutei_henkou"' + (_formType==='tokutei_henkou'?' selected':'') + '>特定技能・変更</option>';
     h += '<option value="gijinkoku_nintei"' + (_formType==='gijinkoku_nintei'?' selected':'') + '>技人国・認定</option>';
-    h += '<option value="gijinkoku_koushin"' + (_formType==='gijinkoku_koushin'?' selected':'') + '>技人国・変更/更新</option>';
+    h += '<option value="gijinkoku_koushin"' + (_formType==='gijinkoku_koushin'?' selected':'') + '>技人国・更新</option>';
+    h += '<option value="gijinkoku_henkou"' + (_formType==='gijinkoku_henkou'?' selected':'') + '>技人国・変更</option>';
     h += '</select>';
     h += '</div>';
     h += '<div style="font-size:11px;color:#6b7280;margin-bottom:6px;">本人（外国人）に送付するURL：</div>';
@@ -17401,6 +17555,56 @@ function showTab(tab) {
     if (!p.contractEnd && p.contractEndY && p.contractEndM && p.contractEndD) {
       p.contractEnd = p.contractEndY + '-' + String(p.contractEndM).padStart(2,'0') + '-' + String(p.contractEndD).padStart(2,'0');
     }
+
+    // ===== 人材ヒアリングフォームURL（人材データタブ最上部）=====
+    var _pAppType = c.appType || '';
+    var _pResStatus = c.residenceStatus || c.currentStatus || '';
+    var _pAppTypeMissing = !_pAppType;
+    var _pResStatusMissing = !_pResStatus;
+    var _pIsKoushin = _pAppType.indexOf('更新') >= 0;
+    var _pIsGiji = _pResStatus.indexOf('技術') >= 0 || _pResStatus.indexOf('技人国') >= 0 || _pResStatus.indexOf('人文') >= 0 || _pResStatus.indexOf('国際業務') >= 0;
+    var _pIsHenkou = _pAppType.indexOf('変更') >= 0;
+    var _pFormType = _pIsGiji ? (_pIsKoushin ? 'gijinkoku_koushin' : (_pIsHenkou ? 'gijinkoku_henkou' : 'gijinkoku_nintei')) : (_pIsKoushin ? 'tokutei_koushin' : (_pIsHenkou ? 'tokutei_henkou' : 'tokutei_nintei'));
+    var _pFormTypeLabels = {tokutei_nintei:'特定技能・認定', tokutei_koushin:'特定技能・更新', tokutei_henkou:'特定技能・変更', gijinkoku_nintei:'技人国・認定', gijinkoku_koushin:'技人国・更新', gijinkoku_henkou:'技人国・変更'};
+    var _pFormTypeLabel = _pFormTypeLabels[_pFormType];
+    var _pHasWarning = _pAppTypeMissing || _pResStatusMissing;
+    var _pPersonFormUrl = FORM_BASE_URL + '?case=' + encodeURIComponent(c.id) + '&type=' + _pFormType + '&name=' + encodeURIComponent(c.applicant||c.name||'');
+
+    h = '<div style="margin-bottom:10px;background:white;border-radius:10px;border:1.5px solid ' + (_pHasWarning?'#fed7aa':'#e0e7ff') + ';overflow:hidden;">';
+    h += '<div style="background:' + (_pHasWarning?'#fff7ed':'#eef2ff') + ';padding:8px 14px;display:flex;align-items:center;gap:8px;">';
+    h += '<span style="font-size:12px;font-weight:800;color:' + (_pHasWarning?'#c2410c':'#3730a3') + ';">👤 人材ヒアリングフォーム</span>';
+    if (!_pHasWarning) {
+      h += '<span style="font-size:10px;font-weight:700;color:#4f46e5;background:#ede9fe;padding:1px 7px;border-radius:4px;">' + esc(_pFormTypeLabel) + '</span>';
+    }
+    h += '<button onclick="renderFormResponseBadge(\'' + c.id + '\')" style="margin-left:auto;font-size:10px;padding:2px 8px;background:white;border:1px solid #c7d2fe;border-radius:5px;cursor:pointer;color:#6366f1;">🔄 回答確認</button>';
+    h += '</div>';
+    if (_pHasWarning) {
+      h += '<div style="padding:8px 14px;background:#fff7ed;border-bottom:1px solid #fed7aa;font-size:11px;color:#92400e;">';
+      h += '⚠️ フォーム種別を自動判定できません。<b>基本情報タブ</b>で以下を設定してください：';
+      if (_pAppTypeMissing) h += '<br>・申請種別（認定 / 更新 / 変更）';
+      if (_pResStatusMissing) h += '<br>・希望在留資格';
+      h += '<br><span style="font-size:10px;color:#9ca3af;">または下のセレクトで手動選択</span>';
+      h += '</div>';
+    }
+    h += '<div style="padding:10px 14px;">';
+    h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">';
+    h += '<span style="font-size:11px;color:#6b7280;">フォーム種別:</span>';
+    h += '<select id="pFormTypeSelect_' + c.id + '" onchange="updatePersonFormUrl2(\'' + c.id + '\',this.value)" style="font-size:11px;padding:3px 6px;border:1px solid #e5e7eb;border-radius:6px;background:white;cursor:pointer;">';
+    h += '<option value="tokutei_nintei"' + (_pFormType==='tokutei_nintei'?' selected':'') + '>特定技能・認定</option>';
+    h += '<option value="tokutei_koushin"' + (_pFormType==='tokutei_koushin'?' selected':'') + '>特定技能・更新</option>';
+    h += '<option value="tokutei_henkou"' + (_pFormType==='tokutei_henkou'?' selected':'') + '>特定技能・変更</option>';
+    h += '<option value="gijinkoku_nintei"' + (_pFormType==='gijinkoku_nintei'?' selected':'') + '>技人国・認定</option>';
+    h += '<option value="gijinkoku_koushin"' + (_pFormType==='gijinkoku_koushin'?' selected':'') + '>技人国・更新</option>';
+    h += '<option value="gijinkoku_henkou"' + (_pFormType==='gijinkoku_henkou'?' selected':'') + '>技人国・変更</option>';
+    h += '</select>';
+    h += '</div>';
+    h += '<div style="display:flex;gap:6px;align-items:center;">';
+    h += '<input id="pPersonFormUrl_' + c.id + '" type="text" value="' + esc(_pPersonFormUrl) + '" readonly style="flex:1;font-size:10px;padding:5px 8px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;color:#374151;">';
+    h += '<button onclick="(function(){var el=document.getElementById(\'pPersonFormUrl_' + c.id + '\');navigator.clipboard.writeText(el.value).then(function(){showToast(\'📋 URLをコピーしました\');});})()" style="flex-shrink:0;font-size:10px;padding:5px 10px;background:#4f46e5;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">コピー</button>';
+    h += '<button onclick="window.open(document.getElementById(\'pPersonFormUrl_' + c.id + '\').value,\'_blank\')" style="flex-shrink:0;font-size:10px;padding:5px 10px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;">開く</button>';
+    h += '</div>';
+    h += '<div id="formResponseBadge_p_' + c.id + '" style="margin-top:6px;"></div>';
+    h += '</div></div>';
     var pInfo = getPersonCompleteInfo(c.id);
     var isManual = p._manualComplete;
     var isComplete = pInfo.complete;
