@@ -21487,6 +21487,7 @@ function _listItemToRow(d) {
     moved_at: d.movedAt||null, case_id: d.caseId||null,
     reported: d.reported||false,
     reported_at: d.reportedAt||null,
+    pdf_done: d.pdfDone||false,
     updated_at: new Date().toISOString()
   };
 }
@@ -21495,7 +21496,8 @@ function _rowToListItem(r) {
     id: r.id, name: r.name||'', date: r.date||'',
     caseNo: r.case_no||'', org: r.org||'', sub: r.sub||'',
     movedAt: r.moved_at||'', caseId: r.case_id||'',
-    reported: r.reported||false, reportedAt: r.reported_at||null
+    reported: r.reported||false, reportedAt: r.reported_at||null,
+    pdfDone: r.pdf_done||false
   };
 }
 function persistShinsaList(changedId){
@@ -21686,7 +21688,7 @@ function moveMailData(){
     if(!confirm('⚠️ '+unlinkedItems.length+'件が案件に未紐づけです。\n紐づけなしのまま移動しますか？\n（後から各一覧で案件を紐づけできます）')) return;
   }
   selected.forEach(function(m){
-    var entry={id:m.id, name:m.name, date:m.date, caseNo:m.caseNo||'', org:m.org||'', sub:m.sub||'', movedAt:new Date().toISOString().slice(0,10), caseId:m.linkedCase||''};
+    var entry={id:m.id, name:m.name, date:m.date, caseNo:m.caseNo||'', org:m.org||'', sub:m.sub||'', movedAt:new Date().toISOString().slice(0,10), caseId:m.linkedCase||'', pdfDone:m.pdfDone||false};
     if(m.badge==='審査完了'){
       if(!shinsaListData.some(function(x){return x.id===m.id;})){
         shinsaListData.push(entry); moved++;
@@ -21714,7 +21716,16 @@ function moveMailData(){
       }
     }
   });
-  persistShinsaList(); persistCertList(); persistReceiptList();
+  // 移動した各アイテムを個別upsert（全件送信を避ける）
+  selected.forEach(function(m){
+    if(m.badge==='審査完了') persistShinsaList(m.id);
+    else if(m.badge==='認定証明書') persistCertList(m.id);
+    else if(m.badge==='受付番号') persistReceiptList(m.id);
+  });
+  // localStorage同期
+  try{localStorage.setItem('ofusa_shinsaList',JSON.stringify(shinsaListData));}catch(e){}
+  try{localStorage.setItem('ofusa_certList',JSON.stringify(certListData));}catch(e){}
+  try{localStorage.setItem('ofusa_receiptList',JSON.stringify(receiptListData));}catch(e){}
   persist();
 
   // 移動したメールをMAILSから除去 + GASで既読にする
@@ -21830,7 +21841,7 @@ function saveListEdit(type,id){
   item.caseNo=document.getElementById('ledit_caseNo').value;
   item.date=document.getElementById('ledit_date').value;
   item.org=document.getElementById('ledit_org').value;
-  cfg.persist();
+  cfg.persist(id);
   closeListEdit();
   cfg.render();
   showToast('✅ 保存しました');
@@ -21865,7 +21876,7 @@ function unlinkRecord(id){
     if(c){c.receiptNo='';c.receiptDate='';persist();}
   }
   rec.caseId='';
-  persistReceiptList();
+  persistReceiptList(rec.id);
   renderRecords();
   showToast('🔗 紐づけを解除しました');
 }
@@ -21929,7 +21940,7 @@ function applyLinkRecord(recId,caseId){
     if(rec.date){c.receiptDate=rec.date.slice(0,10);}
     persist();
   }
-  persistReceiptList();
+  persistReceiptList(rec.id);
   var dialog=document.getElementById('linkRecDialog');
   if(dialog) dialog.remove();
   renderRecords();
@@ -21951,7 +21962,9 @@ function confirmDeleteRecord(id){
   persistReceiptTrash();
   receiptListData=receiptListData.filter(function(d){return d.id!==id;});
   delete recSel[id];
-  persistReceiptList();
+  // ゴミ箱移動時はDBからdelete
+  if(DB_READY) _sb.from('receipt_archive').delete().eq('id',id).then(function(r){if(r&&r.error)console.error('receipt_archive delete err:',r.error);});
+  try{localStorage.setItem('ofusa_receiptList',JSON.stringify(receiptListData));}catch(e){}
   updateListSelBar('rec');
   renderRecords();
   showToast('🗑 ゴミ箱に移動しました（申請記録画面下部から復元可能）');
@@ -21969,7 +21982,7 @@ function restoreRecord(id){
   }
   receiptTrash=receiptTrash.filter(function(d){return d.id!==id;});
   persistReceiptTrash();
-  persistReceiptList();
+  persistReceiptList(rec.id);
   renderRecords();
   showToast('♻️ 復元しました');
 }
@@ -21985,8 +21998,8 @@ function permanentDeleteRecord(id){
 // ===== 汎用 紐づけ/解除（shinsa/cert/rec共通） =====
 function _getListData(type){
   if(type==='rec') return {data:receiptListData, persist:persistReceiptList, render:renderRecords};
-  if(type==='shinsa') return {data:shinsaListData, persist:function(){try{localStorage.setItem('ofusa_shinsaList',JSON.stringify(shinsaListData));}catch(e){}if(DB_READY)_sb.from('settings').upsert({key:'shinsa_archive',value:JSON.stringify(shinsaListData)}).then(function(){});}, render:renderShinsaList};
-  if(type==='cert') return {data:certListData, persist:function(){try{localStorage.setItem('ofusa_certList',JSON.stringify(certListData));}catch(e){}if(DB_READY)_sb.from('settings').upsert({key:'cert_archive',value:JSON.stringify(certListData)}).then(function(){});}, render:renderCertList};
+  if(type==='shinsa') return {data:shinsaListData, persist:persistShinsaList, render:renderShinsaList};
+  if(type==='cert') return {data:certListData, persist:persistCertList, render:renderCertList};
   return null;
 }
 
@@ -22054,7 +22067,7 @@ function applyLinkItem(caseId){
     }
     persist();
   }
-  cfg.persist();
+  cfg.persist(item.id);
   dialog.remove();
   cfg.render();
   showToast('✅ 案件に紐づけました'+(c?' → '+getDisplayName(c):''));
@@ -22071,7 +22084,7 @@ function unlinkListItem(type, itemId){
     if(c){c.receiptNo='';c.receiptDate='';persist();}
   }
   item.caseId='';
-  cfg.persist();
+  cfg.persist(item.id);
   cfg.render();
   showToast('🔗 紐づけを解除しました');
 }
@@ -22158,6 +22171,8 @@ function renderListItems(type, data, borderColor){
         h+='<button onclick="event.stopPropagation();linkListItemToCase(\''+type+'\',\''+d.id+'\')" style="flex-shrink:0;font-size:10px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;padding:2px 6px;cursor:pointer;white-space:nowrap;">未紐づけ</button>';
       }
     }
+    // PDF済みバッジ
+    if(d.pdfDone) h+='<span style="flex-shrink:0;font-size:10px;background:#ede9fe;color:#7c3aed;border:1px solid #c4b5fd;border-radius:4px;padding:2px 7px;font-weight:700;white-space:nowrap;">📄 PDF済</span>';
     h+='<button onclick="event.stopPropagation();toggleReported(\''+type+'\',\''+d.id+'\')" title="'+(isReported?'対応済み（クリックで解除）':'未対応（クリックで対応済みにする）')+'" style="flex-shrink:0;font-size:10px;background:'+(isReported?'#d1fae5':'#fef9c3')+';color:'+(isReported?'#059669':'#92400e')+';border:1px solid '+(isReported?'#6ee7b7':'#fde68a')+';border-radius:4px;padding:2px 7px;cursor:pointer;font-weight:700;white-space:nowrap;">'+(isReported?'✅ 対応済':'⏳ 未対応')+'</button>';
     h+='<button onclick="event.stopPropagation();listEditItem(\''+type+'\',\''+d.id+'\')" style="flex-shrink:0;font-size:10px;background:#eff6ff;color:#2563eb;border:none;border-radius:4px;padding:2px 6px;cursor:pointer;">✏️</button>';
     if(type==='rec'){
@@ -22468,6 +22483,8 @@ function runImport() {
       .then(function(result) {
         if (result.status === 'ok') {
           addLog('✅ ' + m.name + ' → 取込完了', 'log-ok');
+          m.pdfDone = true;
+          persistSavedMails();
           bgImport.okCount++;
         } else {
           addLog('⚠ ' + m.name + ' → ' + (result.message || result.msg || JSON.stringify(result)), 'log-warn');
@@ -23048,7 +23065,7 @@ function submitManualRecord(){
   // 申請記録にも追加（caseId紐づけ付き）
   var recEntry={id:'mr_'+Date.now(), name:applicant, date:data.receiptDate, caseNo:data.receiptNo, org:data.org, sub:data.name, movedAt:new Date().toISOString().slice(0,10), caseId:caseId};
   receiptListData.push(recEntry);
-  persistReceiptList();
+  persistReceiptList(recEntry.id);
   // 案件にも受付番号反映
   var cas=cData.find(function(c){return c.id===caseId;});
   if(cas && data.receiptNo){cas.receiptNo=data.receiptNo;cas.receiptDate=data.receiptDate;persist();}
