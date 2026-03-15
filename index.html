@@ -9066,6 +9066,173 @@ function addTwoMonths(dateStr) {
   d.setMonth(d.getMonth() + 2);
   return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2);
 }
+// ===== ヒアリングフォーム機能 =====
+var FORM_BASE_URL = 'https://ofusa2026.github.io/anken/form.html';
+
+function openCompanyFormUrl(coId) {
+  var co = companies.find(function(x){ return x.id === coId; });
+  if (!co) return;
+  var url = FORM_BASE_URL + '?case=' + encodeURIComponent('co_' + coId) + '&type=company&name=' + encodeURIComponent(co.name||'');
+  // モーダルで表示
+  var html = '<div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;" id="coFormModal">'
+    + '<div style="background:white;border-radius:14px;padding:20px;width:500px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,.3);">'
+    + '<div style="font-size:14px;font-weight:800;color:#0f2040;margin-bottom:4px;">📋 所属機関ヒアリングフォーム</div>'
+    + '<div style="font-size:11px;color:#6b7280;margin-bottom:14px;">' + esc(co.name) + '</div>'
+    + '<div style="font-size:11px;font-weight:700;color:#6b7280;margin-bottom:6px;">担当者に送付するURL：</div>'
+    + '<div style="display:flex;gap:6px;margin-bottom:14px;">'
+    + '<input id="coFormUrlInput" type="text" value="' + esc(url) + '" readonly style="flex:1;font-size:11px;padding:8px 10px;border:1.5px solid #e5e7eb;border-radius:8px;background:#f9fafb;">'
+    + '<button onclick="(function(){var el=document.getElementById(\'coFormUrlInput\');navigator.clipboard.writeText(el.value).then(function(){showToast(\'URLをコピーしました\');});document.getElementById(\'coFormModal\').remove();})()" style="flex-shrink:0;padding:8px 14px;background:#16a34a;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">コピー</button>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;">'
+    + '<button onclick="window.open('' + url + '',\'_blank\');document.getElementById(\'coFormModal\').remove();" style="padding:8px 16px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">ブラウザで開く</button>'
+    + '<button onclick="checkCoFormResponses('' + coId + '');document.getElementById(\'coFormModal\').remove();" style="padding:8px 16px;background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🔄 回答確認</button>'
+    + '<button onclick="document.getElementById(\'coFormModal\').remove()" style="padding:8px 16px;background:white;color:#6b7280;border:1px solid #e5e7eb;border-radius:8px;font-size:12px;cursor:pointer;">閉じる</button>'
+    + '</div>'
+    + '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function checkCoFormResponses(coId) {
+  if (!DB_READY) return;
+  _sb.from('form_responses').select('*').eq('case_id', 'co_' + coId).order('submitted_at', {ascending:false}).then(function(res) {
+    if (res.error || !res.data || !res.data.length) {
+      showToast('まだ回答がありません');
+      return;
+    }
+    var latest = res.data[0];
+    if (latest.imported_at) { showToast('✅ 取込済みの回答があります'); return; }
+    if (!confirm('回答が届いています（' + new Date(latest.submitted_at).toLocaleString('ja-JP') + '）
+所属機関データに取込みますか？')) return;
+    var co = companies.find(function(x){ return x.id === coId; });
+    if (!co) { showToast('❌ 所属機関が見つかりません'); return; }
+    var response = latest.response;
+    Object.keys(response).forEach(function(k){ if(response[k]) co[k] = response[k]; });
+    persistCompanyToDB([co]);
+    try { localStorage.setItem('ofusa_companies', JSON.stringify(companies)); } catch(e) {}
+    _sb.from('form_responses').update({imported_at: new Date().toISOString()}).eq('id', latest.id).then(function(){});
+    showToast('✅ 所属機関データを更新しました');
+    renderCompanyDetail(co);
+  });
+}
+function copyFormUrl(caseId, type) {
+  var el = document.getElementById((type==='person'?'personFormUrl_':'companyFormUrl_') + caseId);
+  if (!el) return;
+  navigator.clipboard.writeText(el.value).then(function(){
+    showToast('📋 ' + (type==='person'?'人材':'企業') + 'フォームURLをコピーしました');
+  }).catch(function(){
+    el.select(); document.execCommand('copy');
+    showToast('📋 コピーしました');
+  });
+}
+
+function openFormUrl(caseId, type) {
+  var el = document.getElementById((type==='person'?'personFormUrl_':'companyFormUrl_') + caseId);
+  if (el) window.open(el.value, '_blank');
+}
+
+function renderFormResponseBadge(caseId) {
+  if (!DB_READY) return;
+  var el = document.getElementById('formResponseBadge_' + caseId);
+  if (!el) return;
+  el.innerHTML = '<span style="font-size:10px;color:#6b7280;">確認中...</span>';
+  _sb.from('form_responses').select('id,form_type,submitted_at,imported_at').eq('case_id', caseId).order('submitted_at', {ascending:false}).then(function(res) {
+    if (res.error || !res.data) { el.innerHTML = ''; return; }
+    if (!res.data.length) {
+      el.innerHTML = '<div style="font-size:11px;color:#9ca3af;">まだ回答がありません</div>';
+      return;
+    }
+    var h = '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">';
+    res.data.forEach(function(r) {
+      var typeLabel = r.form_type === 'person' ? '👤 人材' : '🏢 企業';
+      var dt = r.submitted_at ? new Date(r.submitted_at) : null;
+      var dtStr = dt ? (dt.getMonth()+1) + '/' + dt.getDate() + ' ' + dt.getHours() + ':' + ('0'+dt.getMinutes()).slice(-2) : '';
+      var imported = !!r.imported_at;
+      h += '<div style="display:flex;align-items:center;gap:4px;background:' + (imported?'#f0fdf4':'#eff6ff') + ';border:1px solid ' + (imported?'#86efac':'#bfdbfe') + ';border-radius:6px;padding:4px 8px;">';
+      h += '<span style="font-size:11px;font-weight:700;">' + typeLabel + '</span>';
+      h += '<span style="font-size:10px;color:#6b7280;">' + dtStr + '</span>';
+      if (!imported) {
+        h += '<button onclick="importFormResponse('' + r.id + '','' + caseId + '','' + r.form_type + '')" style="font-size:10px;padding:2px 8px;background:#2563eb;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:700;">取込</button>';
+      } else {
+        h += '<span style="font-size:10px;color:#16a34a;font-weight:700;">✅ 取込済</span>';
+      }
+      h += '</div>';
+    });
+    h += '</div>';
+    el.innerHTML = h;
+  });
+}
+
+function importFormResponse(responseId, caseId, formType) {
+  if (!DB_READY) return;
+  if (!confirm('この回答を案件に取込みますか？
+現在のデータは上書きされます。')) return;
+  _sb.from('form_responses').select('response').eq('id', responseId).then(function(res) {
+    if (res.error || !res.data || !res.data.length) { showToast('❌ 回答データの取得に失敗しました'); return; }
+    var response = res.data[0].response;
+    if (formType === 'person') {
+      // 人材データに反映
+      var p = personData[caseId] || {};
+      Object.keys(response).forEach(function(k) { if (response[k]) p[k] = response[k]; });
+      personData[caseId] = p;
+      // 在留資格はcasesにも反映
+      var c = cData.find(function(x){ return x.id === caseId; });
+      if (c && response.residenceStatus) c.currentStatus = response.residenceStatus;
+      persistPersonToDB(caseId, p);
+      try { localStorage.setItem('ofusa_personData', JSON.stringify(personData)); } catch(e) {}
+      showToast('✅ 人材データを取込みました');
+    } else {
+      // 企業データに反映（case_idが'co_'始まりはcoIdで直接検索、それ以外は案件のcompanyから検索）
+      var _targetCoId = caseId.indexOf('co_') === 0 ? caseId.substring(3) : null;
+      var co = _targetCoId
+        ? companies.find(function(x){ return x.id === _targetCoId; })
+        : companies.find(function(x){ return x.name === (cData.find(function(c){return c.id===caseId;})||{}).company; });
+      if (co) {
+        // 雇用条件フィールドはempSetsに、それ以外はcoに反映
+        var _esKeys = ['salaryType','salaryAmt','contractStart','contractEnd','officeName','officePref',
+          'officeCity','officeAddress','officeTel','startTime','endTime','breakTime','dailyHours',
+          'fixedDay1','annualHolidays','allowance1Name','allowance1Amt','allowance2Name','allowance2Amt',
+          'deductHousing','deductFood','insurance','payCutoff','payDay'];
+        var _esData = {}, _coData = {};
+        Object.keys(response).forEach(function(k) {
+          if (response[k] === '' || response[k] == null) return;
+          if (_esKeys.indexOf(k) >= 0) _esData[k] = response[k];
+          else _coData[k] = response[k];
+        });
+        Object.assign(co, _coData);
+        if (Object.keys(_esData).length > 0) {
+          if (!co.empSets || !co.empSets.length) co.empSets = [{}];
+          var es = co.empSets[0];
+          // 給与形態別にフィールド振り分け
+          if (_esData.salaryAmt) {
+            var st = _esData.salaryType || 'monthly';
+            if (st === 'hourly') es.hourlyWage = _esData.salaryAmt;
+            else if (st === 'daily') es.dailyWage = _esData.salaryAmt;
+            else es.salaryMonthly = _esData.salaryAmt;
+          }
+          ['contractStart','contractEnd','officeName','officePref','officeCity','officeAddress','officeTel',
+           'startTime','endTime','breakTime','dailyHours','fixedDay1','annualHolidays',
+           'allowance1Name','allowance1Amt','allowance2Name','allowance2Amt',
+           'deductHousing','deductFood','payCutoff','payDay'].forEach(function(k){
+            if (_esData[k]) es[k] = _esData[k];
+          });
+          co.empSets[0] = es;
+        }
+        persistCompanyToDB([co]);
+        try { localStorage.setItem('ofusa_companies', JSON.stringify(companies)); } catch(e) {}
+        showToast('✅ 企業データを取込みました');
+      } else {
+        showToast('⚠️ 対象企業が見つかりません。所属機関を先に設定してください。');
+        return;
+      }
+    }
+    // 取込済みマーク
+    _sb.from('form_responses').update({ imported_at: new Date().toISOString() }).eq('id', responseId).then(function(){
+      renderFormResponseBadge(caseId);
+      showTab('info');
+    });
+  });
+}
+
 function autoSaveInfo(key, value) {
   var c = currentCase; if (!c) return;
   if (key === 'status' && !value) return; // ステータスの空文字は無視
@@ -11029,6 +11196,7 @@ function renderCompanyDetail(co){
   h+='<label ondragover="event.preventDefault();this.style.background=\'#dbeafe\';this.style.borderColor=\'var(--blue)\'" ondragleave="this.style.background=\'#f0fdf4\';this.style.borderColor=\'var(--green)\'" ondrop="event.preventDefault();this.style.background=\'#f0fdf4\';this.style.borderColor=\'var(--green)\';handleCompanyDropInto(\''+co.id+'\',event)" style="font-size:11px;padding:5px 12px;background:#f0fdf4;color:var(--green);border:1.5px dashed var(--green);border-radius:6px;cursor:pointer;font-weight:700;display:inline-flex;align-items:center;gap:3px;transition:.15s;">📥 Excel / ドラッグ<input type="file" accept=".xlsx,.xls" onchange="importCompanyExcelInto(\''+co.id+'\',this)" style="display:none;"></label>';
   h+='<button onclick="duplicateCompany(\''+co.id+'\')" style="font-size:11px;padding:5px 12px;background:white;color:var(--blue);border:1.5px solid var(--blue);border-radius:6px;cursor:pointer;font-weight:700;">📋 複製</button>';
   h+='<button onclick="deleteCompany(\''+co.id+'\')" style="font-size:11px;padding:5px 12px;background:white;color:#dc2626;border:1.5px solid #fca5a5;border-radius:6px;cursor:pointer;font-weight:700;">🗑 削除</button>';
+  h+='<button onclick="openCompanyFormUrl(\''+co.id+'\')" style="font-size:11px;padding:5px 12px;background:#f0fdf4;color:#16a34a;border:1.5px solid #86efac;border-radius:6px;cursor:pointer;font-weight:700;">📋 ヒアリングフォーム</button>';
   h+='</div></div>';
   // タブ切替
   h+='<div style="display:flex;gap:6px;margin-bottom:14px;">';
@@ -13178,6 +13346,13 @@ function showMappingPreview() {
 
   function rv(field){
     if(!field) return '';
+    // 企業情報.xxx → 所属機関.xxx に自動変換（テンプレート表記揺れ対応）
+    if(typeof field === 'string' && field.indexOf('企業情報.') === 0) {
+      var _soKey = '所属機関.' + field.substring(5);
+      var _soMapped = PLACEHOLDER_MAP[_soKey] || PLACEHOLDER_MAP[field];
+      if(_soMapped) field = _soMapped;
+      else if(PLACEHOLDER_MAP[field]) field = PLACEHOLDER_MAP[field];
+    }
     // 関数型フィールドに対応（PLACEHOLDER_MAPに関数を直接定義可能）
     if(typeof field === 'function') return String(field(c,p,co,es)||'');
     if(field==='auto') return now.getFullYear()+'年'+(now.getMonth()+1)+'月'+now.getDate()+'日';
@@ -13702,6 +13877,13 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
 
   function rv(field){
     if(!field) return '';
+    // 企業情報.xxx → 所属機関.xxx に自動変換（テンプレート表記揺れ対応）
+    if(typeof field === 'string' && field.indexOf('企業情報.') === 0) {
+      var _soKey = '所属機関.' + field.substring(5);
+      var _soMapped = PLACEHOLDER_MAP[_soKey] || PLACEHOLDER_MAP[field];
+      if(_soMapped) field = _soMapped;
+      else if(PLACEHOLDER_MAP[field]) field = PLACEHOLDER_MAP[field];
+    }
     // 関数型フィールドに対応（PLACEHOLDER_MAPに関数を直接定義可能）
     if(typeof field === 'function') return String(field(c,p,co,es)||'');
     if(field==='auto') return now.getFullYear()+'年'+(now.getMonth()+1)+'月'+now.getDate()+'日';
@@ -14088,6 +14270,15 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
     var upm=JSON.parse(localStorage.getItem('ofusa_userPHMap')||'{}');
     Object.keys(upm).forEach(function(k){ if(upm[k]) PLACEHOLDER_MAP[k]=upm[k]; });
   }catch(e){}
+
+  // 企業情報.xxx → 所属機関.xxx の自動フォールバック登録
+  // テンプレートに{{企業情報.xxx}}と書かれていても所属機関データで解決する
+  Object.keys(PLACEHOLDER_MAP).forEach(function(k){
+    if(k.indexOf('所属機関.') === 0){
+      var kigyoKey = '企業情報.' + k.substring(5);
+      if(!PLACEHOLDER_MAP[kigyoKey]) PLACEHOLDER_MAP[kigyoKey] = PLACEHOLDER_MAP[k];
+    }
+  });
 
   // bytesOverrideがある場合（ZIP一括生成）はテンプレート取得スキップ
   if (bytesOverride) {
@@ -17076,6 +17267,23 @@ function showTab(tab) {
       if (sec.fields.length % 2 === 1) h += '<div style="padding:10px 14px;border-bottom:1px solid var(--gray-100);"></div>';
       h += '</div></div>';
     });
+
+    // ===== ヒアリングフォームURL発行セクション =====
+    var _personFormUrl = FORM_BASE_URL + '?case=' + encodeURIComponent(c.id) + '&type=person&name=' + encodeURIComponent(c.applicant||c.name||'');
+    h += '<div style="margin-bottom:12px;background:white;border-radius:10px;border:1.5px solid #e0e7ff;overflow:hidden;">';
+    h += '<div style="background:#eef2ff;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;">';
+    h += '<div style="font-size:12px;font-weight:800;color:#3730a3;">👤 人材ヒアリングフォーム</div>';
+    h += '<button onclick="renderFormResponseBadge('' + c.id + '')" style="font-size:10px;padding:3px 10px;background:white;border:1px solid #c7d2fe;border-radius:6px;cursor:pointer;color:#6366f1;">🔄 回答確認</button>';
+    h += '</div>';
+    h += '<div style="padding:12px 14px;">';
+    h += '<div style="font-size:11px;color:#6b7280;margin-bottom:6px;">本人（外国人）に送付するURL：</div>';
+    h += '<div style="display:flex;gap:6px;align-items:center;">';
+    h += '<input id="personFormUrl_' + c.id + '" type="text" value="' + esc(_personFormUrl) + '" readonly style="flex:1;font-size:10px;padding:5px 8px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;color:#374151;">';
+    h += '<button onclick="copyFormUrl('' + c.id + '','person')" style="flex-shrink:0;font-size:10px;padding:5px 10px;background:#4f46e5;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">コピー</button>';
+    h += '<button onclick="openFormUrl('' + c.id + '','person')" style="flex-shrink:0;font-size:10px;padding:5px 10px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;">開く</button>';
+    h += '</div>';
+    h += '<div id="formResponseBadge_' + c.id + '" style="margin-top:8px;"></div>';
+    h += '</div></div>';
 
     // 備考欄（基本情報の一番下）
     var memoVal = c.memo || '';
