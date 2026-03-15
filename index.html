@@ -9150,6 +9150,19 @@ function openFormUrl(caseId, type) {
   if (el) window.open(el.value, '_blank');
 }
 
+function updatePersonFormUrl(caseId, formType) {
+  // フォーム種別セレクタ変更時にURLを更新
+  var c = cData.find(function(x){ return x.id === caseId; });
+  if (!c) return;
+  var url = FORM_BASE_URL + '?case=' + encodeURIComponent(caseId) + '&type=' + formType + '&name=' + encodeURIComponent(c.applicant||c.name||'');
+  var el = document.getElementById('personFormUrl_' + caseId);
+  if (el) el.value = url;
+  // バッジ表示も更新
+  var labels = {tokutei_nintei:'特定技能・認定',tokutei_koushin:'特定技能・変更/更新',gijinkoku_nintei:'技人国・認定',gijinkoku_koushin:'技人国・変更/更新'};
+  var badge = el && el.closest('.card, div') && el.parentElement.parentElement.querySelector('span[style*="4f46e5"]');
+  if (badge) badge.textContent = labels[formType] || formType;
+}
+
 function renderFormResponseBadge(caseId) {
   if (!DB_READY) return;
   var el = document.getElementById('formResponseBadge_' + caseId);
@@ -17288,13 +17301,63 @@ function showTab(tab) {
     });
 
     // ===== ヒアリングフォームURL発行セクション =====
-    var _personFormUrl = FORM_BASE_URL + '?case=' + encodeURIComponent(c.id) + '&type=person&name=' + encodeURIComponent(c.applicant||c.name||'');
-    h += '<div style="margin-bottom:12px;background:white;border-radius:10px;border:1.5px solid #e0e7ff;overflow:hidden;">';
-    h += '<div style="background:#eef2ff;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;">';
-    h += '<div style="font-size:12px;font-weight:800;color:#3730a3;">👤 人材ヒアリングフォーム</div>';
+    // 申請種別・在留資格からフォームtypeを自動判定
+    var _appType = c.appType || '';
+    var _resStatus = c.residenceStatus || c.currentStatus || '';
+    var _appTypeMissing = !_appType;
+    var _resStatusMissing = !_resStatus;
+    var _isKoushin = _appType.indexOf('更新') >= 0 || _appType.indexOf('変更') >= 0;
+    var _isNintei  = _appType.indexOf('認定') >= 0 || (!_isKoushin && _appType !== '');
+    var _isGiji = _resStatus.indexOf('技術') >= 0 || _resStatus.indexOf('技人国') >= 0 || _resStatus.indexOf('人文') >= 0 || _resStatus.indexOf('国際業務') >= 0;
+    var _formType;
+    if (_isGiji) {
+      _formType = _isKoushin ? 'gijinkoku_koushin' : 'gijinkoku_nintei';
+    } else {
+      _formType = _isKoushin ? 'tokutei_koushin' : 'tokutei_nintei';
+    }
+    var _formTypeLabel = {
+      tokutei_nintei:'特定技能・認定', tokutei_koushin:'特定技能・変更/更新',
+      gijinkoku_nintei:'技人国・認定', gijinkoku_koushin:'技人国・変更/更新'
+    }[_formType] || '特定技能・認定';
+    var _hasWarning = _appTypeMissing || _resStatusMissing;
+
+    var _personFormUrl = FORM_BASE_URL + '?case=' + encodeURIComponent(c.id) + '&type=' + _formType + '&name=' + encodeURIComponent(c.applicant||c.name||'');
+
+    h += '<div style="margin-bottom:12px;background:white;border-radius:10px;border:1.5px solid ' + (_hasWarning?'#fed7aa':'#e0e7ff') + ';overflow:hidden;">';
+    h += '<div style="background:' + (_hasWarning?'#fff7ed':'#eef2ff') + ';padding:10px 14px;display:flex;align-items:center;justify-content:space-between;">';
+    h += '<div style="font-size:12px;font-weight:800;color:' + (_hasWarning?'#c2410c':'#3730a3') + ';">👤 人材ヒアリングフォーム</div>';
     h += '<button onclick="renderFormResponseBadge(\'' + c.id + '\')" style="font-size:10px;padding:3px 10px;background:white;border:1px solid #c7d2fe;border-radius:6px;cursor:pointer;color:#6366f1;">🔄 回答確認</button>';
     h += '</div>';
+    // 未設定の場合に警告を表示
+    if (_hasWarning) {
+      h += '<div style="background:#fff7ed;padding:8px 14px;border-bottom:1px solid #fed7aa;">';
+      h += '<div style="font-size:11px;font-weight:700;color:#c2410c;margin-bottom:6px;">⚠️ フォーム種別の自動判定に必要な情報が未設定です。以下を確認してください：</div>';
+      if (_appTypeMissing) {
+        h += '<div style="display:flex;align-items:center;gap:8px;font-size:11px;color:#92400e;margin-bottom:4px;">';
+        h += '• <b>申請種別</b>（認定 / 更新 / 変更）が未設定';
+        h += '<button onclick="document.getElementById(\'ei-appType\')&&document.getElementById(\'ei-appType\').focus();showToast(\'申請種別を設定してください\')" style="font-size:10px;padding:2px 8px;background:#f97316;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:700;">設定する ↑</button>';
+        h += '</div>';
+      }
+      if (_resStatusMissing) {
+        h += '<div style="display:flex;align-items:center;gap:8px;font-size:11px;color:#92400e;margin-bottom:2px;">';
+        h += '• <b>希望在留資格</b>（特定技能1号 / 技術・人文知識・国際業務 など）が未設定';
+        h += '<button onclick="document.getElementById(\'ei-residenceStatus\')&&document.getElementById(\'ei-residenceStatus\').focus();showToast(\'希望在留資格を設定してください\')" style="font-size:10px;padding:2px 8px;background:#f97316;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:700;">設定する ↑</button>';
+        h += '</div>';
+      }
+      h += '<div style="font-size:10px;color:#9ca3af;margin-top:4px;">※ 下のセレクトで手動でフォーム種別を選択することもできます</div>';
+      h += '</div>';
+    }
     h += '<div style="padding:12px 14px;">';
+    h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">';
+    h += '<span style="font-size:11px;color:#6b7280;">フォーム種別:</span>';
+    h += '<span style="font-size:11px;font-weight:800;color:#4f46e5;background:#ede9fe;padding:2px 8px;border-radius:4px;">' + esc(_formTypeLabel) + '</span>';
+    h += '<select id="formTypeSelect_' + c.id + '" onchange="updatePersonFormUrl(\'' + c.id + '\',this.value)" style="margin-left:auto;font-size:10px;padding:3px 6px;border:1px solid #e5e7eb;border-radius:6px;background:white;cursor:pointer;">';
+    h += '<option value="tokutei_nintei"' + (_formType==='tokutei_nintei'?' selected':'') + '>特定技能・認定</option>';
+    h += '<option value="tokutei_koushin"' + (_formType==='tokutei_koushin'?' selected':'') + '>特定技能・変更/更新</option>';
+    h += '<option value="gijinkoku_nintei"' + (_formType==='gijinkoku_nintei'?' selected':'') + '>技人国・認定</option>';
+    h += '<option value="gijinkoku_koushin"' + (_formType==='gijinkoku_koushin'?' selected':'') + '>技人国・変更/更新</option>';
+    h += '</select>';
+    h += '</div>';
     h += '<div style="font-size:11px;color:#6b7280;margin-bottom:6px;">本人（外国人）に送付するURL：</div>';
     h += '<div style="display:flex;gap:6px;align-items:center;">';
     h += '<input id="personFormUrl_' + c.id + '" type="text" value="' + esc(_personFormUrl) + '" readonly style="flex:1;font-size:10px;padding:5px 8px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;color:#374151;">';
