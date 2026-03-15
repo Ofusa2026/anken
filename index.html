@@ -9214,6 +9214,7 @@ function renderFormResponseBadge(caseId) {
         h += '<button onclick="previewFormResponse(\'' + r.id + '\',\'' + r.form_type + '\')" style="margin-left:auto;font-size:10px;padding:2px 8px;background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;border-radius:4px;cursor:pointer;">👁 プレビュー</button>';
         h += '<button onclick="importFormResponse(\'' + r.id + '\',\'' + caseId + '\',\'' + r.form_type + '\')" style="font-size:10px;padding:2px 8px;background:#2563eb;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:700;">取込</button>';
       }
+      h += '<button onclick="deleteFormResponse(\'' + r.id + '\',\'' + caseId + '\')" style="font-size:10px;padding:2px 6px;background:white;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;cursor:pointer;" title="この回答を削除">🗑</button>';
       h += '</div>';
       // プレビューエリア（非表示）
       h += '<div id="formPreview_' + r.id + '" style="display:none;"></div>';
@@ -9325,25 +9326,87 @@ function previewFormResponse(responseId, formType) {
       ]});
     }
 
-    // 描画
-    var h = '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #e5e7eb;">';
-    sections.forEach(function(sec) {
-      var hasData = sec.fields.some(function(f){ return resp[f.k] && resp[f.k] !== ''; });
-      if (!hasData) return;
-      h += '<div style="font-size:10px;font-weight:800;color:#6b7280;margin:6px 0 4px;text-transform:uppercase;letter-spacing:.05em;">' + sec.title + '</div>';
-      h += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;">';
-      sec.fields.forEach(function(f) {
-        var v = resp[f.k];
-        if (!v || v === '') return;
-        h += '<div style="font-size:11px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:3px 8px;">';
-        h += '<span style="color:#9ca3af;">' + esc(f.l) + '</span>';
-        h += '<span style="color:#1f2937;font-weight:700;margin-left:4px;">' + esc(String(v)) + '</span>';
+    // 全フィールドリスト（編集用）
+    var allFields = [];
+    sections.forEach(function(s){ s.fields.forEach(function(f){ allFields.push(f); }); });
+
+    // 描画（表示モード）
+    function renderPreviewView() {
+      var h = '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #e5e7eb;">';
+      // 編集ボタン
+      h += '<div style="text-align:right;margin-bottom:6px;">';
+      h += '<button onclick="renderPreviewEdit_' + responseId + '()" style="font-size:10px;padding:2px 10px;background:#f3f4f6;border:1px solid #d1d5db;border-radius:4px;cursor:pointer;color:#374151;">✏️ 編集</button>';
+      h += '</div>';
+      sections.forEach(function(sec) {
+        var hasData = sec.fields.some(function(f){ return resp[f.k] && resp[f.k] !== ''; });
+        if (!hasData) return;
+        h += '<div style="font-size:10px;font-weight:800;color:#6b7280;margin:6px 0 4px;letter-spacing:.05em;">' + sec.title + '</div>';
+        h += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;">';
+        sec.fields.forEach(function(f) {
+          var v = resp[f.k];
+          if (!v || v === '') return;
+          h += '<div style="font-size:11px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:3px 8px;">';
+          h += '<span style="color:#9ca3af;">' + esc(f.l) + '</span>';
+          h += '<span style="color:#1f2937;font-weight:700;margin-left:4px;">' + esc(String(v)) + '</span>';
+          h += '</div>';
+        });
         h += '</div>';
       });
       h += '</div>';
-    });
-    h += '</div>';
-    el.innerHTML = h;
+      el.innerHTML = h;
+    }
+
+    // 描画（編集モード）
+    window['renderPreviewEdit_' + responseId] = function() {
+      var h = '<div style="margin-top:8px;padding-top:8px;border-top:1px solid #e5e7eb;">';
+      sections.forEach(function(sec) {
+        h += '<div style="font-size:10px;font-weight:800;color:#6b7280;margin:8px 0 4px;">' + sec.title + '</div>';
+        sec.fields.forEach(function(f) {
+          var v = resp[f.k] || '';
+          h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">';
+          h += '<label style="font-size:10px;color:#9ca3af;white-space:nowrap;min-width:90px;">' + esc(f.l) + '</label>';
+          h += '<input id="previewEdit_' + responseId + '_' + f.k + '" type="text" value="' + esc(String(v)) + '" style="flex:1;font-size:11px;padding:3px 6px;border:1px solid #d1d5db;border-radius:4px;min-height:28px;">';
+          h += '</div>';
+        });
+      });
+      h += '<div style="display:flex;gap:6px;margin-top:10px;justify-content:flex-end;">';
+      h += '<button onclick="cancelPreviewEdit_' + responseId + '()" style="font-size:11px;padding:4px 12px;background:white;border:1px solid #d1d5db;border-radius:5px;cursor:pointer;color:#6b7280;">キャンセル</button>';
+      h += '<button onclick="savePreviewEdit_' + responseId + '()" style="font-size:11px;padding:4px 14px;background:#2563eb;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;">💾 保存</button>';
+      h += '</div></div>';
+      el.innerHTML = h;
+    };
+
+    window['cancelPreviewEdit_' + responseId] = function() {
+      renderPreviewView();
+    };
+
+    window['savePreviewEdit_' + responseId] = function() {
+      var updated = {};
+      allFields.forEach(function(f) {
+        var inp = document.getElementById('previewEdit_' + responseId + '_' + f.k);
+        if (inp) {
+          var v = inp.value.trim();
+          if (v) updated[f.k] = v;
+        }
+      });
+      resp = updated;
+      _sb.from('form_responses').update({ response: updated }).eq('id', responseId).then(function(res) {
+        if (res.error) { showToast('❌ 保存に失敗しました'); return; }
+        showToast('✅ 回答を更新しました');
+        renderPreviewView();
+      });
+    };
+
+    renderPreviewView();
+  });
+}
+
+function deleteFormResponse(responseId, caseId) {
+  if (!confirm('この回答を削除しますか？\nこの操作は取り消せません。')) return;
+  _sb.from('form_responses').delete().eq('id', responseId).then(function(res) {
+    if (res.error) { showToast('❌ 削除に失敗しました'); return; }
+    showToast('🗑 回答を削除しました');
+    renderFormResponseBadge(caseId);
   });
 }
 
@@ -17451,75 +17514,6 @@ function showTab(tab) {
       if (sec.fields.length % 2 === 1) h += '<div style="padding:10px 14px;border-bottom:1px solid var(--gray-100);"></div>';
       h += '</div></div>';
     });
-
-    // ===== ヒアリングフォームURL発行セクション =====
-    // 申請種別・在留資格からフォームtypeを自動判定
-    var _appType = c.appType || '';
-    var _resStatus = c.residenceStatus || c.currentStatus || '';
-    var _appTypeMissing = !_appType;
-    var _resStatusMissing = !_resStatus;
-    var _isKoushin = _appType.indexOf('更新') >= 0;
-    var _isHenkou  = _appType.indexOf('変更') >= 0;
-    var _isGiji = _resStatus.indexOf('技術') >= 0 || _resStatus.indexOf('技人国') >= 0 || _resStatus.indexOf('人文') >= 0 || _resStatus.indexOf('国際業務') >= 0;
-    var _formType;
-    if (_isGiji) {
-      _formType = _isKoushin ? 'gijinkoku_koushin' : (_isHenkou ? 'gijinkoku_henkou' : 'gijinkoku_nintei');
-    } else {
-      _formType = _isKoushin ? 'tokutei_koushin' : (_isHenkou ? 'tokutei_henkou' : 'tokutei_nintei');
-    }
-    var _formTypeLabel = {
-      tokutei_nintei:'特定技能・認定', tokutei_koushin:'特定技能・更新', tokutei_henkou:'特定技能・変更',
-      gijinkoku_nintei:'技人国・認定', gijinkoku_koushin:'技人国・更新', gijinkoku_henkou:'技人国・変更'
-    }[_formType] || '特定技能・認定';
-    var _hasWarning = _appTypeMissing || _resStatusMissing;
-
-    var _personFormUrl = FORM_BASE_URL + '?case=' + encodeURIComponent(c.id) + '&type=' + _formType + '&name=' + encodeURIComponent(c.applicant||c.name||'');
-
-    h += '<div style="margin-bottom:12px;background:white;border-radius:10px;border:1.5px solid ' + (_hasWarning?'#fed7aa':'#e0e7ff') + ';overflow:hidden;">';
-    h += '<div style="background:' + (_hasWarning?'#fff7ed':'#eef2ff') + ';padding:10px 14px;display:flex;align-items:center;justify-content:space-between;">';
-    h += '<div style="font-size:12px;font-weight:800;color:' + (_hasWarning?'#c2410c':'#3730a3') + ';">👤 人材ヒアリングフォーム</div>';
-    h += '<button onclick="renderFormResponseBadge(\'' + c.id + '\')" style="font-size:10px;padding:3px 10px;background:white;border:1px solid #c7d2fe;border-radius:6px;cursor:pointer;color:#6366f1;">🔄 回答確認</button>';
-    h += '</div>';
-    // 未設定の場合に警告を表示
-    if (_hasWarning) {
-      h += '<div style="background:#fff7ed;padding:8px 14px;border-bottom:1px solid #fed7aa;">';
-      h += '<div style="font-size:11px;font-weight:700;color:#c2410c;margin-bottom:6px;">⚠️ フォーム種別の自動判定に必要な情報が未設定です。以下を確認してください：</div>';
-      if (_appTypeMissing) {
-        h += '<div style="display:flex;align-items:center;gap:8px;font-size:11px;color:#92400e;margin-bottom:4px;">';
-        h += '• <b>申請種別</b>（認定 / 更新 / 変更）が未設定';
-        h += '<button onclick="document.getElementById(\'ei-appType\')&&document.getElementById(\'ei-appType\').focus();showToast(\'申請種別を設定してください\')" style="font-size:10px;padding:2px 8px;background:#f97316;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:700;">設定する ↑</button>';
-        h += '</div>';
-      }
-      if (_resStatusMissing) {
-        h += '<div style="display:flex;align-items:center;gap:8px;font-size:11px;color:#92400e;margin-bottom:2px;">';
-        h += '• <b>希望在留資格</b>（特定技能1号 / 技術・人文知識・国際業務 など）が未設定';
-        h += '<button onclick="document.getElementById(\'ei-residenceStatus\')&&document.getElementById(\'ei-residenceStatus\').focus();showToast(\'希望在留資格を設定してください\')" style="font-size:10px;padding:2px 8px;background:#f97316;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:700;">設定する ↑</button>';
-        h += '</div>';
-      }
-      h += '<div style="font-size:10px;color:#9ca3af;margin-top:4px;">※ 下のセレクトで手動でフォーム種別を選択することもできます</div>';
-      h += '</div>';
-    }
-    h += '<div style="padding:12px 14px;">';
-    h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">';
-    h += '<span style="font-size:11px;color:#6b7280;">フォーム種別:</span>';
-    h += '<span style="font-size:11px;font-weight:800;color:#4f46e5;background:#ede9fe;padding:2px 8px;border-radius:4px;">' + esc(_formTypeLabel) + '</span>';
-    h += '<select id="formTypeSelect_' + c.id + '" onchange="updatePersonFormUrl(\'' + c.id + '\',this.value)" style="margin-left:auto;font-size:10px;padding:3px 6px;border:1px solid #e5e7eb;border-radius:6px;background:white;cursor:pointer;">';
-    h += '<option value="tokutei_nintei"' + (_formType==='tokutei_nintei'?' selected':'') + '>特定技能・認定</option>';
-    h += '<option value="tokutei_koushin"' + (_formType==='tokutei_koushin'?' selected':'') + '>特定技能・更新</option>';
-    h += '<option value="tokutei_henkou"' + (_formType==='tokutei_henkou'?' selected':'') + '>特定技能・変更</option>';
-    h += '<option value="gijinkoku_nintei"' + (_formType==='gijinkoku_nintei'?' selected':'') + '>技人国・認定</option>';
-    h += '<option value="gijinkoku_koushin"' + (_formType==='gijinkoku_koushin'?' selected':'') + '>技人国・更新</option>';
-    h += '<option value="gijinkoku_henkou"' + (_formType==='gijinkoku_henkou'?' selected':'') + '>技人国・変更</option>';
-    h += '</select>';
-    h += '</div>';
-    h += '<div style="font-size:11px;color:#6b7280;margin-bottom:6px;">本人（外国人）に送付するURL：</div>';
-    h += '<div style="display:flex;gap:6px;align-items:center;">';
-    h += '<input id="personFormUrl_' + c.id + '" type="text" value="' + esc(_personFormUrl) + '" readonly style="flex:1;font-size:10px;padding:5px 8px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;color:#374151;">';
-    h += '<button onclick="copyFormUrl(\'' + c.id + '\',\'person\')" style="flex-shrink:0;font-size:10px;padding:5px 10px;background:#4f46e5;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">コピー</button>';
-    h += '<button onclick="openFormUrl(\'' + c.id + '\',\'person\')" style="flex-shrink:0;font-size:10px;padding:5px 10px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;">開く</button>';
-    h += '</div>';
-    h += '<div id="formResponseBadge_' + c.id + '" style="margin-top:8px;"></div>';
-    h += '</div></div>';
 
     // 備考欄（基本情報の一番下）
     var memoVal = c.memo || '';
