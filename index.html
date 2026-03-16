@@ -411,6 +411,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     </div>
     <button id="sidebarAdminBtn" onclick="openAdmin()" style="display:none;margin-top:6px;width:100%;font-size:11px;color:#fbbf24;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);border-radius:6px;padding:4px;cursor:pointer;font-weight:700;">⚙️ 管理者設定</button>
     <button id="sidebarTrashBtn" onclick="openTrashScreen()" style="display:none;margin-top:4px;width:100%;font-size:11px;color:#ef4444;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:6px;padding:4px;cursor:pointer;font-weight:700;">🗑️ ゴミ箱</button>
+    <button onclick="openFormTrash()" style="margin-top:4px;width:100%;font-size:11px;color:#9a3412;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);border-radius:6px;padding:4px;cursor:pointer;font-weight:700;">🗑 フォーム回答 ゴミ箱</button>
   </div>
   <div class="sidebar-section">メイン</div>
   <div class="nav-item" id="nav-mytasks" onclick="openMyTasks()">✏️ 個人タスク</div>
@@ -9115,6 +9116,58 @@ function addTwoMonths(dateStr) {
 // ===== ヒアリングフォーム機能 =====
 var FORM_BASE_URL = 'https://ofusa2026.github.io/form/form.html';
 
+function openFormTrash() {
+  if (!DB_READY) { showToast('⚠️ DB未接続'); return; }
+  var html = '<div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;" id="formTrashModal">'
+    + '<div style="background:white;border-radius:14px;padding:20px;width:640px;max-width:95vw;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">'
+    + '<div style="font-size:15px;font-weight:900;color:#0f2040;">🗑 フォーム回答 ゴミ箱</div>'
+    + '<button onclick="document.getElementById(\'formTrashModal\').remove()" style="font-size:18px;color:#9ca3af;background:none;border:none;cursor:pointer;">✕</button>'
+    + '</div>'
+    + '<div id="formTrashList" style="flex:1;overflow-y:auto;"><div style="font-size:12px;color:#9ca3af;">読み込み中...</div></div>'
+    + '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  _sb.from('form_responses')
+    .select('id,case_id,form_type,submitted_at,deleted_at,response')
+    .not('deleted_at', 'is', null)
+    .order('deleted_at', {ascending:false})
+    .then(function(res) {
+      var el = document.getElementById('formTrashList');
+      if (!el) return;
+      if (res.error || !res.data || !res.data.length) {
+        el.innerHTML = '<div style="padding:24px;text-align:center;color:#9ca3af;font-size:13px;">ゴミ箱は空です</div>';
+        return;
+      }
+      var h = '<div style="display:flex;flex-direction:column;gap:8px;">';
+      res.data.forEach(function(r) {
+        var dtDel = r.deleted_at ? new Date(r.deleted_at) : null;
+        var dtSub = r.submitted_at ? new Date(r.submitted_at) : null;
+        var delStr = dtDel ? dtDel.toLocaleDateString('ja-JP') + ' ' + dtDel.getHours() + ':' + ('0'+dtDel.getMinutes()).slice(-2) : '';
+        var subStr = dtSub ? dtSub.toLocaleDateString('ja-JP') : '';
+        var name = (r.response && r.response.name) || (r.response && r.response.applicantNameEn) || r.case_id || '';
+        var typeLabel = {
+          'company':'🏢 企業', 'tokutei_nintei':'👤 特定技能・認定',
+          'tokutei_koushin':'👤 特定技能・更新', 'tokutei_henkou':'👤 特定技能・変更',
+          'gijinkoku_nintei':'👤 技人国・認定', 'gijinkoku_koushin':'👤 技人国・更新', 'gijinkoku_henkou':'👤 技人国・変更'
+        }[r.form_type] || r.form_type;
+        h += '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;">';
+        h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">';
+        h += '<span style="font-size:12px;font-weight:700;">' + typeLabel + '</span>';
+        h += '<span style="font-size:11px;color:#6b7280;">' + esc(name) + '</span>';
+        h += '<span style="font-size:10px;color:#9ca3af;margin-left:auto;">送信：' + subStr + '　削除：' + delStr + '</span>';
+        h += '</div>';
+        h += '<div style="display:flex;gap:6px;">';
+        h += '<button onclick="restoreFormResponse(\'' + r.id + '\',\'' + r.case_id + '\');document.getElementById(\'formTrashModal\').remove();openFormTrash();" style="font-size:11px;padding:3px 12px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:5px;cursor:pointer;font-weight:700;">↩️ 復元</button>';
+        h += '<button onclick="permanentDeleteFormResponse(\'' + r.id + '\',\'' + r.case_id + '\');document.getElementById(\'formTrashModal\').remove();openFormTrash();" style="font-size:11px;padding:3px 12px;background:white;color:#dc2626;border:1px solid #fca5a5;border-radius:5px;cursor:pointer;">🗑 完全削除</button>';
+        h += '</div>';
+        h += '</div>';
+      });
+      h += '</div>';
+      el.innerHTML = h;
+    });
+}
+
 function openCompanyFormUrl(coId) {
   var co = companies.find(function(x){ return x.id === coId; });
   if (!co) return;
@@ -9229,7 +9282,7 @@ function renderFormResponseBadge(caseId) {
   var els = elIds.map(function(id){ return document.getElementById(id); }).filter(Boolean);
   if (!els.length) return;
   els.forEach(function(el){ el.innerHTML = '<span style="font-size:10px;color:#6b7280;">確認中...</span>'; });
-  _sb.from('form_responses').select('id,form_type,submitted_at,imported_at,response').eq('case_id', caseId).order('submitted_at', {ascending:false}).then(function(res) {
+  _sb.from('form_responses').select('id,form_type,submitted_at,imported_at,response,deleted_at').eq('case_id', caseId).is('deleted_at', null).order('submitted_at', {ascending:false}).then(function(res) {
     if (res.error || !res.data) { els.forEach(function(el){ el.innerHTML = ''; }); return; }
     if (!res.data.length) {
       els.forEach(function(el){ el.innerHTML = '<div style="font-size:11px;color:#9ca3af;">まだ回答がありません</div>'; });
@@ -9525,10 +9578,27 @@ function importCoFormResponse(responseId, coId) {
 }
 
 function deleteFormResponse(responseId, caseId) {
-  if (!confirm('この回答を削除しますか？\nこの操作は取り消せません。')) return;
+  if (!confirm('この回答をゴミ箱に移動しますか？\nゴミ箱から復元できます。')) return;
+  _sb.from('form_responses').update({ deleted_at: new Date().toISOString() }).eq('id', responseId).then(function(res) {
+    if (res.error) { showToast('❌ 移動に失敗しました: ' + (res.error.message||'')); return; }
+    showToast('🗑 ゴミ箱に移動しました');
+    renderFormResponseBadge(caseId);
+  });
+}
+
+function restoreFormResponse(responseId, caseId) {
+  _sb.from('form_responses').update({ deleted_at: null }).eq('id', responseId).then(function(res) {
+    if (res.error) { showToast('❌ 復元に失敗しました'); return; }
+    showToast('✅ 回答を復元しました');
+    renderFormResponseBadge(caseId);
+  });
+}
+
+function permanentDeleteFormResponse(responseId, caseId) {
+  if (!confirm('完全に削除しますか？\nこの操作は取り消せません。')) return;
   _sb.from('form_responses').delete().eq('id', responseId).then(function(res) {
     if (res.error) { showToast('❌ 削除に失敗しました'); return; }
-    showToast('🗑 回答を削除しました');
+    showToast('🗑 完全削除しました');
     renderFormResponseBadge(caseId);
   });
 }
