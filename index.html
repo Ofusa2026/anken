@@ -2390,6 +2390,7 @@ function persistPersonToDB(caseId, p) {
     totalStayYear:'total_stay_year', totalStayMonth:'total_stay_month',
     lineGroupId:'line_group_id',
     tempReturn:'temp_return',
+    tempReturnFlag:'temp_return_flag',
     hireDate:'hire_date', salary:'salary',
     pastEntryFrom:'past_entry_from', pastEntryTo:'past_entry_to',
     pastCOE:'past_coe', pastCOECount:'past_coe_count', pastCOEDenied:'past_coe_denied',
@@ -18551,7 +18552,8 @@ function showTab(tab) {
 
     var fields = [
       {key:'applicantNameEn', label:'氏名（英語）', placeholder:'例：NGUYEN VAN A'},
-      {key:'tempReturn',    label:'一時帰国予定日', placeholder:'未定の場合は空欄', type:'date'},
+      {key:'tempReturnFlag', label:'一時帰国予定', type:'yesno'},
+      {key:'tempReturn',    label:'一時帰国予定日', placeholder:'例：2026-06-01', type:'date', dependsOn:{key:'tempReturnFlag',value:'有'}},
       {key:'residenceCard', label:'在留カード番号', placeholder:'例：AB12345678CD'},
       {key:'passport',      label:'パスポート番号', placeholder:'例：TK1234567'},
       {key:'passportExpiry', label:'パスポート有効期限', placeholder:'例：2029-08-31', type:'date'},
@@ -18620,6 +18622,20 @@ function showTab(tab) {
       h += '<button onclick="toggleSkipField(\''+pSkipScope+'\',\''+f.key+'\');showTab(\'person\')" style="font-size:9px;padding:1px 5px;border-radius:3px;border:1px solid '+(pSkipped?'#f59e0b':'var(--gray-200)')+';background:'+(pSkipped?'#fef3c7':'white')+';color:'+(pSkipped?'#b45309':'var(--gray-400)')+';cursor:pointer;font-weight:600;">'+(pSkipped?'✓ 不要':'不要')+'</button>';
       h += '</div>';
       if (pSkipped) { h += '<div style="font-size:11px;color:var(--gray-300);padding:2px 0;">—</div>'; }
+      else if (f.dependsOn) {
+        var _depVal = p[f.dependsOn.key] || '';
+        if (_depVal !== f.dependsOn.value) { h += '</div>'; continue; }
+        h += '<input type="' + (f.type||'text') + '" id="pf-' + f.key + '" value="' + esc(p[f.key]||'') + '" placeholder="' + (f.placeholder||'') + '">';
+      }
+      else if (f.type === 'yesno') {
+        var _ynVal = p[f.key] || '';
+        h += '<div style="display:flex;gap:6px;">';
+        ['有','無'].forEach(function(opt){
+          var sel = _ynVal === opt;
+          h += '<button type="button" onclick="savePersonField(\''+c.id+'\',\''+f.key+'\',\''+opt+'\');showTab(\'person\')" style="flex:1;padding:8px 0;font-size:13px;font-weight:800;border-radius:8px;cursor:pointer;border:1.5px solid '+(sel?(opt==='有'?'#dc2626':'#16a34a'):'var(--gray-200)')+';background:'+(sel?(opt==='有'?'#fee2e2':'#f0fdf4'):'white')+';color:'+(sel?(opt==='有'?'#dc2626':'#16a34a'):'var(--gray-400)')+';">'+opt+'</button>';
+        });
+        h += '</div>';
+      }
       else if (f.type === 'linegroup') {
         h += '<div style="display:flex;gap:4px;">';
         var _pfVal = f.key==='applicantNameEn' ? (p[f.key]||c.applicant||'') : (p[f.key]||'');
@@ -29943,6 +29959,12 @@ var _origPersistSkippedFields = persistSkippedFields;
 persistSkippedFields = function(){_origPersistSkippedFields();if(DB_READY)_sb.from('settings').upsert({key:'skippedFields',value:skippedFields},{onConflict:'key'}).then(function(){});};
 
 // === personData の Supabase直接書き込み ===
+function savePersonField(caseId, key, value) {
+  if (!personData[caseId]) personData[caseId] = {};
+  personData[caseId][key] = value;
+  persistPersonData(caseId);
+}
+
 function persistPersonData(specificCaseId){
   // localStorageキャッシュ（常に全件）
   try{localStorage.setItem('ofusa_personData',JSON.stringify(personData));}catch(e){}
