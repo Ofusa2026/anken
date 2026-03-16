@@ -2209,13 +2209,14 @@ function loadCasesFromDB(callback) {
 }
 
 // 企業データ: companies をDBに保存
-function persistCompaniesToDB(companiesArray, silent) {
+function persistCompaniesToDB(companiesArray, silent, updateTimestamp) {
   if (!DB_READY || !companiesArray || !companiesArray.length) return;
+  var _now = new Date().toISOString();
   var rows = companiesArray.map(function(c) {
     return {
       id: c.id,
       name: c.name || '',
-      updated_at: new Date().toISOString(),
+      updated_at: updateTimestamp !== false ? _now : undefined,
       name_kana: c.nameKana || null,
       name_en: c.nameEn || null,
       corp_no: c.corpNo || null,
@@ -10055,15 +10056,15 @@ var _persistCompaniesTimer = null;
 function persistCompanies(coId, silent) {
   try { localStorage.setItem('ofusa_companies', JSON.stringify(companies)); } catch(e) {}
   if (coId) {
-    // 特定1社だけ即時DB保存
+    // 特定1社だけ即時DB保存（updated_at更新あり）
     var co = companies.find(function(x){ return x.id === coId; });
-    if (co) persistCompaniesToDB([co], silent);
+    if (co) persistCompaniesToDB([co], silent, true);
     return;
   }
-  // デバウンス: 500ms以内の連続呼び出しをまとめて1回だけDB送信
+  // デバウンス: 500ms以内の連続呼び出しをまとめて1回だけDB送信（updated_at更新なし）
   clearTimeout(_persistCompaniesTimer);
   _persistCompaniesTimer = setTimeout(function(){
-    persistCompaniesToDB(companies);
+    persistCompaniesToDB(companies, false, false);
   }, 500);
 }
 var _persistCaseNotesTimer = null;
@@ -15523,8 +15524,8 @@ function checkMappingFields(caseId, empSetIdx, mappingArr, onComplete) {
         persist();
       }
     }
-    var _dg_coId = currentCase ? currentCase.company : null;
-    if(_dg_coId) persistCompanies(_dg_coId); else persistCompanies();
+    var _dg_co = currentCase ? companies.find(function(x){return x.name===currentCase.company;}) : null;
+    if(_dg_co) persistCompanies(_dg_co.id); else persistCompanies();
     persistPersonData(currentCase ? currentCase.id : null);
     area.style.display='none';
     showToast('✅ データを保存しました');
@@ -15626,8 +15627,8 @@ function saveDgMissing(count, caseId, empSetIdx) {
       }
     }
   }
-  var _miss_coId = currentCase ? currentCase.company : null;
-  if(_miss_coId) persistCompanies(_miss_coId); else persistCompanies();
+  var _miss_co = currentCase ? companies.find(function(x){return x.name===currentCase.company;}) : null;
+  if(_miss_co) persistCompanies(_miss_co.id); else persistCompanies();
   persistPersonData(currentCase ? currentCase.id : null);
   document.getElementById('dg_missing_edit').style.display = 'none';
   showToast('✅ データを保存しました');
