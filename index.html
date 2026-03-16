@@ -9244,7 +9244,7 @@ function previewFormResponse(responseId, formType) {
     var resp = res.data[0].response;
 
     // フォームtypeごとの表示定義
-    var isCompany = formType === 'company';
+    var isCompany = formType === 'company' || formType === '';
     var isNintei  = formType === 'tokutei_nintei' || formType === 'gijinkoku_nintei';
     var isKoushin = formType === 'tokutei_koushin' || formType === 'gijinkoku_koushin';
     var isHenkou  = formType === 'tokutei_henkou'  || formType === 'gijinkoku_henkou';
@@ -9489,10 +9489,54 @@ function importFormResponse(responseId, caseId, formType) {
   _sb.from('form_responses').select('response').eq('id', responseId).then(function(res) {
     if (res.error || !res.data || !res.data.length) { showToast('❌ 回答データの取得に失敗しました'); return; }
     var response = res.data[0].response;
-    if (formType === 'person') {
+    var _isPersonForm = formType === 'person' || formType === 'tokutei_nintei' || formType === 'tokutei_koushin' || formType === 'tokutei_henkou' || formType === 'gijinkoku_nintei' || formType === 'gijinkoku_koushin' || formType === 'gijinkoku_henkou';
+    if (_isPersonForm) {
+      // フォームキー → personsキーのマッピング
+      var _personKeyMap = {
+        applicantNameEn: 'applicantNameEn',
+        birthdate: 'birthdate',
+        nationality: 'nationality',
+        passport: 'passport',
+        passportExpiry: 'passportExpiry',
+        married: 'spouse',
+        email: 'email',
+        phone: 'phone',
+        residenceCard: 'residenceCard',
+        residenceStatus: 'residenceStatus',
+        address: 'address',
+        // 学歴
+        eduCountry: 'eduCountry',
+        education: 'education',
+        schoolName: 'schoolName',
+        completionDate: 'completionDate',
+        major: 'major',
+        // 在留歴
+        entryCount: 'pastEntry',
+        coeCount: 'pastCOE',
+        coeDenied: 'pastCOEDenied',
+        lastEntryFrom: 'lastEntryFrom',
+        lastEntryTo: 'lastEntryTo',
+        firstEntry: 'firstEntry',
+        // 一時帰国・親族
+        tempReturn: 'tempReturn',
+        tempReturnDate: 'tempReturnDate',
+        hasRelative: 'hasRelative',
+        relative1Name: 'relative1Name', relative1Relation: 'relative1Relation',
+        relative1Birth: 'relative1Birth', relative1Nationality: 'relative1Nationality',
+        relative1Status: 'relative1Status', relative1Address: 'relative1Address',
+        relative1WorkSchool: 'relative1WorkSchool',
+        relative2Name: 'relative2Name', relative2Relation: 'relative2Relation',
+        relative2Birth: 'relative2Birth', relative2Nationality: 'relative2Nationality',
+        relative2Status: 'relative2Status', relative2Address: 'relative2Address',
+        relative2WorkSchool: 'relative2WorkSchool'
+      };
       // 人材データに反映
       var p = personData[caseId] || {};
-      Object.keys(response).forEach(function(k) { if (response[k]) p[k] = response[k]; });
+      Object.keys(response).forEach(function(k) {
+        if (!response[k] && response[k] !== 0) return;
+        var dest = _personKeyMap[k] || k;
+        p[dest] = response[k];
+      });
       personData[caseId] = p;
       // 在留資格はcasesにも反映
       var c = cData.find(function(x){ return x.id === caseId; });
@@ -9507,16 +9551,60 @@ function importFormResponse(responseId, caseId, formType) {
         ? companies.find(function(x){ return x.id === _targetCoId; })
         : companies.find(function(x){ return x.name === (cData.find(function(c){return c.id===caseId;})||{}).company; });
       if (co) {
-        // 雇用条件フィールドはempSetsに、それ以外はcoに反映
-        var _esKeys = ['salaryType','salaryAmt','contractStart','contractEnd','officeName','officePref',
-          'officeCity','officeAddress','officeTel','startTime','endTime','breakTime','dailyHours',
-          'fixedDay1','annualHolidays','allowance1Name','allowance1Amt','allowance2Name','allowance2Amt',
-          'deductHousing','deductFood','insurance','payCutoff','payDay'];
+        // フォームキー → companiesキーのマッピング
+        var _coKeyMap = {
+          // 基本情報
+          name:'name', nameKana:'nameKana', nameEn:'nameEn',
+          corpNo:'corpNo', empInsNo:'empInsNo', laborInsNo:'laborInsNo',
+          employees:'employees', foreignEmployees:'foreignEmployees', trainees:'techTrainees',
+          capital:'capital', annualSales:'sales',
+          // 所在地
+          zip:'zip', pref:'pref', city:'city', address:'address', addressEn:'addressEn', tel:'tel',
+          // 代表者
+          repName:'repName', repTitle:'repTitle', repNameEn:'repNameEn', repTitleEn:'repTitleEn',
+          authorName:'authorName', authorTitle:'authorTitle', authorNameEn:'authorNameEn',
+          // 比較対象日本人
+          jpCompAge:'jpCompAge', jpCompGender:'jpCompGender', jpCompExp:'jpCompExp',
+          jpCompJobDesc:'jpCompJobDesc', jpCompSalary:'jpCompSalary', jpCompReason:'jpCompReason',
+          salaryRuleFlg:'wageRegulation', jobCategory:'industry',
+          // 離職者
+          resignJp:'jpVoluntaryQuit', resignForeign:'fnVoluntaryQuit',
+          dismissJp:'jpInvoluntaryQuit', dismissForeign:'fnInvoluntaryQuit',
+          missing1y:'missingCount'
+        };
+        // 雇用条件フィールドはempSetsに
+        var _esKeys = ['salaryType','salaryAmt','contractStart','contractEnd',
+          'officeName','officeNameEn','officePref','officeCity','officeAddress','officeAddressEn','officeTel',
+          'startTime','endTime','breakTime','dailyHours',
+          'weeklyDays','weeklyHours','monthlyDays','monthlyHours','yearlyDays','yearlyHours',
+          'overtimeFlg','shiftFlg','shiftDetail','flexFlg','flexDetail',
+          'holidayType','fixedHolidayMon','fixedHolidayTue','fixedHolidayWed','fixedHolidayThu',
+          'fixedHolidayFri','fixedHolidaySat','fixedHolidaySun','fixedHolidayHol',
+          'otherHoliday','annualHolidays',
+          'contractRenewal','contractRenewalCond','contractRenewalMax','contractRenewalPeriod',
+          'allowance1Name','allowance1Amt','allowance1Cond',
+          'allowance2Name','allowance2Amt','allowance2Cond',
+          'allowance3Name','allowance3Amt','allowance3Cond',
+          'allowance4Name','allowance4Amt','allowance4Cond',
+          'fixedOtName','fixedOtAmt','fixedOtHours',
+          'deductTax','deductSocialIns','deductEmpIns',
+          'housingProvided','deductHousing','housingDetail',
+          'foodProvided','deductFood','foodDetail',
+          'deductUtility','deductOther1Name','deductOther1Amt',
+          'insKenpo','insPension','insEmp','insLabor','healthCheck',
+          'salaryRaise','salaryRaiseCond','bonus','bonusCond','retirement','retirementDetail',
+          'payMethod','payCutoff','payDay',
+          'jobDescription',
+          'jpCompAllow1Name','jpCompAllow1Amt','jpCompAllow2Name','jpCompAllow2Amt',
+          'jpCompAllow3Name','jpCompAllow3Amt','salaryRuleApply'];
         var _esData = {}, _coData = {};
         Object.keys(response).forEach(function(k) {
           if (response[k] === '' || response[k] == null) return;
-          if (_esKeys.indexOf(k) >= 0) _esData[k] = response[k];
-          else _coData[k] = response[k];
+          if (_esKeys.indexOf(k) >= 0) { _esData[k] = response[k]; return; }
+          var dest = _coKeyMap[k];
+          if (dest) _coData[dest] = response[k];
+          else if (/^officer\d/.test(k)) _coData[k] = response[k]; // 役員情報はそのまま
+          else if (['consultDept','consultName','consultNameEn','consultTel'].indexOf(k) >= 0) _coData[k] = response[k];
         });
         Object.assign(co, _coData);
         if (Object.keys(_esData).length > 0) {
@@ -9529,11 +9617,8 @@ function importFormResponse(responseId, caseId, formType) {
             else if (st === 'daily') es.dailyWage = _esData.salaryAmt;
             else es.salaryMonthly = _esData.salaryAmt;
           }
-          ['contractStart','contractEnd','officeName','officePref','officeCity','officeAddress','officeTel',
-           'startTime','endTime','breakTime','dailyHours','fixedDay1','annualHolidays',
-           'allowance1Name','allowance1Amt','allowance2Name','allowance2Amt',
-           'deductHousing','deductFood','payCutoff','payDay'].forEach(function(k){
-            if (_esData[k]) es[k] = _esData[k];
+          Object.keys(_esData).forEach(function(k){
+            if (k !== 'salaryType' && k !== 'salaryAmt') es[k] = _esData[k];
           });
           co.empSets[0] = es;
         }
@@ -11299,14 +11384,20 @@ function processSupportExcelInto(orgId, binaryData){
 }
 
 // ===== COMPANY ORG =====
-function renderCompanyList() {
+// 所属機関リストのページネーション状態
+var _coListPage = 0;
+var _coListPageSize = 50;
+var _coListFiltered = [];
+
+function renderCompanyList(resetPage) {
+  if (resetPage !== false) _coListPage = 0;
   var q=(document.getElementById('companySearch')||{}).value||'';
   var sel=window._selectedSupportForCompany||'__all__';
   var masterNames=supportOrgs.map(function(so){return so.name;});
   var list=companies.filter(function(co){
     if(sel==='__unmatched__'){if(co.supportOrgName&&masterNames.indexOf(co.supportOrgName)!==-1) return false;}
     else if(sel!=='__all__'&&co.supportOrgName!==sel) return false;
-    if(q){var hay=(co.name+co.nameKana+co.nameEn+co.pref+(co.folderNo||'')).toLowerCase(); if(hay.indexOf(q.toLowerCase())===-1) return false;}
+    if(q){var hay=(co.name+co.nameKana+(co.nameEn||'')+( co.pref||'')+(co.folderNo||'')).toLowerCase(); if(hay.indexOf(q.toLowerCase())===-1) return false;}
     return true;
   });
   var isUnmatched=sel==='__unmatched__';
@@ -11320,12 +11411,28 @@ function renderCompanyList() {
     if(!isNaN(nA)&&!isNaN(nB)) return nA-nB;
     return fA.localeCompare(fB,'ja');
   });
+  _coListFiltered = list;
+  // ページネーション計算
+  var totalPages = Math.ceil(list.length / _coListPageSize);
+  if (_coListPage >= totalPages && totalPages > 0) _coListPage = totalPages - 1;
+  var startIdx = _coListPage * _coListPageSize;
+  var pageList = list.slice(startIdx, startIdx + _coListPageSize);
+  // ページネーションUI
+  var pgHtml = '';
+  if (totalPages > 1) {
+    pgHtml += '<div style="display:flex;align-items:center;gap:4px;">';
+    pgHtml += '<button onclick="coListGoto('+(_coListPage-1)+')" '+((_coListPage===0)?'disabled':'')+' style="font-size:11px;padding:2px 8px;border:1px solid var(--gray-200);border-radius:5px;cursor:pointer;background:white;">‹</button>';
+    pgHtml += '<span style="font-size:11px;color:var(--gray-600);">'+(startIdx+1)+'–'+(Math.min(startIdx+_coListPageSize, list.length))+' / '+list.length+'件</span>';
+    pgHtml += '<button onclick="coListGoto('+(_coListPage+1)+')" '+((_coListPage>=totalPages-1)?'disabled':'')+' style="font-size:11px;padding:2px 8px;border:1px solid var(--gray-200);border-radius:5px;cursor:pointer;background:white;">›</button>';
+    pgHtml += '</div>';
+  }
   var rows=['<div style="padding:6px 10px;font-size:11px;font-weight:700;color:var(--gray-400);border-bottom:1px solid var(--gray-200);display:flex;align-items:center;justify-content:space-between;">'
     +'<div style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="coSelAll" onchange="toggleAllCompanySel(this.checked)" style="cursor:pointer;"><span>'+list.length+'件'+(isUnmatched?'　<span style=color:#dc2626>⚠ 要振り分け</span>':'')+'</span></div>'
+    +(totalPages>1?pgHtml:'')
     +'<button onclick="bulkDeleteCompanies()" id="coBulkDelBtn" style="display:none;font-size:10px;padding:3px 10px;background:#dc2626;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">🗑 一括削除</button>'
     +'</div>'];
   if(!list.length){rows.push('<div style="padding:24px;text-align:center;color:var(--gray-400);font-size:12px;">該当なし</div>');}
-  else list.forEach(function(co){
+  else pageList.forEach(function(co){
     var active=window._selectedCompanyId===co.id;
     var caseCount=cData.filter(function(cas){return cas.company===co.name;}).length;
     var bg=active?'#eff6ff':'white'; var bl=active?'var(--blue)':'transparent';
@@ -11363,6 +11470,16 @@ function renderCompanyList() {
   var el=document.getElementById('companyList'); if(el) el.innerHTML=rows.join('');
   if(window._selectedCompanyId){var found=companies.find(function(co){return co.id===window._selectedCompanyId;}); if(found) renderCompanyDetail(found);}
 }
+function coListGoto(page) {
+  var totalPages = Math.ceil(_coListFiltered.length / _coListPageSize);
+  if (page < 0 || page >= totalPages) return;
+  _coListPage = page;
+  renderCompanyList(false);
+  // リストの先頭にスクロール
+  var el = document.getElementById('companyList');
+  if (el) el.scrollTop = 0;
+}
+
 function toggleAllCompanySel(checked){
   document.querySelectorAll('.co-sel-cb').forEach(function(cb){cb.checked=checked;});
   updateCompanySelCount();
