@@ -10180,7 +10180,6 @@ var COMPANY_FIELDS = [
   {key:'laborInsNo',    label:'労働保険番号',                 type:'text',  section:'基本情報', placeholder:''},
   {key:'industry',      label:'主たる業種',                   type:'text',  section:'基本情報', placeholder:'食品製造'},
   {key:'industryCode',  label:'業種コード（入管）',            type:'immSelect',section:'基本情報', immKey:'industry'},
-  {key:'categoryCode',  label:'業務区分コード（入管）',        type:'immSelect',section:'基本情報', immKey:'cat'},
   {key:'occupationCode',label:'職種コード（入管）',            type:'immSelect',section:'基本情報', immKey:'occ'},
   {key:'companyCategory',label:'カテゴリー',                  type:'select',section:'基本情報', opts:['','大（上場・独立行政法人等）','小（中小企業等）']},
   {key:'zip',           label:'郵便番号',                     type:'text',  section:'所在地', placeholder:'100-0001'},
@@ -12627,7 +12626,9 @@ var EMP_SET_FIELDS = [
     {k:'officeNameEn',l:'事業所名（英語）',ph:'例: OO Co., Ltd. Itabashi Factory',tr:0,aiTranslate:'officeName'},
     {k:'officeAddr',l:'事業所住所',ph:'例: 東京都板橋区板橋1丁目2番3号',tr:0},
     {k:'officeContact',l:'事業所電話番号',ph:'例: 03-9876-5432',tr:0},
-    {k:'foreignerJobDesc',l:'受け入れる外国人の職務内容',ph:'例: 食品製造ラインにおいて加工品の仕上げ・品質判別等に従事',wide:true,tr:1}
+    {k:'foreignerJobDesc',l:'受け入れる外国人の職務内容',ph:'例: 食品製造ラインにおいて加工品の仕上げ・品質判別等に従事',wide:true,tr:1},
+    {k:'officePrefEn',l:'事業所 都道府県（英語）',ph:'例: Aichi',aiTranslate:'officeAddr_pref',uiOnly:true},
+    {k:'officeCityEn',l:'事業所 市区町村（英語）',ph:'例: Nagoya',aiTranslate:'officeAddr_city',uiOnly:true}
   ]},
   {section:'雇用期間', fields:[
     {k:'contractStart',l:'契約開始日',ph:'',type:'date'},
@@ -12645,19 +12646,10 @@ var EMP_SET_FIELDS = [
     {k:'calcHourly',l:'時間換算額',ph:'',type:'number',tr:1},
     {k:'totalMonthly',l:'支払概算額（基本給＋手当）',ph:'',type:'number',tr:1}
   ]},
-  {section:'手当', fields:[
-    {k:'allowance1Name',l:'手当①名称',ph:'例: 通勤手当',tr:1},
-    {k:'allowance1Amount',l:'手当①金額（円）',ph:'10000',type:'number',tr:1},
-    {k:'allowance1Cond',l:'手当①計算方法・条件',ph:'例: 実費支給',tr:1},
-    {k:'allowance2Name',l:'手当②名称',ph:'例: 住宅手当',tr:1},
-    {k:'allowance2Amount',l:'手当②金額（円）',ph:'20000',type:'number',tr:1},
-    {k:'allowance2Cond',l:'手当②計算方法・条件',ph:'',tr:1},
-    {k:'allowance3Name',l:'手当③名称',ph:'',tr:1},
-    {k:'allowance3Amount',l:'手当③金額（円）',ph:'',type:'number',tr:1},
-    {k:'allowance3Cond',l:'手当③計算方法・条件',ph:'',tr:1},
-    {k:'allowance4Name',l:'手当④名称',ph:'',tr:1},
-    {k:'allowance4Amount',l:'手当④金額（円）',ph:'',type:'number',tr:1},
-    {k:'allowance4Cond',l:'手当④計算方法・条件',ph:'',tr:1}
+  {section:'手当', type:'dynamic', baseKey:'allowance', maxItems:4, fields:[
+    {k:'Name',l:'名称',ph:'例: 通勤手当',tr:1},
+    {k:'Amount',l:'金額（円）',ph:'10000',type:'number',tr:1},
+    {k:'Cond',l:'計算方法・条件',ph:'例: 実費支給',tr:1}
   ]},
   {section:'固定残業代', fields:[
     {k:'fixedOTName',l:'固定残業代 名称',ph:'例: 固定残業手当',tr:1},
@@ -12781,10 +12773,7 @@ var EMP_SET_FIELDS = [
     {k:'category2',l:'カテゴリー2',ph:'',uiOnly:true},
     {k:'setName',l:'セット名',ph:'条件1',uiOnly:true}
   ]},
-  {section:'事業所住所（英語分割）', fields:[
-    {k:'officePrefEn',l:'事業所 都道府県（英語）',ph:'例: Aichi',aiTranslate:'officeAddr_pref'},
-    {k:'officeCityEn',l:'事業所 市区町村（英語）',ph:'例: Nagoya',aiTranslate:'officeAddr_city'}
-  ]},
+
   {section:'比較対象日本人 手当', fields:[
     {k:'jpCompAllow1Name',l:'比較対象 手当①名称',ph:'例: 通勤手当',tr:1},
     {k:'jpCompAllow1Amt',l:'比較対象 手当①金額（円）',ph:'',type:'number',tr:1},
@@ -12795,6 +12784,64 @@ var EMP_SET_FIELDS = [
     {k:'salaryRuleApply',l:'賃金規定 適用額（円）',ph:'',type:'number',tr:1}
   ]}
 ];
+
+function renderDynAllowanceRow(sec, idx, es, coId, esIdx) {
+  var nums = ['','①','②','③','④','⑤'];
+  var h = '<div id="dynRow_'+sec.baseKey+idx+'" style="border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin-bottom:6px;background:#f9fafb;">';
+  h += '<div style="font-size:10px;font-weight:800;color:#6366f1;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;">';
+  h += sec.section + (nums[idx]||(''+idx));
+  if (idx > 1) {
+    h += '<button onclick="removeDynAllowanceRow(\'' + sec.baseKey + '\','+idx+',\'' + coId + '\','+esIdx+')" style="font-size:10px;padding:1px 8px;background:white;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;cursor:pointer;">削除</button>';
+  }
+  h += '</div>';
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">';
+  sec.fields.forEach(function(f) {
+    var fullKey = sec.baseKey + idx + f.k;
+    var val = String(es[fullKey] != null ? es[fullKey] : '').replace(/"/g,'&quot;');
+    var valEn = String(es[fullKey+'En'] != null ? es[fullKey+'En'] : '').replace(/"/g,'&quot;');
+    h += '<div>';
+    h += '<label style="font-size:10px;font-weight:700;color:var(--gray-400);display:block;margin-bottom:2px;">' + f.l + '</label>';
+    if (f.type === 'number') {
+      h += '<input id="esf_'+fullKey+'" type="number" value="'+val+'" placeholder="'+f.ph+'" style="width:100%;padding:7px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;box-sizing:border-box;">';
+    } else {
+      h += '<input id="esf_'+fullKey+'" type="text" value="'+val+'" placeholder="'+f.ph+'" style="width:100%;padding:7px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;box-sizing:border-box;">';
+    }
+    h += '</div>';
+    if (f.tr) {
+      h += '<div>';
+      h += '<label style="font-size:10px;font-weight:700;color:#7c3aed;display:block;margin-bottom:2px;">'+f.l+'（翻訳）</label>';
+      h += '<input id="esf_'+fullKey+'En" type="text" value="'+valEn+'" placeholder="翻訳" style="width:100%;padding:7px 10px;border:1px solid #c4b5fd;border-radius:7px;font-size:12px;box-sizing:border-box;background:#faf5ff;">';
+      h += '</div>';
+    } else {
+      h += '<div></div>';
+    }
+  });
+  h += '</div></div>';
+  return h;
+}
+
+function addDynAllowanceRow(baseKey, coId, esIdx) {
+  var sec = EMP_SET_FIELDS.find(function(s){ return s.type==='dynamic' && s.baseKey===baseKey; });
+  if (!sec) return;
+  var co = companies.find(function(x){ return x.id===coId; });
+  var es = (co && co.empSets && co.empSets[esIdx]) ? co.empSets[esIdx] : {};
+  var container = document.getElementById('dynSec_'+baseKey);
+  if (!container) return;
+  var current = container.querySelectorAll('[id^="dynRow_'+baseKey+'"]').length;
+  var newIdx = current + 1;
+  if (newIdx > sec.maxItems) return;
+  container.insertAdjacentHTML('beforeend', renderDynAllowanceRow(sec, newIdx, es, coId, esIdx));
+  // maxに達したら追加ボタンを非表示
+  if (newIdx >= sec.maxItems) {
+    var btns = document.querySelectorAll('button');
+    btns.forEach(function(b){ if(b.textContent.includes('を追加') && b.onclick && b.onclick.toString().includes(baseKey)) b.style.display='none'; });
+  }
+}
+
+function removeDynAllowanceRow(baseKey, rowIdx, coId, esIdx) {
+  var row = document.getElementById('dynRow_'+baseKey+rowIdx);
+  if (row) row.remove();
+}
 
 function addEmpSet(coId) {
   var co = companies.find(function(x) { return x.id === coId; });
@@ -12841,6 +12888,25 @@ function editEmpSet(coId, idx) {
   h += '<div id="empTranslateStatus" style="display:none;margin-bottom:12px;"></div>';
   var phStyle = '';
   EMP_SET_FIELDS.forEach(function(sec) {
+    // dynamicセクション（手当など追加式）
+    if (sec.type === 'dynamic') {
+      h += '<div style="font-size:11px;font-weight:800;color:var(--blue);margin:14px 0 6px;padding-bottom:4px;border-bottom:2px solid var(--blue);">' + sec.section + '</div>';
+      h += '<div id="dynSec_' + sec.baseKey + '">';
+      // 既存データから何件あるか判定
+      var dynCount = 0;
+      for (var di = 1; di <= sec.maxItems; di++) {
+        if (es[sec.baseKey + di + 'Name'] || es[sec.baseKey + di + 'Amount']) dynCount = di;
+      }
+      if (dynCount === 0) dynCount = 1; // 最低1件表示
+      for (var di = 1; di <= dynCount; di++) {
+        h += renderDynAllowanceRow(sec, di, es, coId, idx);
+      }
+      h += '</div>';
+      if (dynCount < sec.maxItems) {
+        h += '<button type="button" onclick="addDynAllowanceRow(\'' + sec.baseKey + '\',\'' + coId + '\',' + idx + ')" style="font-size:11px;padding:4px 14px;background:white;border:1.5px dashed #c7d2fe;border-radius:6px;color:#6366f1;cursor:pointer;font-weight:700;margin-top:4px;">＋ ' + sec.section + 'を追加</button>';
+      }
+      return;
+    }
     h += '<div style="font-size:11px;font-weight:800;color:var(--blue);margin:14px 0 6px;padding-bottom:4px;border-bottom:2px solid var(--blue);">' + sec.section;
     // 賃金セクションに計算ボタン
     if (sec.section === '賃金') h += ' <button onclick="calcEmpSalary()" style="font-size:10px;padding:2px 10px;background:#f59e0b;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;margin-left:8px;">🔢 自動計算</button>';
@@ -12936,9 +13002,13 @@ function editEmpSet(coId, idx) {
         }
         h += '</div>';
       } else if (f.aiTranslate) {
-        // AI翻訳ボタン：元フィールドの日本語値を英語に翻訳してセット
-        h += '<div style="display:flex;align-items:flex-end;gap:4px;">';
-        h += '<button onclick="aiTranslateSingleField(\'esf_' + f.aiTranslate + '\',\'esf_' + f.k + '\')" style="font-size:10px;padding:6px 10px;background:#7c3aed;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">🤖 翻訳</button>';
+        // AI翻訳ボタン＋翻訳先入力欄
+        h += '<div>';
+        h += '<label style="font-size:10px;font-weight:700;color:#7c3aed;display:block;margin-bottom:2px;">'+f.l+'（英語）</label>';
+        h += '<div style="display:flex;align-items:center;gap:4px;">';
+        h += '<input id="esf_' + f.k + '" type="text" value="' + val + '" placeholder="' + f.ph + '" style="flex:1;padding:7px 10px;border:1px solid #c4b5fd;border-radius:7px;font-size:12px;box-sizing:border-box;background:#faf5ff;">';
+        h += '<button onclick="aiTranslateSingleField(\'esf_' + f.aiTranslate + '\',\'esf_' + f.k + '\')" style="flex-shrink:0;font-size:10px;padding:6px 10px;background:#7c3aed;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">🤖 翻訳</button>';
+        h += '</div>';
         h += '</div>';
       } else {
         h += '<div></div>';
@@ -13064,10 +13134,24 @@ function saveEmpSet(coId, idx) {
   if (!co || !co.empSets || !co.empSets[idx]) return;
   var es = co.empSets[idx];
   EMP_SET_FIELDS.forEach(function(sec) {
+    if (sec.type === 'dynamic') {
+      // 動的行（手当など）を収集
+      for (var di = 1; di <= sec.maxItems; di++) {
+        sec.fields.forEach(function(f) {
+          var fullKey = sec.baseKey + di + f.k;
+          var el = document.getElementById('esf_' + fullKey);
+          if (el) es[fullKey] = el.value.trim();
+          if (f.tr) {
+            var elEn = document.getElementById('esf_' + fullKey + 'En');
+            if (elEn) es[fullKey + 'En'] = elEn.value.trim();
+          }
+        });
+      }
+      return;
+    }
     sec.fields.forEach(function(f) {
       var el = document.getElementById('esf_' + f.k);
       if (el) es[f.k] = el.tagName === 'TEXTAREA' ? el.value : el.value.trim();
-      // 翻訳フィールドも保存（tr付き or fieldSelect/catSelect系）
       var hasTrField = f.tr || f.type === 'fieldSelect' || f.type === 'fieldSelect2' || f.type === 'catSelect' || f.type === 'catSelect2';
       if (hasTrField) {
         var elEn = document.getElementById('esf_' + f.k + 'En');
