@@ -8256,14 +8256,18 @@ function renderDocsContent() {
     items.forEach(function(item){h+=buildDocCard(item.c,item.taskName,item.ti,item.st,item.key,item.deadline,today,ST_LABEL,ST_COLOR,ST_BG,ST_BORDER,true,item.isUrg);});
     if(!items.length) h='<div style="text-align:center;padding:40px;color:var(--gray-400);">該当タスクがありません</div>';
   } else {
-    // カンボジア側(0-6) / 日本側(7-)
-    var CAMBODIA_END = 10; // 人材情報入力まで
-    function renderTaskGroup(fromTi, toTi) {
+    // カンボジア側 / 日本側（名前ベースで判定）
+    var JAPAN_TASKS = {'企業押印依頼':1,'窓口申請準備':1,'オンライン申請':1,'窓口申請':1,'追加資料提出':1,'預かり証作成':1,'郵送交付':1,'国交省申請':1,'国交省修正':1,'推薦票取り寄せ':1};
+    var CAMBODIA_END = TASK_NAMES.length - 1; // 全タスク対象（下でJAPAN_TASKSで分ける）
+    function renderTaskGroup(fromTi, toTi, sideFilter) {
       var gh = '';
       for(var _ti=fromTi; _ti<=toTi; _ti++) {
         var _tn = TASK_NAMES[_ti];
         if(docsFilter!=='all'&&docsFilter!=='__personData__'&&_tn!==docsFilter) continue;
         if(docsFilter==='__personData__') continue;
+        // サイドフィルター：カンボジア側はJAPAN_TASKSを除く、日本側はJAPAN_TASKSのみ
+        if(sideFilter==='cambodia' && JAPAN_TASKS[_tn]) continue;
+        if(sideFilter==='japan' && !JAPAN_TASKS[_tn]) continue;
         var taskItems=[],doneCount=0;
         cases.forEach(function(c){var key=c.id+'_'+_ti,st=docTaskStatus[key]||0;if(st>=4){doneCount++;return;}if(st===0){return;}taskItems.push({c:c,st:st,key:key,deadline:taskDeadline[key]||'',isUrg:!!taskUrgent[c.id+'_'+_ti]});});
         var total=taskItems.length+doneCount; if(total===0) continue;
@@ -8311,11 +8315,11 @@ function renderDocsContent() {
     if(docsFilter==='all') {
       // 🇰🇭 カンボジア側
       h+='<div style="display:flex;align-items:center;gap:8px;margin:8px 0 6px;padding:6px 10px;background:linear-gradient(90deg,#fef9c3,#fef3c7);border-left:4px solid #f59e0b;border-radius:0 8px 8px 0;"><span style="font-size:15px;">🇰🇭</span><span style="font-size:13px;font-weight:800;color:#92400e;">カンボジア側対応</span></div>';
-      h+=renderTaskGroup(0, CAMBODIA_END);
+      h+=renderTaskGroup(0, TASK_NAMES.length-1, 'cambodia');
       h+=renderPersonSection();
       // 🇯🇵 日本側
       h+='<div style="display:flex;align-items:center;gap:8px;margin:12px 0 6px;padding:6px 10px;background:linear-gradient(90deg,#dbeafe,#eff6ff);border-left:4px solid #3b82f6;border-radius:0 8px 8px 0;"><span style="font-size:15px;">🇯🇵</span><span style="font-size:13px;font-weight:800;color:#1e40af;">日本側対応</span></div>';
-      h+=renderTaskGroup(CAMBODIA_END+1, TASK_NAMES.length-1);
+      h+=renderTaskGroup(0, TASK_NAMES.length-1, 'japan');
     } else {
       TASK_NAMES.forEach(function(tn,ti){
         if(docsFilter!=='all'&&docsFilter!=='__personData__'&&tn!==docsFilter) return; if(docsFilter==='__personData__') return;
@@ -12643,10 +12647,11 @@ var EMP_SET_FIELDS = [
     {k:'officeName',l:'事業所名',ph:'例: 株式会社〇〇 板橋工場',tr:0},
     {k:'officeNameEn',l:'事業所名（英語）',ph:'例: OO Co., Ltd. Itabashi Factory',tr:0,aiTranslate:'officeName'},
     {k:'officeAddr',l:'事業所住所',ph:'例: 東京都板橋区板橋1丁目2番3号',tr:0},
-    {k:'officeContact',l:'事業所電話番号',ph:'例: 03-9876-5432',tr:0},
-    {k:'foreignerJobDesc',l:'受け入れる外国人の職務内容',ph:'例: 食品製造ラインにおいて加工品の仕上げ・品質判別等に従事',wide:true,tr:1},
+    {k:'officeAddrEn',l:'事業所住所（英語）',ph:'例: 1-2-3 Itabashi, Itabashi-ku, Tokyo',tr:0,aiTranslate:'officeAddr'},
     {k:'officePrefEn',l:'事業所 都道府県（英語）',ph:'例: Aichi',aiTranslate:'officeAddr_pref',uiOnly:true,noLeftInput:true},
-    {k:'officeCityEn',l:'事業所 市区町村（英語）',ph:'例: Nagoya',aiTranslate:'officeAddr_city',uiOnly:true,noLeftInput:true}
+    {k:'officeCityEn',l:'事業所 市区町村（英語）',ph:'例: Nagoya',aiTranslate:'officeAddr_city',uiOnly:true,noLeftInput:true},
+    {k:'officeContact',l:'事業所電話番号',ph:'例: 03-9876-5432',tr:0},
+    {k:'foreignerJobDesc',l:'受け入れる外国人の職務内容',ph:'例: 食品製造ラインにおいて加工品の仕上げ・品質判別等に従事',wide:true,tr:1}
   ]},
   {section:'雇用期間', fields:[
     {k:'contractStart',l:'契約開始日',ph:'',type:'date'},
@@ -13050,12 +13055,18 @@ function editEmpSet(coId, idx) {
   h += '<button onclick="aiTranslateAllEmp(\'' + coId + '\',' + idx + ')" style="flex:1;padding:12px;background:#7c3aed;color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">🤖 AI翻訳</button>';
   h += '</div>';
   document.getElementById('companyDetail').innerHTML = h;
-  // placeholderの色修正: 入力値がある場合はcolor:inherit
+  // placeholderの色修正＆控除フィールドの自動計算
+  var DEDUCT_KEYS = ['deductTax','deductSocial','deductEmployment','deductFood','deductHousing','deductUtility','deductOther1Amount','deductOther2Amount'];
   EMP_SET_FIELDS.forEach(function(sec){ sec.fields.forEach(function(f){
     var el=document.getElementById('esf_'+f.k); if(el && el.value) el.style.color='inherit';
-    if(el) el.addEventListener('input',function(){this.style.color=this.value?'inherit':'#d1d5db';});
+    if(el) {
+      el.addEventListener('input',function(){this.style.color=this.value?'inherit':'#d1d5db';});
+      if(DEDUCT_KEYS.indexOf(f.k)>=0) el.addEventListener('input', calcEmpDeductTotal);
+    }
     var enEl=document.getElementById('esf_'+f.k+'En'); if(enEl && enEl.value) enEl.style.color='#7c3aed';
   });});
+  // 初期値で合計を計算
+  calcEmpDeductTotal();
 }
 
 // カレンダー→年月日分割
@@ -13106,6 +13117,21 @@ function calcEmpSalary() {
 }
 
 // 手取り自動計算
+function calcEmpDeductTotal() {
+  var tax = parseFloat(document.getElementById('esf_deductTax')?.value) || 0;
+  var social = parseFloat(document.getElementById('esf_deductSocial')?.value) || 0;
+  var employment = parseFloat(document.getElementById('esf_deductEmployment')?.value) || 0;
+  var food = parseFloat(document.getElementById('esf_deductFood')?.value) || 0;
+  var housing = parseFloat(document.getElementById('esf_deductHousing')?.value) || 0;
+  var utility = parseFloat(document.getElementById('esf_deductUtility')?.value) || 0;
+  var other1 = parseFloat(document.getElementById('esf_deductOther1Amount')?.value) || 0;
+  var other2 = parseFloat(document.getElementById('esf_deductOther2Amount')?.value) || 0;
+  var totalDeduct = tax + social + employment + food + housing + utility + other1 + other2;
+  var el = document.getElementById('esf_deductTotal');
+  if (el) { el.value = totalDeduct || ''; el.style.color = 'inherit'; }
+  return totalDeduct;
+}
+
 function calcEmpNetPay() {
   var total = parseFloat(document.getElementById('esf_totalMonthly')?.value) || 0;
   var tax = parseFloat(document.getElementById('esf_deductTax')?.value) || 0;
@@ -13116,9 +13142,7 @@ function calcEmpNetPay() {
   var utility = parseFloat(document.getElementById('esf_deductUtility')?.value) || 0;
   var other1 = parseFloat(document.getElementById('esf_deductOther1Amount')?.value) || 0;
   var other2 = parseFloat(document.getElementById('esf_deductOther2Amount')?.value) || 0;
-  var totalDeduct = tax + social + employment + food + housing + utility + other1 + other2;
-  var deductTotalEl = document.getElementById('esf_deductTotal');
-  if (deductTotalEl) { deductTotalEl.value = totalDeduct; deductTotalEl.style.color = 'inherit'; }
+  var totalDeduct = calcEmpDeductTotal();
   var net = total - totalDeduct;
   var netEl = document.getElementById('esf_netPay');
   if (netEl) { netEl.value = net; netEl.style.color = 'inherit'; }
