@@ -26571,14 +26571,24 @@ function generateDocText(caseId,ruleId){
     _copyBtn.textContent = '📋 コピー';
     _copyBtn.onclick = function(){ var t=document.getElementById('docTextOutput');t.select();document.execCommand('copy');showToast('📋 コピーしました'); };
     _btnRow.appendChild(_copyBtn);
-    if (_transLang) {
-      var _transBtn = document.createElement('button');
-      _transBtn.id = 'docTransBtn';
-      _transBtn.style.cssText = 'flex:1;padding:8px;background:#f5f3ff;color:#7c3aed;border:1.5px solid #c4b5fd;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;';
-      _transBtn.textContent = '🌐 ' + _transLang + 'に翻訳';
-      _transBtn.onclick = function(){ translateDocText(_transLang); };
-      _btnRow.appendChild(_transBtn);
-    }
+    // 言語セレクト（国籍から推測してデフォルト設定、変更可能）
+    var _langList = ['インドネシア語','ベトナム語','フィリピン語（タガログ語）','ミャンマー語','クメール語（カンボジア語）','タイ語','バングラデシュ語','ネパール語','中国語（簡体字）','韓国語','モンゴル語','ウズベク語','ヒンディー語','英語'];
+    var _langSel = document.createElement('select');
+    _langSel.id = 'docTransLangSel';
+    _langSel.style.cssText = 'padding:6px 8px;border:1.5px solid #c4b5fd;border-radius:8px;font-size:12px;color:#7c3aed;background:#f5f3ff;cursor:pointer;';
+    _langList.forEach(function(l){
+      var opt = document.createElement('option');
+      opt.value = l; opt.textContent = l;
+      if (l === _transLang) opt.selected = true;
+      _langSel.appendChild(opt);
+    });
+    _btnRow.appendChild(_langSel);
+    var _transBtn = document.createElement('button');
+    _transBtn.id = 'docTransBtn';
+    _transBtn.style.cssText = 'padding:8px 14px;background:#f5f3ff;color:#7c3aed;border:1.5px solid #c4b5fd;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;';
+    _transBtn.textContent = '🌐 翻訳';
+    _transBtn.onclick = function(){ var sel=document.getElementById('docTransLangSel'); translateDocText(sel?sel.value:_transLang); };
+    _btnRow.appendChild(_transBtn);
     resEl.appendChild(_btnRow);
   }
 }
@@ -26589,9 +26599,11 @@ function translateDocText(lang) {
   var srcText = srcEl.value;
   var btn = document.getElementById('docTransBtn');
   if (btn) { btn.textContent = '翻訳中...'; btn.disabled = true; }
+  var apiKey = window.CLAUDE_API_KEY || '';
+  if (!apiKey) { showToast('❌ Claude APIキーが未設定です（管理者設定で設定してください）'); if(btn){btn.textContent='🌐 '+lang+'に翻訳';btn.disabled=false;} return; }
   fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 2000,
@@ -26604,11 +26616,15 @@ function translateDocText(lang) {
   .then(function(r){ return r.json(); })
   .then(function(d){
     var translated = (d.content && d.content[0] && d.content[0].text) || '';
+    // テキストの下に翻訳結果を追記
+    var srcEl2 = document.getElementById('docTextOutput');
+    if (srcEl2) srcEl2.value = srcEl2.value + '\n\n━━━━━━━━━━━━━━━\n【' + lang + '翻訳】\n━━━━━━━━━━━━━━━\n' + translated;
     var resDiv = document.getElementById('docTextTransResult');
     var outEl = document.getElementById('docTextTransOutput');
     if (resDiv) resDiv.style.display = 'block';
     if (outEl) outEl.value = translated;
-    if (btn) { btn.textContent = '🌐 ' + lang + 'に翻訳'; btn.disabled = false; }
+    if (btn) { btn.textContent = '🌐 翻訳'; btn.disabled = false; }
+    showToast('✅ 翻訳完了');
   })
   .catch(function(e){
     showToast('❌ 翻訳失敗: ' + e.message);
