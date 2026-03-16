@@ -550,6 +550,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <option>要追完</option>
         <option>審査完了</option>
       </select>
+      <span class="filter-label">支援機関</span>
+      <select class="filter-select" id="fOrg" onchange="applyFilters(true)">
+        <option value="">全機関</option>
+      </select>
       <span class="filter-label">担当者</span>
       <select class="filter-select" id="fStaff" onchange="applyFilters(true)">
         <option>全担当者</option>
@@ -1795,6 +1799,10 @@ function sbFetchCases(opts, callback) {
     countQuery = countQuery.eq('staff', opts.staff);
     dataQuery = dataQuery.eq('staff', opts.staff);
   }
+  if (opts.org) {
+    countQuery = countQuery.eq('org', opts.org);
+    dataQuery = dataQuery.eq('org', opts.org);
+  }
   if (opts.search) {
     var sq = '%' + opts.search + '%';
     var searchFilter = 'applicant.ilike.' + sq + ',company.ilike.' + sq + ',org.ilike.' + sq + ',name.ilike.' + sq + ',team.ilike.' + sq + ',staff.ilike.' + sq + ',receipt_no.ilike.' + sq;
@@ -1915,6 +1923,10 @@ function sbFetchDoneCases(opts, callback) {
   if (opts.staff && opts.staff !== '全担当者') {
     countQuery = countQuery.eq('staff', opts.staff);
     dataQuery = dataQuery.eq('staff', opts.staff);
+  }
+  if (opts.org) {
+    countQuery = countQuery.eq('org', opts.org);
+    dataQuery = dataQuery.eq('org', opts.org);
   }
   if (opts.search) {
     var sq = '%' + opts.search + '%';
@@ -2377,6 +2389,16 @@ function persistPersonToDB(caseId, p) {
     hireDate:'hire_date', salary:'salary',
     pastEntryFrom:'past_entry_from', pastEntryTo:'past_entry_to',
     pastCOE:'past_coe', pastCOECount:'past_coe_count', pastCOEDenied:'past_coe_denied',
+    firstEntry:'first_entry',
+    hasRelative:'has_relative',
+    relative1Name:'relative1_name', relative1Relation:'relative1_relation',
+    relative1Birth:'relative1_birth', relative1Nationality:'relative1_nationality',
+    relative1Status:'relative1_status', relative1Address:'relative1_address',
+    relative1WorkSchool:'relative1_work_school',
+    relative2Name:'relative2_name', relative2Relation:'relative2_relation',
+    relative2Birth:'relative2_birth', relative2Nationality:'relative2_nationality',
+    relative2Status:'relative2_status', relative2Address:'relative2_address',
+    relative2WorkSchool:'relative2_work_school',
     deportationDate:'deportation_date',
     stayPeriod:'stay_period', stayPeriodOther:'stay_period_other',
     eduCountry:'edu_country', education:'education', schoolName:'school_name',
@@ -2710,7 +2732,7 @@ function rebuildLoginSelect() {
   if (!sel) return;
   sel.innerHTML = '<option value="">選択してください</option>';
   USERS.forEach(function(u){ sel.innerHTML += '<option value="'+u.name+'">'+u.name+'</option>'; });
-  // 担当者フィルタも更新
+  // 担当者・支援機関フィルタも更新
   buildStaffFilter();
 }
 
@@ -2719,6 +2741,18 @@ function buildStaffFilter(){
   var cur = sel.value;
   sel.innerHTML = '<option>全担当者</option>';
   USERS.forEach(function(u){ sel.innerHTML += '<option>'+u.name+'</option>'; });
+  if(cur) sel.value = cur;
+  buildOrgFilter();
+}
+
+function buildOrgFilter(){
+  var sel = document.getElementById('fOrg'); if(!sel) return;
+  var cur = sel.value;
+  sel.innerHTML = '<option value="">全機関</option>';
+  var orgs = supportOrgs.slice().sort(function(a,b){ return (a.name||'').localeCompare(b.name||'','ja'); });
+  orgs.forEach(function(o){
+    if(o.name) sel.innerHTML += '<option value="'+o.name.replace(/"/g,'&quot;')+'">'+o.name+'</option>';
+  });
   if(cur) sel.value = cur;
 }
 
@@ -9552,8 +9586,8 @@ function importFormResponse(responseId, caseId, formType) {
         entryCount: 'pastEntry',
         coeCount: 'pastCOE',
         coeDenied: 'pastCOEDenied',
-        lastEntryFrom: 'lastEntryFrom',
-        lastEntryTo: 'lastEntryTo',
+        lastEntryFrom: 'pastEntryFrom',
+        lastEntryTo: 'pastEntryTo',
         firstEntry: 'firstEntry',
         // 一時帰国・親族
         tempReturn: 'tempReturn',
@@ -9566,10 +9600,7 @@ function importFormResponse(responseId, caseId, formType) {
         relative2Birth: 'relative2Birth', relative2Nationality: 'relative2Nationality',
         relative2Status: 'relative2Status', relative2Address: 'relative2Address',
         relative2WorkSchool: 'relative2WorkSchool',
-        // 在留歴（UIの正しいキーに対応）
-        lastEntryFrom: 'pastEntryFrom',
-        lastEntryTo: 'pastEntryTo',
-        firstEntry: 'firstEntry'
+
       };
       // 人材データに反映
       var p = personData[caseId] || {};
@@ -9582,7 +9613,14 @@ function importFormResponse(responseId, caseId, formType) {
       // 在留資格はcasesにも反映
       var c = cData.find(function(x){ return x.id === caseId; });
       if (c && response.residenceStatus) c.currentStatus = response.residenceStatus;
-      persistPersonToDB(caseId, p);
+      // casesテーブルにcaseIdが存在する場合のみpersonsに保存
+      if (c) {
+        persistPersonToDB(caseId, p);
+      } else {
+        // DB上に案件が見つからない場合はlocalStorageのみ更新
+        console.warn('persistPersonToDB skipped: caseId not found in cData', caseId);
+        showToast('⚠️ ローカルには取込みましたがDB保存できません（案件が見つかりません）');
+      }
       try { localStorage.setItem('ofusa_personData', JSON.stringify(personData)); } catch(e) {}
       showToast('✅ 人材データを取込みました');
     } else {
@@ -16725,6 +16763,7 @@ function applyFilters(resetPage) {
   var type = document.getElementById('fType').value;
   var status = document.getElementById('fStatus').value;
   var staff = document.getElementById('fStaff').value;
+  var org = (document.getElementById('fOrg')||{}).value||'';
   var q = document.getElementById('searchBox').value.toLowerCase();
   var sort = document.getElementById('fSort').value;
   
@@ -16750,7 +16789,7 @@ function applyFilters(resetPage) {
       : null;
     sbFetchCases({
       page: currentPage, pageSize: PAGE_SIZE,
-      team: team, appType: type, status: status, staff: staff, search: q, sort: effectiveSort,
+      team: team, appType: type, status: status, staff: staff, org: org, search: q, sort: effectiveSort,
       colSort: dbColSort
     }, function(cases, total) {
       filteredTotalCount = total;
@@ -16770,6 +16809,7 @@ function applyFilters(resetPage) {
              (type === '全種別' || c.appType === type) &&
              (status === '全ステータス' || c.status === status) &&
              (staff === '全担当者' || c.staff === staff) &&
+             (!org || c.org === org) &&
              (!q || getDisplayName(c).toLowerCase().includes(q) || c.company.toLowerCase().includes(q) || c.org.toLowerCase().includes(q) || c.name.toLowerCase().includes(q) || (c.receiptNo&&c.receiptNo.toLowerCase().includes(q)) || (c._caseNo&&c._caseNo.toLowerCase().includes(q)) || (c.members&&c.members.some(function(m){return m.name.toLowerCase().includes(q);})));
     });
     if (sort === 'expire-asc') filtered.sort(function(a,b){ return new Date(a.expire) - new Date(b.expire); });
