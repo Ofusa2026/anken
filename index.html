@@ -2877,6 +2877,7 @@ function completeLogin(userName, user) {
   // ローカルデータがあれば即座に表示
   if(cData.length > 0) { renderStats(); applyFilters(); }
   else { showToast('📡 サーバーからデータを取得中...'); }
+  if(DB_READY) setTimeout(loadCoFormBadges, 800);
 }
 
 function doLogout() {
@@ -2906,7 +2907,7 @@ function switchPanel(panelId, navId) {
   try{localStorage.setItem('ofusa_lastPanel',panelId);localStorage.setItem('ofusa_lastNav',navId||'');}catch(e){}
 }
 
-function showCases() { applyFilters(); switchPanel('casesScreen','nav-cases'); setTimeout(updateCoDocAlertBadge,300); setTimeout(updatePersonDocAlertBadge,300); }
+function showCases() { applyFilters(); switchPanel('casesScreen','nav-cases'); setTimeout(updateCoDocAlertBadge,300); setTimeout(updatePersonDocAlertBadge,300); setTimeout(loadCoFormBadges,500); }
 
 // ===== 個人タスク（Trello風カンバンボード）=====
 var myTaskData = JSON.parse(localStorage.getItem('ofusa_myTasks') || '{}');
@@ -28847,6 +28848,18 @@ function loadAllFromSupabase() {
         if (typeof WebSocket !== 'undefined') initRealtime();
         else console.log('ℹ️ WebSocket not available, Realtime skipped');
       } catch(e) { console.log('Realtime init skipped:', e.message); }
+      // フォーム回答バッジ読み込み（失敗時3回リトライ）
+      (function tryLoad(n) {
+        setTimeout(function() {
+          if (!DB_READY) return;
+          _sb.from('form_responses').select('case_id').is('deleted_at', null).is('imported_at', null).limit(1)
+            .then(function(r) {
+              if (r.error && n > 0) { tryLoad(n - 1); return; }
+              loadCoFormBadges();
+            })
+            .catch(function() { if (n > 0) tryLoad(n - 1); });
+        }, 500 + (3 - n) * 3000);
+      })(3);
     }
   };
   
@@ -29480,15 +29493,59 @@ function handleFormResponseInsert(row) {
 }
 
 function filterUnimportedCaseForms() {
-  // 未取込フォームがある案件IDのみ絞り込み表示
-  var caseIds = Object.keys(_pendingFormMap).filter(function(id){ return _pendingFormMap[id] > 0; });
-  if (!caseIds.length) { showToast('未取込のフォーム回答はありません'); return; }
-  window._pendingFilterCaseIds = caseIds;
-  switchPanel('casesScreen', 'bnav-cases');
-  applyFilters(true);
-  var fb = document.getElementById('caseFormFilterBadge');
-  if (fb) fb.style.display = 'inline';
-  showToast('📝 未取込フォームあり: ' + caseIds.length + '件');
+  if (!DB_READY) return;
+  _sb.from('form_responses')
+    .select('id,case_id,form_type,submitted_at,imported_at,response')
+    .not('case_id', 'like', 'co_%')
+    .is('deleted_at', null)
+    .is('imported_at', null)
+    .order('submitted_at', {ascending: false})
+    .then(function(res) {
+      if (res.error || !res.data || !res.data.length) {
+        showToast('未取込のフォーム回答はありません');
+        return;
+      }
+      var ftLabels = {
+        'tokutei_nintei':'特定技能・認定', 'tokutei_koushin':'特定技能・更新', 'tokutei_henkou':'特定技能・変更',
+        'gijinkoku_nintei':'技人国・認定', 'gijinkoku_koushin':'技人国・更新', 'gijinkoku_henkou':'技人国・変更',
+        'company':'企業情報', 'person':'人材'
+      };
+      var h = '<div style="display:flex;flex-direction:column;gap:8px;">';
+      res.data.forEach(function(r) {
+        var c = cData.find(function(x){ return x.id === r.case_id; });
+        var applicant = c ? (c.applicant || c.name || r.case_id) : r.case_id;
+        var company = c ? (c.company || '') : '';
+        var typeLabel = ftLabels[r.form_type] || r.form_type;
+        var dt = r.submitted_at ? new Date(r.submitted_at) : null;
+        var dtStr = dt ? (dt.getMonth()+1)+'/'+dt.getDate()+' '+dt.getHours()+':'+('0'+dt.getMinutes()).slice(-2) : '';
+        h += '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 12px;">';
+        h += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">';
+        h += '<span style="font-size:12px;font-weight:800;color:#1e40af;">' + esc(applicant) + '</span>';
+        if (company) h += '<span style="font-size:11px;color:#6b7280;">' + esc(company) + '</span>';
+        h += '<span style="font-size:10px;background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:99px;font-weight:700;">' + typeLabel + '</span>';
+        h += '<span style="font-size:10px;color:#9ca3af;margin-left:auto;">' + dtStr + '</span>';
+        h += '</div>';
+        h += '<div style="display:flex;gap:6px;margin-top:6px;">';
+        h += '<button onclick="previewFormResponse(\'' + r.id + '\',\'' + r.form_type + '\')" style="font-size:11px;padding:3px 10px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:5px;cursor:pointer;">👁 プレビュー</button>';
+        h += '<button onclick="openFormForEdit(\'' + r.id + '\',\'' + r.form_type + '\',\'' + r.case_id + '\')" style="font-size:11px;padding:3px 10px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;cursor:pointer;font-weight:700;">✏️ 編集</button>';
+        h += '<button onclick="importFormResponse(\'' + r.id + '\',\'' + r.case_id + '\',\'' + r.form_type + '\');document.getElementById(\'caseFormListModal\').remove();" style="font-size:11px;padding:3px 10px;background:#2563eb;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;">取込</button>';
+        h += '<button onclick="openCase(\'' + r.case_id + '\');document.getElementById(\'caseFormListModal\').remove();" style="font-size:11px;padding:3px 10px;background:white;color:#374151;border:1px solid #e5e7eb;border-radius:5px;cursor:pointer;">案件を開く →</button>';
+        h += '</div>';
+        h += '<div id="formPreview_' + r.id + '" style="display:none;"></div>';
+        h += '</div>';
+      });
+      h += '</div>';
+      var modal = '<div id="caseFormListModal" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">'
+        + '<div style="background:white;border-radius:14px;padding:20px;width:600px;max-width:95vw;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);">'
+        + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">'
+        + '<div style="font-size:14px;font-weight:800;color:#0f2040;">📝 未取込フォーム回答 ' + res.data.length + '件</div>'
+        + '<button onclick="document.getElementById('caseFormListModal').remove()" style="font-size:18px;color:#9ca3af;background:none;border:none;cursor:pointer;">✕</button>'
+        + '</div>'
+        + h
+        + '</div></div>';
+      document.getElementById('caseFormListModal') && document.getElementById('caseFormListModal').remove();
+      document.body.insertAdjacentHTML('beforeend', modal);
+    });
 }
 
 function filterUnimportedCoForms() {
