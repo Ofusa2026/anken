@@ -9158,8 +9158,8 @@ function openFormTrash() {
         h += '<span style="font-size:10px;color:#9ca3af;margin-left:auto;">送信：' + subStr + '　削除：' + delStr + '</span>';
         h += '</div>';
         h += '<div style="display:flex;gap:6px;">';
-        h += '<button onclick="restoreFormResponse(\'' + r.id + '\',\'' + r.case_id + '\');document.getElementById(\'formTrashModal\').remove();openFormTrash();" style="font-size:11px;padding:3px 12px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:5px;cursor:pointer;font-weight:700;">↩️ 復元</button>';
-        h += '<button onclick="permanentDeleteFormResponse(\'' + r.id + '\',\'' + r.case_id + '\');document.getElementById(\'formTrashModal\').remove();openFormTrash();" style="font-size:11px;padding:3px 12px;background:white;color:#dc2626;border:1px solid #fca5a5;border-radius:5px;cursor:pointer;">🗑 完全削除</button>';
+        h += '<button onclick="restoreFormResponse(\'' + r.id + '\', function(){var m=document.getElementById(\'formTrashModal\');if(m)m.remove();openFormTrash();})" style="font-size:11px;padding:3px 12px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:5px;cursor:pointer;font-weight:700;">↩️ 復元</button>';
+        h += '<button onclick="permanentDeleteFormResponse(\'' + r.id + '\', function(){var m=document.getElementById(\'formTrashModal\');if(m)m.remove();openFormTrash();})" style="font-size:11px;padding:3px 12px;background:white;color:#dc2626;border:1px solid #fca5a5;border-radius:5px;cursor:pointer;">🗑 完全削除</button>';
         h += '</div>';
         h += '</div>';
       });
@@ -9208,7 +9208,7 @@ function checkCoFormResponses(coId) {
   // renderFormResponseBadgeを流用（case_id='co_{coId}'で検索）
   var el = document.getElementById('coFormResponseBadge_' + coId);
   if (!el) return;
-  _sb.from('form_responses').select('id,form_type,submitted_at,imported_at,response').eq('case_id', caseIdForCo).order('submitted_at', {ascending:false}).then(function(res) {
+  _sb.from('form_responses').select('id,form_type,submitted_at,imported_at,response').eq('case_id', caseIdForCo).is('deleted_at', null).order('submitted_at', {ascending:false}).then(function(res) {
     if (res.error || !res.data || !res.data.length) {
       el.innerHTML = '<div style="font-size:12px;color:#9ca3af;padding:12px 0;">まだ回答がありません</div>';
       return;
@@ -9228,7 +9228,7 @@ function checkCoFormResponses(coId) {
         h += '<button onclick="previewFormResponse(\'' + r.id + '\',\'company\')" style="margin-left:auto;font-size:11px;padding:2px 8px;background:#f3f4f6;border:1px solid #d1d5db;border-radius:4px;cursor:pointer;">👁 プレビュー</button>';
         h += '<button onclick="importCoFormResponse(\'' + r.id + '\',\'' + coId + '\')" style="font-size:11px;padding:2px 10px;background:#2563eb;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:700;">取込</button>';
       }
-      h += '<button onclick="deleteFormResponse(\'' + r.id + '\',\'' + caseIdForCo + '\');document.getElementById(\'coResponseModal\').remove();checkCoFormResponses(\'' + coId + '\');" style="font-size:11px;padding:2px 6px;background:white;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;cursor:pointer;">🗑</button>';
+      h += '<button onclick="(function(){_sb.from(\'form_responses\').update({deleted_at:new Date().toISOString()}).eq(\'id\',\'' + r.id + '\').then(function(res){if(res.error){showToast(\'❌ 移動失敗\');return;}showToast(\'🗑 ゴミ箱に移動しました\');checkCoFormResponses(\'' + coId + '\');document.getElementById(\'coResponseModal\').remove();});})()" style="font-size:11px;padding:2px 6px;background:white;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;cursor:pointer;">🗑</button>';
       h += '</div>';
       h += '<div id="formPreview_' + r.id + '" style="display:none;"></div>';
       h += '</div>';
@@ -9586,20 +9586,20 @@ function deleteFormResponse(responseId, caseId) {
   });
 }
 
-function restoreFormResponse(responseId, caseId) {
+function restoreFormResponse(responseId, callback) {
   _sb.from('form_responses').update({ deleted_at: null }).eq('id', responseId).then(function(res) {
     if (res.error) { showToast('❌ 復元に失敗しました'); return; }
     showToast('✅ 回答を復元しました');
-    renderFormResponseBadge(caseId);
+    if (typeof callback === 'function') callback();
   });
 }
 
-function permanentDeleteFormResponse(responseId, caseId) {
+function permanentDeleteFormResponse(responseId, callback) {
   if (!confirm('完全に削除しますか？\nこの操作は取り消せません。')) return;
   _sb.from('form_responses').delete().eq('id', responseId).then(function(res) {
     if (res.error) { showToast('❌ 削除に失敗しました'); return; }
     showToast('🗑 完全削除しました');
-    renderFormResponseBadge(caseId);
+    if (typeof callback === 'function') callback();
   });
 }
 
@@ -9741,9 +9741,11 @@ function importFormResponse(responseId, caseId, formType) {
           });
           co.empSets.push(es);
         }
-        persistCompanyToDB([co]);
+        persistCompanies(co.id);
         try { localStorage.setItem('ofusa_companies', JSON.stringify(companies)); } catch(e) {}
         showToast('✅ 企業データを取込みました');
+        // 所属機関詳細を再描画
+        renderCompanyDetail(co);
       } else {
         showToast('⚠️ 対象企業が見つかりません。所属機関を先に設定してください。');
         return;
