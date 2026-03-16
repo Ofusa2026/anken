@@ -11777,6 +11777,8 @@ function renderCompanyList(resetPage) {
   });
   var el=document.getElementById('companyList'); if(el) el.innerHTML=rows.join('');
   if(window._selectedCompanyId){var found=companies.find(function(co){return co.id===window._selectedCompanyId;}); if(found) renderCompanyDetail(found);}
+  // 所属機関フォーム未取込バッジを更新
+  if(DB_READY) loadCoFormBadges();
 }
 function coListGoto(page) {
   var totalPages = Math.ceil(_coListFiltered.length / _coListPageSize);
@@ -11941,7 +11943,7 @@ function renderCompanyDetail(co){
   h+='<label ondragover="event.preventDefault();this.style.background=\'#dbeafe\';this.style.borderColor=\'var(--blue)\'" ondragleave="this.style.background=\'#f0fdf4\';this.style.borderColor=\'var(--green)\'" ondrop="event.preventDefault();this.style.background=\'#f0fdf4\';this.style.borderColor=\'var(--green)\';handleCompanyDropInto(\''+co.id+'\',event)" style="font-size:11px;padding:5px 12px;background:#f0fdf4;color:var(--green);border:1.5px dashed var(--green);border-radius:6px;cursor:pointer;font-weight:700;display:inline-flex;align-items:center;gap:3px;transition:.15s;">📥 Excel / ドラッグ<input type="file" accept=".xlsx,.xls" onchange="importCompanyExcelInto(\''+co.id+'\',this)" style="display:none;"></label>';
   h+='<button onclick="duplicateCompany(\''+co.id+'\')" style="font-size:11px;padding:5px 12px;background:white;color:var(--blue);border:1.5px solid var(--blue);border-radius:6px;cursor:pointer;font-weight:700;">📋 複製</button>';
   h+='<button onclick="deleteCompany(\''+co.id+'\')" style="font-size:11px;padding:5px 12px;background:white;color:#dc2626;border:1.5px solid #fca5a5;border-radius:6px;cursor:pointer;font-weight:700;">🗑 削除</button>';
-  h+='<button onclick="openCompanyFormUrl(\''+co.id+'\')" style="font-size:11px;padding:5px 12px;background:#f0fdf4;color:#16a34a;border:1.5px solid #86efac;border-radius:6px;cursor:pointer;font-weight:700;">📋 ヒアリングフォーム</button>';
+  h+='<button onclick="openCompanyFormUrl(\''+co.id+'\')" style="position:relative;font-size:11px;padding:5px 12px;background:#f0fdf4;color:#16a34a;border:1.5px solid #86efac;border-radius:6px;cursor:pointer;font-weight:700;">📋 ヒアリングフォーム<span id="coFormBadge_'+co.id+'" style="display:none;position:absolute;top:-6px;right:-6px;background:#dc2626;color:white;font-size:9px;font-weight:700;border-radius:9999px;padding:1px 5px;min-width:14px;text-align:center;"></span></button>';
   h+='</div></div>';
   // タブ切替
   h+='<div style="display:flex;gap:6px;margin-bottom:14px;">';
@@ -29378,11 +29380,99 @@ function initRealtime() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'case_notes' }, function(payload) {
       handleRealtimeChange('case_notes', payload);
     })
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'form_responses' }, function(payload) {
+      handleFormResponseInsert(payload.new);
+    })
     .subscribe(function(status) {
       console.log('📡 Realtime status:', status);
       if (status === 'SUBSCRIBED') {
         showToast('📡 リアルタイム同期ON');
       }
+    });
+}
+
+function handleFormResponseInsert(row) {
+  if (!row) return;
+  // バッジ更新
+  var caseId = row.case_id || '';
+  var formType = row.form_type || 'フォーム';
+  var displayName = '';
+  if (caseId.indexOf('co_') === 0) {
+    // 企業フォーム
+    var coId = caseId.replace('co_', '');
+    var coObj = companies.find(function(c){ return c.id === coId; });
+    displayName = coObj ? coObj.name : '';
+    formType = '企業情報フォーム';
+  } else {
+    var caseObj = caseId ? cData.find(function(c){ return c.id === caseId; }) : null;
+    displayName = caseObj ? (caseObj.applicant || caseObj.name || '') : '';
+    var ftLabels = {'company':'企業情報フォーム','tokutei_nintei':'特定技能・認定フォーム','tokutei_koushin':'特定技能・更新フォーム','tokutei_henkou':'特定技能・変更フォーム','gijinkoku_nintei':'技人国・認定フォーム','gijinkoku_koushin':'技人国・更新フォーム','gijinkoku_henkou':'技人国・変更フォーム'};
+    formType = ftLabels[row.form_type] || row.form_type || 'フォーム';
+  }
+  var msg = (displayName ? displayName + ' の' : '') + formType + 'が回答されました';
+  // トースト通知
+  showToast('📝 ' + msg);
+  // デスクトップ通知
+  if (window.Notification && Notification.permission === 'granted') {
+    new Notification('📝 フォーム回答あり', { body: msg, icon: '' });
+  } else if (window.Notification && Notification.permission !== 'denied') {
+    Notification.requestPermission().then(function(permission) {
+      if (permission === 'granted') {
+        new Notification('📝 フォーム回答あり', { body: msg, icon: '' });
+      }
+    });
+  }
+  // フォーム回答バッジを更新
+  if (caseId.indexOf('co_') === 0) {
+    // 企業フォーム → 所属機関詳細のヒアリングフォームボタンバッジ
+    var _coId = caseId.replace('co_', '');
+    var _badgeEl = document.getElementById('coFormBadge_' + _coId);
+    if (_badgeEl) {
+      var _cur = parseInt(_badgeEl.textContent) || 0;
+      _badgeEl.textContent = _cur + 1;
+      _badgeEl.style.display = 'inline';
+    }
+    // モーダルが開いていれば内部バッジも更新
+    var _modalEl = document.getElementById('coFormResponseBadge_' + _coId);
+    if (_modalEl) {
+      var _mcur = parseInt(_modalEl.textContent) || 0;
+      _modalEl.textContent = _mcur + 1;
+      _modalEl.style.display = 'inline';
+    }
+  } else {
+    ['formResponseBadge_' + caseId, 'formResponseBadge_p_' + caseId].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) {
+        var cur = parseInt(el.textContent) || 0;
+        el.textContent = cur + 1;
+        el.style.display = 'inline';
+      }
+    });
+  }
+}
+
+function loadCoFormBadges() {
+  // 全所属機関の未取込フォーム回答件数を一括取得してバッジ表示
+  if (!DB_READY) return;
+  _sb.from('form_responses')
+    .select('case_id')
+    .like('case_id', 'co_%')
+    .is('deleted_at', null)
+    .is('imported_at', null)
+    .then(function(res) {
+      if (res.error || !res.data) return;
+      var counts = {};
+      res.data.forEach(function(r) {
+        var coId = r.case_id.replace('co_', '');
+        counts[coId] = (counts[coId] || 0) + 1;
+      });
+      Object.keys(counts).forEach(function(coId) {
+        var el = document.getElementById('coFormBadge_' + coId);
+        if (el) {
+          el.textContent = counts[coId];
+          el.style.display = 'inline';
+        }
+      });
     });
 }
 
