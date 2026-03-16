@@ -12184,15 +12184,27 @@ function exportCompanyBasicCsv(coId) {
   a.click();
 }
 
+function _parseCsvLine(line) {
+  var result = [], cur = '', inQ = false;
+  for (var i = 0; i < line.length; i++) {
+    var ch = line[i];
+    if (ch === '"') { if (inQ && line[i+1] === '"') { cur += '"'; i++; } else { inQ = !inQ; } }
+    else if (ch === ',' && !inQ) { result.push(cur); cur = ''; }
+    else { cur += ch; }
+  }
+  result.push(cur);
+  return result;
+}
+
 function importCompanyBasicCsv(coId, input) {
   var file = input.files[0]; if (!file) return;
   var reader = new FileReader();
   reader.onload = function(e) {
-    var text = e.target.result.replace(/^﻿/,'');
+    var text = e.target.result.replace(/^﻿/, '');
     var lines = text.split(/\r?\n/).filter(function(l){ return l.trim(); });
     if (lines.length < 2) { showToast('❌ データが見つかりません'); return; }
-    var headers = lines[0].split(',').map(function(h){ return h.replace(/^"|"$/g,''); });
-    var values = lines[1].match(/("(?:[^"]|"")*"|[^,]*)/g).map(function(v){ return v.replace(/^"|"$/g,'').replace(/""/g,'"'); });
+    var headers = _parseCsvLine(lines[0]);
+    var values = _parseCsvLine(lines[1]);
     var co = companies.find(function(x){ return x.id === coId; });
     if (!co) return;
     headers.forEach(function(k, i){ if (k && k !== 'id' && values[i] !== undefined) co[k] = values[i]; });
@@ -12232,14 +12244,13 @@ function importCompanyEmpSetCsv(coId, input) {
     var text = e.target.result.replace(/^﻿/,'');
     var lines = text.split(/\r?\n/).filter(function(l){ return l.trim(); });
     if (lines.length < 2) { showToast('❌ データが見つかりません'); return; }
-    var headers = lines[0].split(',').map(function(h){ return h.replace(/^"|"$/g,''); });
+    var headers = _parseCsvLine(lines[0]);
     var co = companies.find(function(x){ return x.id === coId; });
     if (!co) return;
     var newEmpSets = [];
     for (var i = 1; i < lines.length; i++) {
-      var values = lines[i].match(/("(?:[^"]|"")*"|[^,]*)/g);
+      var values = _parseCsvLine(lines[i]);
       if (!values) continue;
-      values = values.map(function(v){ return v.replace(/^"|"$/g,'').replace(/""/g,'"'); });
       var es = {};
       headers.forEach(function(k, j){ if (k) es[k] = values[j] !== undefined ? values[j] : ''; });
       newEmpSets.push(es);
