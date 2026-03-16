@@ -12166,6 +12166,99 @@ function applySupportStaffInfo(coId, staffName) {
   });
 }
 
+// ===== 所属機関 基本情報CSV出力・取込 =====
+function exportCompanyBasicCsv(coId) {
+  var co = companies.find(function(x){ return x.id === coId; });
+  if (!co) return;
+  var skip = ['empSets','officers','driveUrl','driveUrl2','driveUrl3','driveUrl4','driveUrl5','spreadsheetUrl'];
+  var keys = Object.keys(co).filter(function(k){ return skip.indexOf(k) < 0; });
+  var rows = [keys.join(',')];
+  rows.push(keys.map(function(k){
+    var v = co[k] == null ? '' : String(co[k]);
+    return '"' + v.replace(/"/g,'""') + '"';
+  }).join(','));
+  var blob = new Blob(['﻿'+rows.join('
+')], {type:'text/csv;charset=utf-8'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (co.name||'company') + '_基本情報_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+}
+
+function importCompanyBasicCsv(coId, input) {
+  var file = input.files[0]; if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var text = e.target.result.replace(/^﻿/,'');
+    var lines = text.split(/
+?
+/).filter(function(l){ return l.trim(); });
+    if (lines.length < 2) { showToast('❌ データが見つかりません'); return; }
+    var headers = lines[0].split(',').map(function(h){ return h.replace(/^"|"$/g,''); });
+    var values = lines[1].match(/("(?:[^"]|"")*"|[^,]*)/g).map(function(v){ return v.replace(/^"|"$/g,'').replace(/""/g,'"'); });
+    var co = companies.find(function(x){ return x.id === coId; });
+    if (!co) return;
+    headers.forEach(function(k, i){ if (k && k !== 'id' && values[i] !== undefined) co[k] = values[i]; });
+    persistCompanies(coId);
+    renderCompanyDetail(co);
+    showToast('✅ 基本情報を復元しました');
+  };
+  reader.readAsText(file, 'UTF-8');
+  input.value = '';
+}
+
+// ===== 所属機関 雇用条件CSV出力・取込 =====
+function exportCompanyEmpSetCsv(coId) {
+  var co = companies.find(function(x){ return x.id === coId; });
+  if (!co || !co.empSets || !co.empSets.length) { showToast('⚠️ 雇用条件セットがありません'); return; }
+  // 全セットのキーを収集
+  var allKeys = ['setName'];
+  co.empSets.forEach(function(es){ Object.keys(es).forEach(function(k){ if (allKeys.indexOf(k) < 0) allKeys.push(k); }); });
+  var rows = [allKeys.join(',')];
+  co.empSets.forEach(function(es){
+    rows.push(allKeys.map(function(k){
+      var v = es[k] == null ? '' : (typeof es[k] === 'object' ? JSON.stringify(es[k]) : String(es[k]));
+      return '"' + v.replace(/"/g,'""') + '"';
+    }).join(','));
+  });
+  var blob = new Blob(['﻿'+rows.join('
+')], {type:'text/csv;charset=utf-8'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (co.name||'company') + '_雇用条件_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+}
+
+function importCompanyEmpSetCsv(coId, input) {
+  var file = input.files[0]; if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var text = e.target.result.replace(/^﻿/,'');
+    var lines = text.split(/
+?
+/).filter(function(l){ return l.trim(); });
+    if (lines.length < 2) { showToast('❌ データが見つかりません'); return; }
+    var headers = lines[0].split(',').map(function(h){ return h.replace(/^"|"$/g,''); });
+    var co = companies.find(function(x){ return x.id === coId; });
+    if (!co) return;
+    var newEmpSets = [];
+    for (var i = 1; i < lines.length; i++) {
+      var values = lines[i].match(/("(?:[^"]|"")*"|[^,]*)/g);
+      if (!values) continue;
+      values = values.map(function(v){ return v.replace(/^"|"$/g,'').replace(/""/g,'"'); });
+      var es = {};
+      headers.forEach(function(k, j){ if (k) es[k] = values[j] !== undefined ? values[j] : ''; });
+      newEmpSets.push(es);
+    }
+    co.empSets = newEmpSets;
+    persistCompanies(coId);
+    renderCompanyDetail(co);
+    showToast('✅ 雇用条件を復元しました（' + newEmpSets.length + 'セット）');
+  };
+  reader.readAsText(file, 'UTF-8');
+  input.value = '';
+}
+
 function autoSaveCompanyField(coId, key, value) {
   var co = companies.find(function(x){ return x.id === coId; });
   if (!co) return;
