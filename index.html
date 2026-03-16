@@ -11909,7 +11909,7 @@ function assignSupportOrg(companyId,orgName){
   if(!co) return;
   co.supportOrgName=orgName;
   persistCompanies(companyId);
-  renderSupportTree(); renderCompanyList();
+  renderSupportTree(); renderCompanyList(false);
   showToast('✅ '+co.name+' を '+orgName.replace(/株式会社|有限会社|合同会社|一般社団法人/g,'').trim()+' に振り分けました');
 }
 
@@ -11918,7 +11918,7 @@ function selectCompany(id){
   window._selectedCompanyId=id;
   var co=companies.find(function(x){return x.id===id;});
   if(co) renderCompanyDetail(co);
-  renderCompanyList();
+  renderCompanyList(false);
 }
 
 function renderCompanyDetail(co){
@@ -26898,7 +26898,7 @@ function exportCOEcsv(){
   D[8] = p.occupation||'会社員'; // 職業
   D[9] = p.homeCountryAddress||p.birthPlace||''; // 本国住所（出生地と同じ）
   D[10] = p.addressCode||resolveAddrCode(p.address||'')||p.jpPostalCode||''; // 住所コード（市区町村6桁）
-  D[11] = p.jpDetailAddress||p.address||''; // 番地以降
+  D[11] = (function(){var _a=p.jpDetailAddress||'';if(_a)return _a;var _sp=splitAddress(p.address||'');return _sp.rest||p.address||'';})(); // 番地以降
   D[12] = p.telNum||p.phone||co.tel||''; // 電話番号（所属機関TELにフォールバック）
   D[13] = p.celPhone||''; // 携帯電話
   D[14] = ''; // メールアドレス（col63で出力、ここは空）
@@ -26956,7 +26956,7 @@ function exportCOEcsv(){
   D[79] = co.repName||''; // 代理人氏名（＝代表者）
   D[80] = '雇用主'; // 代理人との関係
   D[81] = co.addressCode||resolveAddrCode(co.pref||'')||''; // 代理人住所コード自動変換
-  D[82] = co.detailAddress||co.address||''; // 代理人住所
+  D[82] = (function(){var _a=co.detailAddress||'';if(_a)return _a;var _sp=splitAddress(co.address||'');return _sp.rest||co.address||'';})(); // 代理人住所
   D[83] = co.tel||''; // 代理人電話（所属機関TEL）
   D[84] = ''; // 代理人携帯
 
@@ -27048,7 +27048,7 @@ function exportCOEcsv(){
   D[216] = ''; // 事業内容1
   D[217] = ''; D[218] = ''; D[219] = ''; D[220] = ''; // その他業種
   D[221] = co.addressCode||resolveAddrCode(co.pref||'')||''; // 住所コード自動変換
-  D[222] = co.detailAddress||co.address||''; // 住所詳細
+  D[222] = (function(){var _a=co.detailAddress||'';if(_a)return _a;var _sp=splitAddress(co.address||'');return _sp.rest||co.address||'';})(); // 住所詳細
   D[223] = co.tel||''; // 電話
   D[224] = co.capital||''; // 資本金
   D[225] = co.sales||co.annualSales||''; // 年間売上
@@ -27056,7 +27056,7 @@ function exportCOEcsv(){
   D[227] = co.repName||''; // 代表者氏名
   D[228] = es.officeName||es.workLocation||''; // 事業所名
   D[229] = es.officeAddressCode||co.addressCode||resolveAddrCode(co.pref||'')||''; // 事業所住所コード自動変換
-  D[230] = es.officeAddress||es.workAddress||co.detailAddress||co.address||''; // 事業所住所
+  D[230] = (function(){var _a=es.officeAddress||es.workAddress||co.detailAddress||'';if(_a)return _a;var _sp=splitAddress(co.address||'');return _sp.rest||co.address||'';})(); // 事業所住所
   D[231] = '1'; // 健保・厚年適用あり
   D[232] = '1'; // 労災・雇用保険適用あり
   D[233] = co.laborInsNo||''; // 労働保険番号
@@ -27121,14 +27121,14 @@ function exportCOEcsv(){
     D[313] = sup.name||c.org||'';
     D[314] = sup.corpNo||'';
     D[315] = sup.addressCode||resolveAddrCode(sup.pref||sup.address||'')||'';
-    D[316] = toFullWidth(sup.addressDetail||sup.detailAddress||sup.address||'');
+    D[316] = toFullWidth((function(){var _a=sup.addressDetail||sup.detailAddress||'';if(_a)return _a;var _sp=splitAddress(sup.address||'');return _sp.rest||sup.address||'';})());
     D[317] = sup.tel||'';
     D[318] = sup.repName||'';
     D[319] = sup.regNo||'';
     D[320] = (sup.regDate||'').replace(/-/g,'');
     D[321] = sup.officeName||sup.name||'';
     D[322] = sup.officeAddressCode||sup.addressCode||'';
-    D[323] = toFullWidth(sup.officeAddress||sup.detailAddress||sup.address||'');
+    D[323] = toFullWidth((function(){var _a=sup.officeAddress||sup.addressDetail||sup.detailAddress||'';if(_a)return _a;var _sp=splitAddress(sup.address||'');return _sp.rest||sup.address||'';})());
     D[324] = sup.supportManager||sup.supportManagerName||'';
     D[325] = '支援計画書の通り';
     D[326] = sup.languages||'';
@@ -27148,10 +27148,10 @@ function exportCOEcsv(){
   D[341] = ''; D[342] = '';
 
   // === 補助列 [343-364] ===
-  D[343] = p.jpPostalCode||'0000000'; // 居住郵便番号
+  D[343] = ((p.jpPostalCode||'').replace(/[〒\-－]/g,'').replace(/[^0-9]/g,'').slice(0,7)||'0000000'); // 居住郵便番号
   D[344] = ''; // 上陸予定港（補助）
   D[345] = '0'; // 出入国歴フラグ
-  D[346] = co.zip||'0000000'; // 代理人郵便番号
+  D[346] = (co.zip||'0000000').replace(/[〒\-－]/g,'').replace(/[^0-9]/g,'').slice(0,7)||'0000000'; // 代理人郵便番号
   D[347] = '1440052'; // 取次者郵便番号（大房）
   D[348] = '131113'; // 取次者住所コード（大田区蒲田）
   D[349] = '蒲田５丁目１１－１０　ＦＵＮＤＥＳ蒲田８階'; // 取次者住所
@@ -27163,12 +27163,12 @@ function exportCOEcsv(){
   D[355] = hasJobPlace?(co.jobPlacement.zip||''):''; // 職業紹介郵便番号
   D[356] = ''; // 取次機関郵便番号
   D[357] = co.corpNo?'1':''; // 所属機関法人番号有無
-  D[358] = co.zip||''; // 所属機関郵便番号
-  D[359] = es.officeZip||co.zip||''; // 事業所郵便番号
+  D[358] = ((co.zip||'').replace(/[〒\-－]/g,'').replace(/[^0-9]/g,'').slice(0,7)||'0000000'); // 所属機関郵便番号
+  D[359] = ((es.officeZip||co.zip||'').replace(/[〒\-－]/g,'').replace(/[^0-9]/g,'').slice(0,7)||'0000000'); // 事業所郵便番号
   D[360] = hasSup?'1':''; // 登録支援機関有無
   D[361] = (hasSup&&sup.corpNo)?'1':''; // 支援機関法人番号有無
-  D[362] = hasSup?(sup.zip||'0000000'):''; // 支援機関郵便番号
-  D[363] = hasSup?(sup.officeZip||sup.zip||'0000000'):''; // 支援事業所郵便番号
+  D[362] = hasSup?((sup.zip||'').replace(/[〒-－]/g,'').replace(/[^0-9]/g,'').slice(0,7)||'0000000'):''; // 支援機関郵便番号
+  D[363] = hasSup?((sup.officeZip||sup.zip||'').replace(/[〒-－]/g,'').replace(/[^0-9]/g,'').slice(0,7)||'0000000'):''; // 支援事業所郵便番号
   D[364] = '';
 
   // ===== CSV生成 =====
@@ -27233,7 +27233,7 @@ function exportChangeCsv_tokkatsu(){
   D[8]=p.occupation||'会社員';
   D[9]=p.homeCountryAddress||p.birthPlace||'';
   D[10]=p.addressCode||resolveAddrCode((p.address||''))||'';
-  D[11]=p.jpDetailAddress||p.address||'';
+  D[11]=(function(){var _a=p.jpDetailAddress||'';if(_a)return _a;var _sp=splitAddress(p.address||'');return _sp.rest||p.address||'';})();
   D[12]=p.telNum||p.phone||co.tel||'';
   D[13]=p.celPhone||'';
   D[14]=p.email||'';
@@ -27324,7 +27324,7 @@ function exportChangeCsv_tokkatsu(){
   D[215]='0';
 
   // 取次者（大房）[304-309]
-  D[304]=(co.zip||'').replace(/-/g,'')||'0000000';  // 代理人郵便番号
+  D[304]='0000000';  // 代理人郵便番号（変更は代理人なし）
   D[305]='1440052';   // 取次者郵便番号
   D[306]='131113';    // 取次者住所コード
   D[307]='蒲田５丁目１１－１０　ＦＵＮＤＥＳ蒲田８階';
@@ -27390,7 +27390,7 @@ function exportApprovalCsv_gijinko(){
   // 住居地（日本の住所）
   var jpPostalCode=(p.jpPostalCode||'').replace(/-/g,'').replace(/^〒/,'');
   var jpAddrCode=p.addressCode||resolveAddrCode(p.jpAddress||p.address||'')||jpPostalCode;
-  var jpDetailAddr=p.jpAddress||p.address||'';
+  var jpDetailAddr=(function(){var _a=p.jpDetailAddress||p.jpAddress||'';if(_a)return _a;var _sp=splitAddress(p.address||'');return _sp.rest||p.address||'';})();
   // 所属機関
   var coZip=(co.zip||'').replace(/-/g,'').replace(/^〒/,'');
   var coAddrCode=resolveAddrCode(co.address||'')||coZip;
@@ -27504,7 +27504,7 @@ function exportChangeCsv_gijinko(){
   var schoolName=p.schoolName||'';
   var jpPostalCode=(p.jpPostalCode||'').replace(/-/g,'').replace(/^〒/,'');
   var jpAddrCode=p.addressCode||resolveAddrCode(p.jpAddress||p.address||'')||jpPostalCode;
-  var jpDetailAddr=p.jpAddress||p.address||'';
+  var jpDetailAddr=(function(){var _a=p.jpDetailAddress||p.jpAddress||'';if(_a)return _a;var _sp=splitAddress(p.address||'');return _sp.rest||p.address||'';})();
   var coZip=(co.zip||'').replace(/-/g,'').replace(/^〒/,'');
   var coAddrCode=resolveAddrCode(co.address||'')||coZip;
   var skName=co.name||c.company||'';var skHujnNo=co.corporateNo||co.corpNo||'';
@@ -27689,7 +27689,7 @@ function exportRenewalCsv_gijinko(){
   // 住居地（日本の住所）
   var jpPostalCode=(p.jpPostalCode||'').replace(/-/g,'').replace(/^〒/,'');
   var jpAddrCode=p.addressCode||resolveAddrCode(p.jpAddress||p.address||'')||jpPostalCode;
-  var jpDetailAddr=p.jpAddress||p.address||'';
+  var jpDetailAddr=(function(){var _a=p.jpDetailAddress||p.jpAddress||'';if(_a)return _a;var _sp=splitAddress(p.address||'');return _sp.rest||p.address||'';})();
 
   // 学歴コード
   var eduMap = {'小学':1,'中学':1,'高校':2,'高等学校':2,'短大':3,'専門':3,'専修':3,'大学院':5,'大学':4,'その他':6};
@@ -27888,7 +27888,7 @@ function exportRenewalCsv_tokkatsu(){
   D[8] = p.occupation||'会社員';
   D[9] = p.homeCountryAddress||p.birthPlace||'';
   D[10] = p.addressCode||resolveAddrCode((p.address||''))||'';
-  D[11] = p.jpDetailAddress||p.address||'';
+  D[11] = (function(){var _a=p.jpDetailAddress||'';if(_a)return _a;var _sp=splitAddress(p.address||'');return _sp.rest||p.address||'';})();
   D[12] = p.telNum||p.phone||co.tel||'';
   D[13] = p.celPhone||'';
   D[14] = p.email||'';
@@ -27952,7 +27952,7 @@ function exportRenewalCsv_tokkatsu(){
   D[213]='0';
 
   // 取次者（大房）[302-307]
-  D[302]=(co.zip||'').replace(/-/g,'')||'0000000';  // dirnPostNo 代理人郵便番号
+  D[302]='0000000';  // dirnPostNo 代理人郵便番号（更新は代理人なし）
   D[303]='1440052';
   D[304]='131113';
   D[305]='蒲田５丁目１１－１０\u3000ＦＵＮＤＥＳ蒲田８階';
@@ -28031,7 +28031,7 @@ function exportRenewalCsv(){
   D[8] = p.occupation||'会社員';
   D[9] = p.homeCountryAddress||p.birthPlace||'';
   D[10] = p.addressCode||resolveAddrCode(p.address||'')||p.jpPostalCode||'';
-  D[11] = p.jpDetailAddress||p.address||'';
+  D[11] = (function(){var _a=p.jpDetailAddress||'';if(_a)return _a;var _sp=splitAddress(p.address||'');return _sp.rest||p.address||'';})();
   D[12] = p.telNum||p.phone||co.tel||'';
   D[13] = p.celPhone||'';
   D[14] = p.email||'';
@@ -28167,14 +28167,14 @@ function exportRenewalCsv(){
     D[303] = sup.name||c.org||'';
     D[304] = sup.corpNo||'';
     D[305] = sup.officeAddressCode||sup.addressCode||resolveAddrCode(sup.pref||sup.address||'')||'';
-    D[306] = toFullWidth(sup.addressDetail||sup.detailAddress||sup.address||'');
+    D[306] = toFullWidth((function(){var _a=sup.addressDetail||sup.detailAddress||'';if(_a)return _a;var _sp=splitAddress(sup.address||'');return _sp.rest||sup.address||'';})());
     D[307] = sup.tel||'';
     D[308] = sup.repName||'';
     D[309] = sup.regNo||'';
     D[310] = (sup.regDate||'').replace(/-/g,'');
     D[311] = sup.officeName||sup.name||'';
     D[312] = sup.officeAddressCode||sup.addressCode||resolveAddrCode(sup.pref||sup.address||'')||'';
-    D[313] = toFullWidth(sup.officeAddress||sup.addressDetail||sup.detailAddress||sup.address||'');
+    D[313] = toFullWidth((function(){var _a=sup.officeAddress||sup.addressDetail||sup.detailAddress||'';if(_a)return _a;var _sp=splitAddress(sup.address||'');return _sp.rest||sup.address||'';})());
     D[314] = sup.supportManager||sup.supportManagerName||'';
     D[315] = '支援計画書の通り';
     D[316] = sup.languages||'';
@@ -28190,22 +28190,22 @@ function exportRenewalCsv(){
   D[323] = sup.supportFee||c.supportFee||'';
 
   // === 補助列 [333-355] ===
-  D[333] = p.jpPostalCode||'0000000';
+  D[333] = ((p.jpPostalCode||'').replace(/[〒\-－]/g,'').replace(/[^0-9]/g,'').slice(0,7)||'0000000');
   D[334] = p.residenceCard?'1':''; // 在留カード有無
   D[337] = '0'; // 出入国歴フラグ
-  D[338] = co.zip||'0000000'; // 代理人郵便番号
+  D[338] = '0000000'; // 代理人郵便番号（更新は代理人なし）
   D[339] = '1440052'; // 取次者郵便番号（大房）
   D[340] = '131113'; // 取次者住所コード
   D[341] = '蒲田５丁目１１－１０　ＦＵＮＤＥＳ蒲田８階';
   D[342] = '大房行政書士法人';
   D[343] = '0364248849';
   D[349] = co.corpNo?'1':''; // 所属機関法人番号有無
-  D[350] = co.zip||''; // 所属機関郵便番号
-  D[351] = es.officeZip||co.zip||''; // 事業所郵便番号
+  D[350] = ((co.zip||'').replace(/[〒\-－]/g,'').replace(/[^0-9]/g,'').slice(0,7)||'0000000'); // 所属機関郵便番号
+  D[351] = ((es.officeZip||co.zip||'').replace(/[〒\-－]/g,'').replace(/[^0-9]/g,'').slice(0,7)||'0000000'); // 事業所郵便番号
   D[352] = hasSup?'1':''; // 登録支援機関有無
   D[353] = (hasSup&&sup.corpNo)?'1':'';
-  D[354] = hasSup?(sup.zip||'0000000'):''; // 支援機関郵便番号
-  D[355] = hasSup?(sup.officeZip||sup.zip||'0000000'):''; // 支援事業所郵便番号
+  D[354] = hasSup?((sup.zip||'').replace(/[〒-－]/g,'').replace(/[^0-9]/g,'').slice(0,7)||'0000000'):''; // 支援機関郵便番号
+  D[355] = hasSup?((sup.officeZip||sup.zip||'').replace(/[〒-－]/g,'').replace(/[^0-9]/g,'').slice(0,7)||'0000000'):''; // 支援事業所郵便番号
 
   // [356] 住所コード（更新では空）
   // [357-359] 同時申請種別（基本0=なし）
@@ -28276,7 +28276,7 @@ function exportChangeCsv(){
   D[8]=p.occupation||'会社員';
   D[9]=p.homeCountryAddress||'';
   D[10]=p.addressCode||resolveAddrCode(p.address||'')||'';
-  D[11]=p.jpDetailAddress||p.address||'';
+  D[11]=(function(){var _a=p.jpDetailAddress||'';if(_a)return _a;var _sp=splitAddress(p.address||'');return _sp.rest||p.address||'';})();
   D[12]=p.telNum||p.phone||'';
   D[13]=p.celPhone||'';
   D[14]=p.email2||'';
@@ -28400,7 +28400,7 @@ function exportChangeCsv(){
     D[307]=sup.name||c.org||'';
     D[308]=sup.corpNo||'';
     D[309]=sup.officeAddressCode||sup.addressCode||resolveAddrCode(sup.pref||sup.address||'')||'';
-    D[310]=toFullWidth(sup.addressDetail||sup.detailAddress||sup.address||'');
+    D[310]=toFullWidth((function(){var _a=sup.addressDetail||sup.detailAddress||'';if(_a)return _a;var _sp=splitAddress(sup.address||'');return _sp.rest||sup.address||'';})());
     D[311]=sup.tel||'';
     D[312]=sup.repName||'';
     D[313]=sup.regNo||'';
@@ -28423,7 +28423,7 @@ function exportChangeCsv(){
   D[327]=sup.supportFee||c.supportFee||'';
 
   // [337-362] 補助列
-  D[337]=p.jpPostalCode||'0000000';
+  D[337]=((p.jpPostalCode||'').replace(/[〒\-－]/g,'').replace(/[^0-9]/g,'').slice(0,7)||'0000000');
   D[338]=p.residenceCard?'1':'';
   D[339]='0';
   D[341]='1440052';
@@ -28432,8 +28432,8 @@ function exportChangeCsv(){
   D[344]='大房行政書士法人';
   D[345]='0364248849';
   D[351]=co.corpNo?'1':'';
-  D[352]=co.zip||'';
-  D[353]=es.officeZip||co.zip||'';
+  D[352]=((co.zip||'').replace(/[〒\-－]/g,'').replace(/[^0-9]/g,'').slice(0,7)||'0000000');
+  D[353]=((es.officeZip||co.zip||'').replace(/[〒\-－]/g,'').replace(/[^0-9]/g,'').slice(0,7)||'0000000');
   D[354]=hasSup?'1':'';
   D[355]=(hasSup&&sup.corpNo)?'1':'';
   D[357]=hasSup?(sup.zip||'0000000'):'';
