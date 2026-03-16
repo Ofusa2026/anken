@@ -9115,23 +9115,48 @@ function openCompanyFormUrl(coId) {
 
 function checkCoFormResponses(coId) {
   if (!DB_READY) return;
-  _sb.from('form_responses').select('*').eq('case_id', 'co_' + coId).order('submitted_at', {ascending:false}).then(function(res) {
+  // 所属機関の回答はcase_id='co_{coId}'で保存されている
+  // renderFormResponseBadge を使って統一UIで表示するためモーダルを作成
+  var caseIdForCo = 'co_' + coId;
+  var html = '<div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;" id="coResponseModal">'
+    + '<div style="background:white;border-radius:14px;padding:20px;width:560px;max-width:95vw;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">'
+    + '<div style="font-size:14px;font-weight:800;color:#0f2040;">📥 回答確認・取込</div>'
+    + '<button onclick="document.getElementById(\'coResponseModal\').remove()" style="font-size:18px;color:#9ca3af;background:none;border:none;cursor:pointer;">✕</button>'
+    + '</div>'
+    + '<div id="coFormResponseBadge_' + coId + '"><div style="font-size:12px;color:#6b7280;">読み込み中...</div></div>'
+    + '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+  // renderFormResponseBadgeを流用（case_id='co_{coId}'で検索）
+  var el = document.getElementById('coFormResponseBadge_' + coId);
+  if (!el) return;
+  _sb.from('form_responses').select('id,form_type,submitted_at,imported_at,response').eq('case_id', caseIdForCo).order('submitted_at', {ascending:false}).then(function(res) {
     if (res.error || !res.data || !res.data.length) {
-      showToast('まだ回答がありません');
+      el.innerHTML = '<div style="font-size:12px;color:#9ca3af;padding:12px 0;">まだ回答がありません</div>';
       return;
     }
-    var latest = res.data[0];
-    if (latest.imported_at) { showToast('✅ 取込済みの回答があります'); return; }
-    if (!confirm('回答が届いています（' + new Date(latest.submitted_at).toLocaleString('ja-JP') + '）\n所属機関データに取込みますか？')) return;
-    var co = companies.find(function(x){ return x.id === coId; });
-    if (!co) { showToast('❌ 所属機関が見つかりません'); return; }
-    var response = latest.response;
-    Object.keys(response).forEach(function(k){ if(response[k]) co[k] = response[k]; });
-    persistCompanyToDB([co]);
-    try { localStorage.setItem('ofusa_companies', JSON.stringify(companies)); } catch(e) {}
-    _sb.from('form_responses').update({imported_at: new Date().toISOString()}).eq('id', latest.id).then(function(){});
-    showToast('✅ 所属機関データを更新しました');
-    renderCompanyDetail(co);
+    var h = '<div style="display:flex;flex-direction:column;gap:8px;">';
+    res.data.forEach(function(r) {
+      var dt = r.submitted_at ? new Date(r.submitted_at) : null;
+      var dtStr = dt ? (dt.getMonth()+1)+'/'+dt.getDate()+' '+dt.getHours()+':'+('0'+dt.getMinutes()).slice(-2) : '';
+      var imported = !!r.imported_at;
+      h += '<div style="background:' + (imported?'#f0fdf4':'#eff6ff') + ';border:1px solid ' + (imported?'#86efac':'#bfdbfe') + ';border-radius:8px;padding:8px 12px;">';
+      h += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">';
+      h += '<span style="font-size:12px;font-weight:700;">🏢 企業情報</span>';
+      h += '<span style="font-size:11px;color:#6b7280;">' + dtStr + '</span>';
+      if (imported) {
+        h += '<span style="font-size:11px;color:#16a34a;font-weight:700;margin-left:auto;">✅ 取込済</span>';
+      } else {
+        h += '<button onclick="previewFormResponse(\'' + r.id + '\',\'company\')" style="margin-left:auto;font-size:11px;padding:2px 8px;background:#f3f4f6;border:1px solid #d1d5db;border-radius:4px;cursor:pointer;">👁 プレビュー</button>';
+        h += '<button onclick="importCoFormResponse(\'' + r.id + '\',\'' + coId + '\')" style="font-size:11px;padding:2px 10px;background:#2563eb;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:700;">取込</button>';
+      }
+      h += '<button onclick="deleteFormResponse(\'' + r.id + '\',\'' + caseIdForCo + '\');document.getElementById(\'coResponseModal\').remove();checkCoFormResponses(\'' + coId + '\');" style="font-size:11px;padding:2px 6px;background:white;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;cursor:pointer;">🗑</button>';
+      h += '</div>';
+      h += '<div id="formPreview_' + r.id + '" style="display:none;"></div>';
+      h += '</div>';
+    });
+    h += '</div>';
+    el.innerHTML = h;
   });
 }
 function copyFormUrl(caseId, type) {
@@ -9474,6 +9499,19 @@ function previewFormResponse(responseId, formType) {
   });
 }
 
+function importCoFormResponse(responseId, coId) {
+  if (!DB_READY) return;
+  if (!confirm('この回答を所属機関データに取込みますか？')) return;
+  _sb.from('form_responses').select('response').eq('id', responseId).then(function(res) {
+    if (res.error || !res.data || !res.data.length) { showToast('❌ 取得失敗'); return; }
+    var response = res.data[0].response;
+    var co = companies.find(function(x){ return x.id === coId; });
+    if (!co) { showToast('❌ 所属機関が見つかりません'); return; }
+    // importFormResponseと同じマッピングロジックを使う
+    importFormResponse(responseId, 'co_' + coId, 'company');
+  });
+}
+
 function deleteFormResponse(responseId, caseId) {
   if (!confirm('この回答を削除しますか？\nこの操作は取り消せません。')) return;
   _sb.from('form_responses').delete().eq('id', responseId).then(function(res) {
@@ -9527,7 +9565,11 @@ function importFormResponse(responseId, caseId, formType) {
         relative2Name: 'relative2Name', relative2Relation: 'relative2Relation',
         relative2Birth: 'relative2Birth', relative2Nationality: 'relative2Nationality',
         relative2Status: 'relative2Status', relative2Address: 'relative2Address',
-        relative2WorkSchool: 'relative2WorkSchool'
+        relative2WorkSchool: 'relative2WorkSchool',
+        // 在留歴（UIの正しいキーに対応）
+        lastEntryFrom: 'pastEntryFrom',
+        lastEntryTo: 'pastEntryTo',
+        firstEntry: 'firstEntry'
       };
       // 人材データに反映
       var p = personData[caseId] || {};
