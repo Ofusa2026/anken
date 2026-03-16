@@ -26559,15 +26559,69 @@ function generateDocText(caseId,ruleId){
   text=text.replace('{docList}',additions.join('\n'));
 
   // 結果表示
+  // 国籍→翻訳言語マッピング
+  var _natLangMap = {
+    'インドネシア':'インドネシア語','ベトナム':'ベトナム語','フィリピン':'フィリピン語（タガログ語）',
+    'ミャンマー':'ミャンマー語','カンボジア':'クメール語（カンボジア語）','タイ':'タイ語',
+    'バングラデシュ':'ベンガル語','スリランカ':'シンハラ語','ネパール':'ネパール語',
+    '中国':'中国語（簡体字）','韓国':'韓国語','モンゴル':'モンゴル語',
+    'ウズベキスタン':'ウズベク語','インド':'ヒンディー語'
+  };
+  var _natRaw = vars.nationality || '';
+  var _transLang = '';
+  Object.keys(_natLangMap).forEach(function(k){ if(_natRaw.indexOf(k)!==-1) _transLang = _natLangMap[k]; });
+
   var resEl=document.getElementById('docTextResult');
   if(resEl){
     resEl.style.display='block';
     resEl.innerHTML='<div style="font-size:11px;font-weight:700;color:#059669;margin-bottom:6px;">✅ '+rule.name+' 生成完了</div>'
       +'<textarea id="docTextOutput" rows="12" style="width:100%;padding:10px;border:1.5px solid #d1d5db;border-radius:8px;font-size:11px;font-family:monospace;line-height:1.6;box-sizing:border-box;">'+text.replace(/</g,'&lt;')+'</textarea>'
+      +'<div id="docTextTransResult" style="display:none;margin-top:8px;">'
+      +'<div style="font-size:11px;font-weight:700;color:#7c3aed;margin-bottom:4px;">🌐 翻訳結果</div>'
+      +'<textarea id="docTextTransOutput" rows="12" style="width:100%;padding:10px;border:1.5px solid #c4b5fd;border-radius:8px;font-size:11px;font-family:monospace;line-height:1.6;box-sizing:border-box;"></textarea>'
+      +'<div style="display:flex;gap:8px;margin-top:6px;">'
+      +'<button onclick="var t=document.getElementById('docTextTransOutput');t.select();document.execCommand('copy');showToast('📋 翻訳文をコピーしました')" style="flex:1;padding:8px;background:#7c3aed;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📋 翻訳文をコピー</button>'
+      +'</div></div>'
       +'<div style="display:flex;gap:8px;margin-top:8px;">'
-      +'<button onclick="var t=document.getElementById(\'docTextOutput\');t.select();document.execCommand(\'copy\');showToast(\'📋 コピーしました\')" style="flex:1;padding:8px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📋 コピー</button>'
+      +'<button onclick="var t=document.getElementById('docTextOutput');t.select();document.execCommand('copy');showToast('📋 コピーしました')" style="flex:1;padding:8px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📋 コピー</button>'
+      +(_transLang ? '<button onclick="translateDocText(''+_transLang+'')" id="docTransBtn" style="flex:1;padding:8px;background:#f5f3ff;color:#7c3aed;border:1.5px solid #c4b5fd;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🌐 '+_transLang+'に翻訳</button>' : '')
       +'</div>';
   }
+}
+
+function translateDocText(lang) {
+  var srcEl = document.getElementById('docTextOutput');
+  if (!srcEl) return;
+  var srcText = srcEl.value;
+  var btn = document.getElementById('docTransBtn');
+  if (btn) { btn.textContent = '翻訳中...'; btn.disabled = true; }
+  fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2000,
+      messages: [{
+        role: 'user',
+        content: '以下の日本語テキストを' + lang + 'に翻訳してください。URLはそのまま残してください。翻訳文のみ出力し、説明や前置きは不要です。
+
+' + srcText
+      }]
+    })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    var translated = (d.content && d.content[0] && d.content[0].text) || '';
+    var resDiv = document.getElementById('docTextTransResult');
+    var outEl = document.getElementById('docTextTransOutput');
+    if (resDiv) resDiv.style.display = 'block';
+    if (outEl) outEl.value = translated;
+    if (btn) { btn.textContent = '🌐 ' + lang + 'に翻訳'; btn.disabled = false; }
+  })
+  .catch(function(e){
+    showToast('❌ 翻訳失敗: ' + e.message);
+    if (btn) { btn.textContent = '🌐 ' + lang + 'に翻訳'; btn.disabled = false; }
+  });
 }
 
 function updateCaseField(caseId,field,value){
