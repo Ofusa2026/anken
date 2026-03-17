@@ -13181,8 +13181,8 @@ function editEmpSet(coId, idx) {
   h += '<div style="border:2px dashed var(--gray-200);border-radius:12px;padding:12px;text-align:center;background:#faf5ff;margin-bottom:14px;cursor:pointer;transition:.2s;" onclick="document.getElementById(\'empSetFileInput\').click()" ondragover="event.preventDefault();this.style.borderColor=\'#8b5cf6\';this.style.background=\'#ede9fe\'" ondragleave="this.style.borderColor=\'var(--gray-200)\';this.style.background=\'#faf5ff\'" ondrop="event.preventDefault();this.style.borderColor=\'var(--gray-200)\';this.style.background=\'#faf5ff\';handleEmpSetFileDrop(event,\'' + coId + '\',' + idx + ')">';
   h += '<div style="font-size:18px;margin-bottom:2px;">🤖</div>';
   h += '<div style="font-size:11px;font-weight:700;color:#7c3aed;">雇用条件書・雇用契約書等をドロップで AI読取</div>';
-  h += '<div style="font-size:10px;color:var(--gray-400);">画像(JPG/PNG)・PDF・Excel(.xlsx) 対応</div>';
-  h += '<input type="file" id="empSetFileInput" accept="image/*,.pdf,.xlsx,.xls" multiple style="display:none;" onchange="handleEmpSetFileSelect(this,\'' + coId + '\',' + idx + ')">';
+  h += '<div style="font-size:10px;color:var(--gray-400);">画像(JPG/PNG)・PDF・Excel(.xlsx)・CSV 対応</div>';
+  h += '<input type="file" id="empSetFileInput" accept="image/*,.pdf,.xlsx,.xls,.csv" multiple style="display:none;" onchange="handleEmpSetFileSelect(this,\'' + coId + '\',' + idx + ')">';
   h += '</div>';
   h += '<div id="empSetAiStatus" style="display:none;margin-bottom:12px;"></div>';
   h += '<div id="empTranslateStatus" style="display:none;margin-bottom:12px;"></div>';
@@ -13833,7 +13833,34 @@ function processEmpSetFiles(files, coId, idx){
   for(var i=0;i<files.length;i++){
     (function(file){
       var ext=file.name.toLowerCase().split('.').pop();
-      if(ext==='xlsx'||ext==='xls'){
+      if(ext==='csv'){
+        // CSV → テキスト化+行データ保持
+        imagePromises.push(new Promise(function(resolve,reject){
+          var reader=new FileReader();
+          reader.onload=function(e){
+            try{
+              var text=e.target.result;
+              var lines=text.split(/\r?\n/);
+              var rows=lines.map(function(line){
+                // カンマ区切り（ダブルクォート考慮）
+                var result=[]; var cur=''; var inQ=false;
+                for(var ci=0;ci<line.length;ci++){
+                  var ch=line[ci];
+                  if(ch==='"'){ inQ=!inQ; }
+                  else if(ch===','&&!inQ){ result.push(cur.trim()); cur=''; }
+                  else { cur+=ch; }
+                }
+                result.push(cur.trim());
+                return result;
+              }).filter(function(r){return r.some(function(v){return v!=='';});});
+              var displayText=rows.map(function(row){return row.filter(function(v){return v!=='';}).join(' | ');}).join('\n');
+              resolve({type:'excel',text:displayText,rows:rows});
+            }catch(err){reject(err);}
+          };
+          reader.onerror=function(){reject(new Error('CSV読込失敗'));};
+          reader.readAsText(file,'UTF-8');
+        }));
+      } else if(ext==='xlsx'||ext==='xls'){
         // Excel → テキスト化+行データ保持
         imagePromises.push(new Promise(function(resolve,reject){
           var reader=new FileReader();
@@ -18608,8 +18635,8 @@ function showTab(tab) {
     h += '<div style="border:2px dashed var(--gray-200);border-radius:12px;padding:14px;text-align:center;background:#faf5ff;margin-bottom:14px;cursor:pointer;transition:.2s;" onclick="document.getElementById(\'personFileInput\').click()" ondragover="event.preventDefault();this.style.borderColor=\'#8b5cf6\';this.style.background=\'#ede9fe\'" ondragleave="this.style.borderColor=\'var(--gray-200)\';this.style.background=\'#faf5ff\'" ondrop="event.preventDefault();this.style.borderColor=\'var(--gray-200)\';this.style.background=\'#faf5ff\';handlePersonFileDrop(event,\'' + c.id + '\')">';
     h += '<div style="font-size:20px;margin-bottom:4px;">🤖</div>';
     h += '<div style="font-size:12px;font-weight:700;color:#7c3aed;">在留カード・パスポート等をドロップで AI読取</div>';
-    h += '<div style="font-size:10px;color:var(--gray-400);">画像(JPG/PNG)・PDF・Excel(.xlsx) 対応</div>';
-    h += '<input type="file" id="personFileInput" accept="image/*,.pdf,.xlsx,.xls" multiple style="display:none;" onchange="handlePersonFileSelect(this,\'' + c.id + '\')">';
+    h += '<div style="font-size:10px;color:var(--gray-400);">画像(JPG/PNG)・PDF・Excel(.xlsx)・CSV 対応</div>';
+    h += '<input type="file" id="personFileInput" accept="image/*,.pdf,.xlsx,.xls,.csv" multiple style="display:none;" onchange="handlePersonFileSelect(this,\'' + c.id + '\')">';
     h += '</div>';
     h += '<div id="personAiStatus" style="display:none;margin-bottom:12px;"></div>';
     // AI読取中なら自動でステータス表示
