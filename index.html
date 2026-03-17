@@ -13927,6 +13927,50 @@ function ruleBasedEmpSetExtract(fileData, coId, idx){
   fileData.forEach(function(fd){
     if(fd.type==='excel' && fd.rows) allRows=allRows.concat(fd.rows);
   });
+
+  // ===== OFUSAエクスポートCSV直接マッピング =====
+  // 1行目がOFUSAのフィールド名ヘッダーかを判定
+  if(allRows.length >= 2){
+    var headerRow = allRows[0];
+    var isOfusaCsv = headerRow && (
+      headerRow.indexOf('setName') !== -1 ||
+      headerRow.indexOf('salaryMonthly') !== -1 ||
+      headerRow.indexOf('contractStart') !== -1
+    );
+    if(isOfusaCsv){
+      // ヘッダー→インデックスマップ
+      var colIdx = {};
+      headerRow.forEach(function(h, i){ if(h) colIdx[h.trim()] = i; });
+      // データ行（2行目以降、最初の非空行）
+      var dataRow = null;
+      for(var ri = 1; ri < allRows.length; ri++){
+        if(allRows[ri] && allRows[ri].some(function(v){ return v && String(v).trim(); })){
+          dataRow = allRows[ri]; break;
+        }
+      }
+      if(dataRow){
+        var co = companies.find(function(x){ return x.id === coId; });
+        if(!co) return;
+        if(!co.empSets) co.empSets = [];
+        var es = co.empSets[idx] || {};
+        var applied = 0;
+        // 全列を直接マッピング（Enサフィックス含む）
+        Object.keys(colIdx).forEach(function(key){
+          var val = dataRow[colIdx[key]];
+          if(val === undefined || val === null || String(val).trim() === '') return;
+          val = String(val).trim();
+          es[key] = val;
+          applied++;
+        });
+        co.empSets[idx] = es;
+        persistCompanies(co.id);
+        if(typeof renderEmpSetEdit === 'function') renderEmpSetEdit(coId, idx);
+        if(statusEl) statusEl.innerHTML = '<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:12px;text-align:center;"><div style="font-size:14px;margin-bottom:4px;">✅ OFUSAエクスポートCSV読込完了</div><div style="font-size:11px;color:#15803d;">'+applied+'フィールドを直接反映しました</div></div>';
+        return; // ルールベース処理をスキップ
+      }
+    }
+  }
+  // ===== ここからキーワードマッチ（通常のExcel/CSV）=====
   // キーワード→フィールド対応
   var KEYWORD_MAP=[
     {re:/所属機関名|所属機関の名称|受入れ機関/,f:'officeName'},
