@@ -14140,6 +14140,9 @@ var _selectedDocTypes = {}; // 複数選択: {key: tplIdx(0始まり)}
 function selectDocType(key) {
   try{
   _selectedDocType = key;
+  _selectedTplIdx = 0;
+  _selectedTplRef = null;
+  _currentTplList = [];
   // ボタンのハイライト
   var btns = document.querySelectorAll('#dg_typeBar button');
   btns.forEach(function(b) {
@@ -14184,28 +14187,51 @@ function selectDocType(key) {
     else if(Array.isArray(uploadedRaw)){uploadedRaw.forEach(function(t){if(t&&t.group===tplGroup)tpls.push(t);});}
   }catch(e){console.error('tpl error:',e);}
 
-  // UIリスト保存 & Supabase DBからstoragePathを補完
+  // ★ DB_READYかつtplsが0件 or storagePath未設定 → Supabase DBから取得してUI再描画
+  if(DB_READY && (tpls.length===0 || tpls.some(function(t){return !t.storagePath;}))){
+    var _tg2 = tplGroup;
+    _sb.from('templates').select('name,filename,storage_path,lang').eq('group_name',_tg2).then(function(res){
+      if(res.error||!res.data) return;
+      if(res.data.length===0) return;
+      // storagePathを補完 or tplsが空なら新規構築
+      if(tpls.length===0){
+        res.data.forEach(function(row){
+          tpls.push({name:row.name||row.filename||'',filename:row.filename||row.name||'',lang:row.lang||'',storagePath:row.storage_path||'',group:_tg2});
+        });
+      } else {
+        res.data.forEach(function(row){
+          tpls.forEach(function(t){
+            if(!t.storagePath&&(t.name===row.name||t.filename===row.name||t.name===row.filename||t.filename===row.filename))
+              t.storagePath=row.storage_path||'';
+          });
+        });
+      }
+      // UIリスト更新 & 再描画
+      _currentTplList = tpls;
+      if(tpls.length>0){ _selectedTplRef={name:(tpls[0].name||tpls[0].filename||''),storagePath:(tpls[0].storagePath||''),lsKey:(tpls[0]._lsKey||'')}; }
+      var _el=document.getElementById('dg_tplList'); if(!_el) return;
+      var _tg3=_tg2, _h='<div style="background:white;border:1px solid var(--gray-200);border-radius:10px;padding:12px;">';
+      _h+='<div style="font-size:10px;font-weight:800;color:var(--blue);margin-bottom:8px;">📁 テンプレート（'+tpls.length+'件）</div>';
+      tpls.forEach(function(t,idx){
+        var isSel=(idx===_selectedTplIdx);
+        _h+='<div style="display:flex;align-items:center;justify-content:space-between;background:'+(isSel?'#eff6ff':'white')+';border-radius:4px;padding:6px 6px;border-bottom:1px solid '+(isSel?'#3b82f6':'var(--gray-100)')+';">';
+        _h+='<div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;cursor:pointer;" onclick="selectTplIdx('+idx+')">';
+        _h+='<div style="width:14px;height:14px;border-radius:50%;border:2px solid '+(isSel?'#3b82f6':'#d1d5db')+';background:'+(isSel?'#3b82f6':'white')+';flex-shrink:0;"></div>';
+        _h+='<div style="font-size:12px;font-weight:'+(isSel?'700':'600')+';color:'+(isSel?'#1d4ed8':'inherit')+';">'+(t.name||t.filename||'')+'</div>';
+        if(t.lang) _h+='<div style="font-size:10px;color:var(--gray-400);">'+t.lang+'</div>';
+        _h+='</div>';
+        // ボタンはデータ属性経由で安全に処理
+        _h+='<button data-tg="'+esc(_tg3)+'" data-idx="'+idx+'" data-name="'+esc(t.name||t.filename||'')+'" onclick="deleteTplFromDocGen(this.getAttribute(\'data-tg\'),parseInt(this.getAttribute(\'data-idx\')),this.getAttribute(\'data-name\'))" style="font-size:9px;padding:2px 6px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;cursor:pointer;font-weight:700;flex-shrink:0;">🗑</button>';
+        _h+='</div>';
+      });
+      _h+='</div>';
+      _el.innerHTML=_h;
+    });
+  }
+  // UIリスト保存（ローカルにあればここでセット）
   _currentTplList = tpls;
   if(tpls.length>0 && !_selectedTplRef){
     _selectedTplRef = {name:(tpls[0].name||tpls[0].filename||''), storagePath:(tpls[0].storagePath||''), lsKey:(tpls[0]._lsKey||'')};
-  }
-  // Supabase DBからstoragePath未設定のものを補完（非同期、次回以降に効く）
-  if(DB_READY && tpls.some(function(t){return !t.storagePath;})){
-    _sb.from('templates').select('name,filename,storage_path').eq('group_name',tplGroup).then(function(res){
-      if(res.error||!res.data) return;
-      res.data.forEach(function(row){
-        _currentTplList.forEach(function(t){
-          if(!t.storagePath && (t.name===row.name||t.filename===row.name||t.name===row.filename||t.filename===row.filename)){
-            t.storagePath = row.storage_path||'';
-          }
-        });
-      });
-      // _selectedTplRefのstoragePathも更新
-      if(_selectedTplRef && !_selectedTplRef.storagePath){
-        var matched = res.data.find(function(r){return r.name===_selectedTplRef.name||r.filename===_selectedTplRef.name;});
-        if(matched) _selectedTplRef.storagePath = matched.storage_path||'';
-      }
-    });
   }
   var tplH = '';
   if(tpls.length) {
@@ -14232,8 +14258,7 @@ function selectDocType(key) {
 
   // Step2を表示、Step3リセット
   _selectedTplIdx = 0; // テンプレート選択リセット
-  _selectedTplRef = null;
-  _currentTplList = [];
+  // ※ _selectedTplRef と _currentTplList はここではリセットしない（上で既にセット済み）
   var s2=document.getElementById('dg_step2'); if(s2) s2.style.display = 'block';
   var s2b=document.getElementById('dg_step2b'); if(s2b) s2b.style.display = 'none';
   var s3=document.getElementById('dg_step3'); if(s3) s3.style.display = 'none';
