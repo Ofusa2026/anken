@@ -15389,7 +15389,9 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
   var entry=null;
   // ★ _selectedTplRefがある場合はlsKey→nameの順で正確に解決
   var _ref=(typeof _selectedTplRef!=='undefined')?_selectedTplRef:null;
+  console.log('[OFUSA] templateSelect ref:', JSON.stringify(_ref), 'idx:', _selectedTplIdx, 'tplGroup:', tplGroup);
   if(_ref&&_ref.lsKey&&tplData[_ref.lsKey]&&tplData[_ref.lsKey].data){
+    console.log('[OFUSA] resolved by lsKey:', _ref.lsKey, '→', tplData[_ref.lsKey].name||tplData[_ref.lsKey].filename);
     entry=tplData[_ref.lsKey];
   } else if(_ref&&_ref.name){
     Object.keys(tplData).forEach(function(k){
@@ -15411,6 +15413,7 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
   // 最終フォールバック: ci_N方式
   if(!entry||!entry.data){
     var tplKey=ci+'_'+_selectedTplIdx;
+    console.log('[OFUSA] fallback ci_N key:', tplKey, 'found:', !!(tplData[tplKey]&&tplData[tplKey].data));
     entry=tplData[tplKey];
   }
   if(!entry||!entry.data){
@@ -15486,7 +15489,10 @@ function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zip
   // テンプレート名からxlsxかdocxか判定
   var _tplIdxPN = (typeof _selectedTplIdx === 'number') ? _selectedTplIdx : 0;
   var _tplEntryPN = TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].templates&&(TEMPLATE_CATEGORIES[ci].templates[_tplIdxPN]||TEMPLATE_CATEGORIES[ci].templates[0]);
-  var tplName = (_tplEntryPN&&_tplEntryPN.filename)||(_tplEntryPN&&_tplEntryPN.name)||'';
+  // ★ _selectedTplRefがあればname優先（インデックスズレ対策）
+  var tplName = (typeof _selectedTplRef!=='undefined'&&_selectedTplRef&&_selectedTplRef.name)
+    ? _selectedTplRef.name
+    : ((_tplEntryPN&&_tplEntryPN.filename)||(_tplEntryPN&&_tplEntryPN.name)||'');
   var isXlsx = /\.xlsx?$/i.test(tplName) || (TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].name==='窓口申請書');
 
   if (isXlsx) {
@@ -15527,7 +15533,10 @@ function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zip
     }).then(function(blob){
       var _tplIdxForNameX = (typeof _selectedTplIdx === 'number') ? _selectedTplIdx : 0;
       var _tplForNameX = TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].templates[_tplIdxForNameX];
-      var catName = ((_tplForNameX&&_tplForNameX.name)||(_tplForNameX&&_tplForNameX.filename)||(TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].name)||'書類');
+      // ★ _selectedTplRefがあればname優先
+      var catName = (typeof _selectedTplRef!=='undefined'&&_selectedTplRef&&_selectedTplRef.name)
+        ? _selectedTplRef.name
+        : ((_tplForNameX&&_tplForNameX.name)||(_tplForNameX&&_tplForNameX.filename)||(TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].name)||'書類');
       var fname = catName + '_' + getDisplayName(c) + '.xlsx';
       if (typeof zipCallback === 'function') { zipCallback(blob, fname); return; }
       var a=document.createElement('a');
@@ -15589,7 +15598,11 @@ function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zip
   }).then(function(blob){
     var _tplIdxForName = (typeof _selectedTplIdx === 'number') ? _selectedTplIdx : 0;
     var _tplForName = TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].templates[_tplIdxForName];
-    var fname = ((_tplForName&&_tplForName.name)||(_tplForName&&_tplForName.filename)||(TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].name)||'書類')+'_'+getDisplayName(c)+'.docx';
+    // ★ _selectedTplRefがあればname優先
+    var _fnBase = (typeof _selectedTplRef!=='undefined'&&_selectedTplRef&&_selectedTplRef.name)
+      ? _selectedTplRef.name
+      : ((_tplForName&&_tplForName.name)||(_tplForName&&_tplForName.filename)||(TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].name)||'書類');
+    var fname = _fnBase+'_'+getDisplayName(c)+'.docx';
     // ZIP一括生成モードの場合はコールバックに渡す
     if (typeof zipCallback === 'function') { zipCallback(blob, fname); return; }
     var a=document.createElement('a');
