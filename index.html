@@ -1763,9 +1763,16 @@ function storageUploadBase64(bucket, path, base64, mimeType, callback) {
 }
 // グローバル安全装置：Storageパスのサニタイズ
 function _sanitizeStoragePath(p){
-  // ()[]{}とスペースを除去、日本語はそのまま
+  // encodeURIComponent方式（Supabase Storageは英数字._-のみ有効）
   return p.split('/').map(function(seg){
-    return seg.replace(/[()\[\]{}\\"*?<>|\s]/g, '_').replace(/_+/g,'_').replace(/^_|_$/g,'').replace(/\.+$/,'');
+    return seg.split('').map(function(c){
+      if(/[a-zA-Z0-9._\-]/.test(c)) return c;
+      var code = c.charCodeAt(0);
+      if(code < 128) return '_';  // ASCII特殊文字はアンダースコア
+      // 日本語等はUTF-8エンコード
+      var bytes = encodeURIComponent(c).replace(/%/g,'');
+      return bytes.toLowerCase();
+    }).join('');
   }).join('/');
 }
 
