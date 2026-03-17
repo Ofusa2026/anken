@@ -14280,14 +14280,18 @@ function selectTplIdx(ti) {
     var _t = _currentTplList[ti];
     _selectedTplRef = {name:(_t.name||_t.filename||''), storagePath:(_t.storagePath||''), lsKey:(_t._lsKey||'')};
     console.log('🎯 selectTplIdx:', ti, '→', _selectedTplRef.name, '| storagePath:', _selectedTplRef.storagePath, '| list len:', _currentTplList.length);
-    // Supabase DBからstoragePathを補完（storagePathが未設定の場合）
-    if(!_selectedTplRef.storagePath && DB_READY){
+    // Supabase DBからstoragePathをnameで補完
+    if(DB_READY){
       var _tg = {'1-5':'1-5(雇用契約書)','1-6':'1-6(雇用条件書)','1-3':'1-3(受診者の申告書別紙)','1-4':'1-4(特定技能外国人の報酬に関する説明書)','1-11':'1-11(特定技能所属機関概要書)','1-16':'1-16(雇用の経緯に係る説明書)','1-17':'1-17(支援計画書)','1-23':'1-23(特定技能所属機関の役員に関する誓約書)','1-25':'1-25(登録支援機関との支援委託契約に関する説明書)','1-27':'1-27(公的義務履行に関する説明書)','1-29':'1-29(書類省略に当たっての誓約書)','field':'分野別必要書類','window':'窓口申請書'}[_selectedDocType]||'';
       var _rname = _selectedTplRef.name;
-      _sb.from('templates').select('name,filename,storage_path').eq('group_name',_tg).then(function(res){
-        if(res.error||!res.data) return;
-        var row=res.data.find(function(r){return r.name===_rname||r.filename===_rname;});
-        if(row && row.storage_path) { _selectedTplRef.storagePath = row.storage_path; if(_currentTplList[ti]) _currentTplList[ti].storagePath=row.storage_path; }
+      var _ti2 = ti;
+      _sb.from('templates').select('name,filename,storage_path').eq('group_name',_tg).eq('name',_rname).then(function(res){
+        if(res.error||!res.data||!res.data.length) return;
+        var row=res.data[0];
+        if(row && row.storage_path){
+          _selectedTplRef.storagePath = row.storage_path;
+          if(_currentTplList[_ti2]) _currentTplList[_ti2].storagePath=row.storage_path;
+        }
       });
     }
   }
@@ -15496,10 +15500,12 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
         // ★ _selectedTplRefのstoragePath/nameで優先マッチ
         var _sbRef=(typeof _selectedTplRef!=='undefined')?_selectedTplRef:null;
         var tplRow=null;
-        if(_sbRef&&_sbRef.storagePath){tplRow=res.data.find(function(r){return r.storage_path===_sbRef.storagePath;});}
-        if(!tplRow&&_sbRef&&_sbRef.name){tplRow=res.data.find(function(r){return r.name===_sbRef.name||r.filename===_sbRef.name;});}
+        // ★ storagePathは16進数化で信頼できないのでnameのみでマッチ
+        if(_sbRef&&_sbRef.name){
+          tplRow=res.data.find(function(r){return r.name===_sbRef.name||r.filename===_sbRef.name;});
+        }
         if(!tplRow) tplRow=res.data[Math.min(_selectedTplIdx, res.data.length-1)];
-        console.log('📥 Supabase fallback: ref.name=', _sbRef&&_sbRef.name, '| matched row:', tplRow&&(tplRow.name||tplRow.filename), '| all names:', res.data.map(function(r){return r.name||r.filename;}));
+        console.log('📥 Supabase: ref.name=', _sbRef&&_sbRef.name, '| matched:', tplRow&&(tplRow.name||tplRow.filename), '| path:', tplRow&&tplRow.storage_path);
         if(!tplRow.storage_path){alert('テンプレートのStorageパスが未設定です。再アップロードしてください。');return;}
         console.info('📥 [OFUSA] Storage download path:', tplRow.storage_path);
         // sanitizedパスでも試みる
