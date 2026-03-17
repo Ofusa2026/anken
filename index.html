@@ -14133,8 +14133,8 @@ function renderDocGenContent() {
 
 var _selectedDocType = '';
 var _selectedTplIdx = 0; // 選択中テンプレートインデックス
-var _selectedTplRef = null; // 選択中テンプレートの識別情報
-var _currentTplList = []; // 現在表示中テンプレートリスト（UI順）
+var _selectedTplRef = null; // 選択中テンプレートの識別情報 {name, storagePath, lsKey}
+var _currentTplList = []; // UIリスト（インデックス→ref解決用）
 var _selectedDocTypes = {}; // 複数選択: {key: tplIdx(0始まり)}
 
 function selectDocType(key) {
@@ -14184,8 +14184,29 @@ function selectDocType(key) {
     else if(Array.isArray(uploadedRaw)){uploadedRaw.forEach(function(t){if(t&&t.group===tplGroup)tpls.push(t);});}
   }catch(e){console.error('tpl error:',e);}
 
-  _currentTplList = tpls; // UIリストを保存（インデックス→ref解決用）
-  if(tpls.length>0){_selectedTplRef={name:(tpls[0].name||tpls[0].filename||''),storagePath:(tpls[0].storagePath||''),lsKey:(tpls[0]._lsKey||'')};}
+  // UIリスト保存 & Supabase DBからstoragePathを補完
+  _currentTplList = tpls;
+  if(tpls.length>0 && !_selectedTplRef){
+    _selectedTplRef = {name:(tpls[0].name||tpls[0].filename||''), storagePath:(tpls[0].storagePath||''), lsKey:(tpls[0]._lsKey||'')};
+  }
+  // Supabase DBからstoragePath未設定のものを補完（非同期、次回以降に効く）
+  if(DB_READY && tpls.some(function(t){return !t.storagePath;})){
+    _sb.from('templates').select('name,filename,storage_path').eq('group_name',tplGroup).then(function(res){
+      if(res.error||!res.data) return;
+      res.data.forEach(function(row){
+        _currentTplList.forEach(function(t){
+          if(!t.storagePath && (t.name===row.name||t.filename===row.name||t.name===row.filename||t.filename===row.filename)){
+            t.storagePath = row.storage_path||'';
+          }
+        });
+      });
+      // _selectedTplRefのstoragePathも更新
+      if(_selectedTplRef && !_selectedTplRef.storagePath){
+        var matched = res.data.find(function(r){return r.name===_selectedTplRef.name||r.filename===_selectedTplRef.name;});
+        if(matched) _selectedTplRef.storagePath = matched.storage_path||'';
+      }
+    });
+  }
   var tplH = '';
   if(tpls.length) {
     tplH += '<div style="background:white;border:1px solid var(--gray-200);border-radius:10px;padding:12px;">';
@@ -14230,16 +14251,26 @@ function selectDocType(key) {
 function selectTplIdx(ti) {
   _selectedTplIdx = ti;
   // _currentTplListからrefを解決（selectDocTypeで構築済みのUIリスト順を使用）
-  var tpls = _currentTplList;
-  if(tpls && tpls[ti]) {
-    var t = tpls[ti];
-    _selectedTplRef = {name:(t.name||t.filename||''), storagePath:(t.storagePath||''), lsKey:(t._lsKey||'')};
+  if(_currentTplList && _currentTplList[ti]) {
+    var _t = _currentTplList[ti];
+    _selectedTplRef = {name:(_t.name||_t.filename||''), storagePath:(_t.storagePath||''), lsKey:(_t._lsKey||'')};
+    // Supabase DBからstoragePathを補完（storagePathが未設定の場合）
+    if(!_selectedTplRef.storagePath && DB_READY){
+      var _tg = {'1-5':'1-5(雇用契約書)','1-6':'1-6(雇用条件書)','1-3':'1-3(受診者の申告書別紙)','1-4':'1-4(特定技能外国人の報酬に関する説明書)','1-11':'1-11(特定技能所属機関概要書)','1-16':'1-16(雇用の経緯に係る説明書)','1-17':'1-17(支援計画書)','1-23':'1-23(特定技能所属機関の役員に関する誓約書)','1-25':'1-25(登録支援機関との支援委託契約に関する説明書)','1-27':'1-27(公的義務履行に関する説明書)','1-29':'1-29(書類省略に当たっての誓約書)','field':'分野別必要書類','window':'窓口申請書'}[_selectedDocType]||'';
+      var _rname = _selectedTplRef.name;
+      _sb.from('templates').select('name,filename,storage_path').eq('group_name',_tg).then(function(res){
+        if(res.error||!res.data) return;
+        var row=res.data.find(function(r){return r.name===_rname||r.filename===_rname;});
+        if(row && row.storage_path) { _selectedTplRef.storagePath = row.storage_path; if(_currentTplList[ti]) _currentTplList[ti].storagePath=row.storage_path; }
+      });
+    }
   }
   // リスト再描画（_currentTplListを使って正確に再描画）
   var el1 = document.getElementById('dg_tplList');
   if (!el1) return;
   var docTypes={'1-5':'1-5(雇用契約書)','1-6':'1-6(雇用条件書)','1-3':'1-3(受診者の申告書別紙)','1-4':'1-4(特定技能外国人の報酬に関する説明書)','1-11':'1-11(特定技能所属機関概要書)','1-16':'1-16(雇用の経緯に係る説明書)','1-17':'1-17(支援計画書)','1-23':'1-23(特定技能所属機関の役員に関する誓約書)','1-25':'1-25(登録支援機関との支援委託契約に関する説明書)','1-27':'1-27(公的義務履行に関する説明書)','1-29':'1-29(書類省略に当たっての誓約書)','field':'分野別必要書類','window':'窓口申請書'};
   var tplGroup = docTypes[_selectedDocType] || '';
+  var tpls = _currentTplList.length ? _currentTplList : [];
   var tplH = '<div style="background:white;border:1px solid var(--gray-200);border-radius:10px;padding:12px;">';
   tplH += '<div style="font-size:10px;font-weight:800;color:var(--blue);margin-bottom:8px;">📁 テンプレート（' + tpls.length + '件）</div>';
   tpls.forEach(function(t, idx) {
@@ -15387,11 +15418,9 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
   var tplData;
   try{tplData=JSON.parse(localStorage.getItem('ofusa_templates')||'{}');}catch(e){tplData={};}
   var entry=null;
-  // ★ _selectedTplRefがある場合はlsKey→nameの順で正確に解決
+  // ★ _selectedTplRefで正確に解決（lsKey → name の順）
   var _ref=(typeof _selectedTplRef!=='undefined')?_selectedTplRef:null;
-  console.log('[OFUSA] templateSelect ref:', JSON.stringify(_ref), 'idx:', _selectedTplIdx, 'tplGroup:', tplGroup);
   if(_ref&&_ref.lsKey&&tplData[_ref.lsKey]&&tplData[_ref.lsKey].data){
-    console.log('[OFUSA] resolved by lsKey:', _ref.lsKey, '→', tplData[_ref.lsKey].name||tplData[_ref.lsKey].filename);
     entry=tplData[_ref.lsKey];
   } else if(_ref&&_ref.name){
     Object.keys(tplData).forEach(function(k){
@@ -15399,23 +15428,19 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
       if(!entry&&t&&t.group===tplGroup&&t.data&&(t.name===_ref.name||t.filename===_ref.name)) entry=t;
     });
   }
-  // refで解決できなければ_currentTplListのインデックスでlsKeyを探す
+  // refで解決できなければ_currentTplListのlsKeyで試みる
   if(!entry||!entry.data){
-    var _tl=_currentTplList||[];
-    var catTplCount=0;
-    TEMPLATE_CATEGORIES.forEach(function(cat){if(cat.name===tplGroup)catTplCount+=cat.templates.length;});
-    var _lsIdx=_selectedTplIdx-catTplCount;
-    if(_lsIdx>=0&&_tl[_selectedTplIdx]&&_tl[_selectedTplIdx]._lsKey){
-      var _lk=_tl[_selectedTplIdx]._lsKey;
+    if(_currentTplList&&_currentTplList[_selectedTplIdx]&&_currentTplList[_selectedTplIdx]._lsKey){
+      var _lk=_currentTplList[_selectedTplIdx]._lsKey;
       if(tplData[_lk]&&tplData[_lk].data) entry=tplData[_lk];
     }
   }
-  // 最終フォールバック: ci_N方式
+  // フォールバック: ci_N方式
   if(!entry||!entry.data){
     var tplKey=ci+'_'+_selectedTplIdx;
-    console.log('[OFUSA] fallback ci_N key:', tplKey, 'found:', !!(tplData[tplKey]&&tplData[tplKey].data));
     entry=tplData[tplKey];
   }
+  // フォールバック: 同グループ内name一致
   if(!entry||!entry.data){
     var groupEntries=[];
     Object.keys(tplData).forEach(function(k){
@@ -15427,14 +15452,15 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
       var bi=parseInt((b.key.match(/_(\d+)$/)||[0,0])[1],10);
       return ai-bi;
     });
-    var catTplCount2=0;
-    TEMPLATE_CATEGORIES.forEach(function(cat){if(cat.name===tplGroup)catTplCount2+=cat.templates.length;});
-    var lsIdx2=_selectedTplIdx-catTplCount2;
-    var targetEntry=(lsIdx2>=0?groupEntries[lsIdx2]:null)||groupEntries[_selectedTplIdx]||groupEntries[0];
+    // UIリストとのオフセット計算
+    var catTplCnt=0;
+    TEMPLATE_CATEGORIES.forEach(function(cat){if(cat.name===tplGroup)catTplCnt+=cat.templates.length;});
+    var lsOff=_selectedTplIdx-catTplCnt;
+    var targetEntry=(lsOff>=0?groupEntries[lsOff]:null)||groupEntries[0];
     if(targetEntry) entry=targetEntry.data;
   }
   if(!entry||!entry.data){
-    // Supabase Storageからフォールバック取得
+    // Supabase Storageから取得（_selectedTplRef.storagePathまたはname一致で）
     if(DB_READY){
       showToast('📥 テンプレートをサーバーから取得中...');
       _sb.from('templates').select('*').eq('group_name',tplGroup).then(function(res){
@@ -15489,7 +15515,7 @@ function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zip
   // テンプレート名からxlsxかdocxか判定
   var _tplIdxPN = (typeof _selectedTplIdx === 'number') ? _selectedTplIdx : 0;
   var _tplEntryPN = TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].templates&&(TEMPLATE_CATEGORIES[ci].templates[_tplIdxPN]||TEMPLATE_CATEGORIES[ci].templates[0]);
-  // ★ _selectedTplRefがあればname優先（インデックスズレ対策）
+  // ★ _selectedTplRefのnameを優先（インデックスズレ対策）
   var tplName = (typeof _selectedTplRef!=='undefined'&&_selectedTplRef&&_selectedTplRef.name)
     ? _selectedTplRef.name
     : ((_tplEntryPN&&_tplEntryPN.filename)||(_tplEntryPN&&_tplEntryPN.name)||'');
@@ -15533,7 +15559,7 @@ function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zip
     }).then(function(blob){
       var _tplIdxForNameX = (typeof _selectedTplIdx === 'number') ? _selectedTplIdx : 0;
       var _tplForNameX = TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].templates[_tplIdxForNameX];
-      // ★ _selectedTplRefがあればname優先
+      // ★ refのnameを優先
       var catName = (typeof _selectedTplRef!=='undefined'&&_selectedTplRef&&_selectedTplRef.name)
         ? _selectedTplRef.name
         : ((_tplForNameX&&_tplForNameX.name)||(_tplForNameX&&_tplForNameX.filename)||(TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].name)||'書類');
@@ -15598,8 +15624,8 @@ function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zip
   }).then(function(blob){
     var _tplIdxForName = (typeof _selectedTplIdx === 'number') ? _selectedTplIdx : 0;
     var _tplForName = TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].templates[_tplIdxForName];
-    // ★ _selectedTplRefがあればname優先
-    var _fnBase = (typeof _selectedTplRef!=='undefined'&&_selectedTplRef&&_selectedTplRef.name)
+    // ★ refのnameを優先
+    var _fnBase=(typeof _selectedTplRef!=='undefined'&&_selectedTplRef&&_selectedTplRef.name)
       ? _selectedTplRef.name
       : ((_tplForName&&_tplForName.name)||(_tplForName&&_tplForName.filename)||(TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].name)||'書類');
     var fname = _fnBase+'_'+getDisplayName(c)+'.docx';
