@@ -14279,6 +14279,7 @@ function selectTplIdx(ti) {
   if(_currentTplList && _currentTplList[ti]) {
     var _t = _currentTplList[ti];
     _selectedTplRef = {name:(_t.name||_t.filename||''), storagePath:(_t.storagePath||''), lsKey:(_t._lsKey||'')};
+    console.log('🎯 selectTplIdx:', ti, '→', _selectedTplRef.name, '| storagePath:', _selectedTplRef.storagePath, '| list len:', _currentTplList.length);
     // Supabase DBからstoragePathを補完（storagePathが未設定の場合）
     if(!_selectedTplRef.storagePath && DB_READY){
       var _tg = {'1-5':'1-5(雇用契約書)','1-6':'1-6(雇用条件書)','1-3':'1-3(受診者の申告書別紙)','1-4':'1-4(特定技能外国人の報酬に関する説明書)','1-11':'1-11(特定技能所属機関概要書)','1-16':'1-16(雇用の経緯に係る説明書)','1-17':'1-17(支援計画書)','1-23':'1-23(特定技能所属機関の役員に関する誓約書)','1-25':'1-25(登録支援機関との支援委託契約に関する説明書)','1-27':'1-27(公的義務履行に関する説明書)','1-29':'1-29(書類省略に当たっての誓約書)','field':'分野別必要書類','window':'窓口申請書'}[_selectedDocType]||'';
@@ -15445,7 +15446,9 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
   var entry=null;
   // ★ _selectedTplRefで正確に解決（lsKey → name の順）
   var _ref=(typeof _selectedTplRef!=='undefined')?_selectedTplRef:null;
+  console.log('📥 doGenerate ref:', JSON.stringify(_ref), '| idx:', _selectedTplIdx, '| tplGroup:', tplGroup);
   if(_ref&&_ref.lsKey&&tplData[_ref.lsKey]&&tplData[_ref.lsKey].data){
+    console.log('✅ resolved by lsKey:', _ref.lsKey);
     entry=tplData[_ref.lsKey];
   } else if(_ref&&_ref.name){
     Object.keys(tplData).forEach(function(k){
@@ -15496,6 +15499,7 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
         if(_sbRef&&_sbRef.storagePath){tplRow=res.data.find(function(r){return r.storage_path===_sbRef.storagePath;});}
         if(!tplRow&&_sbRef&&_sbRef.name){tplRow=res.data.find(function(r){return r.name===_sbRef.name||r.filename===_sbRef.name;});}
         if(!tplRow) tplRow=res.data[Math.min(_selectedTplIdx, res.data.length-1)];
+        console.log('📥 Supabase fallback: ref.name=', _sbRef&&_sbRef.name, '| matched row:', tplRow&&(tplRow.name||tplRow.filename), '| all names:', res.data.map(function(r){return r.name||r.filename;}));
         if(!tplRow.storage_path){alert('テンプレートのStorageパスが未設定です。再アップロードしてください。');return;}
         console.info('📥 [OFUSA] Storage download path:', tplRow.storage_path);
         // sanitizedパスでも試みる
@@ -23047,7 +23051,7 @@ function persistShinsaList(changedId){
   if(changedId) {
     // 1件だけupsert
     var item = shinsaListData.find(function(x){return x.id===changedId;});
-    if(item) _sb.from('shinsa_archive').upsert(_listItemToRow(item),{onConflict:'id'}).then(function(r){if(r&&r.error)console.error('shinsaList upsert err:',r.error);});
+    if(item) _sb.from('shinsa_archive').upsert(_listItemToRow(item),{onConflict:'id'}).then(function(r){if(r&&r.error){console.error('❌ shinsa_archive upsert err:',r.error.message,_listItemToRow(item));}else{console.log('✅ shinsa_archive saved:',item.id);}});
   } else {
     // 全件upsert（初回・一括操作時）
     var rows = shinsaListData.map(_listItemToRow);
@@ -23059,7 +23063,7 @@ function persistCertList(changedId){
   if(!DB_READY) return;
   if(changedId) {
     var item = certListData.find(function(x){return x.id===changedId;});
-    if(item) _sb.from('cert_archive').upsert(_listItemToRow(item),{onConflict:'id'}).then(function(r){if(r&&r.error)console.error('certList upsert err:',r.error);});
+    if(item) _sb.from('cert_archive').upsert(_listItemToRow(item),{onConflict:'id'}).then(function(r){if(r&&r.error){console.error('❌ cert_archive upsert err:',r.error.message,_listItemToRow(item));}else{console.log('✅ cert_archive saved:',item.id);}});
   } else {
     var rows = certListData.map(_listItemToRow);
     if(rows.length) _sb.from('cert_archive').upsert(rows,{onConflict:'id'}).then(function(r){if(r&&r.error)console.error('certList bulk err:',r.error);});
@@ -23634,6 +23638,7 @@ function applyLinkItem(caseId){
     // 案件一覧の表示を更新
     _markCaseChanged(caseId);
   }
+  console.log('📤 applyLinkItem:', type, itemId, '→ caseId:', caseId, 'DB_READY:', DB_READY, 'row:', _listItemToRow(item));
   cfg.persist(item.id);
   dialog.remove();
   cfg.render();
@@ -23670,6 +23675,7 @@ function toggleReported(type, id) {
   if(!item) return;
   item.reported = !item.reported;
   item.reportedAt = item.reported ? new Date().toISOString() : null;
+  console.log('📤 toggleReported:', type, id, '→ reported:', item.reported, 'DB_READY:', DB_READY, 'row:', _listItemToRow(item));
   // 1件だけDB更新（changedIdを渡す）
   if(type==='rec') persistReceiptList(id);
   else if(type==='shinsa') persistShinsaList(id);
