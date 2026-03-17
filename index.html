@@ -1603,6 +1603,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <div class="case-tab" onclick="showTab('docs')">📁 必要書類</div>
       <div class="case-tab" onclick="showTab('line')">📋 案内</div>
       <div class="case-tab" onclick="showTab('generate')">📤 生成・送信</div>
+      <div class="case-tab" onclick="showTab('followup')">⚠️ 指摘/追完</div>
     </div>
     <div class="case-body" id="caseBody"></div>
     <div id="editHistorySection" style="display:none;padding:0 20px 8px;"></div>
@@ -2029,6 +2030,7 @@ function dbRowToCase(r) {
     _caseNo: r.case_no||'',
     folderNo: r.folder_no||'', industry: r.industry||'', memo: r.memo||'',
     shortageMemo: r.shortage_memo||'', companyNote: r.company_note||'',
+    followupNote: r.followup_note||'',
     authorName: r.author_name||'', authorTitle: r.author_title||'',
     intake_id: r.intake_id||'',
     members: (function(){try{return r.members?(typeof r.members==='string'?JSON.parse(r.members):r.members):[];}catch(e){return [];}}())
@@ -9177,11 +9179,14 @@ function aiTranslateFieldCategory() {
   var apiKey = getApiKey();
   if (!apiKey) { showToast('⚠️ APIキーが未設定です'); return; }
   var c = currentCase; if (!c) return;
-  // セレクトボックスの現在値を直接取得（未保存でも対応）
+  // div（esReadonly）またはselectから値を取得
   var fieldEl = document.getElementById('ei-applicantField');
   var catEl = document.getElementById('ei-jobCategory');
-  var field = fieldEl ? fieldEl.value : (c.applicantField || '');
-  var cat = catEl ? catEl.value : (c.jobCategory || '');
+  var field = fieldEl ? (fieldEl.value !== undefined ? fieldEl.value : fieldEl.textContent.replace('—','').trim()) : '';
+  var cat   = catEl   ? (catEl.value   !== undefined ? catEl.value   : catEl.textContent.replace('—','').trim())   : '';
+  // 取得できなければcaseオブジェクトから fallback
+  if (!field) field = c.applicantField || '';
+  if (!cat)   cat   = c.jobCategory || '';
   if (!field && !cat) { showToast('⚠️ 申請分野・業務区分を先に選択してください'); return; }
   // 言語セレクトから取得
   var langEl = document.getElementById('ei-fieldLang');
@@ -9999,7 +10004,8 @@ function autoSaveInfo(key, value) {
       otherSupportNote:'other_support_note', introFee:'intro_fee',
       acceptExp:'accept_exp', personOrder:'person_order', memo:'memo',
       shortageMemo:'shortage_memo', companyNote:'company_note', priority:'priority',
-      driveUrl:'drive_url', folderNo:'folder_no', industry:'industry'
+      driveUrl:'drive_url', folderNo:'folder_no', industry:'industry',
+      followupNote:'followup_note'
     };
     var colName = _COL_MAP[key] || key;
     var patchVal = value;
@@ -18215,7 +18221,7 @@ function showTab(tab) {
   currentTab = tab;
   document.querySelectorAll('.case-tab').forEach(function(t, i) {
     t.classList.toggle('active',
-      (i===0 && tab==='info') || (i===1 && tab==='person') || (i===2 && tab==='tasks') || (i===3 && tab==='docs') || (i===4 && tab==='line') || (i===5 && tab==='generate'));
+      (i===0 && tab==='info') || (i===1 && tab==='person') || (i===2 && tab==='tasks') || (i===3 && tab==='docs') || (i===4 && tab==='line') || (i===5 && tab==='generate') || (i===6 && tab==='followup'));
   });
   var c = currentCase;
   var h = '';
@@ -18802,6 +18808,50 @@ function showTab(tab) {
     });
     h += '<div class="person-saved" id="personSaved">✅ 自動保存しました</div>';
     h += '</div>';
+  } else if (tab === 'followup') {
+    var fu = (currentCase && currentCase.followupNote) ? currentCase.followupNote : '';
+    h = '<div style="padding:10px 0;">';
+    h += '<div style="font-size:14px;font-weight:800;color:#b45309;margin-bottom:12px;padding-bottom:6px;border-bottom:2px solid #f59e0b;">⚠️ 指摘・追完管理</div>';
+    // ステータスバッジ
+    var isFollowup = (currentCase && currentCase.status === '要追完');
+    h += '<div style="margin-bottom:16px;display:flex;align-items:center;gap:10px;">';
+    h += '<span style="font-size:12px;font-weight:700;color:#6b7280;">現在のステータス:</span>';
+    h += '<span style="font-size:13px;font-weight:800;padding:4px 12px;border-radius:99px;background:'+(isFollowup?'#fff7ed':'#f0fdf4')+';color:'+(isFollowup?'#b45309':'#15803d')+';border:1.5px solid '+(isFollowup?'#fbbf24':'#86efac')+';">'+(isFollowup?'⚠️ 要追完':'✅ 追完なし')+'</span>';
+    if(!isFollowup) {
+      h += '<button onclick="saveCaseField(currentCase.id,\'status\',\'要追完\');currentCase.status=\'要追完\';showTab(\'followup\')" style="padding:6px 14px;background:#f59e0b;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">要追完に変更</button>';
+    } else {
+      h += '<button onclick="saveCaseField(currentCase.id,\'status\',\'審査中\');currentCase.status=\'審査中\';showTab(\'followup\')" style="padding:6px 14px;background:#16a34a;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">審査中に戻す</button>';
+    }
+    h += '</div>';
+    // 指摘内容テキストエリア
+    h += '<div style="background:#fffbeb;border:1.5px solid #fcd34d;border-radius:12px;padding:16px;margin-bottom:16px;">';
+    h += '<div style="font-size:13px;font-weight:800;color:#92400e;margin-bottom:10px;">📝 指摘内容・対応メモ</div>';
+    h += '<textarea id="followupNoteTA" style="width:100%;min-height:180px;border:1px solid #fcd34d;border-radius:8px;padding:10px;font-size:13px;line-height:1.7;resize:vertical;box-sizing:border-box;background:white;" placeholder="指摘内容、必要書類、対応状況などを記録...">'+esc(fu)+'</textarea>';
+    h += '<div style="display:flex;justify-content:flex-end;margin-top:8px;">';
+    h += '<button onclick="saveFollowupNote()" style="padding:8px 20px;background:#b45309;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">💾 保存</button>';
+    h += '</div></div>';
+    // 追完チェックリスト
+    h += '<div style="background:white;border:1.5px solid #e5e7eb;border-radius:12px;padding:16px;">';
+    h += '<div style="font-size:13px;font-weight:800;color:var(--navy);margin-bottom:10px;">✅ 追完チェックリスト</div>';
+    var fuChecks = (currentCase && currentCase._fuChecks) ? currentCase._fuChecks : [];
+    h += '<div id="fuCheckList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">';
+    if(fuChecks.length === 0) {
+      h += '<div style="font-size:12px;color:#9ca3af;text-align:center;padding:12px;">項目なし（下から追加してください）</div>';
+    }
+    fuChecks.forEach(function(item, idx) {
+      h += '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:'+(item.done?'#f0fdf4':'#f9fafb')+';border:1px solid '+(item.done?'#86efac':'#e5e7eb')+';">';
+      h += '<input type="checkbox" '+(item.done?'checked':'')+' onchange="toggleFuCheck('+idx+',this.checked)" style="width:16px;height:16px;cursor:pointer;accent-color:#16a34a;">';
+      h += '<span style="flex:1;font-size:13px;'+(item.done?'text-decoration:line-through;color:#9ca3af;':'')+'">'+esc(item.text)+'</span>';
+      h += '<button onclick="deleteFuCheck('+idx+')" style="border:none;background:none;color:#d1d5db;font-size:14px;cursor:pointer;padding:0 4px;">✕</button>';
+      h += '</div>';
+    });
+    h += '</div>';
+    h += '<div style="display:flex;gap:8px;">';
+    h += '<input id="fuCheckInput" type="text" placeholder="追完項目を追加..." style="flex:1;border:1px solid #e5e7eb;border-radius:8px;padding:8px 12px;font-size:13px;" onkeydown="if(event.key===\'Enter\')addFuCheck()">';
+    h += '<button onclick="addFuCheck()" style="padding:8px 16px;background:var(--navy);color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">追加</button>';
+    h += '</div></div>';
+    h += '</div>';
+
   } else if (tab === 'generate') {
     var pd = personData[c.id] || {};
     var gName = pd.applicantNameEn || pd.applicantName || c.applicant || '';
@@ -19520,7 +19570,6 @@ function renderLineTab(c) {
     {label:'📋 不足書類リスト', action:'insertUncheckedDocs(\''+c.id+'\')'},
     {label:'🙏 リマインド', msg: (c.applicant||'')+'様\n\nお疲れ様です。大房行政書士法人です。\nお手続きに必要な書類のご準備状況はいかがでしょうか？\nご不明な点がございましたらお気軽にご連絡ください。\n\nよろしくお願いいたします。'},
     {label:'✅ 受領連絡', msg: (c.applicant||'')+'様\n\nお疲れ様です。大房行政書士法人です。\n書類を受領いたしました。ありがとうございます。\n確認次第、ご連絡いたします。\n\nよろしくお願いいたします。'},
-    {label:'📝 テキスト生成', action:'openDocTextGenerator(\''+c.id+'\')'}
   ];
   templates.forEach(function(t){
     if(t.action){
