@@ -13285,9 +13285,21 @@ function editEmpSet(coId, idx) {
         (f.opts||[]).forEach(function(o){ h += '<option value="'+o+'"'+(o===val?' selected':'')+'>'+(o===''?'— 選択 —':o)+'</option>'; });
         h += '</select>';
       } else if (f.type === 'time') {
-        h += '<input id="esf_' + f.k + '" type="time" value="' + val + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;box-sizing:border-box;">';
+        // HH:mm形式に正規化、不正値は空に
+        var _tval = val;
+        if(_tval && !/^\d{2}:\d{2}$/.test(_tval)){
+          if(/^\d{4}$/.test(_tval)) _tval = _tval.slice(0,2)+':'+_tval.slice(2);
+          else _tval = '';
+        }
+        h += '<input id="esf_' + f.k + '" type="time" value="' + _tval + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;box-sizing:border-box;">';
       } else if (f.type === 'date') {
-        h += '<input id="esf_' + f.k + '" type="date" value="' + val + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;box-sizing:border-box;"';
+        // yyyy-MM-dd形式に正規化
+        var _dval = val;
+        if(_dval && !/^\d{4}-\d{2}-\d{2}$/.test(_dval)){
+          if(/^\d{8}$/.test(_dval)) _dval = _dval.slice(0,4)+'-'+_dval.slice(4,6)+'-'+_dval.slice(6);
+          else _dval = '';
+        }
+        h += '<input id="esf_' + f.k + '" type="date" value="' + _dval + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;box-sizing:border-box;"';
         // Auto-split date into Y/M/D
         if (f.k === 'createDate') h += ' onchange="empDateSplit(this.value,\'createY\',\'createM\',\'createD\')"';
         if (f.k === 'contractStartDate') h += ' onchange="empDateSplit(this.value,\'contractStartY\',\'contractStartM\',\'contractStartD\')"';
@@ -13834,15 +13846,29 @@ function processEmpSetFiles(files, coId, idx){
     (function(file){
       var ext=file.name.toLowerCase().split('.').pop();
       if(ext==='csv'){
-        // CSV → テキスト化+行データ保持
+        // CSV → 入管CSV（UTF-16）か通常CSV（UTF-8）かを判定して処理
         imagePromises.push(new Promise(function(resolve,reject){
           var reader=new FileReader();
           reader.onload=function(e){
             try{
-              var text=e.target.result;
-              var lines=text.split(/\r?\n/);
+              var buf=e.target.result;
+              var bytes=new Uint8Array(buf.slice(0,4));
+              var isUtf16LE=(bytes[0]===0xFF&&bytes[1]===0xFE)||(bytes[0]===0xFF&&bytes[1]===0xFE);
+              var isUtf16=(bytes[0]===0xFF&&bytes[1]===0xFE)||(bytes[0]===0xFE&&bytes[1]===0xFF);
+              var text;
+              if(isUtf16){
+                // UTF-16 → 入管オンラインCSV
+                var dec=new TextDecoder('utf-16');
+                text=dec.decode(buf);
+              } else {
+                var dec2=new TextDecoder('utf-8');
+                text=dec2.decode(buf);
+              }
+              text=text.replace(/\r/g,'');
+              var sep=text.indexOf('\t')!==-1?'\t':',';
+              var lines=text.split('\n');
               var rows=lines.map(function(line){
-                // カンマ区切り（ダブルクォート考慮）
+                if(sep==='\t') return line.split('\t').map(function(v){return v.trim();});
                 var result=[]; var cur=''; var inQ=false;
                 for(var ci=0;ci<line.length;ci++){
                   var ch=line[ci];
@@ -13852,13 +13878,16 @@ function processEmpSetFiles(files, coId, idx){
                 }
                 result.push(cur.trim());
                 return result;
-              }).filter(function(r){return r.some(function(v){return v!=='';});});
-              var displayText=rows.map(function(row){return row.filter(function(v){return v!=='';}).join(' | ');}).join('\n');
-              resolve({type:'excel',text:displayText,rows:rows});
+              }).filter(function(r){return r.some(function(v){return v&&v!=='';});});
+              // 入管CSVの判定: 1行目にtxtName,selNationalityなどが含まれる
+              var isNyukanCsv=rows.length>=2 && rows[0].some(function(h){
+                return h&&(h.indexOf('txtName')!==-1||h.indexOf('selNationalityAndRegion')!==-1||h.indexOf('WCCBS010')!==-1);
+              });
+              resolve({type:'excel',text:'CSV',rows:rows,isNyukanCsv:isNyukanCsv,headers:rows[0]||[],dataRow:rows[1]||[]});
             }catch(err){reject(err);}
           };
           reader.onerror=function(){reject(new Error('CSV読込失敗'));};
-          reader.readAsText(file,'UTF-8');
+          reader.readAsArrayBuffer(file);
         }));
       } else if(ext==='xlsx'||ext==='xls'){
         // Excel → テキスト化+行データ保持
@@ -13903,10 +13932,13 @@ function processEmpSetFiles(files, coId, idx){
     })(files[i]);
   }
   Promise.all(imagePromises).then(function(fileData){
-    // Excelはルールベースで直接抽出、画像/PDFはClaude APIへ
+    // 入管CSV / Excel / 画像PDFで処理を分岐
     var hasExcel=fileData.some(function(f){return f.type==='excel';});
     var hasImage=fileData.some(function(f){return f.type==='image';});
-    if(hasExcel){
+    var nyukanData=fileData.find(function(f){return f.type==='excel'&&f.isNyukanCsv;});
+    if(nyukanData){
+      applyNyukanCsvToEmpSet(nyukanData, coId, idx);
+    } else if(hasExcel){
       ruleBasedEmpSetExtract(fileData, coId, idx);
     }
     if(hasImage){
@@ -13918,6 +13950,151 @@ function processEmpSetFiles(files, coId, idx){
   }).catch(function(err){
     if(statusEl) statusEl.innerHTML='<div style="background:#fee2e2;border-radius:8px;padding:10px;color:#dc2626;font-size:12px;">❌ '+err.message+'</div>';
   });
+}
+
+/* 入管オンラインCSV→雇用条件セット・所属機関・人材データ適用 */
+function applyNyukanCsvToEmpSet(fd, coId, idx){
+  var statusEl=document.getElementById('empSetAiStatus');
+  var headers=fd.headers||[];
+  var dataRow=fd.dataRow||[];
+  // ヘッダー→値マップ
+  var hmap={};
+  headers.forEach(function(h,i){ if(h) hmap[h.trim().replace(/﻿/g,'')]=dataRow[i]?dataRow[i].trim():''; });
+
+  // 日付変換（YYYYMMDD → YYYY-MM-DD）
+  function fmtDate(v){
+    if(!v||v.length!==8) return v;
+    return v.slice(0,4)+'-'+v.slice(4,6)+'-'+v.slice(6,8);
+  }
+
+  var applied=0;
+  var coUpdated={};
+  var personUpdated={};
+  var esUpdated={};
+
+  // === 所属機関データ ===
+  var co=companies.find(function(x){return x.id===coId;});
+  if(co){
+    var coMap={
+      'txtTtgnSzknName':       'name',
+      'txtTtgnszknHujnNo':     'corpNo',
+      'txtDetailTtgnAddress':  'address',
+      'txtTtgnSzknTel':        'tel',
+      'txtTtgnszknYearUragKngk':'sales',
+      'txtTtgnszknStaffNinzu': 'employees',
+      'txtTtgnDhyoNameKnj':    'repName',
+    };
+    Object.keys(coMap).forEach(function(hk){
+      if(hmap[hk]){ co[coMap[hk]]=hmap[hk]; coUpdated[coMap[hk]]=hmap[hk]; applied++; }
+    });
+    // 就業場所
+    var jgsName=hmap['txtTtgnszknJgsName']||'';
+    var jgsAddr=hmap['txtDetailTtgnszknJgsAddress']||'';
+    if(jgsName||jgsAddr){
+      var es=co.empSets&&co.empSets[idx]||{};
+      if(jgsName){es.officeName=jgsName;esUpdated.officeName=jgsName;applied++;}
+      if(jgsAddr){es.officeAddress=jgsAddr;esUpdated.officeAddress=jgsAddr;applied++;}
+    }
+    if(Object.keys(coUpdated).length) persistCompanies(coId);
+  }
+
+  // === 雇用条件セット ===
+  var empMap={
+    'selGykyPeriodFromYear(4),selGykyPeriodFromMonth(2),selGykyPeriodFromDay(2)': {f:'contractStart', fmt:'date'},
+    'selGykyPeriodToYear(4),selGykyPeriodToMonth(2),selGykyPeriodToDay(2)':       {f:'contractEnd',   fmt:'date'},
+    'txtKykyShoteiRodoJikanSu':     {f:'weeklyHours'},
+    'WCCDS130Dto:txtKykykRdTimeMonthAvg': {f:'monthlyHours'},
+    'radKykyHoshPayCode':           {f:'payMethod'},
+    'txtTtgnszknJgsName':           {f:'officeName'},
+    'txtDetailTtgnszknJgsAddress':  {f:'officeAddress'},
+  };
+  if(co&&co.empSets&&co.empSets[idx]){
+    var es=co.empSets[idx];
+    Object.keys(empMap).forEach(function(hk){
+      var def=empMap[hk];
+      if(hmap[hk]){
+        var v=hmap[hk];
+        if(def.fmt==='date') v=fmtDate(v);
+        var el=document.getElementById('esf_'+def.f);
+        if(el&&!el.value.trim()){
+          el.value=v;
+          el.style.background='#faf5ff';
+          el.style.borderColor='#8b5cf6';
+          applied++;
+        }
+        es[def.f]=v;
+        esUpdated[def.f]=v;
+      }
+    });
+    if(Object.keys(esUpdated).length) persistCompanies(coId);
+  }
+
+  // === 案件（currentCase）への適用 ===
+  var c=currentCase;
+  if(c){
+    var caseMap={
+      'selExpirationDateYear(4),selExpirationDateMonth(2),selExpirationDateDay(2)': {k:'expire', fmt:'date'},
+      'selGykyPeriodFromYear(4),selGykyPeriodFromMonth(2),selGykyPeriodFromDay(2)': {k:'receiptDate', fmt:'date'},
+    };
+    Object.keys(caseMap).forEach(function(hk){
+      var def=caseMap[hk];
+      if(hmap[hk]){
+        var v=hmap[hk];
+        if(def.fmt==='date') v=fmtDate(v);
+        var el=document.getElementById('ei-'+def.k);
+        if(el){el.value=v;el.dispatchEvent(new Event('change'));}
+        autoSaveInfo(def.k,v);
+        applied++;
+      }
+    });
+  }
+
+  // === 人材データへの適用 ===
+  var pd=personData[c&&c.id]||{};
+  var personMap={
+    'txtName':            'applicantNameEn',
+    'selDateOfBirthYear(4),selDateOfBirthMonth(2),selDateOfBirthDay(2)': {k:'birthdate', fmt:'date'},
+    'txtPassportNum':     'passport',
+    'selExpirationDateYear(4),selExpirationDateMonth(2),selExpirationDateDay(2)': {k:'passportExpiry', fmt:'date'},
+    'WCCCS020Dto:txtZiryCardNum': 'residenceCard',
+    'txtMailAddress':     'email',
+    'txtTelNum':          'phone',
+    'txtDetailHomeAddress': 'address',
+  };
+  if(c){
+    Object.keys(personMap).forEach(function(hk){
+      var def=personMap[hk];
+      var k=typeof def==='string'?def:def.k;
+      if(hmap[hk]){
+        var v=hmap[hk];
+        if(typeof def==='object'&&def.fmt==='date') v=fmtDate(v);
+        if(!pd[k]){
+          pd[k]=v;
+          personUpdated[k]=v;
+          applied++;
+        }
+      }
+    });
+    if(Object.keys(personUpdated).length){
+      personData[c.id]=pd;
+      persistPersonData(c.id);
+    }
+  }
+
+  // ステータス表示
+  if(statusEl){
+    statusEl.style.display='block';
+    if(applied>0){
+      var details=[];
+      if(Object.keys(coUpdated).length) details.push('所属機関 '+Object.keys(coUpdated).length+'項目');
+      if(Object.keys(personUpdated).length) details.push('人材データ '+Object.keys(personUpdated).length+'項目');
+      if(Object.keys(esUpdated).length) details.push('雇用条件 '+Object.keys(esUpdated).length+'項目');
+      statusEl.innerHTML='<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:12px;"><div style="font-size:13px;font-weight:700;color:#16a34a;margin-bottom:4px;">📊 入管CSV読取完了</div><div style="font-size:11px;color:#374151;">'+applied+'件を反映しました（'+details.join(' / ')+'）</div><div style="font-size:10px;color:#6b7280;margin-top:4px;">※ 内容を確認して保存してください</div></div>';
+    } else {
+      statusEl.innerHTML='<div style="background:#fefce8;border:1.5px solid #fde047;border-radius:10px;padding:12px;"><div style="font-size:12px;color:#854d0e;">⚠️ 入管CSVを検出しましたが、対応するデータがありませんでした。所属機関・案件が設定されているか確認してください。</div></div>';
+    }
+  }
+  showToast('✅ 入管CSV: '+applied+'件反映しました');
 }
 
 /* ルールベースExcel→雇用条件セット抽出 */
@@ -13954,18 +14131,48 @@ function ruleBasedEmpSetExtract(fileData, coId, idx){
         if(!co.empSets) co.empSets = [];
         var es = co.empSets[idx] || {};
         var applied = 0;
+        // 時刻・日付フィールドの正規化用
+        var TIME_KEYS = {startTime:1,endTime:1};
+        var DATE_KEYS = {contractStart:1,contractEnd:1,createDate:1,entryDate:1};
         // 全列を直接マッピング（Enサフィックス含む）
         Object.keys(colIdx).forEach(function(key){
           var val = dataRow[colIdx[key]];
           if(val === undefined || val === null || String(val).trim() === '') return;
           val = String(val).trim();
+          // 時刻フォーマット正規化: "aa" や "0900" → "09:00"、HH:mm以外は除外
+          if(TIME_KEYS[key]){
+            // すでに HH:mm 形式
+            if(/^\d{2}:\d{2}$/.test(val)){
+              es[key] = val; applied++;
+            // 4桁数字 "0900" → "09:00"
+            } else if(/^\d{4}$/.test(val)){
+              es[key] = val.slice(0,2)+':'+val.slice(2); applied++;
+            }
+            // それ以外（"aa"等）は無視
+            return;
+          }
+          // 日付フォーマット正規化: "20260601" → "2026-06-01"
+          if(DATE_KEYS[key]){
+            if(/^\d{4}-\d{2}-\d{2}$/.test(val)){
+              es[key] = val; applied++;
+            } else if(/^\d{8}$/.test(val)){
+              es[key] = val.slice(0,4)+'-'+val.slice(4,6)+'-'+val.slice(6); applied++;
+            }
+            return;
+          }
           es[key] = val;
           applied++;
         });
         co.empSets[idx] = es;
         persistCompanies(co.id);
-        if(typeof renderEmpSetEdit === 'function') renderEmpSetEdit(coId, idx);
-        if(statusEl) statusEl.innerHTML = '<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:12px;text-align:center;"><div style="font-size:14px;margin-bottom:4px;">✅ OFUSAエクスポートCSV読込完了</div><div style="font-size:11px;color:#15803d;">'+applied+'フィールドを直接反映しました</div></div>';
+        editEmpSet(coId, idx); // 画面を再描画（companyDetailを上書きするので先に呼ぶ）
+        // editEmpSet後にempSetAiStatusを再取得して表示
+        var statusEl2 = document.getElementById('empSetAiStatus');
+        if(statusEl2) {
+          statusEl2.style.display = 'block';
+          statusEl2.innerHTML = '<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:12px;text-align:center;"><div style="font-size:14px;margin-bottom:4px;">✅ OFUSAエクスポートCSV読込完了</div><div style="font-size:11px;color:#15803d;">'+applied+'フィールドを直接反映しました</div></div>';
+        }
+        showToast('✅ CSV読込完了: '+applied+'フィールド反映');
         return; // ルールベース処理をスキップ
       }
     }
@@ -15989,6 +16196,18 @@ function generateExcel16() {
   var p = personData[c.id] || {};
 
   // Check missing required fields
+  // startTime/endTime("HH:mm")からstartH/endHを補完
+  if(!es.startH && es.startTime){ var _st=String(es.startTime).split(':'); es.startH=parseInt(_st[0],10)||''; es.startMin=parseInt(_st[1],10)||0; }
+  if(!es.endH && es.endTime){ var _et=String(es.endTime).split(':'); es.endH=parseInt(_et[0],10)||''; es.endMin=parseInt(_et[1],10)||0; }
+  // salaryMonthly→salary互換
+  if(!es.salary && es.salaryMonthly) es.salary=es.salaryMonthly;
+  if(!es.hourlyRate && es.salaryHourly) es.hourlyRate=es.salaryHourly;
+  // applicantField→field互換
+  if(!es.field && es.applicantField) es.field=es.applicantField;
+  // es.contractStart→p.contractStartY/M/D補完
+  if(!p.contractStartY && es.contractStart){ var _cs=String(es.contractStart).split('-'); p.contractStartY=parseInt(_cs[0],10)||''; p.contractStartM=parseInt(_cs[1],10)||''; p.contractStartD=parseInt(_cs[2],10)||''; }
+  if(!p.contractEndY && es.contractEnd){ var _ce=String(es.contractEnd).split('-'); p.contractEndY=parseInt(_ce[0],10)||''; p.contractEndM=parseInt(_ce[1],10)||''; p.contractEndD=parseInt(_ce[2],10)||''; }
+
   var missing = [];
   if (!co.name) missing.push({label:'所属機関名', src:'company', key:'name', val:''});
   if (!co.address && !co.pref) missing.push({label:'所属機関住所', src:'company', key:'address', val:''});
@@ -15999,8 +16218,8 @@ function generateExcel16() {
   if (!es.field) missing.push({label:'分野', src:'empSet', key:'field', val:''});
   if (!es.officeName) missing.push({label:'就業場所（事業所名）', src:'empSet', key:'officeName', val:''});
   if (!es.officeAddr) missing.push({label:'就業場所（住所）', src:'empSet', key:'officeAddr', val:''});
-  if (!es.startH) missing.push({label:'始業時間（時）', src:'empSet', key:'startH', type:'number', val:''});
-  if (!es.endH) missing.push({label:'終業時間（時）', src:'empSet', key:'endH', type:'number', val:''});
+  if (!es.startH && es.startH !== 0) missing.push({label:'始業時間（時）', src:'empSet', key:'startH', type:'number', val:''});
+  if (!es.endH && es.endH !== 0) missing.push({label:'終業時間（時）', src:'empSet', key:'endH', type:'number', val:''});
   if (!p.contractStartY) missing.push({label:'契約開始日', src:'person', key:'contractStart', type:'date', val:''});
   if (!p.contractEndY) missing.push({label:'契約終了日', src:'person', key:'contractEnd', type:'date', val:''});
 
@@ -16145,18 +16364,21 @@ function doGenerateExcel16(c, co, es, p) {
       if (k === 'repTitle') return co.repTitle || '';
       if (k === 'repTitleEn') return co.repTitle || '';
       // 雇用契約: 人材データから
-      if (k === 'contractStartY') return p.contractStartY || '';
-      if (k === 'contractStartM') return p.contractStartM || '';
-      if (k === 'contractStartD') return p.contractStartD || '';
-      if (k === 'contractEndY') return p.contractEndY || '';
-      if (k === 'contractEndM') return p.contractEndM || '';
-      if (k === 'contractEndD') return p.contractEndD || '';
-      if (k === 'contractStartYEn') return p.contractStartY || '';
-      if (k === 'contractStartMEn') return p.contractStartM || '';
-      if (k === 'contractStartDEn') return p.contractStartD || '';
-      if (k === 'contractEndYEn') return p.contractEndY || '';
-      if (k === 'contractEndMEn') return p.contractEndM || '';
-      if (k === 'contractEndDEn') return p.contractEndD || '';
+      // contractStart/End → Y/M/D分割（esのcontractStartが"2026-04-08"形式の場合も対応）
+      var _csArr = (es.contractStart||p.contractStartY&&(p.contractStartY+'-'+('0'+(p.contractStartM||0)).slice(-2)+'-'+('0'+(p.contractStartD||0)).slice(-2))||'').split('-');
+      var _ceArr = (es.contractEnd||p.contractEndY&&(p.contractEndY+'-'+('0'+(p.contractEndM||0)).slice(-2)+'-'+('0'+(p.contractEndD||0)).slice(-2))||'').split('-');
+      if (k === 'contractStartY') return parseInt(_csArr[0]||p.contractStartY||'',10)||p.contractStartY||'';
+      if (k === 'contractStartM') return parseInt(_csArr[1]||p.contractStartM||'',10)||p.contractStartM||'';
+      if (k === 'contractStartD') return parseInt(_csArr[2]||p.contractStartD||'',10)||p.contractStartD||'';
+      if (k === 'contractEndY') return parseInt(_ceArr[0]||p.contractEndY||'',10)||p.contractEndY||'';
+      if (k === 'contractEndM') return parseInt(_ceArr[1]||p.contractEndM||'',10)||p.contractEndM||'';
+      if (k === 'contractEndD') return parseInt(_ceArr[2]||p.contractEndD||'',10)||p.contractEndD||'';
+      if (k === 'contractStartYEn') return parseInt(_csArr[0]||p.contractStartY||'',10)||p.contractStartY||'';
+      if (k === 'contractStartMEn') return parseInt(_csArr[1]||p.contractStartM||'',10)||p.contractStartM||'';
+      if (k === 'contractStartDEn') return parseInt(_csArr[2]||p.contractStartD||'',10)||p.contractStartD||'';
+      if (k === 'contractEndYEn') return parseInt(_ceArr[0]||p.contractEndY||'',10)||p.contractEndY||'';
+      if (k === 'contractEndMEn') return parseInt(_ceArr[1]||p.contractEndM||'',10)||p.contractEndM||'';
+      if (k === 'contractEndDEn') return parseInt(_ceArr[2]||p.contractEndD||'',10)||p.contractEndD||'';
       if (k === 'entryY') return p.entryY || '';
       if (k === 'entryM') return p.entryM || '';
       if (k === 'entryD') return p.entryD || '';
