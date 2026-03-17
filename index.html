@@ -14133,7 +14133,8 @@ function renderDocGenContent() {
 
 var _selectedDocType = '';
 var _selectedTplIdx = 0; // 選択中テンプレートインデックス
-var _selectedTplRef = null; // 選択中テンプレートの識別情報 {name,storagePath,lsKey}
+var _selectedTplRef = null; // 選択中テンプレートの識別情報
+var _currentTplList = []; // 現在表示中テンプレートリスト（UI順）
 var _selectedDocTypes = {}; // 複数選択: {key: tplIdx(0始まり)}
 
 function selectDocType(key) {
@@ -14183,8 +14184,8 @@ function selectDocType(key) {
     else if(Array.isArray(uploadedRaw)){uploadedRaw.forEach(function(t){if(t&&t.group===tplGroup)tpls.push(t);});}
   }catch(e){console.error('tpl error:',e);}
 
-  // 0番目をデフォルト選択時もrefをセット
-  if(tpls.length>0){var _t0=tpls[0];_selectedTplRef={name:(_t0.name||_t0.filename||''),storagePath:(_t0.storagePath||''),lsKey:(_t0._lsKey||'')};}
+  _currentTplList = tpls; // UIリストを保存（インデックス→ref解決用）
+  if(tpls.length>0){_selectedTplRef={name:(tpls[0].name||tpls[0].filename||''),storagePath:(tpls[0].storagePath||''),lsKey:(tpls[0]._lsKey||'')};}
   var tplH = '';
   if(tpls.length) {
     tplH += '<div style="background:white;border:1px solid var(--gray-200);border-radius:10px;padding:12px;">';
@@ -14194,8 +14195,7 @@ function selectDocType(key) {
       var rowBg = isSelected ? '#eff6ff' : 'white';
       var rowBorder = isSelected ? '#3b82f6' : 'var(--gray-100)';
       tplH += '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid ' + rowBorder + ';background:' + rowBg + ';border-radius:4px;padding:6px 6px;">';
-      var _tRef = JSON.stringify({name:(t.name||t.filename||''),storagePath:(t.storagePath||''),lsKey:(t._lsKey||'')});
-      tplH += '<div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;cursor:pointer;" onclick="selectTplIdx(' + ti + ', ' + JSON.stringify(_tRef) + ')">';
+      tplH += '<div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;cursor:pointer;" onclick="selectTplIdx(' + ti + ')">';
       tplH += '<div style="width:14px;height:14px;border-radius:50%;border:2px solid ' + (isSelected?'#3b82f6':'#d1d5db') + ';background:' + (isSelected?'#3b82f6':'white') + ';flex-shrink:0;"></div>';
       tplH += '<div style="font-size:12px;font-weight:' + (isSelected?'700':'600') + ';color:' + (isSelected?'#1d4ed8':'inherit') + ';">' + (t.name||t.filename||'') + '</div>';
       if(t.lang) tplH += '<div style="font-size:10px;color:var(--gray-400);">' + t.lang + '</div>';
@@ -14211,7 +14211,8 @@ function selectDocType(key) {
 
   // Step2を表示、Step3リセット
   _selectedTplIdx = 0; // テンプレート選択リセット
-  _selectedTplRef = null; // テンプレート参照リセット
+  _selectedTplRef = null;
+  _currentTplList = [];
   var s2=document.getElementById('dg_step2'); if(s2) s2.style.display = 'block';
   var s2b=document.getElementById('dg_step2b'); if(s2b) s2b.style.display = 'none';
   var s3=document.getElementById('dg_step3'); if(s3) s3.style.display = 'none';
@@ -14226,28 +14227,25 @@ function selectDocType(key) {
   }catch(e){console.error('selectDocType error:',e);alert('書類選択エラー: '+e.message);}
 }
 
-function selectTplIdx(ti, refJson) {
+function selectTplIdx(ti) {
   _selectedTplIdx = ti;
-  // 選択されたテンプレートの実データ参照を保存
-  try { _selectedTplRef = refJson ? JSON.parse(refJson) : null; } catch(e) { _selectedTplRef = null; }
-  // リスト再描画（localStorageも含めて正確に再構築）
+  // _currentTplListからrefを解決（selectDocTypeで構築済みのUIリスト順を使用）
+  var tpls = _currentTplList;
+  if(tpls && tpls[ti]) {
+    var t = tpls[ti];
+    _selectedTplRef = {name:(t.name||t.filename||''), storagePath:(t.storagePath||''), lsKey:(t._lsKey||'')};
+  }
+  // リスト再描画（_currentTplListを使って正確に再描画）
   var el1 = document.getElementById('dg_tplList');
   if (!el1) return;
   var docTypes={'1-5':'1-5(雇用契約書)','1-6':'1-6(雇用条件書)','1-3':'1-3(受診者の申告書別紙)','1-4':'1-4(特定技能外国人の報酬に関する説明書)','1-11':'1-11(特定技能所属機関概要書)','1-16':'1-16(雇用の経緯に係る説明書)','1-17':'1-17(支援計画書)','1-23':'1-23(特定技能所属機関の役員に関する誓約書)','1-25':'1-25(登録支援機関との支援委託契約に関する説明書)','1-27':'1-27(公的義務履行に関する説明書)','1-29':'1-29(書類省略に当たっての誓約書)','field':'分野別必要書類','window':'窓口申請書'};
   var tplGroup = docTypes[_selectedDocType] || '';
-  // selectDocTypeと同じロジックでリストを再構築（TEMPLATE_CATEGORIES + localStorage）
-  var tpls = [];
-  TEMPLATE_CATEGORIES.forEach(function(cat) { if(cat.name === tplGroup) cat.templates.forEach(function(t){ tpls.push(t); }); });
-  try{var _ur=JSON.parse(localStorage.getItem('ofusa_templates')||'{}');
-  if(_ur&&typeof _ur==='object'&&!Array.isArray(_ur)){Object.keys(_ur).forEach(function(k){var t=_ur[k];if(t&&t.group===tplGroup){var tc=Object.assign({},t);tc._lsKey=k;tpls.push(tc);}});}
-  else if(Array.isArray(_ur)){_ur.forEach(function(t){if(t&&t.group===tplGroup)tpls.push(t);});}}catch(e){}
   var tplH = '<div style="background:white;border:1px solid var(--gray-200);border-radius:10px;padding:12px;">';
   tplH += '<div style="font-size:10px;font-weight:800;color:var(--blue);margin-bottom:8px;">📁 テンプレート（' + tpls.length + '件）</div>';
   tpls.forEach(function(t, idx) {
     var isSel = (idx === _selectedTplIdx);
-    var _r = JSON.stringify({name:(t.name||t.filename||''),storagePath:(t.storagePath||''),lsKey:(t._lsKey||'')});
     tplH += '<div style="display:flex;align-items:center;justify-content:space-between;background:' + (isSel?'#eff6ff':'white') + ';border-radius:4px;padding:6px 6px;border-bottom:1px solid ' + (isSel?'#3b82f6':'var(--gray-100)') + ';">';
-    tplH += '<div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;cursor:pointer;" onclick="selectTplIdx(' + idx + ', ' + JSON.stringify(_r) + ')">';
+    tplH += '<div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;cursor:pointer;" onclick="selectTplIdx(' + idx + ')">';
     tplH += '<div style="width:14px;height:14px;border-radius:50%;border:2px solid ' + (isSel?'#3b82f6':'#d1d5db') + ';background:' + (isSel?'#3b82f6':'white') + ';flex-shrink:0;"></div>';
     tplH += '<div style="font-size:12px;font-weight:' + (isSel?'700':'600') + ';color:' + (isSel?'#1d4ed8':'inherit') + ';">' + (t.name||t.filename||'') + '</div>';
     if(t.lang) tplH += '<div style="font-size:10px;color:var(--gray-400);">' + t.lang + '</div>';
@@ -15389,43 +15387,47 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
   var tplData;
   try{tplData=JSON.parse(localStorage.getItem('ofusa_templates')||'{}');}catch(e){tplData={};}
   var entry=null;
-
-  // ★ _selectedTplRefがある場合は lsKey → name の順で正確に解決
-  var _ref = (typeof _selectedTplRef!=='undefined') ? _selectedTplRef : null;
-  if(_ref && _ref.lsKey && tplData[_ref.lsKey] && tplData[_ref.lsKey].data) {
-    entry = tplData[_ref.lsKey];
-  } else if(_ref && _ref.name) {
-    // lsKeyがなければ同グループの中からname一致で検索
+  // ★ _selectedTplRefがある場合はlsKey→nameの順で正確に解決
+  var _ref=(typeof _selectedTplRef!=='undefined')?_selectedTplRef:null;
+  if(_ref&&_ref.lsKey&&tplData[_ref.lsKey]&&tplData[_ref.lsKey].data){
+    entry=tplData[_ref.lsKey];
+  } else if(_ref&&_ref.name){
     Object.keys(tplData).forEach(function(k){
       var t=tplData[k];
-      if(!entry && t && t.group===tplGroup && t.data && (t.name===_ref.name||t.filename===_ref.name)) entry=t;
+      if(!entry&&t&&t.group===tplGroup&&t.data&&(t.name===_ref.name||t.filename===_ref.name)) entry=t;
     });
   }
-
-  // _selectedTplRefで解決できなければ従来のci_N方式にフォールバック
+  // refで解決できなければ_currentTplListのインデックスでlsKeyを探す
+  if(!entry||!entry.data){
+    var _tl=_currentTplList||[];
+    var catTplCount=0;
+    TEMPLATE_CATEGORIES.forEach(function(cat){if(cat.name===tplGroup)catTplCount+=cat.templates.length;});
+    var _lsIdx=_selectedTplIdx-catTplCount;
+    if(_lsIdx>=0&&_tl[_selectedTplIdx]&&_tl[_selectedTplIdx]._lsKey){
+      var _lk=_tl[_selectedTplIdx]._lsKey;
+      if(tplData[_lk]&&tplData[_lk].data) entry=tplData[_lk];
+    }
+  }
+  // 最終フォールバック: ci_N方式
   if(!entry||!entry.data){
     var tplKey=ci+'_'+_selectedTplIdx;
     entry=tplData[tplKey];
   }
   if(!entry||!entry.data){
-    // UIと同じ順序でlocalStorageを再構築してインデックスで取得
     var groupEntries=[];
-    // まずTEMPLATE_CATEGORIESに含まれるものをスキップ（CI内のtemplatesはSupabaseから来る）
-    // localStorage中のグループ一致エントリをキー昇順ソートで取得
     Object.keys(tplData).forEach(function(k){
       var t=tplData[k];
       if(t&&t.group===tplGroup&&t.data) groupEntries.push({key:k,data:t});
     });
-    // UIのselectDocTypeと同じ順序にするため、TEMPLATE_CATEGORIESのtplCount分だけオフセット
-    var catTplCount=0;
-    TEMPLATE_CATEGORIES.forEach(function(cat){if(cat.name===tplGroup)catTplCount+=cat.templates.length;});
-    var lsIdx=_selectedTplIdx-catTplCount;
     groupEntries.sort(function(a,b){
       var ai=parseInt((a.key.match(/_(\d+)$/)||[0,0])[1],10);
       var bi=parseInt((b.key.match(/_(\d+)$/)||[0,0])[1],10);
       return ai-bi;
     });
-    var targetEntry=(lsIdx>=0?groupEntries[lsIdx]:null)||groupEntries[0];
+    var catTplCount2=0;
+    TEMPLATE_CATEGORIES.forEach(function(cat){if(cat.name===tplGroup)catTplCount2+=cat.templates.length;});
+    var lsIdx2=_selectedTplIdx-catTplCount2;
+    var targetEntry=(lsIdx2>=0?groupEntries[lsIdx2]:null)||groupEntries[_selectedTplIdx]||groupEntries[0];
     if(targetEntry) entry=targetEntry.data;
   }
   if(!entry||!entry.data){
@@ -15434,16 +15436,12 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
       showToast('📥 テンプレートをサーバーから取得中...');
       _sb.from('templates').select('*').eq('group_name',tplGroup).then(function(res){
         if(res.error||!res.data||!res.data.length){alert('テンプレートファイルが見つかりません。\n📁 書類テンプレからアップロードしてください。\n（ネットワークエラーの場合はページをリロードして再試行してください）');return;}
-        // ★ _selectedTplRefのstoragePathで優先マッチ
-        var _sbRef = (typeof _selectedTplRef!=='undefined') ? _selectedTplRef : null;
-        var tplRow = null;
-        if(_sbRef && _sbRef.storagePath) {
-          tplRow = res.data.find(function(r){return r.storage_path===_sbRef.storagePath;});
-        }
-        if(!tplRow && _sbRef && _sbRef.name) {
-          tplRow = res.data.find(function(r){return r.name===_sbRef.name||r.filename===_sbRef.name;});
-        }
-        if(!tplRow) tplRow = res.data[Math.min(_selectedTplIdx, res.data.length-1)];
+        // ★ _selectedTplRefのstoragePath/nameで優先マッチ
+        var _sbRef=(typeof _selectedTplRef!=='undefined')?_selectedTplRef:null;
+        var tplRow=null;
+        if(_sbRef&&_sbRef.storagePath){tplRow=res.data.find(function(r){return r.storage_path===_sbRef.storagePath;});}
+        if(!tplRow&&_sbRef&&_sbRef.name){tplRow=res.data.find(function(r){return r.name===_sbRef.name||r.filename===_sbRef.name;});}
+        if(!tplRow) tplRow=res.data[Math.min(_selectedTplIdx, res.data.length-1)];
         if(!tplRow.storage_path){alert('テンプレートのStorageパスが未設定です。再アップロードしてください。');return;}
         console.info('📥 [OFUSA] Storage download path:', tplRow.storage_path);
         // sanitizedパスでも試みる
