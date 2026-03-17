@@ -23531,12 +23531,29 @@ function applyLinkItem(caseId){
   // 案件側にもデータ転記
   var c=cData.find(function(x){return x.id===caseId;});
   if(c){
-    if(type==='rec' && item.caseNo){c.receiptNo=item.caseNo;if(item.date)c.receiptDate=item.date.slice(0,10);}
+    if(type==='rec' && item.caseNo){
+      c.receiptNo=item.caseNo;
+      if(item.date) c.receiptDate=item.date.slice(0,10);
+      // DBにもPATCH
+      if(DB_READY){
+        var _patch={receipt_no:item.caseNo, updated_at:new Date().toISOString()};
+        if(item.date) _patch.receipt_date=item.date.slice(0,10);
+        _sb.from('cases').update(_patch).eq('id',caseId).then(function(r){
+          if(r&&r.error) console.error('❌ cases receiptNo patch err:',r.error);
+          else console.log('✅ cases receiptNo/receiptDate patched → caseId:',caseId,'receiptNo:',item.caseNo);
+        });
+      }
+    }
     if(type==='shinsa' && item.date){
       var sd=shinsaData[caseId]||{};sd.date=item.date.slice(0,10);sd.done=true;shinsaData[caseId]=sd;
       try{localStorage.setItem('ofusa_shinsaData',JSON.stringify(shinsaData));}catch(e){}
+      if(DB_READY){
+        _sb.from('settings').upsert({key:'shinsaData',value:shinsaData},{onConflict:'key'}).then(function(){});
+      }
     }
     persist();
+    // 案件一覧の表示を更新
+    _markCaseChanged(caseId);
   }
   cfg.persist(item.id);
   dialog.remove();
@@ -23552,7 +23569,15 @@ function unlinkListItem(type, itemId){
   if(!confirm(typeLabel+'の案件紐づけを解除しますか？')) return;
   if(item.caseId && type==='rec'){
     var c=cData.find(function(x){return x.id===item.caseId;});
-    if(c){c.receiptNo='';c.receiptDate='';persist();}
+    if(c){
+      c.receiptNo='';c.receiptDate='';persist();
+      if(DB_READY){
+        _sb.from('cases').update({receipt_no:null,receipt_date:null,updated_at:new Date().toISOString()}).eq('id',item.caseId).then(function(r){
+          if(r&&r.error) console.error('❌ cases unlink patch err:',r.error);
+          else console.log('✅ cases receiptNo/receiptDate cleared');
+        });
+      }
+    }
   }
   item.caseId='';
   cfg.persist(item.id);
@@ -29428,21 +29453,21 @@ function loadAllFromSupabase() {
     _sb.from('cert_archive').select('*').order('date',{ascending:false})
   ]).then(function(results) {
     var rRes=results[0], sRes=results[1], cRes=results[2];
-    if(rRes.data && rRes.data.length){
-      receiptListData=rRes.data.map(_rowToListItem);
+    if(!rRes.error){
+      receiptListData=rRes.data&&rRes.data.length?rRes.data.map(_rowToListItem):receiptListData;
       try{localStorage.setItem('ofusa_receiptList',JSON.stringify(receiptListData));}catch(e){}
       console.log('📥 receipt_list loaded:', receiptListData.length);
-    }
-    if(sRes.data && sRes.data.length){
-      shinsaListData=sRes.data.map(_rowToListItem);
+    } else { console.error('receipt_archive load err:', rRes.error); }
+    if(!sRes.error){
+      shinsaListData=sRes.data&&sRes.data.length?sRes.data.map(_rowToListItem):shinsaListData;
       try{localStorage.setItem('ofusa_shinsaList',JSON.stringify(shinsaListData));}catch(e){}
       console.log('📥 shinsa_list loaded:', shinsaListData.length);
-    }
-    if(cRes.data && cRes.data.length){
-      certListData=cRes.data.map(_rowToListItem);
+    } else { console.error('shinsa_archive load err:', sRes.error); }
+    if(!cRes.error){
+      certListData=cRes.data&&cRes.data.length?cRes.data.map(_rowToListItem):certListData;
       try{localStorage.setItem('ofusa_certList',JSON.stringify(certListData));}catch(e){}
       console.log('📥 cert_list loaded:', certListData.length);
-    }
+    } else { console.error('cert_archive load err:', cRes.error); }
     done();
   }).catch(function(e){ console.error('list tables load err:', e); done(); });
 }
