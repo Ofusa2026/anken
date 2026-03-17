@@ -3572,7 +3572,10 @@ function confirmTplUpload2(){
     var tplStoragePath=sanitizeStoragePath(g+'/'+ _tplPendingFile2.name);
     TEMPLATE_CATEGORIES[catIdx].templates.push({name:n,lang:l,filename:_tplPendingFile2.name,status:'登録済',uploadDate:ds,uploadTime:ts,storagePath:tplStoragePath});
     var ci2=catIdx,ti2=TEMPLATE_CATEGORIES[catIdx].templates.length-1;
-    try{var tplData=JSON.parse(localStorage.getItem('ofusa_templates')||'{}');tplData[ci2+'_'+ti2]={name:_tplPendingFile2.name,data:base64,group:g,lang:l};localStorage.setItem('ofusa_templates',JSON.stringify(tplData));}catch(e){}
+    // DB_READYの場合はlocalStorageに保存しない（重複防止）
+    if(!DB_READY){
+      try{var tplData=JSON.parse(localStorage.getItem('ofusa_templates')||'{}');tplData[ci2+'_'+ti2]={name:_tplPendingFile2.name,data:base64,group:g,lang:l};localStorage.setItem('ofusa_templates',JSON.stringify(tplData));}catch(e){}
+    }
     // Supabase Storage + DB にも保存
     if(DB_READY){
       var storagePath=sanitizeStoragePath(g+'/'+ _tplPendingFile2.name);
@@ -14190,8 +14193,17 @@ function selectDocType(key) {
     });
     var uploadedRaw = {};
     try{uploadedRaw = JSON.parse(localStorage.getItem('ofusa_templates') || '{}');}catch(e){uploadedRaw={};}
-    if(uploadedRaw && typeof uploadedRaw==='object' && !Array.isArray(uploadedRaw)){Object.keys(uploadedRaw).forEach(function(k){var t=uploadedRaw[k];if(t&&t.group===tplGroup){var tc=Object.assign({},t);tc._lsKey=k;tpls.push(tc);}});}
-    else if(Array.isArray(uploadedRaw)){uploadedRaw.forEach(function(t){if(t&&t.group===tplGroup)tpls.push(t);});}
+    if(uploadedRaw && typeof uploadedRaw==='object' && !Array.isArray(uploadedRaw)){Object.keys(uploadedRaw).forEach(function(k){var t=uploadedRaw[k];if(t&&t.group===tplGroup){
+      // TEMPLATE_CATEGORIESに既に同名があればスキップ（重複防止）
+      var nm=t.name||t.filename||'';
+      var alreadyIn=tpls.some(function(x){return (x.name||x.filename||'')===nm;});
+      if(!alreadyIn){var tc=Object.assign({},t);tc._lsKey=k;tpls.push(tc);}
+    }});}
+    else if(Array.isArray(uploadedRaw)){uploadedRaw.forEach(function(t){if(t&&t.group===tplGroup){
+      var nm=t.name||t.filename||'';
+      var alreadyIn=tpls.some(function(x){return (x.name||x.filename||'')===nm;});
+      if(!alreadyIn)tpls.push(t);
+    }});}
   }catch(e){console.error('tpl error:',e);}
 
   // ★ DB_READYかつtplsが0件 or storagePath未設定 → Supabase DBから取得してUI再描画
@@ -14203,7 +14215,9 @@ function selectDocType(key) {
       // storagePathを補完 or tplsが空なら新規構築
       if(tpls.length===0){
         res.data.forEach(function(row){
-          tpls.push({name:row.name||row.filename||'',filename:row.filename||row.name||'',lang:row.lang||'',storagePath:row.storage_path||'',group:_tg2});
+          var _rn=row.name||row.filename||'';
+          if(!tpls.some(function(x){return (x.name||x.filename||'')===_rn;}))
+            tpls.push({name:_rn,filename:row.filename||row.name||'',lang:row.lang||'',storagePath:row.storage_path||'',group:_tg2});
         });
       } else {
         res.data.forEach(function(row){
@@ -15459,7 +15473,7 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
   var entry=null;
   // ★ _selectedTplRefで正確に解決（lsKey → name の順）
   var _ref=(typeof _selectedTplRef!=='undefined')?_selectedTplRef:null;
-  console.log('📥 doGenerate ref:', JSON.stringify(_ref), '| idx:', _selectedTplIdx, '| tplGroup:', tplGroup);
+  console.log('📥 doGenerate ref.name:', _ref&&_ref.name, '| idx:', _selectedTplIdx, '| tplGroup:', tplGroup);
   if(_ref&&_ref.lsKey&&tplData[_ref.lsKey]&&tplData[_ref.lsKey].data){
     console.log('✅ resolved by lsKey:', _ref.lsKey);
     entry=tplData[_ref.lsKey];
