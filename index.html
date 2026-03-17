@@ -710,6 +710,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <option value="applicant">申請者名</option>
         <option value="org">登録支援機関</option>
       </select>
+      <button onclick="bulkSyncReceiptToCase()" style="font-size:11px;padding:5px 10px;background:#f0fdf4;color:#15803d;border:1px solid #86efac;border-radius:6px;cursor:pointer;font-weight:700;" title="紐づき案件に受付番号・受付日を一括転記">🔄 一括転記</button>
       <button class="btn btn-primary" onclick="openManualRecord()" style="font-size:12px;padding:5px 12px;">＋ 手入力</button>
     </div>
   </div>
@@ -23700,12 +23701,21 @@ function applyLinkRecord(recId,caseId){
   var rec=receiptListData.find(function(d){return d.id===recId;});
   if(!rec) return;
   rec.caseId=caseId;
-  // 案件にも受付番号転記
+  // 案件にも受付番号・受付日転記 + DBにPATCH
   var c=cData.find(function(x){return x.id===caseId;});
   if(c){
-    if(rec.caseNo){c.receiptNo=rec.caseNo;}
-    if(rec.date){c.receiptDate=rec.date.slice(0,10);}
+    if(rec.caseNo) c.receiptNo=rec.caseNo;
+    if(rec.date)   c.receiptDate=rec.date.slice(0,10);
     persist();
+    if(DB_READY){
+      var _patch={updated_at:new Date().toISOString()};
+      if(rec.caseNo) _patch.receipt_no=rec.caseNo;
+      if(rec.date)   _patch.receipt_date=rec.date.slice(0,10);
+      _sb.from('cases').update(_patch).eq('id',caseId).then(function(r){
+        if(r&&r.error) console.error('❌ cases receiptNo patch err:',r.error);
+        else console.log('✅ cases receiptNo patched:',rec.caseNo,'→',caseId);
+      });
+    }
   }
   persistReceiptList(rec.id);
   var dialog=document.getElementById('linkRecDialog');
@@ -23985,6 +23995,38 @@ function renderListItems(type, data, borderColor){
 }
 
 // ===== 申請記録（受付番号）=====
+function bulkSyncReceiptToCase(){
+  if(!DB_READY){ showToast('⚠️ DB未接続'); return; }
+  var synced=0, skipped=0;
+  var patches=[];
+  receiptListData.forEach(function(rec){
+    if(!rec.caseId || !rec.caseNo) return;
+    var c=cData.find(function(x){return x.id===rec.caseId;});
+    if(!c) return;
+    // 既に同じ値なら不要
+    if(c.receiptNo===rec.caseNo && c.receiptDate===(rec.date||'').slice(0,10)){ skipped++; return; }
+    c.receiptNo=rec.caseNo;
+    if(rec.date) c.receiptDate=rec.date.slice(0,10);
+    var _p={receipt_no:rec.caseNo, updated_at:new Date().toISOString()};
+    if(rec.date) _p.receipt_date=rec.date.slice(0,10);
+    patches.push({caseId:rec.caseId, patch:_p});
+    synced++;
+  });
+  if(!patches.length){ showToast('✅ 全件転記済みです（'+skipped+'件）'); return; }
+  persist();
+  // DB一括PATCH（順次実行）
+  var done=0;
+  patches.forEach(function(p){
+    _sb.from('cases').update(p.patch).eq('id',p.caseId).then(function(r){
+      done++;
+      if(done===patches.length){
+        showToast('✅ 一括転記完了: '+synced+'件（スキップ: '+skipped+'件）');
+        renderRecords();
+      }
+    });
+  });
+}
+
 function openRecords() {
   recSel={};updateListSelBar('rec');
   renderRecords();
