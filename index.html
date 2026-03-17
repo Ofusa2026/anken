@@ -1763,10 +1763,9 @@ function storageUploadBase64(bucket, path, base64, mimeType, callback) {
 }
 // グローバル安全装置：Storageパスのサニタイズ
 function _sanitizeStoragePath(p){
-  return p.replace(/[()]/g,'').split('/').map(function(seg){
-    return seg.replace(/[^a-zA-Z0-9._-]/g, function(c){
-      return '_' + c.charCodeAt(0).toString(16);
-    });
+  // Supabase Storageで問題になる文字のみ除去（日本語・スペースはそのまま）
+  return p.split('/').map(function(seg){
+    return seg.replace(/[\\"'*?<>|]/g, '_').replace(/\.+$/,'');
   }).join('/');
 }
 
@@ -7947,7 +7946,8 @@ function openAlertModal(type) {
       if (!cas.expire) return false;
       if(['完了','審査完了','申請済(番号待)','審査中','要追完','郵送交付','窓口受取'].indexOf(cas.status)>=0) return false;
       var d=new Date(cas.expire); d.setHours(0,0,0,0);
-      return Math.ceil((d-today)/86400000)<=10;
+      var _days=Math.ceil((d-today)/86400000);
+      return _days>=0 && _days<=10;
     }).sort(function(a,b){return new Date(a.expire)-new Date(b.expire);});
     list.innerHTML = '';
     items.forEach(function(cas){
@@ -14190,7 +14190,7 @@ function selectDocType(key) {
   // ★ DB_READYかつtplsが0件 or storagePath未設定 → Supabase DBから取得してUI再描画
   if(DB_READY && (tpls.length===0 || tpls.some(function(t){return !t.storagePath;}))){
     var _tg2 = tplGroup;
-    _sb.from('templates').select('name,filename,storage_path,lang').eq('group_name',_tg2).then(function(res){
+    _sb.from('templates').select('name,filename,storage_path,lang').eq('group_name',_tg2).order('name').then(function(res){
       if(res.error||!res.data) return;
       if(res.data.length===0) return;
       // storagePathを補完 or tplsが空なら新規構築
@@ -14229,6 +14229,8 @@ function selectDocType(key) {
     });
   }
   // UIリスト保存（ローカルにあればここでセット）
+  // UIリストをname順にソート（Supabaseの返却順と一致させる）
+  tpls.sort(function(a,b){ return (a.name||a.filename||'').localeCompare(b.name||b.filename||'','ja'); });
   _currentTplList = tpls;
   if(tpls.length>0 && !_selectedTplRef){
     _selectedTplRef = {name:(tpls[0].name||tpls[0].filename||''), storagePath:(tpls[0].storagePath||''), lsKey:(tpls[0]._lsKey||'')};
