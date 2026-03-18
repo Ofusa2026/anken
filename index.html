@@ -2122,7 +2122,8 @@ function persistCasesToDB(casesArray, callback) {
       accept_exp: c.acceptExp || null,
       person_order: c.personOrder || null,
       has_job_placement: c.hasJobPlacement || null,
-      priority: (c.priority != null ? c.priority : null)
+      priority: (c.priority != null ? c.priority : null),
+      updated_at: new Date().toISOString()
     };
   });
   // 重複IDを除去（同一バッチ内の重複でPostgresエラーになるのを防ぐ）
@@ -2428,6 +2429,7 @@ function persistPersonToDB(caseId, p) {
     if (!mapping[k] && k !== 'case_id') extraFields[k] = p[k];
   });
   if (Object.keys(extraFields).length) row.extra = extraFields;
+  row.updated_at = new Date().toISOString();
 
   _sb.from('persons').upsert(row, {onConflict: 'case_id'}).then(function(res) {
     if (res.error) {
@@ -12335,8 +12337,6 @@ function deleteCompany(id){
     _sb.from('companies').delete().eq('id',id).then(function(res){
       if(res.error) console.error('DB delete company error:',res.error);
       else console.log('🗑️ DB deleted company:',id);
-      // 削除確定後に残りをupsert（削除済みIDは配列にないので復活しない）
-      persistCompaniesToDB(companies);
       renderCompanyList();renderSupportTree();
     });
   } else {
@@ -21037,7 +21037,7 @@ function registerIntakeCase(id) {
   // 日付フィールドは空文字→nullに変換（Supabase date型対応）
   function intakeDateOrNull(v){ return (v && String(v).match(/^\d{4}-\d{2}-\d{2}/)) ? v : null; }
   var newCase = {
-    id: 'c_' + Date.now(),
+    id: 'case_' + Date.now(),
     applicant: d.applicant || '',
     name: d.case_name || d.applicant || '',
     appType: d.app_type || '',
@@ -30163,6 +30163,10 @@ function savePersonField(caseId, key, value) {
   if (!personData[caseId]) personData[caseId] = {};
   personData[caseId][key] = value;
   persistPersonData(caseId);
+  // cases.updated_at も更新
+  if (DB_READY && caseId) {
+    _sb.from('cases').update({updated_at: new Date().toISOString()}).eq('id', caseId).then(function(){});
+  }
 }
 
 function persistPersonData(specificCaseId){
