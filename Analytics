@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OFUSA 案件分析ダッシュボード</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Hiragino Sans','Yu Gothic',sans-serif;background:#f1f5f9;color:#1e293b;font-size:14px;}
+  header{background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;padding:16px 24px;display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,0.2);}
+  header h1{font-size:20px;font-weight:800;letter-spacing:0.5px;}
+  header .sub{font-size:12px;opacity:0.75;margin-top:2px;}
+  #loadBtn{margin-left:auto;padding:8px 20px;background:white;color:#2563eb;border:none;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;transition:opacity 0.2s;}
+  #loadBtn:hover{opacity:0.85;}
+  #loadBtn:disabled{opacity:0.5;cursor:not-allowed;}
+  .status-bar{background:white;border-bottom:1px solid #e2e8f0;padding:8px 24px;font-size:12px;color:#64748b;display:flex;align-items:center;gap:8px;}
+  .dot{width:8px;height:8px;border-radius:50%;background:#94a3b8;}
+  .dot.ok{background:#16a34a;} .dot.loading{background:#f59e0b;animation:pulse 1s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
+  .container{padding:20px 24px;max-width:1400px;margin:0 auto;}
+
+  /* KPIカード */
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;}
+  .kpi{background:white;border-radius:12px;padding:16px;box-shadow:0 1px 3px rgba(0,0,0,0.08);border-left:4px solid #e2e8f0;position:relative;overflow:hidden;}
+  .kpi.blue{border-left-color:#2563eb;} .kpi.green{border-left-color:#16a34a;}
+  .kpi.orange{border-left-color:#f59e0b;} .kpi.red{border-left-color:#dc2626;}
+  .kpi.purple{border-left-color:#7c3aed;} .kpi.cyan{border-left-color:#0891b2;}
+  .kpi-label{font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;}
+  .kpi-value{font-size:28px;font-weight:900;color:#1e293b;line-height:1;}
+  .kpi-sub{font-size:11px;color:#94a3b8;margin-top:4px;}
+
+  /* グリッド */
+  .charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;}
+  .charts-grid.three{grid-template-columns:1fr 1fr 1fr;}
+  .charts-grid.wide{grid-template-columns:2fr 1fr;}
+  @media(max-width:900px){.charts-grid,.charts-grid.three,.charts-grid.wide{grid-template-columns:1fr;}}
+
+  .card{background:white;border-radius:12px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,0.08);}
+  .card-title{font-size:13px;font-weight:800;color:#1e293b;margin-bottom:16px;display:flex;align-items:center;gap:6px;}
+  .card-title .badge{font-size:10px;background:#eff6ff;color:#2563eb;padding:2px 7px;border-radius:20px;font-weight:700;}
+
+  /* バーチャート代替 */
+  .bar-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+  .bar-label{width:120px;font-size:11px;color:#475569;flex-shrink:0;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .bar-track{flex:1;height:18px;background:#f1f5f9;border-radius:4px;overflow:hidden;}
+  .bar-fill{height:100%;border-radius:4px;transition:width 0.5s ease;display:flex;align-items:center;padding-left:6px;}
+  .bar-count{font-size:10px;font-weight:700;color:white;white-space:nowrap;}
+  .bar-count.dark{color:#475569;}
+
+  /* テーブル */
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+  th{background:#f8fafc;padding:8px 10px;text-align:left;font-weight:700;color:#64748b;border-bottom:2px solid #e2e8f0;}
+  td{padding:8px 10px;border-bottom:1px solid #f1f5f9;color:#374151;}
+  tr:hover td{background:#fafbff;}
+
+  /* ステータスバッジ */
+  .s-badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;}
+  .s-完了{background:#dcfce7;color:#166534;} .s-審査中{background:#fef9c3;color:#854d0e;}
+  .s-申請{background:#dbeafe;color:#1e40af;} .s-要追完{background:#fee2e2;color:#991b1b;}
+  .s-default{background:#f1f5f9;color:#475569;}
+
+  /* 在留期限アラート */
+  .expire-item{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;margin-bottom:6px;font-size:12px;}
+  .expire-item.urgent{background:#fee2e2;} .expire-item.warn{background:#fef3c7;}
+  .expire-days{font-size:18px;font-weight:900;min-width:36px;text-align:center;}
+  .expire-days.red{color:#dc2626;} .expire-days.orange{color:#d97706;}
+
+  #loading{text-align:center;padding:60px;color:#94a3b8;font-size:14px;}
+  .spinner{display:inline-block;width:32px;height:32px;border:3px solid #e2e8f0;border-top-color:#2563eb;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:12px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  /* フィルターバー */
+  .filter-bar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;}
+  .filter-bar select{padding:6px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;background:white;color:#374151;}
+  .filter-bar label{font-size:12px;font-weight:600;color:#64748b;}
+
+  /* 月次トレンド */
+  .trend-chart{position:relative;height:180px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>📊 OFUSA 案件分析ダッシュボード</h1>
+    <div class="sub">大房行政書士法人 | 案件管理システム</div>
+  </div>
+  <button id="loadBtn" onclick="loadAll()">🔄 データ読み込み</button>
+</header>
+
+<div class="status-bar">
+  <div class="dot" id="statusDot"></div>
+  <span id="statusText">未接続 — 「データ読み込み」をクリックしてください</span>
+  <span id="lastUpdated" style="margin-left:auto;"></span>
+</div>
+
+<div class="container">
+  <div id="loading" style="display:none;">
+    <div class="spinner"></div><br>データ取得中...
+  </div>
+
+  <div id="dashboard" style="display:none;">
+
+    <!-- KPI -->
+    <div class="kpi-grid" id="kpiGrid"></div>
+
+    <!-- フィルター -->
+    <div class="filter-bar">
+      <label>絞り込み:</label>
+      <select id="filterTeam" onchange="applyFilter()"><option value="">全チーム</option></select>
+      <select id="filterAppType" onchange="applyFilter()"><option value="">全種別</option></select>
+      <select id="filterNationality" onchange="applyFilter()"><option value="">全国籍</option></select>
+      <span id="filterCount" style="font-size:12px;color:#64748b;margin-left:8px;"></span>
+    </div>
+
+    <!-- Row 1: ステータス分布 + チーム別 -->
+    <div class="charts-grid wide" style="margin-bottom:16px;">
+      <div class="card">
+        <div class="card-title">📋 ステータス別件数 <span class="badge" id="statusBadge"></span></div>
+        <div id="statusBars"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">👥 チーム別件数</div>
+        <div id="teamBars"></div>
+        <div style="margin-top:16px;">
+          <canvas id="teamPieChart" height="160"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 2: 国籍 + 申請種別 + 分野 -->
+    <div class="charts-grid three" style="margin-bottom:16px;">
+      <div class="card">
+        <div class="card-title">🌏 国籍別件数 <span class="badge" id="natBadge"></span></div>
+        <div id="nationalityBars"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">📄 申請種別</div>
+        <canvas id="appTypePie" height="200"></canvas>
+      </div>
+      <div class="card">
+        <div class="card-title">⚠️ 在留期限アラート</div>
+        <div id="expireAlerts"></div>
+      </div>
+    </div>
+
+    <!-- Row 3: 月次登録トレンド + 担当者別 -->
+    <div class="charts-grid wide" style="margin-bottom:16px;">
+      <div class="card">
+        <div class="card-title">📈 月次案件登録トレンド（直近12ヶ月）</div>
+        <div class="trend-chart">
+          <canvas id="trendChart"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">👤 担当者別 アクティブ件数</div>
+        <div id="staffBars"></div>
+      </div>
+    </div>
+
+    <!-- Row 4: 進捗テーブル -->
+    <div class="card">
+      <div class="card-title">📊 ステータス × チーム クロス集計</div>
+      <div style="overflow-x:auto;">
+        <table id="crossTable"></table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
+
+let sb = null;
+let allCases = [];
+let filteredCases = [];
+let pieCharts = {};
+
+function setStatus(msg, type) {
+  document.getElementById('statusDot').className = 'dot ' + (type||'');
+  document.getElementById('statusText').textContent = msg;
+}
+
+async function loadAll() {
+  const btn = document.getElementById('loadBtn');
+  btn.disabled = true; btn.textContent = '読み込み中...';
+  setStatus('接続中...', 'loading');
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('dashboard').style.display = 'none';
+
+  try {
+    if (!sb) sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    // 全件取得（ページネーション）
+    allCases = [];
+    let from = 0;
+    const pageSize = 1000;
+    while (true) {
+      const { data, error } = await sb.from('cases')
+        .select('id,name,nationality,app_type,team,staff,status,expire,created_at,receipt_date,shinsa_date,doc_create_date,residence_status')
+        .range(from, from + pageSize - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      allCases = allCases.concat(data);
+      if (data.length < pageSize) break;
+      from += pageSize;
+    }
+
+    setStatus('✅ ' + allCases.length + '件 取得完了', 'ok');
+    document.getElementById('lastUpdated').textContent = '更新: ' + new Date().toLocaleTimeString('ja-JP');
+
+    buildFilters();
+    filteredCases = allCases;
+    render();
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+  } catch(e) {
+    setStatus('❌ エラー: ' + e.message, '');
+    document.getElementById('loading').style.display = 'none';
+    alert('データ取得エラー: ' + e.message);
+  }
+  btn.disabled = false; btn.textContent = '🔄 再読み込み';
+}
+
+function buildFilters() {
+  const teams = [...new Set(allCases.map(c=>c.team||'').filter(Boolean))].sort();
+  const types = [...new Set(allCases.map(c=>c.app_type||'').filter(Boolean))].sort();
+  const nats  = [...new Set(allCases.map(c=>c.nationality||'').filter(Boolean))].sort();
+
+  const sel = (id, arr) => {
+    const el = document.getElementById(id);
+    const cur = el.value;
+    el.innerHTML = '<option value="">'+el.options[0].text+'</option>';
+    arr.forEach(v => {
+      const o = document.createElement('option');
+      o.value = v; o.textContent = v;
+      if (v === cur) o.selected = true;
+      el.appendChild(o);
+    });
+  };
+  sel('filterTeam', teams);
+  sel('filterAppType', types);
+  sel('filterNationality', nats);
+}
+
+function applyFilter() {
+  const team = document.getElementById('filterTeam').value;
+  const type = document.getElementById('filterAppType').value;
+  const nat  = document.getElementById('filterNationality').value;
+  filteredCases = allCases.filter(c => {
+    if (team && c.team !== team) return false;
+    if (type && c.app_type !== type) return false;
+    if (nat  && c.nationality !== nat) return false;
+    return true;
+  });
+  document.getElementById('filterCount').textContent = filteredCases.length + '件表示中';
+  render();
+}
+
+function count(arr, key) {
+  const m = {};
+  arr.forEach(c => { const v = c[key]||'不明'; m[v]=(m[v]||0)+1; });
+  return m;
+}
+
+const COLORS = ['#2563eb','#16a34a','#f59e0b','#7c3aed','#0891b2','#dc2626','#db2777','#65a30d','#0d9488','#9333ea'];
+
+function makeBars(containerId, data, maxVal, colorFn) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const sorted = Object.entries(data).sort((a,b)=>b[1]-a[1]).slice(0,12);
+  const max = maxVal || sorted[0]?.[1] || 1;
+  el.innerHTML = sorted.map(([label, cnt], i) => {
+    const pct = Math.round(cnt/max*100);
+    const color = colorFn ? colorFn(label, i) : COLORS[i % COLORS.length];
+    const textColor = pct > 20 ? '' : ' dark';
+    return `<div class="bar-row">
+      <div class="bar-label" title="${label}">${label}</div>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:${pct}%;background:${color};">
+          <span class="bar-count${textColor}">${cnt}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function statusColor(s) {
+  if (s==='完了'||s==='審査完了') return '#16a34a';
+  if (s==='要追完') return '#dc2626';
+  if (s==='審査中') return '#f59e0b';
+  if (s==='申請'||s==='申請済(番号待)') return '#2563eb';
+  if (s.startsWith('★')) return '#7c3aed';
+  return '#64748b';
+}
+
+function makePie(canvasId, data, title) {
+  if (pieCharts[canvasId]) { pieCharts[canvasId].destroy(); }
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const entries = Object.entries(data).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  pieCharts[canvasId] = new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      labels: entries.map(e=>e[0]),
+      datasets: [{
+        data: entries.map(e=>e[1]),
+        backgroundColor: COLORS,
+        borderWidth: 2,
+        borderColor: '#fff'
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position:'right', labels:{ font:{size:11}, boxWidth:12 } },
+        tooltip: { callbacks: { label: ctx => ctx.label + ': ' + ctx.raw + '件' } }
+      }
+    }
+  });
+}
+
+function makeTrend(canvasId, cases) {
+  if (pieCharts[canvasId]) { pieCharts[canvasId].destroy(); }
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+
+  const today = new Date();
+  const months = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    months.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'));
+  }
+
+  const byMonth = {};
+  months.forEach(m => byMonth[m] = 0);
+  cases.forEach(c => {
+    if (!c.created_at) return;
+    const m = c.created_at.slice(0,7);
+    if (byMonth[m] !== undefined) byMonth[m]++;
+  });
+
+  pieCharts[canvasId] = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: months.map(m => m.replace('-','/')),
+      datasets: [{
+        label: '新規登録',
+        data: months.map(m => byMonth[m]),
+        backgroundColor: '#bfdbfe',
+        borderColor: '#2563eb',
+        borderWidth: 2,
+        borderRadius: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend:{ display:false } },
+      scales: {
+        y: { beginAtZero:true, ticks:{ stepSize:1, font:{size:10} }, grid:{ color:'#f1f5f9' } },
+        x: { ticks:{ font:{size:10} }, grid:{ display:false } }
+      }
+    }
+  });
+}
+
+function render() {
+  const cases = filteredCases;
+  const total = cases.length;
+  const active = cases.filter(c => c.status !== '完了' && c.status !== '審査完了');
+  const done   = cases.filter(c => c.status === '完了' || c.status === '審査完了');
+  const urgent = cases.filter(c => c.status === '要追完');
+  const shinsa = cases.filter(c => c.status === '審査中');
+  const noExpire = active.filter(c => !c.expire);
+
+  // KPI
+  document.getElementById('kpiGrid').innerHTML = [
+    {label:'総案件数',val:total,sub:'全ステータス含む',cls:'blue'},
+    {label:'アクティブ',val:active.length,sub:'完了・審査完了除く',cls:'cyan'},
+    {label:'完了',val:done.length,sub:'完了＋審査完了',cls:'green'},
+    {label:'審査中',val:shinsa.length,sub:'審査中',cls:'orange'},
+    {label:'要追完',val:urgent.length,sub:'⚠ 要対応',cls:'red'},
+    {label:'期限未入力',val:noExpire.length,sub:'在留期限なし',cls:'purple'},
+  ].map(k=>`<div class="kpi ${k.cls}"><div class="kpi-label">${k.label}</div><div class="kpi-value">${k.val}<span style="font-size:14px;font-weight:500;"> 件</span></div><div class="kpi-sub">${k.sub}</div></div>`).join('');
+
+  document.getElementById('filterCount').textContent = total + '件表示中';
+
+  // ステータス分布
+  const statusMap = count(cases, 'status');
+  const statusTotal = Object.values(statusMap).reduce((a,b)=>a+b,0);
+  document.getElementById('statusBadge').textContent = Object.keys(statusMap).length + '種';
+  makeBars('statusBars', statusMap, statusTotal, (s) => statusColor(s));
+
+  // チーム
+  const teamMap = count(cases, 'team');
+  makeBars('teamBars', teamMap, null, (t,i) => ['#2563eb','#d97706','#16a34a','#7c3aed'][i%4]);
+  makePie('teamPieChart', teamMap);
+
+  // 国籍
+  const natMap = count(cases, 'nationality');
+  document.getElementById('natBadge').textContent = Object.keys(natMap).length + 'ヶ国・地域';
+  makeBars('nationalityBars', natMap, null, (n,i) => COLORS[i%COLORS.length]);
+
+  // 申請種別
+  const typeMap = count(cases, 'app_type');
+  makePie('appTypePie', typeMap);
+
+  // 担当者
+  const staffMap = count(active, 'staff');
+  makeBars('staffBars', staffMap, null, (s,i) => ['#0891b2','#7c3aed','#db2777','#65a30d'][i%4]);
+
+  // 在留期限アラート（アクティブ案件のみ）
+  const today = new Date(); today.setHours(0,0,0,0);
+  const expAlerts = active.filter(c => {
+    if (!c.expire) return false;
+    const d = new Date(c.expire); d.setHours(0,0,0,0);
+    const days = Math.ceil((d-today)/86400000);
+    return days >= 0 && days <= 30;
+  }).map(c => {
+    const d = new Date(c.expire); d.setHours(0,0,0,0);
+    return { ...c, days: Math.ceil((d-today)/86400000) };
+  }).sort((a,b)=>a.days-b.days).slice(0,10);
+
+  const expEl = document.getElementById('expireAlerts');
+  if (expAlerts.length === 0) {
+    expEl.innerHTML = '<div style="color:#16a34a;font-size:13px;padding:20px;text-align:center;">✅ 30日以内の期限切れなし</div>';
+  } else {
+    expEl.innerHTML = expAlerts.map(c => {
+      const cls = c.days <= 7 ? 'urgent' : 'warn';
+      const dcls = c.days <= 7 ? 'red' : 'orange';
+      return `<div class="expire-item ${cls}">
+        <div>
+          <div style="font-weight:700;font-size:12px;">${esc(c.name||c.id||'')}</div>
+          <div style="font-size:10px;color:#64748b;">${esc(c.team||'')} / ${esc(c.nationality||'')} / ${esc(c.app_type||'')}</div>
+          <div style="font-size:10px;color:#64748b;">期限: ${c.expire}</div>
+        </div>
+        <div class="expire-days ${dcls}">${c.days}<div style="font-size:9px;font-weight:400;color:#64748b;">日後</div></div>
+      </div>`;
+    }).join('');
+  }
+
+  // 月次トレンド
+  makeTrend('trendChart', cases);
+
+  // クロス集計
+  const teams = [...new Set(cases.map(c=>c.team||'不明'))].sort();
+  const statusKeys = [...new Set(cases.map(c=>c.status||'不明'))].sort();
+  // 件数多い順に上位10ステータス
+  const topStatuses = Object.entries(statusMap).sort((a,b)=>b[1]-a[1]).slice(0,10).map(e=>e[0]);
+
+  const cross = {};
+  cases.forEach(c => {
+    const t = c.team||'不明';
+    const s = c.status||'不明';
+    if (!cross[s]) cross[s] = {};
+    cross[s][t] = (cross[s][t]||0)+1;
+  });
+
+  const tbl = document.getElementById('crossTable');
+  let th = '<tr><th>ステータス</th>';
+  teams.forEach(t => th += `<th>${esc(t)}</th>`);
+  th += '<th>合計</th></tr>';
+
+  let rows = topStatuses.map(s => {
+    const row = cross[s]||{};
+    const total = Object.values(row).reduce((a,b)=>a+b,0);
+    let tr = `<tr><td><span class="s-badge ${getBadgeCls(s)}">${esc(s)}</span></td>`;
+    teams.forEach(t => tr += `<td style="text-align:center;">${row[t]||0}</td>`);
+    tr += `<td style="text-align:center;font-weight:700;">${total}</td></tr>`;
+    return tr;
+  }).join('');
+
+  // 合計行
+  let totRow = '<tr style="background:#f8fafc;font-weight:700;"><td>合計</td>';
+  let grandTotal = 0;
+  teams.forEach(t => {
+    const sum = topStatuses.reduce((a,s)=>(cross[s]&&cross[s][t]?a+cross[s][t]:a),0);
+    grandTotal += sum;
+    totRow += `<td style="text-align:center;">${sum}</td>`;
+  });
+  totRow += `<td style="text-align:center;">${grandTotal}</td></tr>`;
+
+  tbl.innerHTML = '<thead>'+th+'</thead><tbody>'+rows+totRow+'</tbody>';
+}
+
+function getBadgeCls(s) {
+  if (s==='完了'||s==='審査完了') return 's-完了';
+  if (s==='審査中') return 's-審査中';
+  if (s==='申請'||s==='申請済(番号待)') return 's-申請';
+  if (s==='要追完') return 's-要追完';
+  return 's-default';
+}
+
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>
