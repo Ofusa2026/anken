@@ -23226,16 +23226,24 @@ function renderMailItem(m){
     }
     if (m.linkedCase) {
       var lc = cData.find(function(c){ return c.id === m.linkedCase; });
-      var _autoTag = m._autoType ? '🤖'+m._autoType+'で自動マッチ' : '手動で紐付け';
-      h += '<div style="background:#f0fdf4;border-radius:6px;padding:8px 10px;">';
-      h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">';
+      var _gmn = (m.name||'').replace(/ /g,'').toUpperCase();
+      var _gmcn = (m.caseNo||'').replace(/ /g,'');
+      var _glcApplicant = lc ? (lc.applicant||'').replace(/ /g,'').toUpperCase() : '';
+      var _glcReceipt = lc ? (lc.receiptNo||'').replace(/ /g,'') : '';
+      var _glcCompany = lc ? (lc.company||lc.org||'') : '';
+      var _gnameMatch = !!(_gmn && _glcApplicant && _glcApplicant === _gmn);
+      var _greceiptMatch = !!(_gmcn && _glcReceipt && _glcReceipt === _gmcn);
+      h += '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 10px;">';
+      h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
       h += '<span style="font-size:12px;color:#15803d;font-weight:700;">紐づけ済</span>';
-      h += '<button onclick="unlinkCase(\'' + m.id + '\')" style="font-size:10px;background:none;border:1px solid #ccc;border-radius:4px;padding:2px 8px;cursor:pointer;color:var(--gray-400);">解除</button>';
+      h += '<button onclick="unlinkCase(\'' + m.id + '\')" style="font-size:10px;background:white;border:1px solid #ccc;border-radius:4px;padding:2px 8px;cursor:pointer;color:#64748b;">解除</button>';
       h += '</div>';
-      h += '<div style="font-size:12px;color:var(--navy);font-weight:700;">' + esc(lc ? getDisplayName(lc) : m.linkedCase) + '</div>';
-      if(lc && lc.receiptNo) h += '<div style="font-size:11px;color:#64748b;">受付番号: ' + esc(lc.receiptNo) + '</div>';
-      if(lc && lc.company) h += '<div style="font-size:11px;color:#64748b;">' + esc(lc.company) + '</div>';
-      h += '<div style="font-size:10px;color:#94a3b8;margin-top:2px;">' + _autoTag + '</div>';
+      h += '<div style="font-size:12px;display:grid;gap:3px;">';
+      h += '<div>' + (_gnameMatch ? '<b style="color:#16a34a;">&#9989;</b>' : '<span style="color:#94a3b8;">&#8212;</span>') + ' 申請人名: <b>' + esc(lc ? getDisplayName(lc) : m.linkedCase) + '</b></div>';
+      h += '<div>' + (_glcReceipt ? (_greceiptMatch ? '<b style="color:#16a34a;">&#9989;</b>' : '<b style="color:#f59e0b;">&#9888;</b>') : '<span style="color:#94a3b8;">&#8212;</span>') + ' 受付番号: ' + (_glcReceipt ? esc(lc.receiptNo||'') : '<span style="color:#94a3b8;">案件に未入力</span>') + '</div>';
+      h += '<div>' + (_glcCompany ? '<b style="color:#16a34a;">&#9989;</b>' : '<span style="color:#94a3b8;">&#8212;</span>') + ' 会社名: ' + (_glcCompany ? esc(_glcCompany) : '<span style="color:#94a3b8;">不明</span>') + '</div>';
+      h += '</div>';
+      if(m._autoType) h += '<div style="font-size:10px;color:#94a3b8;margin-top:4px;">&#129302; ' + m._autoType + 'で自動マッチ</div>';
       h += '</div>';
     } else {
       h += renderLinkUI(m);
@@ -27246,7 +27254,7 @@ function exportCOEcsv(){
   D[7] = p.spouse==='有'?'1':p.spouse==='無'?'0':''; // 1=有,0=無
   D[8] = p.occupation||'会社員'; // 職業
   D[9] = p.homeCountryAddress||p.birthPlace||''; // 本国住所（出生地と同じ）
-  D[10] = p.addressCode||resolveAddrCode(p.address||'')||p.jpPostalCode||''; // 住所コード（市区町村6桁）
+  D[10] = p.addressCode||resolveAddrCode(p.address||'')||''; // 住所コード（市区町村6桁）
   D[11] = (function(){var _a=p.jpDetailAddress||'';if(_a)return _a;var _sp=splitAddress(p.address||'');return _sp.rest||p.address||'';})(); // 番地以降
   D[12] = p.telNum||p.phone||co.tel||''; // 電話番号（所属機関TELにフォールバック）
   D[13] = p.celPhone||''; // 携帯電話
@@ -27740,11 +27748,11 @@ function exportApprovalCsv_gijinko(){
   var schoolName=p.schoolName||'';
   // 住居地（日本の住所）
   var jpPostalCode=(p.jpPostalCode||'').replace(/-/g,'').replace(/^〒/,'');
-  var jpAddrCode=p.addressCode||resolveAddrCode(p.jpAddress||p.address||'')||jpPostalCode;
+  var jpAddrCode=p.addressCode||resolveAddrCode(p.jpAddress||p.address||'')||'';
   var jpDetailAddr=(function(){var _a=p.jpDetailAddress||p.jpAddress||'';if(_a)return _a;var _sp=splitAddress(p.address||'');return _sp.rest||p.address||'';})();
   // 所属機関
   var coZip=(co.zip||'').replace(/-/g,'').replace(/^〒/,'');
-  var coAddrCode=resolveAddrCode(co.address||'')||coZip;
+  var coAddrCode=resolveAddrCode(co.address||'')||'';
   var skName=co.name||c.company||'';var skHujnNo=co.corporateNo||co.corpNo||'';
   var skAddr=co.address||'';var skTel=co.tel||'';
   var skShnkn=String(es.salary||co.salary||p.salary||0).replace(/[^0-9]/g,'');
@@ -27856,10 +27864,10 @@ function exportChangeCsv_gijinko(){
   var gradDate=(p.completionDate||'').replace(/-/g,'');
   var schoolName=p.schoolName||'';
   var jpPostalCode=(p.jpPostalCode||'').replace(/-/g,'').replace(/^〒/,'');
-  var jpAddrCode=p.addressCode||resolveAddrCode(p.jpAddress||p.address||'')||jpPostalCode;
+  var jpAddrCode=p.addressCode||resolveAddrCode(p.jpAddress||p.address||'')||'';
   var jpDetailAddr=(function(){var _a=p.jpDetailAddress||p.jpAddress||'';if(_a)return _a;var _sp=splitAddress(p.address||'');return _sp.rest||p.address||'';})();
   var coZip=(co.zip||'').replace(/-/g,'').replace(/^〒/,'');
-  var coAddrCode=resolveAddrCode(co.address||'')||coZip;
+  var coAddrCode=resolveAddrCode(co.address||'')||'';
   var skName=co.name||c.company||'';var skHujnNo=co.corporateNo||co.corpNo||'';
   var skAddr=co.address||'';var skTel=co.tel||'';
   var skShnkn=String(es.salary||co.salary||p.salary||0).replace(/[^0-9]/g,'');
@@ -28031,7 +28039,7 @@ function exportRenewalCsv_gijinko(){
 
   // 会社住所コード
   var coZip = (co.zip||'').replace(/-/g,'').replace(/^〒/,'');
-  var coAddrCode = resolveAddrCode(co.address||'')||coZip;
+  var coAddrCode = resolveAddrCode(co.address||'')||'';
 
   // 雇用開始日
   var koyoStart = (es.startDate||co.contractStart||'').replace(/-/g,'');
@@ -28041,7 +28049,7 @@ function exportRenewalCsv_gijinko(){
 
   // 住居地（日本の住所）
   var jpPostalCode=(p.jpPostalCode||'').replace(/-/g,'').replace(/^〒/,'');
-  var jpAddrCode=p.addressCode||resolveAddrCode(p.jpAddress||p.address||'')||jpPostalCode;
+  var jpAddrCode=p.addressCode||resolveAddrCode(p.jpAddress||p.address||'')||'';
   var jpDetailAddr=(function(){var _a=p.jpDetailAddress||p.jpAddress||'';if(_a)return _a;var _sp=splitAddress(p.address||'');return _sp.rest||p.address||'';})();
 
   // 学歴コード
@@ -28383,7 +28391,7 @@ function exportRenewalCsv(){
   D[7] = p.spouse==='有'?'1':p.spouse==='無'?'0':'';
   D[8] = p.occupation||'会社員';
   D[9] = p.homeCountryAddress||p.birthPlace||'';
-  D[10] = p.addressCode||resolveAddrCode(p.address||'')||p.jpPostalCode||'';
+  D[10] = p.addressCode||resolveAddrCode(p.address||'')||'';
   D[11] = (function(){var _a=p.jpDetailAddress||'';if(_a)return _a;var _sp=splitAddress(p.address||'');return _sp.rest||p.address||'';})();
   D[12] = p.telNum||p.phone||co.tel||'';
   D[13] = p.celPhone||'';
@@ -30419,14 +30427,15 @@ function renderTsuikanMails(){
       if(mcn){var mc1=cData.find(function(c){return c.receiptNo&&c.receiptNo.replace(/ /g,'')===mcn;});if(mc1){m.linkedCase=mc1.id;m._autoType='受付番号';}}
       if(!m.linkedCase&&mn){var mc2=cData.find(function(c){var ca=(c.applicant||'').replace(/ /g,'').toUpperCase();return ca&&ca===mn;});if(mc2){m.linkedCase=mc2.id;m._autoType='氏名';}}
     }
-    h+='<div style="background:'+(sel?'#eff6ff':'white')+';border:1px solid '+(sel?'#93c5fd':'var(--gray-200)')+';border-radius:10px;padding:14px;margin-bottom:10px;">';
+    h+='<div id="tsuikan_card_'+m.id+'" style="background:'+(sel?'#eff6ff':'white')+';border:1px solid '+(sel?'#93c5fd':'var(--gray-200)')+';border-radius:10px;padding:14px;margin-bottom:10px;">';
     h+='<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;">';
-    h+='<div onclick="tsuikanToggle('+JSON.stringify(m.id)+')" style="width:22px;height:22px;border:2px solid '+(sel?'#2563eb':'var(--gray-300)')+';border-radius:5px;background:'+(sel?'#2563eb':'white')+';display:flex;align-items:center;justify-content:center;color:white;font-size:13px;flex-shrink:0;cursor:pointer;margin-top:1px;">'+(sel?'&#10003;':'')+'</div>';
+    h+='<div onclick="tsuikanToggle('+JSON.stringify(m.id)+')" class="tsuikan-cb" style="width:22px;height:22px;border:2px solid '+(sel?'#2563eb':'var(--gray-300)')+';border-radius:5px;background:'+(sel?'#2563eb':'white')+';display:flex;align-items:center;justify-content:center;color:white;font-size:13px;flex-shrink:0;cursor:pointer;margin-top:1px;">'+(sel?'&#10003;':'')+'</div>';
     h+='<div style="flex:1;min-width:0;">';
     h+='<div style="font-size:13px;font-weight:700;color:var(--navy);">'+esc(m.name||m.sub)+'</div>';
     h+='<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">'+m.date+(m.caseNo?'&#12288;'+esc(m.caseNo):'')+'</div>';
     h+='<div style="font-size:11px;color:#64748b;margin-top:1px;">'+esc(m.sub)+'</div>';
     h+='</div></div>';
+    h+='<div id="tsuikan_link_'+m.id+'">';
     if(m.linkedCase){
       var lc=cData.find(function(c){return c.id===m.linkedCase;});
       var _mn=(m.name||'').replace(/ /g,'').toUpperCase();
@@ -30451,7 +30460,8 @@ function renderTsuikanMails(){
     }else{
       h+=renderTsuikanLinkUI(m);
     }
-    h+='</div>';
+    h+='</div>';  // tsuikan_link_
+    h+='</div>';  // tsuikan_card_
   });
   el.innerHTML=h;
   updateTsuikanSelCount();
@@ -30459,30 +30469,81 @@ function renderTsuikanMails(){
 function renderTsuikanLinkUI(m){
   var h='<div style="margin-top:8px;" onclick="event.stopPropagation()">';
   h+='<div style="display:flex;gap:6px;">';
-  h+='<input type="text" placeholder="氏名・会社名で検索して紐付け..." oninput="tsuikanSearchCase('+JSON.stringify(m.id)+',this.value)" style="flex:1;padding:6px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:12px;">';
+  h+='<input type="text" placeholder="申請番号・氏名・会社名で検索..." oninput="tsuikanSearchCase('+JSON.stringify(m.id)+',this.value)" style="flex:1;padding:6px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:12px;">';
   h+='</div>';
   h+='<div id="tsuikan_results_'+m.id+'" style="display:none;max-height:120px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;margin-top:4px;background:white;"></div>';
   h+='</div>';
   return h;
 }
-function tsuikanToggle(id){if(tsuikanSel[id])delete tsuikanSel[id];else tsuikanSel[id]=1;renderTsuikanMails();}
-function tsuikanSelectAll(){TSUIKAN_MAILS.forEach(function(m){tsuikanSel[m.id]=1;});renderTsuikanMails();}
-function tsuikanDeselectAll(){tsuikanSel={};renderTsuikanMails();}
+function tsuikanToggle(id){
+  if(tsuikanSel[id])delete tsuikanSel[id];else tsuikanSel[id]=1;
+  var sel=!!tsuikanSel[id];
+  var card=document.getElementById('tsuikan_card_'+id);
+  if(card){
+    card.style.background=sel?'#eff6ff':'white';
+    card.style.borderColor=sel?'#93c5fd':'var(--gray-200)';
+    var cb=card.querySelector('.tsuikan-cb');
+    if(cb){cb.style.background=sel?'#2563eb':'white';cb.style.borderColor=sel?'#2563eb':'var(--gray-300)';cb.innerHTML=sel?'&#10003;':'';}
+  }
+  updateTsuikanSelCount();
+}
+function tsuikanSelectAll(){
+  TSUIKAN_MAILS.forEach(function(m){
+    tsuikanSel[m.id]=1;
+    var card=document.getElementById('tsuikan_card_'+m.id);
+    if(card){card.style.background='#eff6ff';card.style.borderColor='#93c5fd';var cb=card.querySelector('.tsuikan-cb');if(cb){cb.style.background='#2563eb';cb.style.borderColor='#2563eb';cb.innerHTML='&#10003;';}}
+  });
+  updateTsuikanSelCount();
+}
+function tsuikanDeselectAll(){
+  Object.keys(tsuikanSel).forEach(function(id){
+    var card=document.getElementById('tsuikan_card_'+id);
+    if(card){card.style.background='white';card.style.borderColor='var(--gray-200)';var cb=card.querySelector('.tsuikan-cb');if(cb){cb.style.background='white';cb.style.borderColor='var(--gray-300)';cb.innerHTML='';}}
+  });
+  tsuikanSel={};
+  updateTsuikanSelCount();
+}
 function updateTsuikanSelCount(){var el=document.getElementById('tsuikanSelCount');if(el)el.textContent=Object.keys(tsuikanSel).length+'件選択中';}
-function tsuikanUnlink(id){var m=TSUIKAN_MAILS.find(function(x){return x.id===id;});if(m)delete m.linkedCase;renderTsuikanMails();}
+function tsuikanUnlink(id){
+  var m=TSUIKAN_MAILS.find(function(x){return x.id===id;});
+  if(m)delete m.linkedCase;
+  // 紐付けエリアだけ更新
+  var linkArea=document.getElementById('tsuikan_link_'+id);
+  if(linkArea){linkArea.innerHTML=renderTsuikanLinkUI(m);}
+}
 function tsuikanSearchCase(mailId,q){
   var el=document.getElementById('tsuikan_results_'+mailId);if(!el)return;
   if(!q){el.style.display='none';return;}
   var q2=q.toLowerCase();
-  var hits=cData.filter(function(c){var pd=personData[c.id]||{};var nm=(pd.applicantName||pd.applicantNameEn||c.applicant||c.name||'').toLowerCase();return nm.indexOf(q2)>=0||(c.company||'').toLowerCase().indexOf(q2)>=0;}).slice(0,6);
+  var hits=cData.filter(function(c){var pd=personData[c.id]||{};var nm=(pd.applicantName||pd.applicantNameEn||c.applicant||c.name||'').toLowerCase();var rn=(c.receiptNo||'').toLowerCase();return nm.indexOf(q2)>=0||(c.company||'').toLowerCase().indexOf(q2)>=0||rn.indexOf(q2)>=0;}).slice(0,8);
   if(!hits.length){el.innerHTML='<div style="padding:8px 12px;font-size:12px;color:var(--gray-400);">該当なし</div>';el.style.display='block';return;}
   el.innerHTML=hits.map(function(c){return'<div onclick="tsuikanLinkCase('+JSON.stringify(mailId)+','+JSON.stringify(c.id)+')" style="padding:8px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;"><span><b>'+esc(getDisplayName(c))+'</b> <span style="color:#94a3b8;">'+(c.company||c.org||'')+'</span></span><span style="color:#2563eb;font-weight:700;">紐付け</span></div>';}).join('');
   el.style.display='block';
 }
 function tsuikanLinkCase(mailId,caseId){
   var m=TSUIKAN_MAILS.find(function(x){return x.id===mailId;});
-  if(m){m.linkedCase=caseId;}
-  renderTsuikanMails();
+  if(!m)return;
+  m.linkedCase=caseId;
+  var lc=cData.find(function(c){return c.id===caseId;});
+  var _mn=(m.name||'').replace(/ /g,'').toUpperCase();
+  var _mcn=(m.caseNo||'').replace(/ /g,'');
+  var _lcApplicant=lc?(lc.applicant||'').replace(/ /g,'').toUpperCase():'';
+  var _lcReceipt=lc?(lc.receiptNo||'').replace(/ /g,''):'';
+  var _lcCompany=lc?(lc.company||lc.org||''):'';
+  var nameMatch=!!(_mn&&_lcApplicant&&_lcApplicant===_mn);
+  var receiptMatch=!!(_mcn&&_lcReceipt&&_lcReceipt===_mcn);
+  var h='<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 10px;">';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
+  h+='<span style="font-size:12px;color:#15803d;font-weight:700;">紐づけ済</span>';
+  h+='<button onclick="tsuikanUnlink('+JSON.stringify(mailId)+')" style="font-size:10px;background:white;border:1px solid #ccc;border-radius:4px;padding:2px 8px;cursor:pointer;color:#64748b;">解除</button>';
+  h+='</div>';
+  h+='<div style="font-size:12px;display:grid;gap:3px;">';
+  h+='<div>'+(nameMatch?'<b style="color:#16a34a;">&#9989;</b>':'<span style="color:#94a3b8;">&#8212;</span>')+' 申請人名: <b>'+esc(lc?getDisplayName(lc):caseId)+'</b></div>';
+  h+='<div>'+(_lcReceipt?(receiptMatch?'<b style="color:#16a34a;">&#9989;</b>':'<b style="color:#f59e0b;">&#9888;</b>'):'<span style="color:#94a3b8;">&#8212;</span>')+' 受付番号: '+(_lcReceipt?esc(lc.receiptNo||''):'<span style="color:#94a3b8;">案件に未入力</span>')+'</div>';
+  h+='<div>'+(_lcCompany?'<b style="color:#16a34a;">&#9989;</b>':'<span style="color:#94a3b8;">&#8212;</span>')+' 会社名: '+(_lcCompany?esc(_lcCompany):'<span style="color:#94a3b8;">不明</span>')+'</div>';
+  h+='</div></div>';
+  var linkArea=document.getElementById('tsuikan_link_'+mailId);
+  if(linkArea)linkArea.innerHTML=h;
 }
 function moveTsuikanMails(){
   var selected=TSUIKAN_MAILS.filter(function(m){return tsuikanSel[m.id];});
