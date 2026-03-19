@@ -30357,7 +30357,23 @@ function renderLetterpackList(){var el=document.getElementById('letterpackConten
 function lpOpenTrack(no){if(!no)return;window.open('https://trackings.post.japanpost.jp/services/srv/search/direct?locale=ja&reqCodeNo1='+no.replace(/ /g,''),'_blank');}
 function lpTrack(type){var no=document.getElementById(type==='send'?'lp_send_no':'lp_recv_no').value.trim();if(!no){showToast('番号を入力してください');return;}lpOpenTrack(no);}
 function openLetterpackNew(){lpEditingId=null;lpLinkedIds=[];document.getElementById('lp_send_date').value=new Date().toISOString().slice(0,10);['lp_send_no','lp_recv_no','lp_memo'].forEach(function(id){document.getElementById(id).value='';});document.getElementById('lp_recv_date').value='';document.getElementById('lp_editing_id').value='';document.getElementById('lpCaseSearch').value='';document.getElementById('lpCaseResults').style.display='none';renderLpLinkedChips();document.getElementById('lpModal').style.display='flex';}
-function lpOpenEdit(id){var rec=lpRecords.find(function(r){return r.id===id;});if(!rec)return;lpEditingId=id;lpLinkedIds=(rec.caseIds||[]).slice();document.getElementById('lp_send_date').value=rec.sendDate||'';document.getElementById('lp_send_no').value=rec.sendNo||'';document.getElementById('lp_recv_no').value=rec.recvNo||'';document.getElementById('lp_recv_date').value=rec.recvDate||'';document.getElementById('lp_memo').value=rec.memo||'';document.getElementById('lp_editing_id').value=id;document.getElementById('lpCaseSearch').value='';document.getElementById('lpCaseResults').style.display='none';renderLpLinkedChips();document.getElementById('lpModal').style.display='flex';}
+function lpOpenEdit(id){
+  console.log('[lpOpenEdit] id:',id,'lpRecords:',lpRecords.length);
+  var rec=lpRecords.find(function(r){return r.id===id;});
+  if(!rec){
+    // lpRecordsが未ロードの場合は再ロードしてから開く
+    if(DB_READY){
+      _sb.from('letterpack_records').select('*').eq('id',id).then(function(res){
+        if(res.data&&res.data[0]){
+          var r=res.data[0];
+          var loaded={id:r.id,sendNo:r.send_no||'',recvNo:r.recv_no||'',sendDate:r.send_date||'',recvDate:r.recv_date||'',memo:r.memo||'',caseIds:r.case_ids||[]};
+          if(!lpRecords.find(function(x){return x.id===id;})) lpRecords.push(loaded);
+          lpOpenEdit(id);
+        }else{showToast('レコードが見つかりません');}
+      });
+    }else{showToast('DB未接続');}
+    return;
+  }lpEditingId=id;lpLinkedIds=(rec.caseIds||[]).slice();document.getElementById('lp_send_date').value=rec.sendDate||'';document.getElementById('lp_send_no').value=rec.sendNo||'';document.getElementById('lp_recv_no').value=rec.recvNo||'';document.getElementById('lp_recv_date').value=rec.recvDate||'';document.getElementById('lp_memo').value=rec.memo||'';document.getElementById('lp_editing_id').value=id;document.getElementById('lpCaseSearch').value='';document.getElementById('lpCaseResults').style.display='none';renderLpLinkedChips();document.getElementById('lpModal').style.display='flex';}
 function closeLpModal(){document.getElementById('lpModal').style.display='none';}
 function lpSearchCases(q){var el=document.getElementById('lpCaseResults');if(!q){el.style.display='none';return;}var q2=q.toLowerCase();var hits=cData.filter(function(c){var pd=personData[c.id]||{};var nm=(pd.applicantName||pd.applicantNameEn||c.applicant||c.name||'').toLowerCase();return(nm.indexOf(q2)>=0||(c.company||'').toLowerCase().indexOf(q2)>=0)&&lpLinkedIds.indexOf(c.id)<0;}).slice(0,8);if(!hits.length){el.innerHTML='<div style="padding:10px;font-size:12px;color:var(--gray-400);">該当なし</div>';el.style.display='block';return;}el.innerHTML=hits.map(function(c){return'<div onclick="lpLinkCase('+JSON.stringify(c.id)+')" style="padding:9px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;">'+'<span><b>'+getDisplayName(c)+'</b> <span style="color:#94a3b8;font-size:11px;">'+(c.company||c.org||'')+'</span></span>'+'<span style="color:#2563eb;font-size:11px;font-weight:700;">+ 追加</span></div>';}).join('');el.style.display='block';}
 function lpLinkCase(cid){if(lpLinkedIds.indexOf(cid)<0)lpLinkedIds.push(cid);document.getElementById('lpCaseSearch').value='';document.getElementById('lpCaseResults').style.display='none';renderLpLinkedChips();}
