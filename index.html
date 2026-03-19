@@ -24778,6 +24778,12 @@ function renderMadoguchiScreen() {
     if (md && (showPast || md >= today)) items.push({c:c, date:md, type:'申請', label:'🏢 窓口申請'});
     if (mr && (showPast || mr >= today)) items.push({c:c, date:mr, type:'受取', label:'📦 窓口受取'});
   });
+  // 独立した窓口記録（案件非紐付け）も追加
+  window._madoguchiRecords = JSON.parse(localStorage.getItem('ofusa_madoguchiRecords')||'[]');
+  window._madoguchiRecords.forEach(function(r){
+    if(!showPast && r.date < today) return;
+    items.push({date:r.date, type:r.type, label:(r.type==='申請'?'🏢 窓口申請':'📦 窓口受取'), requester:r.requester, memo:r.memo, recordId:r.id, standalone:true});
+  });
   items.sort(function(a,b){ return a.date.localeCompare(b.date); });
 
   // バッジ更新
@@ -24794,12 +24800,33 @@ function renderMadoguchiScreen() {
   if (cnt) cnt.textContent = items.length + '件';
 
   if (!items.length) {
-    el.innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--gray-400);">窓口日程が登録されている案件はありません</div>';
+    el.innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--gray-400);">窓口日程が登録されている案件はありません<br><span style="font-size:11px;">「＋ 新規作成」で追加できます</span></div>';
     return;
   }
   var h = '';
   var lastMonth = '';
   items.forEach(function(item) {
+    // 独立記録（案件非紐付け）の表示
+    if(item.standalone){
+      var month0=item.date.slice(0,7);
+      if(month0!==lastMonth){lastMonth=month0;h+='<div style="font-size:11px;font-weight:800;color:var(--gray-400);margin:14px 0 6px;padding:5px 12px;background:var(--gray-100);border-radius:6px;">'+month0.replace('-','年')+'月</div>';}
+      var isPast0=item.date<today,isToday0=item.date===today,isSoon0=!isPast0&&item.date<=new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+      var bCol0=isToday0?'#6366f1':isSoon0?'#f59e0b':isPast0?'#d1d5db':'var(--gray-200)';
+      var bgCol0=isToday0?'#f5f3ff':isSoon0?'#fffbeb':isPast0?'#f9fafb':'white';
+      var badge0=isToday0?'<span style="font-size:10px;font-weight:800;color:white;background:#6366f1;border-radius:99px;padding:1px 8px;">本日</span>':isSoon0?'<span style="font-size:10px;font-weight:800;color:#d97706;background:#fef3c7;border-radius:99px;padding:1px 8px;">まもなく</span>':isPast0?'<span style="font-size:10px;color:#9ca3af;">済</span>':'';
+      h+='<div style="background:'+bgCol0+';border:1.5px solid '+bCol0+';border-radius:12px;padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;gap:14px;">';
+      h+='<div style="text-align:center;min-width:48px;"><div style="font-size:22px;font-weight:900;color:'+(isToday0?'#6366f1':isPast0?'#9ca3af':'var(--navy)')+';">'+item.date.slice(8,10)+'</div>';
+      h+='<div style="font-size:10px;color:var(--gray-400);">'+item.date.slice(5,7)+'/'+item.date.slice(8,10)+'</div></div>';
+      h+='<div style="width:1px;height:42px;background:var(--gray-200);flex-shrink:0;"></div>';
+      h+='<div style="flex:1;min-width:0;">';
+      h+='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:3px;"><span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:5px;background:'+(item.type==='申請'?'#ede9fe':'#f0fdf4')+';color:'+(item.type==='申請'?'#7c3aed':'#16a34a')+';border:1px solid '+(item.type==='申請'?'#c4b5fd':'#86efac')+';">'+item.label+'</span>'+badge0+'</div>';
+      if(item.requester)h+='<div style="font-size:14px;font-weight:700;color:var(--navy);">'+esc(item.requester)+'</div>';
+      if(item.memo)h+='<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">'+esc(item.memo)+'</div>';
+      h+='</div>';
+      h+='<button data-rid="'+item.recordId+'" onclick="event.stopPropagation();deleteMadoguchiRecord(this.dataset.rid*1)" style="padding:5px 12px;background:none;color:#d1d5db;border:1px solid var(--gray-200);border-radius:6px;font-size:11px;cursor:pointer;">削除</button>';
+      h+='</div>';
+      return;
+    }
     var c = item.c;
     var month = item.date.slice(0,7);
     var isPast = item.date < today;
