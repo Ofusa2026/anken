@@ -2680,11 +2680,19 @@ function jsonpGet(url, callback) {
 }
 
 function parseCbResponse(text, callback){
-  // JSONP形式: callbackName({...})
-  var match = text.match(/^[^(]*\((.+)\)[\s;]*$/s);
-  if(match){try{callback(JSON.parse(match[1]));return;}catch(e){}}
+  // JSONP形式: callbackName({...}) → 最初の(から最後の)までを取得
+  var firstParen = text.indexOf('(');
+  if(firstParen >= 0){
+    var lastParen = text.lastIndexOf(')');
+    if(lastParen > firstParen){
+      var jsonStr = text.slice(firstParen+1, lastParen);
+      try{callback(JSON.parse(jsonStr));return;}catch(e){
+        console.warn('[parseCbResponse] JSONP parse error:', e.message, 'len='+jsonStr.length);
+      }
+    }
+  }
   // plain JSON
-  try{callback(JSON.parse(text));}catch(e){callback(null);}
+  try{callback(JSON.parse(text));}catch(e){console.warn('[parseCbResponse] plain parse error:',e.message);callback(null);}
 }
 
 function jsonpPost(url, action, data, callback) {
@@ -30249,9 +30257,9 @@ function gasGmailPost(action, data) {
         .then(function(r){ return r.text(); })
         .then(function(text){
           try{
-            var m = text.match(/^[^(]*\((.+)\)[\s;]*$/s);
-            if(m) resolve(JSON.parse(m[1]));
-            else resolve(JSON.parse(text));
+            var _fp=text.indexOf('('),_lp=text.lastIndexOf(')');
+            if(_fp>=0&&_lp>_fp){try{resolve(JSON.parse(text.slice(_fp+1,_lp)));return;}catch(e){}}
+            try{resolve(JSON.parse(text));}catch(e){resolve({status:'error',message:'parse error'});};
           }catch(e){ resolve({status:'error', message:'レスポンス解析エラー'}); }
         })
         .catch(function(e){
