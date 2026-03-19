@@ -8637,7 +8637,7 @@ function renderReview() {
   var el = document.getElementById('reviewContent');
   if (!el) return;
   var me = currentUser || '';
-  var items = Object.keys(caseNotes).filter(function(id){ return caseNotes[id].confirm; });
+  var items = Object.keys(caseNotes).filter(function(id){ return caseNotes[id] && caseNotes[id].confirm; });
   // Tab style update
   ['Mine','All','Cases','Tasks','Replied','Madoguchi'].forEach(function(t){
     var btn=document.getElementById('reviewTab'+t);
@@ -30508,6 +30508,11 @@ function renderTsuikanMails(){
     h+='<div style="font-size:13px;font-weight:700;color:var(--navy);">'+esc(m.name||m.sub)+'</div>';
     h+='<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">'+m.date+(m.caseNo?'&emsp;'+esc(m.caseNo):'')+'</div>';
     h+='<div style="font-size:11px;color:#64748b;margin-top:1px;">'+esc(m.sub)+'</div>';
+    if(m.body){
+      var _preview=m.body.slice(0,120).replace(/\s+/g,' ').trim();
+      if(_preview.length>=120) _preview+='...';
+      h+='<div style="font-size:10px;color:#94a3b8;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;">'+esc(_preview)+'</div>';
+    }
     h+='</div></div>';
     // 紐付けエリア
     if(m.linkedCase){
@@ -30584,7 +30589,10 @@ function moveTsuikanMails(){
     // 指摘カードに追加
     var type=m.badge==='申請内容等'?'申請内容等':'追完依頼';
     var cards=getFuCards(m.linkedCase);
-    cards.unshift({id:Date.now()+moved,date:m.date?m.date.slice(0,10):new Date().toISOString().slice(0,10),type:type,text:m.sub||type,done:false,doneDate:''});
+    // メール本文から必要範囲を抽出
+    var _rawText = m.body||m.snippet||m.sub||'';
+    var _extracted = extractTsuikanText(_rawText);
+    cards.unshift({id:Date.now()+moved,date:m.date?m.date.slice(0,10):new Date().toISOString().slice(0,10),type:type,text:_extracted||m.sub||type,done:false,doneDate:''});
     saveFuCards(m.linkedCase,cards);
     console.log('[moveTsuikan] card added to',m.linkedCase,'cards:',cards.length);
     moved++;
@@ -30603,6 +30611,36 @@ function moveTsuikanMails(){
 // ===== /要追完/指摘メール =====
 
 // ===== 指摘・追完カード管理 =====
+
+function extractTsuikanText(raw) {
+  if (!raw) return '';
+  // 「申請された在留諸申請に関して、」から開始
+  var startPatterns = [
+    '申請された在留諸申請に関して',
+    '申請いただいている以下の案件について',
+    '以下の資料を',
+    'ご対応をお願い',
+  ];
+  // 「▼在留申請オンラインシステムへのログインはこちら」で終了
+  var endPatterns = [
+    '▼在留申請オンラインシステム',
+    '在留申請オンラインシステムへのログイン',
+    '※本メールは、送信専用',
+    '※本メールの掲載内容',
+  ];
+  var start = -1;
+  for (var i = 0; i < startPatterns.length; i++) {
+    var idx = raw.indexOf(startPatterns[i]);
+    if (idx >= 0 && (start < 0 || idx < start)) start = idx;
+  }
+  if (start < 0) return raw.slice(0, 500); // 見つからなければ先頭500文字
+  var end = raw.length;
+  for (var j = 0; j < endPatterns.length; j++) {
+    var eidx = raw.indexOf(endPatterns[j], start);
+    if (eidx >= 0 && eidx < end) end = eidx;
+  }
+  return raw.slice(start, end).trim();
+}
 function getFuCards(caseId){var c=cData.find(function(x){return x.id===caseId;});if(!c){console.error('[getFuCards] not found',caseId);return[];}try{var raw=c.followupNote||'';console.log('[getFuCards]',caseId,'raw:',raw?raw.slice(0,50):'(empty)');if(!raw)return[];if(raw.trim().charAt(0)==='[')return JSON.parse(raw);return[{id:Date.now(),date:new Date().toISOString().slice(0,10),type:'その他',text:raw,done:false,doneDate:''}];}catch(e){return[];}}
 function saveFuCards(caseId,cards){
   try{
