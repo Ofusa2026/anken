@@ -1130,7 +1130,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <span class="sel-count" id="selCount">0件選択中</span>
     </div>
     <div style="display:flex;gap:8px;">
-      <button class="btn" onclick="moveMailData()" style="background:#16a34a;color:white;border:none;font-weight:700;">📂 データ移動</button>
+      <button class="btn" onclick="moveMailData(false)" style="background:#16a34a;color:white;border:none;font-weight:700;">📂 データ移動</button>
+      <button class="btn" onclick="moveMailData(true)" style="background:#64748b;color:white;border:none;font-weight:700;font-size:11px;">📂 PDF化なし</button>
       <button class="btn" id="fetchDataBtn" onclick="runFetchData()" style="background:var(--blue);color:white;border:none;" disabled="">📥 データ取込のみ</button>
       <button class="btn btn-primary" id="importBtn" onclick="runImport()" disabled="" style="opacity:.5;">📄 PDF化してDriveへ格納</button>
     </div>
@@ -23190,13 +23191,15 @@ function renderMails() {
     document.getElementById('gmailMailCount').textContent = '';
     return;
   }
-  document.getElementById('gmailMailCount').textContent = '（' + MAILS.length + '件）';
   // カテゴリ別にグループ化
   var categories = [
     {key:'審査完了', icon:'✅', color:'#16a34a', bg:'#f0fdf4', border:'#86efac'},
     {key:'受付番号', icon:'📋', color:'#2563eb', bg:'#eff6ff', border:'#93c5fd'},
     {key:'認定証明書', icon:'📄', color:'#d97706', bg:'#fffbeb', border:'#fcd34d'}
   ];
+  var _knownBadges = {'審査完了':1,'受付番号':1,'認定証明書':1};
+  var _displayCount = MAILS.filter(function(m){return !!_knownBadges[m.badge];}).length;
+  document.getElementById('gmailMailCount').textContent = '（' + _displayCount + '件）';
   var grouped = {};
   categories.forEach(function(cat){grouped[cat.key]=[];});
   MAILS.forEach(function(m){
@@ -23285,7 +23288,7 @@ function selectMailsByBadge(badge, select){
 }
 
 // ===== データ移動 =====
-function moveMailData(){
+function moveMailData(skipPdf){
   var selected = MAILS.filter(function(m){return mSel[m.id];});
   if(!selected.length){alert('移動するメールを選択してください');return;}
   var shinsaCount=0, certCount=0, receiptCount=0, otherCount=0;
@@ -24193,7 +24196,7 @@ function runImport() {
     updateImportBadge();
     var btn2 = document.getElementById('importBtn');
     if(btn2) btn2.textContent = '取込中... ('+bgImport.done+'/'+selectedMails.length+')';
-    gasGmailPost('importMail', m)
+    var _mWithSkip = Object.assign({}, m, {skipPdf: !!skipPdf}); gasGmailPost('importMail', _mWithSkip)
       .then(function(result) {
         if (result.status === 'ok') {
           addLog('✅ ' + m.name + ' → 取込完了', 'log-ok');
@@ -24637,8 +24640,10 @@ function openGmail() {
         var existIds = {};
         MAILS.forEach(function(m){existIds[m.id]=1;});
         var newCount = 0;
+        var _known3 = {'審査完了':1,'受付番号':1,'認定証明書':1};
         data.mails.forEach(function(m){
-          if(!existIds[m.id]){ MAILS.push(m); existIds[m.id]=1; newCount++; }
+          if(!existIds[m.id] && _known3[m.badge]){ MAILS.push(m); existIds[m.id]=1; newCount++; }
+          else if(!existIds[m.id] && !_known3[m.badge]){ /* 要追完系はTSUIKAN_MAILSへ */ if(!TSUIKAN_MAILS.find(function(x){return x.id===m.id;})) TSUIKAN_MAILS.push(m); }
         });
         savedMails = MAILS.slice();
         persistSavedMails();
@@ -30182,13 +30187,13 @@ function gasGmailPost(action, data) {
       tryFetchFallback();
     };
 
-    // タイムアウト: 30秒（PDF処理は時間がかかる）
+    // タイムアウト: 60秒（PDF処理は時間がかかる）
     var timer = setTimeout(function(){
       if(done) return; done=true;
       delete window[cbName];
       if(script && script.parentNode) script.parentNode.removeChild(script);
-      // fetchフォールバック
-      tryFetchFallback();
+      // タイムアウト → CORSエラーになるXHRは使わずエラー通知
+      resolve({status:'error', message:'タイムアウト(60秒): GAS処理が遅延しています'});
     }, 30000);
 
     function tryFetchFallback(){
@@ -30202,22 +30207,9 @@ function gasGmailPost(action, data) {
             else resolve(JSON.parse(text));
           }catch(e){ resolve({status:'error', message:'レスポンス解析エラー'}); }
         })
-        .catch(function(){
-          // XHRフォールバック
-          var xhr = new XMLHttpRequest();
-          xhr.open('GET', fullUrl, true);
-          xhr.timeout = 30000;
-          xhr.onload = function(){
-            try{
-              var text = xhr.responseText;
-              var m2 = text.match(/^[^(]*\((.+)\)[\s;]*$/s);
-              if(m2) resolve(JSON.parse(m2[1]));
-              else resolve(JSON.parse(text));
-            }catch(e){ resolve({status:'error', message:'レスポンス解析エラー: '+xhr.responseText.substring(0,100)}); }
-          };
-          xhr.onerror = function(){ resolve({status:'error', message:'通信エラー(XHR)'}); };
-          xhr.ontimeout = function(){ resolve({status:'error', message:'タイムアウト(XHR 30秒)'}); };
-          xhr.send();
+        .catch(function(e){
+          // fetchもCORSで失敗 → エラーとして返す（XHRも同様にCORSで失敗するため使わない）
+          resolve({status:'error', message:'通信エラー(CORS): GASへの直接アクセスがブロックされました'});
         });
     }
 
