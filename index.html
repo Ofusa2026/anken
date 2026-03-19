@@ -30603,7 +30603,23 @@ function moveTsuikanMails(){
 
 // ===== 指摘・追完カード管理 =====
 function getFuCards(caseId){var c=cData.find(function(x){return x.id===caseId;});if(!c)return[];try{var raw=c.followupNote||'';if(!raw)return[];if(raw.trim().charAt(0)==='[')return JSON.parse(raw);return[{id:Date.now(),date:new Date().toISOString().slice(0,10),type:'その他',text:raw,done:false,doneDate:''}];}catch(e){return[];}}
-function saveFuCards(caseId,cards){try{var c=cData.find(function(x){return x.id===caseId;});if(!c)return;var json=JSON.stringify(cards);c.followupNote=json;saveCaseField(caseId,'followupNote',json);}catch(e){console.error('[saveFuCards]',e);}}
+function saveFuCards(caseId,cards){
+  try{
+    var c=cData.find(function(x){return x.id===caseId;});
+    if(!c)return;
+    var json=JSON.stringify(cards);
+    c.followupNote=json;
+    // localStorage保存
+    try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){}
+    // Supabase保存
+    if(DB_READY){
+      _sb.from('cases').update({followup_note:json,updated_at:new Date().toISOString()}).eq('id',caseId)
+        .then(function(r){
+          if(r&&r.error){console.error('[saveFuCards] DB error:',r.error);showToast('⚠️ 保存失敗（DBカラム未作成？）: '+r.error.message,'error');}
+        });
+    }
+  }catch(e){console.error('[saveFuCards]',e);}
+}
 function addFuCard(){
   try{
     if(!currentCase)return;
