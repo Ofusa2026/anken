@@ -500,6 +500,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <button class="btn btn-outline" onclick="openCsvImport()" style="background:#f0fdf4;color:#16a34a;border-color:#bbf7d0;">📥 CSV流し込み</button>
       <button class="btn btn-outline" onclick="exportCSV()">📤 エクスポート</button>
       <button class="btn btn-gmail" onclick="openGmail()">📧 Gmail取込</button>
+      <div style="display:flex;gap:4px;background:#f1f5f9;border-radius:8px;padding:3px;">
+        <button id="viewModeList" onclick="setViewMode('list')" style="padding:5px 12px;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;background:#2563eb;color:white;">☰ 一覧</button>
+        <button id="viewModeKanban" onclick="setViewMode('kanban')" style="padding:5px 12px;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;background:none;color:#64748b;">▦ カンバン</button>
+      </div>
       <button class="btn btn-primary" onclick="openNewCase()">＋ 新規案件</button>
       <button id="personDocAlertBtn" onclick="showPersonDocAlertModal()" title="人材書類回収アラート" style="display:none;padding:6px 12px;background:#fffbeb;color:#d97706;border:1.5px solid #fcd34d;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">👤書類 <span id="personDocAlertCount" style="background:#d97706;color:white;border-radius:99px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></button>
       <button id="coDocAlertBtn" onclick="showCoDocAlertModal()" title="法人書類回収アラート" style="display:none;padding:6px 12px;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🏢書類 <span id="coDocAlertCount" style="background:#dc2626;color:white;border-radius:99px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></button>
@@ -17620,6 +17624,82 @@ function debouncedDoneSearch() {
   _doneSearchTimer = setTimeout(function() { applyDoneFilters(true); }, 300);
 }
 
+
+// ===== カンバンビュー =====
+var _viewMode = 'list';
+
+function setViewMode(mode) {
+  _viewMode = mode;
+  var listEl = document.getElementById('caseList');
+  var kanbanEl = document.getElementById('kanbanView');
+  var pagerEl = document.getElementById('pager');
+  var btnList = document.getElementById('viewModeList');
+  var btnKanban = document.getElementById('viewModeKanban');
+  if (mode === 'kanban') {
+    if(listEl) listEl.style.display = 'none';
+    if(pagerEl) pagerEl.style.display = 'none';
+    if(kanbanEl) kanbanEl.style.display = 'block';
+    if(btnList){ btnList.style.background='none'; btnList.style.color='#64748b'; }
+    if(btnKanban){ btnKanban.style.background='#2563eb'; btnKanban.style.color='white'; }
+    renderKanban();
+  } else {
+    if(listEl) listEl.style.display = 'block';
+    if(pagerEl) pagerEl.style.display = '';
+    if(kanbanEl) kanbanEl.style.display = 'none';
+    if(btnList){ btnList.style.background='#2563eb'; btnList.style.color='white'; }
+    if(btnKanban){ btnKanban.style.background='none'; btnKanban.style.color='#64748b'; }
+    applyFilters();
+  }
+}
+
+function renderKanban() {
+  var el = document.getElementById('kanbanView');
+  if (!el) return;
+  var data = window._filteredCases || cData;
+  var groups = [
+    {label:'▼▼ 未着手・質問票 ▼▼', color:'#94a3b8', bg:'#f8fafc',
+     statuses:['未着手','★質問票送付','質問票回答待ち(送付済)']},
+    {label:'▼▼ 1-6作成・送付 ▼▼', color:'#3b82f6', bg:'#eff6ff',
+     statuses:['1-6作成','★1-6企業送付','1-6企業確認待ち(送付済)','1-6修正','★1-6修正送付']},
+    {label:'▼▼ サイン・押印 ▼▼', color:'#8b5cf6', bg:'#f5f3ff',
+     statuses:['サイン書類作成','★サイン書類送付','サイン書類返送待ち(送付済)','★企業押印送付','企業押印返送待ち(送付済)']},
+    {label:'▼▼ 申請待ち ▼▼', color:'#f59e0b', bg:'#fffbeb',
+     statuses:['スキャン書類作成','申請']},
+    {label:'▼▼ 申請済・審査中 ▼▼', color:'#ef4444', bg:'#fef2f2',
+     statuses:['申請済(番号待)','審査中','要追完']},
+    {label:'▼▼ 交付・受取 ▼▼', color:'#10b981', bg:'#f0fdf4',
+     statuses:['郵送交付','窓口受取']},
+    {label:'▼▼ 完了 ▼▼', color:'#64748b', bg:'#f9fafb',
+     statuses:['完了','審査完了']},
+  ];
+  var h = '';
+  groups.forEach(function(g) {
+    var items = data.filter(function(c){ return g.statuses.indexOf(c.status) >= 0; });
+    if (!items.length) return;
+    h += '<div style="margin-bottom:16px;">';
+    h += '<div style="font-size:12px;font-weight:800;color:'+g.color+';padding:6px 12px;background:'+g.bg+';border-radius:8px;margin-bottom:6px;border-left:4px solid '+g.color+';">'
+       + g.label + ' <span style="font-size:11px;font-weight:500;opacity:0.7;">'+items.length+'件</span></div>';
+    items.forEach(function(c) {
+      var expire = c.expire || '';
+      var isExpiring = expire && expire <= new Date(Date.now()+30*86400000).toISOString().slice(0,10);
+      var nat = c.nationality||'';
+      var flag = nat.includes('ベトナム')?'🇻🇳':nat.includes('インドネシア')?'🇮🇩':nat.includes('カンボジア')?'🇰🇭':nat.includes('ミャンマー')?'🇲🇲':nat.includes('フィリピン')?'🇵🇭':nat.includes('タイ')?'🇹🇭':nat.includes('中国')?'🇨🇳':'🌏';
+      h += '<div data-cid="'+c.id+'" onclick="openCase(this.dataset.cid)" style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:white;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:4px;cursor:pointer;">';
+      h += '<span style="font-size:16px;flex-shrink:0;">'+flag+'</span>';
+      h += '<div style="flex:1;min-width:0;">';
+      h += '<div style="font-size:13px;font-weight:700;color:#0f2040;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(getDisplayName(c))+'</div>';
+      h += '<div style="font-size:11px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+(c.company||c.org||'')+(c.appType?' · '+c.appType:'')+'</div>';
+      h += '</div>';
+      if(expire) h += '<span style="font-size:10px;color:'+(isExpiring?'#ef4444':'#94a3b8')+';font-weight:'+(isExpiring?'700':'400')+';flex-shrink:0;">'+expire+'</span>';
+      h += '<span style="font-size:10px;color:#64748b;flex-shrink:0;white-space:nowrap;">'+(c.team||'')+(c.staff?' 👤'+c.staff:'')+'</span>';
+      h += '</div>';
+    });
+    h += '</div>';
+  });
+  if (!h) h = '<div style="padding:40px;text-align:center;color:#94a3b8;">表示する案件がありません</div>';
+  el.innerHTML = h;
+}
+// ===== /カンバンビュー =====
 function applyFilters(resetPage) {
   if (resetPage) currentPage = 1;
   var team = document.getElementById('fTeam').value;
