@@ -3374,7 +3374,17 @@ function mtDrop(e,toLi){
   persistMyTasks();renderMyTaskBoard();
 }
 function openDocs()   { renderDocsContent(); switchPanel('docsScreen','nav-docs'); }
-function openReview() { renderReview(); switchPanel('reviewScreen','nav-review'); updateReviewBadge(); }
+function openReview() {
+  try {
+    renderReview();
+  } catch(e) {
+    console.error('[openReview] renderReview error:', e);
+    var el = document.getElementById('reviewContent');
+    if (el) el.innerHTML = '<div style="padding:20px;color:#dc2626;">エラー: ' + e.message + '</div>';
+  }
+  switchPanel('reviewScreen','nav-review');
+  try { updateReviewBadge(); } catch(e) {}
+}
 function openSupport(){ renderSupportList(); renderSupportTree(); switchPanel('supportScreen','nav-support'); }
 function openCompany(){ renderSupportTree(); renderCompanyList(); switchPanel('companyScreen','nav-company'); }
 function openDocGen(){ try{syncTemplateCategoriesWithGroups();restoreTemplatesFromStorage();renderDocGenContent();}catch(e){console.error('docGen error:',e);} switchPanel('docGenScreen','nav-docgen'); }
@@ -8684,7 +8694,7 @@ function renderReview() {
   }).length;
   // タスク確認者が自分の確認依頼もカウント
   var myTaskConfirmCount=0;
-  cData.forEach(function(c){if(c.status==='完了')return;for(var i=0;i<TASK_NAMES.length;i++){var tk=c.id+'_'+i;if((taskConfirm[tk]||0)===1&&(taskAssignee[tk+'_checker']||'')===me)myTaskConfirmCount++;}});
+  try{cData.forEach(function(c){if(c.status==='完了')return;for(var i=0;i<TASK_NAMES.length;i++){var tk=c.id+'_'+i;if((taskConfirm[tk]||0)===1&&(taskAssignee[tk+'_checker']||'')===me)myTaskConfirmCount++;}});}catch(e){console.error('[renderReview]',e);}
   var totalMine = mineCount + myTaskConfirmCount;
   var repliedCount = items.filter(function(id){ return caseNotes[id].replied; }).length;
   var mb=document.getElementById('reviewMineBadge'); if(mb) mb.textContent=totalMine;
@@ -16912,6 +16922,7 @@ var ST = {
   '要追完':'st-add','審査完了':'st-done','完了':'st-done',
   '申請済':'st-submit','追加資料対応':'st-add'
 };
+var RESIDENCE_STATUS_LIST = ['特定技能1号','特定技能2号','技能実習1号イ','技能実習1号ロ','技能実習2号イ','技能実習2号ロ','技能実習3号イ','技能実習3号ロ','特定活動','技術・人文知識・国際業務','高度専門職1号','高度専門職2号','経営・管理','企業内転勤','技能','人文知識・国際業務','留学','家族滞在','定住者','永住者','日本人の配偶者等','永住者の配偶者等','その他'];
 var STATUS_LIST = ['未着手', '★質問票送付', '質問票回答待ち(送付済)', '1-6作成', '★1-6企業送付', '1-6企業確認待ち(送付済)', '1-6修正', '★1-6修正送付', 'サイン書類作成', '★サイン書類送付', 'サイン書類返送待ち(送付済)', '★企業押印送付', '企業押印返送待ち(送付済)', 'スキャン書類作成', '申請', '申請済(番号待)', '審査中', '要追完', '郵送交付', '窓口受取', '完了'];
 var TYPECLS = {'認定':'type-new','更新':'type-renew','変更':'type-change','申請済':'type-cert'};
 
@@ -18431,7 +18442,7 @@ function showTab(tab) {
         {k:'team',l:'チーム',type:'select',opts:TEAM_LIST},
         {k:'status',l:'ステータス',type:'select',opts:STATUS_LIST_E},
         {k:'appType',l:'申請種別',type:'select',opts:TYPE_LIST_E},
-        {k:'residenceStatus',l:'希望在留資格',type:'text'},
+        {k:'residenceStatus',l:'希望在留資格',type:'select',opts:RESIDENCE_STATUS_LIST},
         {k:'acceptExp',l:'受入経験',type:'select',opts:['','有','無']},
         {k:'personOrder',l:'2人目以降',type:'select',opts:['','1人目','2人目以降']},
         {k:'toritsugisha',l:'取次者',type:'text',def:'田中 綾美'},
@@ -30366,7 +30377,56 @@ async function lpDeleteRecord(id){if(!confirm('削除しますか？'))return;va
 function openLetterpack(){switchPanel('letterpackScreen','nav-letterpack');lpLoadRecords();}
 function openLetterpackFromCase(lpId){document.getElementById('caseModal').classList.remove('open');openLetterpack();setTimeout(function(){var el=document.getElementById('lp_row_'+lpId);if(el){el.scrollIntoView({behavior:'smooth',block:'center'});el.style.outline='2px solid #2563eb';setTimeout(function(){el.style.outline='';},2000);}},400);}
 function lpSwitchTab(tab){lpCurrentTab=tab;['pending','done'].forEach(function(t){var btn=document.getElementById('lpTab_'+t);if(btn){btn.style.borderBottomColor=t===tab?'#2563eb':'transparent';btn.style.color=t===tab?'#2563eb':'var(--gray-400)';}});renderLetterpackList();}
-function renderLetterpackList(){var el=document.getElementById('letterpackContent');if(!el)return;var today=new Date();today.setHours(0,0,0,0);var list=lpCurrentTab==='pending'?lpRecords.filter(function(r){return!r.recvDate;}):lpRecords.filter(function(r){return!!r.recvDate;});if(!list.length){el.innerHTML='<div style="text-align:center;padding:60px;color:var(--gray-400);font-size:14px;">データがありません</div>';return;}var h='';list.forEach(function(rec){var days=0,alertHtml='';if(!rec.recvDate&&rec.sendDate){var sd=new Date(rec.sendDate);sd.setHours(0,0,0,0);days=Math.floor((today-sd)/86400000);alertHtml=days>=10?'<span style="background:#fee2e2;color:#dc2626;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;margin-left:6px;">'+days+'日経過</span>':'<span style="background:#f1f5f9;color:#64748b;font-size:10px;padding:2px 8px;border-radius:99px;margin-left:6px;">'+days+'日</span>';}var caseChips='';if(rec.caseIds&&rec.caseIds.length){rec.caseIds.forEach(function(cid){var c=cData.find(function(x){return x.id===cid;});caseChips+='<span onclick="openCase(\''+cid+'\')" style="display:inline-block;background:#eff6ff;color:#1e40af;font-size:11px;padding:2px 10px;border-radius:99px;cursor:pointer;font-weight:600;margin:2px;">'+(c?getDisplayName(c):cid)+'</span>';});}var sendTrack=rec.sendNo?'<button onclick="lpOpenTrack('+rec.sendNo+')" style="padding:4px 10px;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">送り追跡</button>':'';var recvTrack=rec.recvNo?'<button onclick="lpOpenTrack('+rec.recvNo+')" style="padding:4px 10px;background:#f0fdf4;color:#15803d;border:1px solid #86efac;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">返送追跡</button>':'';h+='<div id="lp_row_'+rec.id+'" style="background:white;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.08);border-left:4px solid '+(rec.recvDate?'#16a34a':(days>=10?'#dc2626':'#2563eb'))+';">';h+='<div style="display:flex;align-items:flex-start;gap:8px;"><div style="flex:1;">';h+='<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">';if(rec.sendNo)h+='<span style="font-family:monospace;font-size:13px;font-weight:700;">送:'+rec.sendNo+'</span>';if(rec.recvNo)h+='<span style="font-family:monospace;font-size:13px;font-weight:700;color:#166534;">返:'+rec.recvNo+'</span>';h+=alertHtml+'</div>';h+='<div style="font-size:12px;color:#64748b;margin-bottom:8px;display:flex;gap:12px;flex-wrap:wrap;">';if(rec.sendDate)h+='<span>発送: <b>'+rec.sendDate+'</b></span>';if(rec.recvDate)h+='<span style="color:#16a34a;">受取: <b>'+rec.recvDate+'</b></span>';else h+='<span style="color:#f59e0b;">未着</span>';if(rec.memo)h+='<span style="color:#94a3b8;">'+rec.memo+'</span>';h+='</div>';if(caseChips)h+='<div style="margin-bottom:8px;">'+caseChips+'</div>';h+='<div style="display:flex;gap:6px;">'+sendTrack+recvTrack+'</div>';h+='</div><div style="display:flex;flex-direction:column;gap:6px;">';h+='<button onclick="lpOpenEdit(\''+rec.id+'\')" style="padding:5px 12px;background:#f8fafc;border:1px solid var(--gray-200);border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">編集</button>';h+='<button onclick="lpDeleteRecord(\''+rec.id+'\')" style="padding:5px 12px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">削除</button>';h+='</div></div></div>';});el.innerHTML=h;}
+function renderLetterpackList(){
+  var el=document.getElementById('letterpackContent');if(!el)return;
+  var today=new Date();today.setHours(0,0,0,0);
+  var list=lpCurrentTab==='pending'
+    ?lpRecords.filter(function(r){return!r.recvDate;})
+    :lpRecords.filter(function(r){return!!r.recvDate;});
+  if(!list.length){el.innerHTML='<div style="text-align:center;padding:60px;color:var(--gray-400);font-size:14px;">データがありません</div>';return;}
+  var h='';
+  list.forEach(function(rec){
+    var days=0,alertHtml='';
+    if(!rec.recvDate&&rec.sendDate){
+      var sd=new Date(rec.sendDate);sd.setHours(0,0,0,0);
+      days=Math.floor((today-sd)/86400000);
+      alertHtml=days>=10
+        ?'<span style="background:#fee2e2;color:#dc2626;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;margin-left:6px;">'+days+'日経過</span>'
+        :'<span style="background:#f1f5f9;color:#64748b;font-size:10px;padding:2px 8px;border-radius:99px;margin-left:6px;">'+days+'日</span>';
+    }
+    var caseChips='';
+    if(rec.caseIds&&rec.caseIds.length){
+      rec.caseIds.forEach(function(cid){
+        var c=cData.find(function(x){return x.id===cid;});
+        caseChips+='<span data-cid="'+cid+'" onclick="openCase(this.dataset.cid)" style="display:inline-block;background:#eff6ff;color:#1e40af;font-size:11px;padding:2px 10px;border-radius:99px;cursor:pointer;font-weight:600;margin:2px;">'+(c?getDisplayName(c):cid)+'</span>';
+      });
+    }
+    var sendTrackBtn=rec.sendNo?'<button data-no="'+rec.sendNo+'" onclick="lpOpenTrack(this.dataset.no)" style="padding:4px 10px;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">送り追跡</button>':'';
+    var recvTrackBtn=rec.recvNo?'<button data-no="'+rec.recvNo+'" onclick="lpOpenTrack(this.dataset.no)" style="padding:4px 10px;background:#f0fdf4;color:#15803d;border:1px solid #86efac;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">返送追跡</button>':'';
+    var borderColor=rec.recvDate?'#16a34a':(days>=10?'#dc2626':'#2563eb');
+    h+='<div id="lp_row_'+rec.id+'" style="background:white;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,0.08);border-left:4px solid '+borderColor+';">';
+    h+='<div style="display:flex;align-items:flex-start;gap:8px;">';
+    h+='<div style="flex:1;">';
+    h+='<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">';
+    if(rec.sendNo)h+='<span style="font-family:monospace;font-size:13px;font-weight:700;">送:'+rec.sendNo+'</span>';
+    if(rec.recvNo)h+='<span style="font-family:monospace;font-size:13px;font-weight:700;color:#166534;">返:'+rec.recvNo+'</span>';
+    h+=alertHtml+'</div>';
+    h+='<div style="font-size:12px;color:#64748b;margin-bottom:8px;display:flex;gap:12px;flex-wrap:wrap;">';
+    if(rec.sendDate)h+='<span>発送: <b>'+rec.sendDate+'</b></span>';
+    if(rec.recvDate)h+='<span style="color:#16a34a;">受取: <b>'+rec.recvDate+'</b></span>';
+    else h+='<span style="color:#f59e0b;">未着</span>';
+    if(rec.memo)h+='<span style="color:#94a3b8;">'+esc(rec.memo)+'</span>';
+    h+='</div>';
+    if(caseChips)h+='<div style="margin-bottom:8px;">'+caseChips+'</div>';
+    h+='<div style="display:flex;gap:6px;">'+sendTrackBtn+recvTrackBtn+'</div>';
+    h+='</div>';
+    h+='<div style="display:flex;flex-direction:column;gap:6px;">';
+    h+='<button data-lid="'+rec.id+'" onclick="lpOpenEdit(this.dataset.lid)" style="padding:5px 12px;background:#f8fafc;border:1px solid var(--gray-200);border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">編集</button>';
+    h+='<button data-lid="'+rec.id+'" onclick="lpDeleteRecord(this.dataset.lid)" style="padding:5px 12px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">削除</button>';
+    h+='</div></div></div>';
+  });
+  el.innerHTML=h;
+}
 function lpOpenTrack(no){if(!no)return;window.open('https://trackings.post.japanpost.jp/services/srv/search/direct?locale=ja&reqCodeNo1='+no.replace(/ /g,''),'_blank');}
 function lpTrack(type){var no=document.getElementById(type==='send'?'lp_send_no':'lp_recv_no').value.trim();if(!no){showToast('番号を入力してください');return;}lpOpenTrack(no);}
 function openLetterpackNew(){lpEditingId=null;lpLinkedIds=[];document.getElementById('lp_send_date').value=new Date().toISOString().slice(0,10);['lp_send_no','lp_recv_no','lp_memo'].forEach(function(id){document.getElementById(id).value='';});document.getElementById('lp_recv_date').value='';document.getElementById('lp_editing_id').value='';document.getElementById('lpCaseSearch').value='';document.getElementById('lpCaseResults').style.display='none';renderLpLinkedChips();document.getElementById('lpModal').style.display='flex';}
@@ -30421,10 +30481,14 @@ function renderTsuikanMails(){
   var el=document.getElementById('tsuikanContent');if(!el)return;
   var count=document.getElementById('tsuikanCount');
   if(count)count.textContent=TSUIKAN_MAILS.length+'件';
-  if(!TSUIKAN_MAILS.length){el.innerHTML='<div style="text-align:center;padding:60px;color:var(--gray-400);font-size:14px;">メールがありません<br><span style="font-size:12px;">「最新取得」ボタンで読み込んでください</span></div>';updateTsuikanSelCount();return;}
+  if(!TSUIKAN_MAILS.length){
+    el.innerHTML='<div style="text-align:center;padding:60px;color:var(--gray-400);font-size:14px;">メールがありません<br><span style="font-size:12px;">「最新取得」ボタンで読み込んでください</span></div>';
+    updateTsuikanSelCount();return;
+  }
   var h='';
   TSUIKAN_MAILS.forEach(function(m){
     var sel=!!tsuikanSel[m.id];
+    // 自動マッチ（初回のみ）
     if(!m.linkedCase&&!m._autoMatched){
       m._autoMatched=true;
       var mn=(m.name||'').replace(/ /g,'').toUpperCase();
@@ -30432,41 +30496,45 @@ function renderTsuikanMails(){
       if(mcn){var mc1=cData.find(function(c){return c.receiptNo&&c.receiptNo.replace(/ /g,'')===mcn;});if(mc1){m.linkedCase=mc1.id;m._autoType='受付番号';}}
       if(!m.linkedCase&&mn){var mc2=cData.find(function(c){var ca=(c.applicant||'').replace(/ /g,'').toUpperCase();return ca&&ca===mn;});if(mc2){m.linkedCase=mc2.id;m._autoType='氏名';}}
     }
-    h+='<div id="tsuikan_card_'+m.id+'" style="background:'+(sel?'#eff6ff':'white')+';border:1px solid '+(sel?'#93c5fd':'var(--gray-200)')+';border-radius:10px;padding:14px;margin-bottom:10px;">';
+    var cbBg=sel?'#2563eb':'white';
+    var cbBorder=sel?'#2563eb':'var(--gray-300)';
+    var cardBg=sel?'#eff6ff':'white';
+    var cardBorder=sel?'#93c5fd':'var(--gray-200)';
+    h+='<div style="background:'+cardBg+';border:1px solid '+cardBorder+';border-radius:10px;padding:14px;margin-bottom:10px;">';
+    // ヘッダー行
     h+='<div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:8px;">';
-    h+='<div data-mid="'+m.id+'" onclick="tsuikanToggle(this.dataset.mid)" class="tsuikan-cb" style="width:22px;height:22px;border:2px solid '+(sel?'#2563eb':'var(--gray-300)')+';border-radius:5px;background:'+(sel?'#2563eb':'white')+';display:flex;align-items:center;justify-content:center;color:white;font-size:13px;flex-shrink:0;cursor:pointer;margin-top:1px;">'+(sel?'&#10003;':'')+'</div>';
+    h+='<div data-mid="'+m.id+'" onclick="tsuikanToggle(this.dataset.mid)" style="width:22px;height:22px;border:2px solid '+cbBorder+';border-radius:5px;background:'+cbBg+';display:flex;align-items:center;justify-content:center;color:white;font-size:13px;flex-shrink:0;cursor:pointer;margin-top:1px;">'+(sel?'&#10003;':'')+'</div>';
     h+='<div style="flex:1;min-width:0;">';
     h+='<div style="font-size:13px;font-weight:700;color:var(--navy);">'+esc(m.name||m.sub)+'</div>';
-    h+='<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">'+m.date+(m.caseNo?'&#12288;'+esc(m.caseNo):'')+'</div>';
+    h+='<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">'+m.date+(m.caseNo?'&emsp;'+esc(m.caseNo):'')+'</div>';
     h+='<div style="font-size:11px;color:#64748b;margin-top:1px;">'+esc(m.sub)+'</div>';
     h+='</div></div>';
-    h+='<div id="tsuikan_link_'+m.id+'">';
+    // 紐付けエリア
     if(m.linkedCase){
       var lc=cData.find(function(c){return c.id===m.linkedCase;});
       var _mn=(m.name||'').replace(/ /g,'').toUpperCase();
       var _mcn=(m.caseNo||'').replace(/ /g,'');
-      var _lcApplicant=lc?(lc.applicant||'').replace(/ /g,'').toUpperCase():'';
-      var _lcReceipt=lc?(lc.receiptNo||'').replace(/ /g,''):'';
-      var _lcCompany=lc?(lc.company||lc.org||''):'';
-      var nameMatch=!!(_mn&&_lcApplicant&&_lcApplicant===_mn);
-      var receiptMatch=!!(_mcn&&_lcReceipt&&_lcReceipt===_mcn);
+      var _lcA=lc?(lc.applicant||'').replace(/ /g,'').toUpperCase():'';
+      var _lcR=lc?(lc.receiptNo||'').replace(/ /g,''):'';
+      var _lcC=lc?(lc.company||lc.org||''):'';
+      var nmOK=!!(_mn&&_lcA&&_lcA===_mn);
+      var rcOK=!!(_mcn&&_lcR&&_lcR===_mcn);
       h+='<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 10px;">';
       h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
-      h+='<span style="font-size:12px;color:#15803d;font-weight:700;">&#32256;&#12389;&#12369;&#28168;</span>';
-      h+='<button data-mid="'+m.id+'" onclick="tsuikanUnlink(this.dataset.mid)" style="font-size:10px;background:white;border:1px solid #ccc;border-radius:4px;padding:2px 8px;cursor:pointer;color:#64748b;">&#35299;&#38500;</button>';
+      h+='<span style="font-size:12px;color:#15803d;font-weight:700;">紐づけ済</span>';
+      h+='<button data-mid="'+m.id+'" onclick="tsuikanUnlink(this.dataset.mid)" style="font-size:10px;background:white;border:1px solid #ccc;border-radius:4px;padding:2px 8px;cursor:pointer;color:#64748b;">解除</button>';
       h+='</div>';
       h+='<div style="font-size:12px;display:grid;gap:3px;">';
-      h+='<div>'+(nameMatch?'<b style="color:#16a34a;">&#9989;</b>':'<span style="color:#94a3b8;">&#8212;</span>')+' &#30003;&#35531;&#20154;&#21517;: <b>'+esc(lc?getDisplayName(lc):m.linkedCase)+'</b></div>';
-      h+='<div>'+(_lcReceipt?(receiptMatch?'<b style="color:#16a34a;">&#9989;</b>':'<b style="color:#f59e0b;">&#9888;</b>'):'<span style="color:#94a3b8;">&#8212;</span>')+' &#21463;&#20184;&#30058;&#21495;: '+(_lcReceipt?esc(lc.receiptNo||''):'<span style="color:#94a3b8;">&#26696;&#20214;&#12395;&#26410;&#20837;&#21147;</span>')+'</div>';
-      h+='<div>'+(_lcCompany?'<b style="color:#16a34a;">&#9989;</b>':'<span style="color:#94a3b8;">&#8212;</span>')+' &#20250;&#31038;&#21517;: '+(_lcCompany?esc(_lcCompany):'<span style="color:#94a3b8;">&#19981;&#26126;</span>')+'</div>';
+      h+='<div>'+(nmOK?'<b style="color:#16a34a;">&#9989;</b>':'<span style="color:#94a3b8;">&#8212;</span>')+' 申請人名: <b>'+esc(lc?getDisplayName(lc):m.linkedCase)+'</b></div>';
+      h+='<div>'+(_lcR?(rcOK?'<b style="color:#16a34a;">&#9989;</b>':'<b style="color:#f59e0b;">&#9888;</b>'):'<span style="color:#94a3b8;">&#8212;</span>')+' 受付番号: '+(_lcR?esc(lc.receiptNo||''):'<span style="color:#94a3b8;">案件に未入力</span>')+'</div>';
+      h+='<div>'+(_lcC?'<b style="color:#16a34a;">&#9989;</b>':'<span style="color:#94a3b8;">&#8212;</span>')+' 会社名: '+(_lcC?esc(_lcC):'<span style="color:#94a3b8;">不明</span>')+'</div>';
       h+='</div>';
-      if(m._autoType)h+='<div style="font-size:10px;color:#94a3b8;margin-top:4px;">&#129302; '+m._autoType+'&#12391;&#33258;&#21205;&#12510;&#12483;&#12481;</div>';
+      if(m._autoType)h+='<div style="font-size:10px;color:#94a3b8;margin-top:4px;">&#129302; '+m._autoType+'で自動マッチ</div>';
       h+='</div>';
     }else{
       h+=renderTsuikanLinkUI(m);
     }
-    h+='</div>';  // tsuikan_link_
-    h+='</div>';  // tsuikan_card_
+    h+='</div>';
   });
   el.innerHTML=h;
   updateTsuikanSelCount();
