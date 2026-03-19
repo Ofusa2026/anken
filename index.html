@@ -30663,14 +30663,18 @@ function fetchGmailTsuikan(){
 }
 function renderTsuikanMails(){
   var el=document.getElementById('tsuikanContent');if(!el)return;
+  // 未追加と追加済に分ける
+  var pending=TSUIKAN_MAILS.filter(function(m){return !m._addedToCard;});
+  var added=TSUIKAN_MAILS.filter(function(m){return !!m._addedToCard;});
   var count=document.getElementById('tsuikanCount');
-  if(count)count.textContent=TSUIKAN_MAILS.length+'件';
+  if(count)count.textContent=pending.length+'件'+(added.length?' (追加済'+added.length+'件)':'');
   if(!TSUIKAN_MAILS.length){
     el.innerHTML='<div style="text-align:center;padding:60px;color:var(--gray-400);font-size:14px;">メールがありません<br><span style="font-size:12px;">「最新取得」ボタンで読み込んでください</span></div>';
     updateTsuikanSelCount();return;
   }
   var h='';
-  TSUIKAN_MAILS.forEach(function(m){
+  // 未追加メール（通常カード表示）
+  pending.forEach(function(m){
     var sel=!!tsuikanSel[m.id];
     // 自動マッチ（初回のみ）
     if(!m.linkedCase&&!m._autoMatched){
@@ -30726,8 +30730,34 @@ function renderTsuikanMails(){
     }
     h+='</div>';
   });
+  // 追加済みメール（コンパクトなリスト形式）
+  if(added.length){
+    h+='<div style="margin-top:16px;border-top:1.5px solid var(--gray-200);padding-top:12px;">';
+    h+='<div style="font-size:11px;font-weight:700;color:var(--gray-400);margin-bottom:8px;">✅ 指摘カード追加済（'+added.length+'件）</div>';
+    added.forEach(function(m){
+      var lc=m.linkedCase?cData.find(function(c){return c.id===m.linkedCase;}):null;
+      h+='<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:#f8fafc;border:1px solid var(--gray-200);border-radius:8px;margin-bottom:5px;opacity:0.8;">';
+      h+='<span style="font-size:16px;flex-shrink:0;">✅</span>';
+      h+='<div style="flex:1;min-width:0;">';
+      h+='<div style="font-size:12px;font-weight:700;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+(lc?esc(getDisplayName(lc)):esc(m.name||m.sub))+'</div>';
+      h+='<div style="font-size:10px;color:var(--gray-400);">';
+      if(lc) h+=(lc.company||lc.org||'')+'&ensp;';
+      h+=m.date+'</div>';
+      h+='</div>';
+      if(lc){
+        h+='<span data-cid="'+lc.id+'" onclick="openCase(this.dataset.cid)" style="font-size:10px;color:#2563eb;cursor:pointer;flex-shrink:0;text-decoration:underline;">案件を開く</span>';
+      }
+      h+='<button data-mid="'+m.id+'" onclick="tsuikanUndoAdd(this.dataset.mid)" style="font-size:10px;background:none;border:1px solid var(--gray-200);border-radius:4px;padding:2px 8px;cursor:pointer;color:var(--gray-400);flex-shrink:0;">取消</button>';
+      h+='</div>';
+    });
+    h+='</div>';
+  }
   el.innerHTML=h;
   updateTsuikanSelCount();
+}
+function tsuikanUndoAdd(id){
+  var m=TSUIKAN_MAILS.find(function(x){return x.id===id;});
+  if(m){ delete m._addedToCard; renderTsuikanMails(); showToast('追加済みを解除しました'); }
 }
 function renderTsuikanLinkUI(m){
   var h='<div style="margin-top:8px;">';
