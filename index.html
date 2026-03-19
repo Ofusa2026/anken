@@ -29428,6 +29428,8 @@ function loadAllFromSupabase() {
       renderStats(); applyFilters(); updateReviewBadge();
       try { buildStaffFilter(); } catch(e) {}
       showToast('✅ データ同期完了');
+      loadMadoguchiRecords();
+      loadTsuikanMailsFromDB();
       console.log('✅ Supabase全データ読み込み完了');
       // localStorageテンプレートをSupabaseへ自動マイグレーション
       try { migrateLocalTemplatesToSupabase(); } catch(e) { console.error('tpl migration err:', e); }
@@ -30702,7 +30704,8 @@ async function saveLpRecord(){var sendNo=document.getElementById('lp_send_no').v
 // ===== /郵送交付管理 =====
 
 // ===== 要追完/指摘メール =====
-var TSUIKAN_MAILS=[], tsuikanSel={};
+var TSUIKAN_MAILS=(function(){try{return JSON.parse(localStorage.getItem('ofusa_tsuikanMails')||'[]');}catch(e){return[];}})();
+var tsuikanSel={};
 function openTsuikan(){switchPanel('tsuikanScreen','nav-tsuikan');renderTsuikanMails();}
 function fetchGmailTsuikan(){
   showToast('取得中...');
@@ -30830,12 +30833,13 @@ function tsuikanSetDone(id, done){
   if(!m) return;
   m._done=done;
   m._doneDate=done?new Date().toISOString().slice(0,10):'';
+  persistTsuikanMails();
   renderTsuikanMails();
   showToast(done?'✅ 対応済にしました':'⏳ 未対応に戻しました');
 }
 function tsuikanUndoAdd(id){
   var m=TSUIKAN_MAILS.find(function(x){return x.id===id;});
-  if(m){ delete m._addedToCard; renderTsuikanMails(); showToast('追加済みを解除しました'); }
+  if(m){ delete m._addedToCard; persistTsuikanMails(); renderTsuikanMails(); showToast('追加済みを解除しました'); }
 }
 function renderTsuikanLinkUI(m){
   var h='<div style="margin-top:8px;">';
@@ -30845,6 +30849,44 @@ function renderTsuikanLinkUI(m){
   h+='<div id="tsuikan_results_'+m.id+'" data-mid="'+m.id+'" style="display:none;max-height:120px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:6px;margin-top:4px;background:white;"></div>';
   h+='</div>';
   return h;
+}
+
+function persistTsuikanMails(){
+  try{ localStorage.setItem('ofusa_tsuikanMails', JSON.stringify(TSUIKAN_MAILS)); }catch(e){}
+  if(!DB_READY) return;
+  // 各メールのステータスフラグをSupabaseに保存
+  TSUIKAN_MAILS.forEach(function(m){
+    var flags={_done:!!m._done,_doneDate:m._doneDate||'',_addedToCard:!!m._addedToCard,linkedCase:m.linkedCase||''};
+    _sb.from('tsuikan_mails').upsert({id:m.id, mail_data:Object.assign({},m,flags), updated_at:new Date().toISOString()},{onConflict:'id'}).then(function(){});
+  });
+}
+
+function loadTsuikanMailsFromDB(){
+  if(!DB_READY) return;
+  _sb.from('tsuikan_mails').select('*').then(function(r){
+    if(r&&!r.error&&r.data&&r.data.length){
+      var dbMap={};
+      r.data.forEach(function(row){ dbMap[row.id]=row.mail_data; });
+      // 既存TSUIKAN_MAILSのフラグをDB値で上書き
+      TSUIKAN_MAILS.forEach(function(m){
+        if(dbMap[m.id]){
+          m._done=!!dbMap[m.id]._done;
+          m._doneDate=dbMap[m.id]._doneDate||'';
+          m._addedToCard=!!dbMap[m.id]._addedToCard;
+          m.linkedCase=dbMap[m.id].linkedCase||m.linkedCase||'';
+        }
+      });
+      // DBにあってローカルにないメールも追加
+      r.data.forEach(function(row){
+        if(!TSUIKAN_MAILS.find(function(m){return m.id===row.id;})){
+          TSUIKAN_MAILS.push(row.mail_data);
+        }
+      });
+      try{localStorage.setItem('ofusa_tsuikanMails',JSON.stringify(TSUIKAN_MAILS));}catch(e){}
+      renderTsuikanMails();
+      console.log('📥 tsuikan_mails loaded:', r.data.length);
+    }
+  });
 }
 function tsuikanToggle(id){if(tsuikanSel[id])delete tsuikanSel[id];else tsuikanSel[id]=1;renderTsuikanMails();}
 function tsuikanSelectAll(){TSUIKAN_MAILS.forEach(function(m){tsuikanSel[m.id]=1;});renderTsuikanMails();}
@@ -30898,6 +30940,7 @@ function moveTsuikanMails(){
   });
   // メールはリストに残す（チェック済みにするだけ）
   selected.forEach(function(m){ m._addedToCard=true; });
+  persistTsuikanMails();
   tsuikanSel={};
   // TSUIKAN_MAILSにメールが残っていることを確認してからレンダリング
   console.log('[moveTsuikan] TSUIKAN_MAILS after:', TSUIKAN_MAILS.length);
