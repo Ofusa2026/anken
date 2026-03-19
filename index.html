@@ -18963,7 +18963,11 @@ function showTab(tab) {
     if(fuCards.length === 0) {
       h += '<div style="text-align:center;padding:30px;color:#9ca3af;font-size:13px;">指摘はありません</div>';
     }
-    fuCards.forEach(function(card, ci) {
+    // 通常カード（from_tsuikanでないもの）
+    var _normalCards = fuCards.filter(function(c){return !c.from_tsuikan;});
+    var _tsuikanCards = fuCards.filter(function(c){return c.from_tsuikan && !c.checked;});
+    _normalCards.forEach(function(card, ci) {
+      var realIdx = fuCards.indexOf(card);
       var isDone = card.done;
       h += '<div style="background:'+(isDone?'#f8fafc':'white')+';border:1.5px solid '+(isDone?'#e2e8f0':'#fbbf24')+';border-left:4px solid '+(isDone?'#94a3b8':'#f59e0b')+';border-radius:10px;padding:14px;margin-bottom:10px;">';
       h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">';
@@ -18972,20 +18976,37 @@ function showTab(tab) {
       if(isDone) h += '<span style="font-size:11px;font-weight:700;color:#16a34a;background:#f0fdf4;padding:2px 8px;border-radius:99px;">対応済</span>';
       h += '<div style="margin-left:auto;display:flex;gap:6px;">';
       if(!isDone) {
-        h += '<button onclick="doneFuCard('+ci+')" style="padding:4px 12px;background:#16a34a;color:white;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">対応済</button>';
+        h += '<button data-ci="'+realIdx+'" onclick="doneFuCard(this.dataset.ci*1)" style="padding:4px 12px;background:#16a34a;color:white;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">対応済</button>';
       } else {
-        h += '<button onclick="undoneFuCard('+ci+')" style="padding:4px 12px;background:#f1f5f9;color:#64748b;border:none;border-radius:6px;font-size:11px;cursor:pointer;">取消</button>';
+        h += '<button data-ci="'+realIdx+'" onclick="undoneFuCard(this.dataset.ci*1)" style="padding:4px 12px;background:#f1f5f9;color:#64748b;border:none;border-radius:6px;font-size:11px;cursor:pointer;">取消</button>';
       }
-      h += '<button onclick="deleteFuCard('+ci+')" style="padding:4px 8px;background:none;color:#d1d5db;border:none;font-size:14px;cursor:pointer;">x</button>';
+      h += '<button data-ci="'+realIdx+'" onclick="deleteFuCard(this.dataset.ci*1)" style="padding:4px 8px;background:none;color:#d1d5db;border:none;font-size:14px;cursor:pointer;">x</button>';
       h += '</div></div>';
       if(isDone) {
         h += '<div style="font-size:12px;color:#94a3b8;line-height:1.6;white-space:pre-wrap;">'+esc(card.text)+'</div>';
       } else {
-        h += '<textarea onchange="editFuCard('+ci+',this.value)" rows="3" style="width:100%;padding:8px;border:1px solid #fef3c7;border-radius:6px;font-size:12px;line-height:1.6;resize:vertical;box-sizing:border-box;background:#fffbeb;">'+esc(card.text)+'</textarea>';
+        h += '<textarea data-ci="'+realIdx+'" onchange="editFuCard(this.dataset.ci*1,this.value)" rows="3" style="width:100%;padding:8px;border:1px solid #fef3c7;border-radius:6px;font-size:12px;line-height:1.6;resize:vertical;box-sizing:border-box;background:#fffbeb;">'+esc(card.text)+'</textarea>';
       }
       if(isDone && card.doneDate) h += '<div style="font-size:10px;color:#94a3b8;margin-top:4px;">対応日: '+esc(card.doneDate)+'</div>';
       h += '</div>';
     });
+    // 要追完メールからのカード（小さく表示・確認チェックで消える）
+    if(_tsuikanCards.length) {
+      h += '<div style="margin-top:16px;border-top:1px dashed #e2e8f0;padding-top:10px;">';
+      h += '<div style="font-size:10px;font-weight:700;color:#94a3b8;margin-bottom:6px;">📧 メールからの追完通知（確認したらチェック）</div>';
+      _tsuikanCards.forEach(function(card) {
+        var realIdx = fuCards.indexOf(card);
+        h += '<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 8px;background:#fffbeb;border:1px solid #fef3c7;border-radius:6px;margin-bottom:4px;">';
+        h += '<input type="checkbox" data-ci="'+realIdx+'" onchange="checkFuCard(this.dataset.ci*1,this.checked)" style="margin-top:3px;cursor:pointer;accent-color:#16a34a;flex-shrink:0;">';
+        h += '<div style="flex:1;min-width:0;">';
+        h += '<div style="font-size:10px;color:#94a3b8;margin-bottom:2px;">'+esc(card.date||'')+' — '+esc(card.type||'追完依頼')+'</div>';
+        h += '<div style="font-size:11px;color:#64748b;line-height:1.5;white-space:pre-wrap;word-break:break-all;">'+esc((card.text||'').slice(0,200)+(card.text&&card.text.length>200?'…':''))+'</div>';
+        h += '</div>';
+        h += '<button data-ci="'+realIdx+'" onclick="deleteFuCard(this.dataset.ci*1)" style="padding:2px 6px;background:none;color:#d1d5db;border:none;font-size:12px;cursor:pointer;flex-shrink:0;">x</button>';
+        h += '</div>';
+      });
+      h += '</div>';
+    }
     h += '</div>';
 
   } else if (tab === 'generate') {
@@ -23093,7 +23114,11 @@ var shinsaListData = []; try{shinsaListData=JSON.parse(localStorage.getItem('ofu
 var certListData = []; try{certListData=JSON.parse(localStorage.getItem('ofusa_certList'))||[];}catch(e){}
 var receiptListData = []; try{receiptListData=JSON.parse(localStorage.getItem('ofusa_receiptList'))||[];}catch(e){}
 // Gmail取込メール永続化
-var savedMails = []; try{savedMails=JSON.parse(localStorage.getItem('ofusa_savedMails'))||[];}catch(e){}
+var savedMails = []; try{
+  var _raw=JSON.parse(localStorage.getItem('ofusa_savedMails'))||[];
+  var _kb={'審査完了':1,'受付番号':1,'認定証明書':1};
+  savedMails=_raw.filter(function(m){return !!_kb[m.badge];});
+}catch(e){}
 // 各リストの選択状態
 var recSel={}, shinsaSel={}, certSel={};
 
@@ -23157,7 +23182,10 @@ function persistReceiptList(changedId){
     if(rows.length) _sb.from('receipt_archive').upsert(rows,{onConflict:'id'}).then(function(r){if(r&&r.error)console.error('receiptList bulk err:',r.error);});
   }
 }
-function persistSavedMails(){try{localStorage.setItem('ofusa_savedMails',JSON.stringify(savedMails));}catch(e){}
+function persistSavedMails(){
+  var _kb2={'審査完了':1,'受付番号':1,'認定証明書':1};
+  savedMails=savedMails.filter(function(m){return !!_kb2[m.badge];});
+  try{localStorage.setItem('ofusa_savedMails',JSON.stringify(savedMails));}catch(e){}
   if(DB_READY){_sb.from('settings').upsert({key:'saved_mails',value:JSON.stringify(savedMails)},{onConflict:'key'}).then(function(r){if(r.error)console.error('savedMails sync err:',r.error);});}
 }
 
@@ -24628,7 +24656,7 @@ function renderMadoguchiScreen() {
 function openGmail() {
   // 取込中なら状態を復元して表示
   if(bgImport.running || bgImport.logs.length) {
-    MAILS = savedMails.slice();
+    MAILS = savedMails.filter(function(m){return !!({'審査完了':1,'受付番号':1,'認定証明書':1})[m.badge];});
     renderMails();
     switchPanel('gmailScreen', 'nav-gmail');
     restoreImportUI();
@@ -29478,7 +29506,7 @@ function loadAllFromSupabase() {
             }catch(e){}
           }
           if(s.key==='saved_mails') {
-            try{var sm=typeof s.value==='string'?JSON.parse(s.value):s.value;if(sm&&Array.isArray(sm)){savedMails=sm;localStorage.setItem('ofusa_savedMails',JSON.stringify(sm));}}catch(e){}
+            try{var sm=typeof s.value==='string'?JSON.parse(s.value):s.value;if(sm&&Array.isArray(sm)){var _kb3={'審査完了':1,'受付番号':1,'認定証明書':1};savedMails=sm.filter(function(m){return !!_kb3[m.badge];});localStorage.setItem('ofusa_savedMails',JSON.stringify(sm));}}catch(e){}
           }
           // shinsa_list/cert_list/receipt_list は専用テーブルから読み込むためsettingsからは不要
           if(s.key==='edit_history') {
@@ -30609,7 +30637,7 @@ function moveTsuikanMails(){
     // メール本文から必要範囲を抽出
     var _rawText = m.body||m.snippet||m.sub||'';
     var _extracted = extractTsuikanText(_rawText);
-    cards.unshift({id:Date.now()+moved,date:m.date?m.date.slice(0,10):new Date().toISOString().slice(0,10),type:type,text:_extracted||m.sub||type,done:false,doneDate:''});
+    cards.push({id:Date.now()+moved,date:m.date?m.date.slice(0,10):new Date().toISOString().slice(0,10),type:type,text:_extracted||m.sub||type,done:false,doneDate:'',from_tsuikan:true,checked:false});
     saveFuCards(m.linkedCase,cards);
     console.log('[moveTsuikan] card added to',m.linkedCase,'cards:',cards.length);
     moved++;
@@ -30694,6 +30722,18 @@ function addFuCard(){
 function doneFuCard(idx){if(!currentCase)return;var cards=getFuCards(currentCase.id);if(!cards[idx])return;cards[idx].done=true;cards[idx].doneDate=new Date().toISOString().slice(0,10);var done=cards.filter(function(c){return c.done;}),pending=cards.filter(function(c){return!c.done;});saveFuCards(currentCase.id,pending.concat(done));showTab('followup');}
 function undoneFuCard(idx){if(!currentCase)return;var cards=getFuCards(currentCase.id);if(!cards[idx])return;cards[idx].done=false;cards[idx].doneDate='';var item=cards.splice(idx,1)[0];cards.unshift(item);saveFuCards(currentCase.id,cards);showTab('followup');}
 function deleteFuCard(idx){if(!currentCase)return;if(!confirm('削除しますか？'))return;var cards=getFuCards(currentCase.id);cards.splice(idx,1);saveFuCards(currentCase.id,cards);showTab('followup');}
+function checkFuCard(idx, checked) {
+  if(!currentCase) return;
+  var cards = getFuCards(currentCase.id);
+  if(!cards[idx]) return;
+  if(checked) {
+    cards[idx].checked = true;
+    cards[idx].checkedDate = new Date().toISOString().slice(0,10);
+    saveFuCards(currentCase.id, cards);
+    showToast('✅ 確認済みにしました');
+    setTimeout(function(){ showTab('followup'); }, 300);
+  }
+}
 function editFuCard(idx,val){if(!currentCase)return;var cards=getFuCards(currentCase.id);if(!cards[idx])return;cards[idx].text=val;saveFuCards(currentCase.id,cards);}
 // ===== /指摘・追完カード管理 =====
 
