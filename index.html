@@ -24703,7 +24703,7 @@ function selectMadoguchiCase(cid) {
 function saveMadoguchiNew() {
   var typeEl = document.querySelector('input[name="mg_type"]:checked');
   var type = typeEl ? typeEl.value : '受取';
-  var date = document.getElementById('mg_date').value;
+  var _dateEl = document.getElementById('mg_date'); var date = _dateEl ? _dateEl.value : ''; console.log('[madoguchi] date value:', date, 'type:', _dateEl && _dateEl.type);
   var requester = document.getElementById('mg_requester').value.trim();
   var memo = document.getElementById('mg_memo').value.trim();
 
@@ -24720,10 +24720,14 @@ function saveMadoguchiNew() {
     createdAt: new Date().toISOString()
   });
   try{ localStorage.setItem('ofusa_madoguchiRecords', JSON.stringify(window._madoguchiRecords)); }catch(e){}
+  console.log('[madoguchi] saved records:', window._madoguchiRecords.length, 'latest:', JSON.stringify(window._madoguchiRecords[window._madoguchiRecords.length-1]));
 
+  // デバッグ: localStorage確認
+  var _check = JSON.parse(localStorage.getItem('ofusa_madoguchiRecords')||'[]');
+  console.log('[madoguchi save] localStorage records:', _check.length, JSON.stringify(_check));
   closeMadoguchiNew();
   renderMadoguchiScreen();
-  showToast('✅ 窓口予定を登録しました');
+  showToast('✅ 窓口予定を登録しました（'+_check.length+'件）');
 }
 
 function autoSaveInfoFor(c, key, value) {
@@ -24780,7 +24784,9 @@ function renderMadoguchiScreen() {
   });
   // 独立した窓口記録（案件非紐付け）も追加
   window._madoguchiRecords = JSON.parse(localStorage.getItem('ofusa_madoguchiRecords')||'[]');
+  console.log('[madoguchi render] records:', window._madoguchiRecords.length, 'today:', today, 'showPast:', showPast);
   window._madoguchiRecords.forEach(function(r){
+    if(!r.date) return;
     if(!showPast && r.date < today) return;
     items.push({date:r.date, type:r.type, label:(r.type==='申請'?'🏢 窓口申請':'📦 窓口受取'), requester:r.requester, memo:r.memo, recordId:r.id, standalone:true});
   });
@@ -30378,7 +30384,12 @@ function gasGmailPost(action, data) {
     var done = false;
     var fullUrl = GAS_GMAIL_URL + '?callback=' + cbName + '&jsonpPost=' + encodeURIComponent(payload);
 
-    console.log('📡 gasGmailPost:', action);
+    console.log('📡 gasGmailPost:', action, 'URL length:', fullUrl.length);
+    if(fullUrl.length > 8000){
+      console.error('❌ URL too long:', fullUrl.length, 'chars');
+      resolve({status:'error', message:'URLが長すぎます('+fullUrl.length+'文字)。bodyを削除してください'});
+      return;
+    }
 
     // Supabase Edge Functionプロキシ経由
     if (USE_GAS_PROXY) {
