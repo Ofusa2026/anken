@@ -10146,7 +10146,8 @@ function persistSupportOrgs(soId) {
         staff: s.staff||null, last_visit: s.lastVisit||null,
         drive_url: s.driveUrl||null, spreadsheet_url: s.spreadsheetUrl||null,
         company_note: s.companyNote||null,
-        ofusa_staff: s.ofusaStaff||null, memo: s.memo||null, folder_no: s.folderNo||null,
+        ofusa_team: s.ofusaTeam||null,
+        memo: s.memo||null, folder_no: s.folderNo||null,
         updated_at: new Date().toISOString()
       };
     });
@@ -10317,12 +10318,12 @@ var SUPPORT_FIELDS = [
   {key:'jjTel',                 label:'職業紹介事業者 電話番号',        type:'text',  placeholder:'0312345678'},
   {key:'jjPermitNo',            label:'職業紹介事業者 許可届出番号',    type:'text',  placeholder:''},
   {key:'jjPermitDate',          label:'職業紹介事業者 受理年月日',      type:'text',  placeholder:'YYYYMMDD'},
-  {key:'ofusaStaff',            label:'大房担当',                       type:'text',  section:'大房担当', placeholder:''},
   {key:'supportManagerName',     label:'支援担当者 氏名',                 type:'text',  section:'大房担当', placeholder:'山田 太郎'},
   {key:'supportManagerTitle',    label:'支援担当者 役職',                 type:'text',  section:'大房担当', placeholder:'支援責任者'},
   {key:'supportManagerNameEn',   label:'支援担当者 氏名（英語）',         type:'text',  section:'大房担当', placeholder:'YAMADA TARO'},
   {key:'supportManagerTitleEn',  label:'支援担当者 役職（英語）',         type:'text',  section:'大房担当', placeholder:'Support Manager'},
   {key:'lastVisit',             label:'直近訪問日',                     type:'date',  section:'大房担当', placeholder:''},
+  {key:'ofusaTeam',              label:'担当チーム',                     type:'select',section:'大房担当', placeholder:'', opts:TEAM_LIST},
   {key:'staff',                 label:'担当スタッフ',                   type:'user',  section:'大房担当', placeholder:''},
   {key:'driveUrl',              label:'ドライブURL',                    type:'text',  section:'大房担当', placeholder:'https://drive.google.com/...'},
   {key:'spreadsheetUrl',        label:'共有スプレッドシートURL',         type:'text',  section:'大房担当', placeholder:'https://docs.google.com/spreadsheets/...'},
@@ -10403,7 +10404,7 @@ function renderSupportList() {
   var q = (document.getElementById('supportSearch')||{}).value||'';
   var list = supportOrgs.filter(function(o){
     if (!q) return true;
-    return (o.name+(o.displayName||'')+o.nameEn+o.pref+o.ofusaStaff+(o.folderNo||'')).toLowerCase().indexOf(q.toLowerCase())!==-1;
+    return (o.name+(o.displayName||'')+o.nameEn+o.pref+(o.folderNo||'')).toLowerCase().indexOf(q.toLowerCase())!==-1;
   });
   // フォルダ番号順ソート（番号あり→番号順、なし→末尾）
   list.sort(function(a,b){
@@ -10427,7 +10428,7 @@ function renderSupportList() {
     if(cnt) h+='<span style="font-size:10px;background:#eff6ff;color:var(--blue);padding:1px 5px;border-radius:8px;font-weight:700;flex-shrink:0;">'+cnt+'社</span>';
     h+='</div>';
     if(o.displayName && o.displayName !== o.name) h+='<div style="font-size:9px;color:var(--gray-400);margin-bottom:1px;">'+o.name+'</div>';
-    h+='<div style="font-size:10px;color:var(--gray-400);">'+(o.pref||'')+(o.ofusaStaff?'　担当：'+o.ofusaStaff:'')+'</div></div>';
+    h+='<div style="font-size:10px;color:var(--gray-400);">'+(o.pref||'')+(o.ofusaTeam?' · '+o.ofusaTeam:'')+'</div></div>';
     h+='<div style="padding:4px 12px 8px;display:flex;align-items:center;gap:6px;" onclick="event.stopPropagation()">';
     h+='<span style="font-size:10px;color:var(--gray-400);font-weight:700;white-space:nowrap;">📁</span>';
     h+='<input type="text" value="'+(o.folderNo||'')+'" placeholder="No." onchange="saveSupportFolderNo(\''+o.id+'\',this.value)" onclick="event.stopPropagation()" style="font-size:12px;font-weight:700;color:var(--navy);border:1px solid var(--gray-200);border-radius:5px;padding:2px 6px;width:70px;background:'+(o.folderNo?'#f0fdf4':'#f8fafc')+';">';
@@ -10485,7 +10486,7 @@ function renderSupportDetail(o) {
       {key:'jjAddressDetail',l:'町名丁目番地号等',w:1},{key:'jjTel',l:'電話番号'},{key:'jjPermitNo',l:'許可届出番号'},{key:'jjPermitDate',l:'受理年月日'}
     ]},
     {title:'🔧 管理',color:'var(--gray-400)',fields:[
-      {key:'ofusaStaff',l:'大房担当'},{key:'staff',l:'担当スタッフ',t:'user'},{key:'lastVisit',l:'直近訪問日',t:'date'},
+{key:'staff',l:'担当スタッフ',t:'user'},{key:'lastVisit',l:'直近訪問日',t:'date'},
       {key:'driveUrl',l:'ドライブURL',w:1},{key:'spreadsheetUrl',l:'スプレッドシートURL',w:1},{key:'memo',l:'メモ',w:1}
     ]}
   ];
@@ -10666,7 +10667,7 @@ function renderSupportTree() {
     var cnt=countMap[so.name]||0;
     var short=so.displayName||so.name.replace(/株式会社|有限会社|合同会社|一般社団法人/g,'').trim();
     var folderBadge=so.folderNo?'<span style="font-size:10px;background:#eff6ff;color:var(--blue);padding:1px 7px;border-radius:4px;font-weight:700;">📁 '+so.folderNo+'</span>':'<span style="font-size:10px;color:#94a3b8;">📁 未設定</span>';
-    h+=treeItem(so.name,'🏢 '+short,cnt,'<div style="display:flex;align-items:center;gap:8px;margin-top:3px;">'+folderBadge+(so.ofusaStaff?'<span style="font-size:10px;color:#64748b;">👤 '+so.ofusaStaff+'</span>':'')+'</div>');
+    h+=treeItem(so.name,'🏢 '+short,cnt,'<div style="display:flex;align-items:center;gap:8px;margin-top:3px;">'+folderBadge+'</div>');
   });
   el.innerHTML=h;
 }
@@ -10685,7 +10686,7 @@ function renderSupportForm(o) {
     {title:'連絡先・代表者',fields:['tel','repName','repNameEn']},
     {title:'サービス',fields:['languages','jobPermitNo','jobPermitDate']},
     {title:'職業紹介事業者',fields:['jjName','jjCorpNoType','jjCorpNo','jjEmpInsNo','jjZip','jjPref','jjCity','jjAddressDetail','jjTel','jjPermitNo','jjPermitDate']},
-    {title:'大房担当',fields:['ofusaStaff','supportManagerName','supportManagerTitle','supportManagerNameEn','supportManagerTitleEn','staff','lastVisit','driveUrl','spreadsheetUrl','companyNote','memo']}
+    {title:'大房担当',fields:['ofusaTeam','supportManagerName','supportManagerTitle','supportManagerNameEn','supportManagerTitleEn','staff','lastVisit','driveUrl','spreadsheetUrl','companyNote','memo']}
   ];
   var fieldMap={};
   SUPPORT_FIELDS.forEach(function(f){fieldMap[f.key]=f;});
@@ -10960,7 +10961,7 @@ function exportSupportOrgCsv(){
     {h:'支援責任者ふりがな',f:function(s){return s.supportManagerKana||'';}},
     {h:'支援責任者役職',f:function(s){return s.supportManagerTitle||'';}},
     {h:'雇用保険番号',f:function(s){return s.empInsNo||'';}},
-    {h:'大房担当',f:function(s){return s.ofusaStaff||'';}},
+
     {h:'企業数',f:function(s){return companies.filter(function(co){return co.supportOrgName===s.name;}).length;}}
   ];
   var sorted=supportOrgs.slice().sort(function(a,b){
@@ -11332,7 +11333,7 @@ function updateSupportField(el){
   }
   persistSupportOrgs(orgId);
   // 名称変更時はリスト更新
-  if(fk==='name'||fk==='displayName'||fk==='ofusaStaff'||fk==='folderNo'){
+  if(fk==='name'||fk==='displayName'||fk==='folderNo'){
     renderSupportList();renderSupportTree();
   }
 }
@@ -11568,7 +11569,7 @@ function processSupportExcel(binaryData){
     var map={};
     rows.forEach(function(row){if(row[0]) map[String(row[0]).trim()]=row[1]!=null?String(row[1]):'';});
     function v(key){return (map[key]||'').trim();}
-    var data={id:'s'+Date.now(),name:v('登録支援機関名'),nameEn:v('英語登録支援機関名'),corpNo:v('法人番号'),empInsNo:v('雇用保険適用事業所番号'),pref:v('住所（都道府県）'),city:v('住所（市区町村）'),addressDetail:v('住所（町名丁目番地号等）'),zip:v('郵便番号'),tel:v('電話番号'),repName:v('代表者氏名'),repNameEn:v('英語代表者名'),regNo:v('登録番号'),regDate:v('登録年月日'),addressEn:v('英語住所'),languages:v('対応可能言語'),officeName:v('支援事業所名'),officeZip:v('支援事務所郵便番号'),officePref:v('支援事務所住所(都道府県)'),officeCity:v('支援事務所住所(市区町村)'),officeAddressDetail:v('支援事務所住所(町名丁目番地号等)'),officeTel:v('支援事務所電話番号'),supportManager:v('支援責任者'),officeAddressEn:v('英語支援事務所住所'),supportManagerKana:v('支援責任者ふりがな'),supportManagerTitle:v('支援責任者役職'),supporterCount:v('支援者数'),supportStaffCount:v('支援担当者数'),supportStaff:v('支援担当者'),jobPermitNo:v('職業紹介事業者許可番号'),jobPermitDate:v('職業紹介事業受理年月日'),ofusaStaff:'',memo:'',folderNo:'',lastVisit:'',staff:''};
+    var data={id:'s'+Date.now(),name:v('登録支援機関名'),nameEn:v('英語登録支援機関名'),corpNo:v('法人番号'),empInsNo:v('雇用保険適用事業所番号'),pref:v('住所（都道府県）'),city:v('住所（市区町村）'),addressDetail:v('住所（町名丁目番地号等）'),zip:v('郵便番号'),tel:v('電話番号'),repName:v('代表者氏名'),repNameEn:v('英語代表者名'),regNo:v('登録番号'),regDate:v('登録年月日'),addressEn:v('英語住所'),languages:v('対応可能言語'),officeName:v('支援事業所名'),officeZip:v('支援事務所郵便番号'),officePref:v('支援事務所住所(都道府県)'),officeCity:v('支援事務所住所(市区町村)'),officeAddressDetail:v('支援事務所住所(町名丁目番地号等)'),officeTel:v('支援事務所電話番号'),supportManager:v('支援責任者'),officeAddressEn:v('英語支援事務所住所'),supportManagerKana:v('支援責任者ふりがな'),supportManagerTitle:v('支援責任者役職'),supporterCount:v('支援者数'),supportStaffCount:v('支援担当者数'),supportStaff:v('支援担当者'),jobPermitNo:v('職業紹介事業者許可番号'),jobPermitDate:v('職業紹介事業受理年月日'),ofusaTeam:'',memo:'',folderNo:'',lastVisit:'',staff:''};
     // 住所結合
     data.address=(data.pref||'')+(data.city||'')+(data.addressDetail||'');
     data.officeAddress=(data.officePref||'')+(data.officeCity||'')+(data.officeAddressDetail||'');
@@ -30103,6 +30104,7 @@ function loadAllFromSupabase() {
           pref:r.pref||'', city:r.city||'', addressDetail:r.address_detail||'',
           address:r.address||'', addressEn:r.address_en||'', tel:r.tel||'', repName:r.rep_name||'', repNameKana:r.rep_name_kana||'',
           repNameEn:r.rep_name_en||'', languages:r.languages||'',
+          ofusaTeam:r.ofusa_team||'',
           displayName:r.display_name||'',
           supportManager:r.support_manager||'',
           supportManagerKana:r.support_manager_kana||'', supportManagerTitle:r.support_manager_title||'',
