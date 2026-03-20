@@ -9944,9 +9944,10 @@ function importFormResponse(responseId, caseId, formType) {
           var dest = _coKeyMap[k];
           if (dest) _coData[dest] = response[k];
           else if (/^officer\d/.test(k)) _coData[k] = response[k]; // 役員情報はそのまま
-          else if (k === 'consultName') { _coData[k] = response[k]; _esData['contactPerson'] = response[k]; }
-          else if (k === 'consultTel')  { _coData[k] = response[k]; _esData['contactTel']    = response[k]; }
-          else if (k === 'consultDept') { _coData[k] = response[k]; _esData['contactTitle']   = response[k]; }
+          else if (k === 'consultName')  { _coData[k] = response[k]; _esData['contactPerson'] = response[k]; }
+          else if (k === 'consultTel')   { _coData[k] = response[k]; _esData['contactTel']    = response[k]; }
+          else if (k === 'consultDept')  { _coData[k] = response[k]; _esData['contactDept']   = response[k]; }
+          else if (k === 'consultTitle') { _coData[k] = response[k]; _esData['contactTitle']  = response[k]; }
           else if (k === 'consultNameEn') _coData[k] = response[k];
         });
         Object.assign(co, _coData);
@@ -13124,6 +13125,7 @@ var EMP_SET_FIELDS = [
     {k:'resignNoticeDays',l:'自己都合退職 何日前までに申し出るか',ph:'30',type:'number',tr:1}
   ]},
   {section:'相談窓口', fields:[
+    {k:'contactDept',l:'相談窓口 部署名',ph:'例: 人事部',tr:1},
     {k:'contactTitle',l:'相談窓口 担当者の役職',ph:'総務部長',tr:1},
     {k:'contactPerson',l:'相談窓口 担当者名',ph:'',tr:1},
     {k:'contactTel',l:'相談窓口 連絡先',ph:'',tr:1}
@@ -14945,7 +14947,15 @@ function showMappingPreview() {
     if(field==='co.supportOrgName'){return co.supportOrgName||c.org||'';}
     if(field==='co.supportOrgNumber'){var _sonn=co.supportOrgName||c.org||'';var _soObjN=supportOrgs.find(function(x){return x.name===_sonn;})||{};return co.supportOrgNumber||_soObjN.regNo||'';}
     if(field.indexOf('co.')===0) return co[field.substring(3)]||'';
-    if(field.indexOf('es.')===0){var k=field.substring(3);k=(_ES_ALIAS&&_ES_ALIAS[k])||k;return es[k]!=null&&es[k]!=='' ? String(es[k]) : '';}
+    if(field.indexOf('es.')===0){var k=field.substring(3);k=(_ES_ALIAS&&_ES_ALIAS[k])||k;
+      if(es[k]!=null&&es[k]!==''){
+        var _CNKS={salaryMonthly:1,salaryHourly:1,salaryDaily:1,totalMonthly:1,calcMonthly:1,calcHourly:1,allowance1Amt:1,allowance2Amt:1,allowance3Amt:1,allowance4Amt:1,fixedOTAmount:1,fixedOTAmt:1,deductTax:1,deductSocial:1,deductEmployment:1,deductHousing:1,deductFood:1,deductUtility:1,deductOther1Amount:1,deductOther2Amount:1,deductTotal:1,netPay:1,jpCompSalary:1,jpCompAllow1Amt:1,jpCompAllow2Amt:1,jpCompAllow3Amt:1,salaryRuleApply:1};
+        var _rv=es[k];
+        if(_CNKS[k]&&!isNaN(Number(String(_rv).replace(/,/g,'')))){return Number(String(_rv).replace(/,/g,'')).toLocaleString('ja-JP');}
+        return String(_rv);
+      }
+      return '';
+    }
     if(field.indexOf('so.')===0){var _soName=co.supportOrgName||c.org||'';var _so=supportOrgs.find(function(x){return x.name===_soName;})||{};
       var _soF=field.substring(3);
       // 登録年月日の分割
@@ -15225,6 +15235,8 @@ var _ES_ALIAS = {
   'workRulesAccess':'ruleConfirmPlace',
   'workRulesAccessEn':'ruleConfirmPlaceEn',
   // 相談窓口
+  'consultDept':'contactDept',
+  'consultantDept':'contactDept',
   'consultantName':'contactPerson',
   'consultantNameEn':'contactPersonEn',
   'consultantTitle':'contactTitle',
@@ -15918,7 +15930,24 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
       // 事業所電話（officeTelがなければ相談窓口の電話）
       if(k==='officeTel') return es.officeTel||es.contactTel||co.tel||'';
       if(k==='officeTelEn') return es.officeTelEn||es.contactTelEn||es.contactTel||co.tel||'';
-      if(es[k]!=null&&es[k]!=='') return String(es[k]);
+
+      // 金額フィールドはカンマ区切りで返す
+      var _COMMA_NUM_KEYS = {
+        salaryMonthly:1,salaryHourly:1,salaryDaily:1,totalMonthly:1,calcMonthly:1,calcHourly:1,
+        allowance1Amt:1,allowance2Amt:1,allowance3Amt:1,allowance4Amt:1,
+        fixedOTAmount:1,fixedOTAmt:1,
+        deductTax:1,deductSocial:1,deductEmployment:1,
+        deductHousing:1,deductFood:1,deductUtility:1,deductOther1Amount:1,deductOther2Amount:1,deductTotal:1,
+        netPay:1,
+        jpCompSalary:1,jpCompAllow1Amt:1,jpCompAllow2Amt:1,jpCompAllow3Amt:1,salaryRuleApply:1
+      };
+      if(es[k]!=null&&es[k]!==''){
+        var _rawV = es[k];
+        if(_COMMA_NUM_KEYS[k] && _rawV !== '' && !isNaN(Number(String(_rawV).replace(/,/g,'')))){
+          return Number(String(_rawV).replace(/,/g,'')).toLocaleString('ja-JP');
+        }
+        return String(_rawV);
+      }
       // es.に値がない場合、所属機関基本情報からフォールバック
       if(k==='orgName'){console.log('[rv debug] orgName → co.name=',co.name,'co=',Object.keys(co).length,'keys');return co.name||'';}
       if(k==='orgNameEn') return co.nameEn||'';
