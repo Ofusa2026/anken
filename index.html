@@ -7635,6 +7635,28 @@ function resetAllTaskStatus(){
   }
 }
 
+
+function bulkCalcTokurei(){
+  if(!confirm('特例期限が未入力の案件に、在留期限+2ヶ月を一括入力します。よろしいですか？')) return;
+  var statusEl = document.getElementById('tokureiCalcStatus');
+  var count = 0;
+  var targets = cData.filter(function(c){ return c.expire && !c.tokureiDate; });
+  if(!targets.length){ if(statusEl) statusEl.textContent = '対象案件なし（全件入力済み）'; return; }
+  targets.forEach(function(c){
+    var auto = addTwoMonths(c.expire);
+    if(!auto) return;
+    c.tokureiDate = auto;
+    count++;
+    if(DB_READY){
+      _sb.from('cases').update({tokurei_date: auto}).eq('id', c.id).then(function(r){
+        if(r&&r.error) console.error('tokurei update err:', r.error, c.id);
+      });
+    }
+  });
+  try{localStorage.setItem('ofusa_cases', JSON.stringify(cData));}catch(e){}
+  if(statusEl) statusEl.textContent = '✅ ' + count + '件の特例期限を計算しました';
+  showToast('✅ ' + count + '件の特例期限を一括計算しました');
+}
 function resetAllPasswords(){
   if(!confirm('全員のパスワードを 0000 にリセットしますか？'))return;
   USERS.forEach(function(u,i){
@@ -7831,6 +7853,12 @@ function renderAdminUsers(){
   });
   h+='<button onclick="persistUsers(true);showToast(\'✅ Supabaseに保存しました\')" style="margin-top:12px;width:100%;padding:10px;background:var(--blue);color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">💾 保存（Supabase同期）</button>';
   h+='<button onclick="resetAllPasswords()" style="margin-top:8px;width:100%;padding:8px;background:white;color:#dc2626;border:1.5px solid #fca5a5;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🔑 全員パスワードを0000にリセット</button>';
+  h+='<div style="margin-top:24px;padding-top:16px;border-top:2px solid var(--gray-200);">';
+  h+='<div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:8px;">⚖️ 特例期限 一括自動計算</div>';
+  h+='<div style="font-size:11px;color:var(--gray-400);margin-bottom:10px;">特例期限が未入力の案件に、在留期限+2ヶ月を自動入力します。</div>';
+  h+='<button onclick="bulkCalcTokurei()" style="width:100%;padding:10px;background:white;color:#b45309;border:1.5px solid #fbbf24;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">⚖️ 特例期限を一括計算</button>';
+  h+='<div id="tokureiCalcStatus" style="margin-top:6px;font-size:11px;color:var(--gray-400);"></div>';
+  h+='</div>';
   h+='<div style="margin-top:24px;padding-top:16px;border-top:2px solid var(--gray-200);">';
   h+='<div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:8px;">🔄 タスクステータス一括リセット</div>';
   h+='<div style="font-size:11px;color:var(--gray-400);margin-bottom:10px;">全案件・全タスクのステータスを「未着手(0)」にリセットします。</div>';
