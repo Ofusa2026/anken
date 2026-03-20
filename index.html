@@ -10115,8 +10115,9 @@ var companies = [];
 var _persistSupportOrgsTimer = null;
 function persistSupportOrgs(soId) {
   try { localStorage.setItem('ofusa_supportOrgs', JSON.stringify(supportOrgs)); } catch(e) {}
-  // soIdが指定された場合はその1件だけ、なければ全件（起動時同期等）
-  var targetOrgs = soId ? supportOrgs.filter(function(s){ return s.id === soId; }) : supportOrgs;
+  // soIdが必須（引数なしの全件送信は禁止）
+  if (!soId) return;
+  var targetOrgs = supportOrgs.filter(function(s){ return s.id === soId; });
   // デバウンス: 500ms以内の連続呼び出しをまとめて1回だけDB送信
   clearTimeout(_persistSupportOrgsTimer);
   _persistSupportOrgsTimer = setTimeout(function() {
@@ -11544,7 +11545,14 @@ function deleteSupport(id){
   var o=supportOrgs.find(function(x){return x.id===id;});
   if(!o||!confirm(o.name+' を削除しますか？')) return;
   supportOrgs=supportOrgs.filter(function(x){return x.id!==id;});
-  persistSupportOrgs();
+  try{localStorage.setItem('ofusa_supportOrgs',JSON.stringify(supportOrgs));}catch(e){}
+  // Supabaseから直接削除（全件upsertしない）
+  if(DB_READY){
+    _sb.from('support_orgs').delete().eq('id',id).then(function(r){
+      if(r&&r.error) console.error('deleteSupport error:',r.error);
+      else console.log('✅ support_org deleted:',id);
+    });
+  }
   if(window._selectedSupportId===id) window._selectedSupportId=null;
   renderSupportList(); renderSupportTree();
   var el=document.getElementById('supportDetail'); if(el) el.innerHTML='';
@@ -16522,7 +16530,7 @@ function importSyncData(){
     if(obj.cases && obj.cases.length){ cData=obj.cases; persist(); }
     if(obj.users && obj.users.length){ USERS=obj.users; persistUsers(); }
     if(obj.teamData){ teamData=obj.teamData; persistTeamData(); }
-    if(obj.supportOrgs){ supportOrgs=obj.supportOrgs; persistSupportOrgs(); }
+    if(obj.supportOrgs){ supportOrgs=obj.supportOrgs; try{localStorage.setItem('ofusa_supportOrgs',JSON.stringify(supportOrgs));}catch(e){} }
     if(obj.companies){ companies=obj.companies; persistCompanies(); }
     if(obj.personData){ personData=obj.personData; persistPersonData(); }
     if(obj.caseNotes){ caseNotes=obj.caseNotes; try{localStorage.setItem('ofusa_caseNotes',JSON.stringify(caseNotes));}catch(e){} }
