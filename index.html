@@ -9925,6 +9925,7 @@ function importFormResponse(responseId, caseId, formType) {
           'jobDescription',
           'jpCompAllow1Name','jpCompAllow1Amt','jpCompAllow2Name','jpCompAllow2Amt',
           'jpCompAllow3Name','jpCompAllow3Amt','salaryRuleApply',
+          'housingOwnership','cohabitants','actualCostDesc',
           'foodProvided','foodDetail','housingProvided','housingDetail',
           'insKenpo','insPension','insEmp','insLabor',
           'salaryRaise','salaryRaiseCond','bonus','bonusCond','retirement','retirementDetail',
@@ -9940,7 +9941,10 @@ function importFormResponse(responseId, caseId, formType) {
           var dest = _coKeyMap[k];
           if (dest) _coData[dest] = response[k];
           else if (/^officer\d/.test(k)) _coData[k] = response[k]; // 役員情報はそのまま
-          else if (['consultDept','consultName','consultNameEn','consultTel'].indexOf(k) >= 0) _coData[k] = response[k];
+          else if (k === 'consultName') { _coData[k] = response[k]; _esData['contactPerson'] = response[k]; }
+          else if (k === 'consultTel')  { _coData[k] = response[k]; _esData['contactTel']    = response[k]; }
+          else if (k === 'consultDept') { _coData[k] = response[k]; _esData['contactTitle']   = response[k]; }
+          else if (k === 'consultNameEn') _coData[k] = response[k];
         });
         Object.assign(co, _coData);
         // officer1Name等のフラット形式をco.officers配列に変換
@@ -9970,10 +9974,31 @@ function importFormResponse(responseId, caseId, formType) {
             else if (st === '日給' || st === 'daily') es.salaryDaily = _salaryAmt;
             else es.salaryMonthly = _salaryAmt;
           }
+          // フォームキー → EMP_SET_FIELDSキーの変換マップ
+          var _esKeyConvert = {
+            officeAddress: 'officeAddr',
+            officeAddressEn: 'officeAddrEn',
+            officeTel: 'officeContact',
+            jobDescription: 'foreignerJobDesc',
+            allowance1Amount: 'allowance1Amt',
+            allowance2Amount: 'allowance2Amt',
+            allowance3Amount: 'allowance3Amt',
+            allowance4Amount: 'allowance4Amt'
+          };
           Object.keys(_esData).forEach(function(k){
             if (k === 'salaryType' || k === 'salaryAmt' || k === 'salaryMonthly') return;
-            es[k] = _esData[k];
+            var destKey = _esKeyConvert[k] || k;
+            es[destKey] = _esData[k];
           });
+          // 分フィールドを自動セット（整数なら0、小数なら端数×60）
+          function _toMins(hVal) {
+            var s = String(hVal || ''); var d = s.indexOf('.');
+            if (!s || d < 0) return '0';
+            return String(Math.round(parseFloat('0.' + s.substring(d + 1)) * 60));
+          }
+          if (es.dailyHours  && !es.dailyMins)  es.dailyMins  = _toMins(es.dailyHours);
+          if (es.monthlyH    && !es.monthlyMins) es.monthlyMins = _toMins(es.monthlyH);
+          if (es.yearlyH     && !es.yearlyMins)  es.yearlyMins  = _toMins(es.yearlyH);
           co.empSets.push(es);
         }
         persistCompanies(co.id);
@@ -10429,7 +10454,6 @@ var COMPANY_FIELDS = [
   {key:'employees',     label:'常勤職員数',                   type:'text',  section:'財務情報', placeholder:''},
   {key:'foreignEmployees',label:'外国人職員数',              type:'text',  section:'財務情報', placeholder:''},
   {key:'techTrainees',  label:'技能実習生数',                 type:'text',  section:'財務情報', placeholder:''},
-  {key:'jpSalary',      label:'日本人の月額報酬（円）',       type:'text',  section:'財務情報', placeholder:''},
   {key:'jpVoluntaryQuit',label:'(日本人)自発的離職者',       type:'text',  section:'財務情報', placeholder:'例：0'},
   {key:'jpInvoluntaryQuit',label:'(日本人)非自発的離職者',  type:'text',  section:'財務情報', placeholder:'例：0'},
   {key:'fnVoluntaryQuit',label:'(外国人)自発的離職者',      type:'text',  section:'財務情報', placeholder:'例：0'},
@@ -13040,18 +13064,15 @@ var EMP_SET_FIELDS = [
   {section:'昇給・賞与・退職金', fields:[
     {k:'salaryRaise',l:'昇給',ph:'',type:'select',opts:['','有','無']},
     {k:'salaryRaiseCond',l:'昇給 条件・時期',ph:'例: 毎年4月（査定による）',tr:1},
-    {k:'raiseDetails',l:'昇給 詳細',ph:'',tr:1},
     {k:'bonus',l:'賞与',ph:'',type:'select',opts:['','有','無']},
     {k:'bonusCond',l:'賞与 条件・時期',ph:'例: 年2回（6月・12月）',tr:1},
-    {k:'bonusDetails',l:'賞与 詳細',ph:'',tr:1},
     {k:'retirement',l:'退職金',ph:'',type:'select',opts:['','有','無']},
-    {k:'retirementDetail',l:'退職金 制度内容',ph:'例: 勤続3年以上',tr:1},
-    {k:'severanceDetails',l:'退職金 詳細',ph:'',tr:1}
+    {k:'retirementDetail',l:'退職金 制度内容',ph:'例: 勤続3年以上',tr:1}
   ]},
   {section:'支払方法・締め日', fields:[
     {k:'payMethod',l:'支払方法',ph:'',type:'select',opts:['','口座振込','現金','その他']},
-    {k:'payCutoffDay',l:'締め日',ph:'例: 毎月末日',tr:1},
-    {k:'payDay',l:'支払日',ph:'例: 翌月25日',tr:1}
+    {k:'payCutoffDay',l:'締め日',type:'paydate',tr:1},
+    {k:'payDay',l:'支払日',type:'paydate',tr:1}
   ]},
   {section:'社会保険', fields:[
     {k:'deductSocial',l:'社会保険料 概算額（円）',ph:'30000',type:'number',tr:1},
@@ -13329,6 +13350,24 @@ function editEmpSet(coId, idx) {
         h += '<input id="esf_'+_csEnKey+'" type="text" value="'+_csEnVal+'" placeholder="翻訳" style="width:100%;padding:7px 10px;border:1px solid #c4b5fd;border-radius:7px;font-size:12px;box-sizing:border-box;background:#faf5ff;">';
         h += '</div>';
         return;
+      } else if (f.type === 'paydate') {
+        // 毎月/翌月 + 末/1〜31日 の2連セレクト
+        var _pdParts = val.match(/^(毎月|翌月)(.+)?$/) || [];
+        var _pdMonth = _pdParts[1] || '';
+        var _pdDay   = (_pdParts[2] || '').replace('日','');
+        var _pdSel = function(id, curVal, opts) {
+          var s = '<select id="esf_' + id + '" onchange="saveEsfPaydate(\''+f.k+'\',\''+coId+'\','+idx+')" style="flex:1;padding:6px 8px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;background:white;">';
+          opts.forEach(function(o){ s += '<option value="'+o+'"'+(o===curVal?' selected':'')+'>'+(o===''?'— —':o)+'</option>'; });
+          return s + '</select>';
+        };
+        var _dayOpts = ['','末'];
+        for(var _di=1;_di<=31;_di++) _dayOpts.push(String(_di));
+        h += '<div style="display:flex;align-items:center;gap:4px;">';
+        h += _pdSel(f.k+'_month', _pdMonth, ['','毎月','翌月']);
+        h += '<span style="color:#6b7280;font-size:12px;">⇨</span>';
+        h += _pdSel(f.k+'_day', _pdDay, _dayOpts);
+        h += '<span style="color:#6b7280;font-size:12px;">⇦</span>';
+        h += '</div>';
       } else if (f.type === 'select') {
         h += '<select id="esf_' + f.k + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;box-sizing:border-box;background:white;">';
         (f.opts||[]).forEach(function(o){ h += '<option value="'+o+'"'+(o===val?' selected':'')+'>'+(o===''?'— 選択 —':o)+'</option>'; });
@@ -13543,6 +13582,20 @@ function saveEmpSet(coId, idx) {
       return;
     }
     sec.fields.forEach(function(f) {
+      if (f.type === 'paydate') {
+        // 2連セレクト（毎月/翌月 + 末/日）を結合して保存
+        var _mEl = document.getElementById('esf_' + f.k + '_month');
+        var _dEl = document.getElementById('esf_' + f.k + '_day');
+        if (_mEl && _dEl) {
+          var _m = _mEl.value, _d = _dEl.value;
+          es[f.k] = (_m && _d) ? _m + (_d === '末' ? '末' : _d + '日') : (_m || _d || '');
+        }
+        if (f.tr) {
+          var elEn = document.getElementById('esf_' + f.k + 'En');
+          if (elEn) es[f.k + 'En'] = elEn.value.trim();
+        }
+        return;
+      }
       var el = document.getElementById('esf_' + f.k);
       if (el) es[f.k] = el.tagName === 'TEXTAREA' ? el.value : el.value.trim();
       var hasTrField = f.tr || f.type === 'fieldSelect' || f.type === 'fieldSelect2' || f.type === 'catSelect' || f.type === 'catSelect2';
