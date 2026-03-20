@@ -9932,6 +9932,21 @@ function importFormResponse(responseId, caseId, formType) {
           else if (['consultDept','consultName','consultNameEn','consultTel'].indexOf(k) >= 0) _coData[k] = response[k];
         });
         Object.assign(co, _coData);
+        // officer1Name等のフラット形式をco.officers配列に変換
+        (function(){
+          var maxIdx = 0;
+          Object.keys(_coData).forEach(function(k){ var m=k.match(/^officer(\d+)/); if(m) maxIdx=Math.max(maxIdx,parseInt(m[1])); });
+          if(maxIdx>0){
+            if(!co.officers) co.officers=[];
+            for(var oi=1;oi<=maxIdx;oi++){
+              var n=co['officer'+oi+'Name']||'', kn=co['officer'+oi+'Kana']||'', t=co['officer'+oi+'Title']||'';
+              if(n||kn||t){
+                while(co.officers.length<oi) co.officers.push({name:'',kana:'',title:''});
+                co.officers[oi-1]={name:n,kana:kn,title:t};
+              }
+            }
+          }
+        })();
         if (Object.keys(_esData).length > 0) {
           if (!co.empSets) co.empSets = [];
           // 常に新規セットとして追加
@@ -15766,7 +15781,7 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
     if(field==='es.contractEndM'){var ce2=es.contractEndM||(es.contractEnd||'').split(/[-\/]/)[1]||'';return ce2?String(parseInt(ce2,10)):'';}
     if(field==='es.contractEndD'){var ce3=es.contractEndD||(es.contractEnd||'').split(/[-\/]/)[2]||'';return ce3?String(parseInt(ce3,10)):'';}
     // 分野・区分のフォールバック
-    if(field==='es.applicantField') return es.applicantField||es.field||c.applicantField||'';
+    if(field==='es.applicantField'){var _af=es.applicantField||es.field||c.applicantField||'';return _af.replace(/（特定技能[１２]号）/g,'');}
     if(field==='es.weeklyHours') return es.weeklyHours||es.workHoursWeek||'';
     if(field==='es.monthlyHours') return es.monthlyHours||'';
     if(field==='es.salaryMonthly') return es.salaryMonthly||es.salary||'';
@@ -15802,7 +15817,8 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
       if(k==='contractEndY'){var _ce=p.contractEnd||'';return p.contractEndY||(_ce.split(/[-\/]/)[0]||'');}
       if(k==='contractEndM'){var _ce=p.contractEnd||'';var _cem=p.contractEndM||(_ce.split(/[-\/]/)[1]||'');return _cem?String(parseInt(_cem,10)):'';}
       if(k==='contractEndD'){var _ce=p.contractEnd||'';var _ced=p.contractEndD||(_ce.split(/[-\/]/)[2]||'');return _ced?String(parseInt(_ced,10)):'';}
-      if(k==='applicantField') return es.applicantField||es.field||c.applicantField||'';
+      if(k==='applicantField'){var _af2=es.applicantField||es.field||c.applicantField||'';return _af2.replace(/（特定技能[１２]号）/g,'');}
+      if(k==='category'){var _cat=es.category||'';return _cat.replace(/（[^）]*分野[・・]特定技能[１２]号）/g,'').replace(/（特定技能[１２]号）/g,'');}
       if(k==='weeklyH') return es.weeklyH||es.weeklyHours||es.workHoursWeek||'';
       if(k==='salaryMonthly') return es.salaryMonthly||es.salary||'';
       if(k==='salaryHourly') return es.salaryHourly||es.hourlyRate||'';
@@ -18859,7 +18875,8 @@ function saveOtherAgencies(cid, data) {
           // fallback: applicantField → c.applicantField, category → c.jobCategory
           if(!_esVal && f.k==='applicantField') _esValFull = _esVal = c.applicantField||'';
           if(!_esVal && f.k==='jobCategory') _esValFull = _esVal = c.jobCategory||'';
-          h += '<div id="' + f.id + '" style="font-size:13px;font-weight:700;color:' + (_esVal?'var(--navy)':'var(--gray-300)') + ';padding:4px 0;">' + (_esValFull||'—') + '</div>';
+          var _esValShort = (_esValFull||'').replace(/（特定技能[１２]号）/g,'').replace(/（[^）]*分野[・・]特定技能[１２]号）/g,'').trim();
+          h += '<div id="' + f.id + '" style="font-size:13px;font-weight:700;color:' + (_esVal?'var(--navy)':'var(--gray-300)') + ';padding:4px 0;">' + (_esValShort||'—') + '</div>';
           if(!_esVal) h += '<div style="font-size:10px;color:var(--gray-400);margin-top:2px;">雇用条件セットから自動取得</div>';
         } else if (f.type === 'select') {
           h += '<select id="' + (f.id||'ei-'+f.k) + '" onchange="autoSaveInfo(\''+f.k+'\',this.value)" style="width:100%;font-size:13px;font-weight:700;color:var(--navy);padding:5px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;cursor:pointer;outline:none;">';
