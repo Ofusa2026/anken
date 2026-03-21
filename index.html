@@ -9918,7 +9918,7 @@ function importFormResponse(responseId, caseId, formType) {
           'officeName','officeNameEn','officePref','officeCity','officeAddress','officeAddressEn','officeTel',
           'startTime','endTime','breakTime','dailyHours','dailyMins',
           'weeklyDays','weeklyH','monthlyDays','monthlyH','yearlyDays','yearlyH',
-          'overtimeFlg','shiftFlg','shiftDetail','flexFlg','flexDetail',
+          'overtimeFlg','shiftFlg','shiftDetail','flexFlg','flexType','flexDetail',
           'holidayType','fixedHolidayMon','fixedHolidayTue','fixedHolidayWed','fixedHolidayThu',
           'fixedHolidayFri','fixedHolidaySat','fixedHolidaySun','fixedHolidayHol',
           'otherHoliday','annualHolidays',
@@ -9946,7 +9946,7 @@ function importFormResponse(responseId, caseId, formType) {
           'foodProvided','foodDetail','housingProvided','housingDetail',
           'insKenpo','insPension','insEmp','insLabor',
           'salaryRaise','salaryRaiseCond','bonus','bonusCond','retirement','retirementDetail',
-          'payMethod','overtimeFlg','shiftFlg','shiftDetail','flexFlg','flexDetail',
+          'payMethod','overtimeFlg','shiftFlg','shiftDetail','flexFlg','flexType','flexDetail',
           'holidayType','fixedHolidayMon','fixedHolidayTue','fixedHolidayWed',
           'fixedHolidayThu','fixedHolidayFri','fixedHolidaySat','fixedHolidaySun','fixedHolidayHol',
           'otherHoliday','contractRenewal','contractRenewalCond','contractRenewalMax','contractRenewalPeriod',
@@ -13112,6 +13112,7 @@ var EMP_SET_FIELDS = [
     {k:'shiftFlg',l:'交代制（シフト制）の採用',ph:'',type:'select',opts:['','あり','なし']},
     {k:'shiftDetail',l:'シフトパターン詳細',ph:'例: 早番 7:00-16:00 / 遅番 13:00-22:00',wide:true,tr:1},
     {k:'flexFlg',l:'変形時間労働制の適用',ph:'',type:'select',opts:['','適用あり','適用なし']},
+    {k:'flexType',l:'変形労働時間制の種類',ph:'',type:'select',opts:['','1年単位','1ヶ月単位'],showIf:{k:'flexFlg',v:'適用あり'}},
     {k:'flexDetail',l:'変形労働時間制の詳細',ph:'例: 1年単位の変形労働時間制',wide:true,tr:1},
     {k:'variableWork',l:'変形労働時間制・裁量労働制等',ph:'',wide:true,tr:1},
     {k:'nonRegDays',l:'所定外労働の日数',ph:'',tr:1},
@@ -13242,6 +13243,17 @@ function addEmpSet(coId) {
   co.empSets.push({ setName: name });
   persistCompanies(coId);
   editEmpSet(coId, co.empSets.length - 1);
+}
+
+function toggleEsfFlexType(val, coId, idx) {
+  var el = document.getElementById('esf_wrap_flexType');
+  if (el) el.style.display = val === '適用あり' ? '' : 'none';
+  // 即時保存
+  var co = companies.find(function(x){return x.id===coId;});
+  if(co&&co.empSets&&co.empSets[idx]) {
+    co.empSets[idx].flexFlg = val;
+    saveCompany(co);
+  }
 }
 
 function editEmpSet(coId, idx) {
@@ -13390,9 +13402,17 @@ function editEmpSet(coId, idx) {
         h += '<span style="color:#6b7280;font-size:12px;">⇦</span>';
         h += '</div>';
       } else if (f.type === 'select') {
-        h += '<select id="esf_' + f.k + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;box-sizing:border-box;background:white;">';
+        var _showIfStyle = '';
+        if (f.showIf) {
+          var _siVal = String(es[f.showIf.k]||'');
+          _showIfStyle = _siVal !== f.showIf.v ? 'display:none;' : '';
+        }
+        if (f.showIf) h += '<div id="esf_wrap_' + f.k + '" style="' + _showIfStyle + 'grid-column:span 2;">';
+        var _selOnChange = (f.k === 'flexFlg') ? ' onchange="toggleEsfFlexType(this.value,\''+coId+'\','+idx+')"' : '';
+        h += '<select id="esf_' + f.k + '"' + _selOnChange + ' style="width:100%;padding:7px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;box-sizing:border-box;background:white;">';
         (f.opts||[]).forEach(function(o){ h += '<option value="'+o+'"'+(o===val?' selected':'')+'>'+(o===''?'— 選択 —':o)+'</option>'; });
         h += '</select>';
+        if (f.showIf) h += '</div>';
       } else if (f.type === 'time') {
         // HH:mm形式に正規化、不正値は空に
         var _tval = val;
@@ -15271,6 +15291,8 @@ var _ES_ALIAS = {
   'deductOther1Name':'deductOther1Name',
   'deductOther1Amount':'deductOther1Amount',
   // 変形労働・退職
+  'flexFlg':'es.flexFlg',
+  'flexType':'es.flexType',
   'flexDetail':'flexDetail',
   'resignNoticeDays':'resignNoticeDays'
 };
