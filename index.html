@@ -18950,70 +18950,141 @@ var OTHER_AGENCIES = [
   {key:'kyogikai',    label:'協議会加入申請'},
   {key:'suisensho',   label:'推薦票取り寄せ'},
 ];
-var OTHER_AGENCY_STATUSES = ['','準備中(相手待)','準備中(大房待)','申請済','補正','補正完了','完了'];
+var OTHER_AGENCY_STATUSES = [
+  '準備中(相手対応待ち)',
+  '準備中(大房対応待ち)',
+  '申請中',
+  '補正対応(相手対応待ち)',
+  '補正対応(大房対応待ち)',
+  '補正済',
+  '完了',
+];
+
+function _agencyBadgeColor(status) {
+  if(!status) return '#6b7280';
+  if(status==='完了') return '#16a34a';
+  if(status==='補正済') return '#7c3aed';
+  if(status.indexOf('補正')>=0) return '#ef4444';
+  if(status==='申請中') return '#2563eb';
+  if(status.indexOf('大房')>=0) return '#f59e0b';
+  return '#64748b';
+}
 
 function renderOtherAgenciesSection(c) {
   var data = (c.otherAgencies && typeof c.otherAgencies === 'object') ? c.otherAgencies : {};
+  var cid = c.id;
   var h = '<div style="margin-bottom:12px;background:white;border-radius:10px;border:1.5px solid var(--gray-200);overflow:hidden;">';
-  h += '<div style="padding:8px 14px;background:#f8fafc;border-bottom:1px solid var(--gray-200);font-size:11px;font-weight:800;color:#374151;">🏛️ 他機関申請</div>';
-  h += '<div style="padding:10px 14px;display:flex;flex-direction:column;gap:8px;">';
-  OTHER_AGENCIES.forEach(function(ag) {
-    var enabled = !!data[ag.key+'_enabled'];
-    var status  = data[ag.key+'_status'] || '';
-    h += '<div style="display:flex;align-items:center;gap:10px;">';
-    // チェックボックス（フラグ）
-    h += '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;min-width:140px;">';
-    h += '<input type="checkbox" data-cid="'+c.id+'" data-agkey="'+ag.key+'" onchange="toggleOtherAgency(this)"'+(enabled?' checked':'')+' style="width:15px;height:15px;accent-color:#2563eb;cursor:pointer;">';
-    h += '<span style="font-size:13px;font-weight:'+(enabled?'700':'400')+';color:'+(enabled?'#0f2040':'#94a3b8')+';">'+ag.label+'</span>';
-    h += '</label>';
-    // ステータス選択
-    if(enabled){
-      h += '<select data-cid="'+c.id+'" data-agkey="'+ag.key+'" onchange="setOtherAgencyStatus(this)" style="padding:4px 8px;border:1px solid var(--gray-200);border-radius:6px;font-size:12px;background:white;color:#374151;">';
-      OTHER_AGENCY_STATUSES.forEach(function(s){
-        h += '<option value="'+s+'"'+(s===status?' selected':'')+'>'+( s||'ステータス未設定')+'</option>';
-      });
-      h += '</select>';
-      // ステータスバッジ
-      if(status){
-        var badgeCol = status==='完了'?'#16a34a':status.includes('補正')?'#ef4444':status.includes('申請済')?'#2563eb':'#f59e0b';
-        h += '<span style="font-size:11px;font-weight:700;color:'+badgeCol+';background:'+badgeCol+'1a;padding:2px 10px;border-radius:99px;">'+status+'</span>';
+  h += '<div style="padding:8px 14px;background:#f8fafc;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;justify-content:space-between;">';
+  h += '<span style="font-size:11px;font-weight:800;color:#374151;">🏛️ 他機関申請</span>';
+  var addable = OTHER_AGENCIES.filter(function(ag){ return !data[ag.key]; });
+  if(addable.length>0){
+    h += '<div style="position:relative;display:inline-block;">';
+    h += '<button onclick="toggleAgencyMenu(\'' + cid + '\')" style="font-size:11px;padding:3px 12px;background:#2563eb;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">＋ 追加</button>';
+    h += '<div id="agencyMenu_' + cid + '" style="display:none;position:absolute;right:0;top:100%;margin-top:4px;background:white;border:1.5px solid var(--gray-200);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.12);z-index:200;min-width:160px;">';
+    addable.forEach(function(ag){
+      h += '<div onclick="addOtherAgency(\'' + cid + '\',\'' + ag.key + '\')" style="padding:8px 14px;font-size:13px;cursor:pointer;color:#374151;font-weight:600;border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background=&quot;#eff6ff&quot;" onmouseout="this.style.background=&quot;white&quot;">' + ag.label + '</div>';
+    });
+    h += '</div></div>';
+  }
+  h += '</div>';
+  var added = OTHER_AGENCIES.filter(function(ag){ return data[ag.key]; });
+  if(added.length===0){
+    h += '<div style="padding:14px;font-size:12px;color:#94a3b8;text-align:center;">追加ボタンから申請を追加してください</div>';
+  } else {
+    h += '<div style="padding:10px 14px;display:flex;flex-direction:column;gap:8px;">';
+    added.forEach(function(ag){
+      var status = data[ag.key+'_status'] || '';
+      var fuyo   = !!data[ag.key+'_fuyo'];
+      var col    = _agencyBadgeColor(status);
+      h += '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:' + (fuyo?'#f9fafb':'#f0f9ff') + ';border-radius:8px;border:1px solid ' + (fuyo?'#e5e7eb':'#bfdbfe') + ';">';
+      h += '<span style="font-size:13px;font-weight:700;min-width:130px;color:' + (fuyo?'#94a3b8':'#0f2040') + ';' + (fuyo?'text-decoration:line-through;':'') + '">' + ag.label + '</span>';
+      if(!fuyo){
+        h += '<select data-cid="' + cid + '" data-agkey="' + ag.key + '" onchange="setOtherAgencyStatus(this)" style="padding:4px 8px;border:1px solid var(--gray-200);border-radius:6px;font-size:12px;background:white;color:#374151;flex:1;">';
+        h += '<option value="">ステータス未設定</option>';
+        OTHER_AGENCY_STATUSES.forEach(function(s){
+          h += '<option value="' + s + '"' + (s===status?' selected':'') + '>' + s + '</option>';
+        });
+        h += '</select>';
+        if(status){
+          h += '<span style="font-size:11px;font-weight:700;color:' + col + ';background:' + col + '22;padding:2px 10px;border-radius:99px;white-space:nowrap;">' + status + '</span>';
+        }
+      } else {
+        h += '<span style="font-size:11px;color:#94a3b8;flex:1;">不要</span>';
       }
-    }
+      if(!fuyo){
+        h += '<button onclick="setOtherAgencyFuyo(\'' + cid + '\',\'' + ag.key + '\',true)" style="font-size:10px;padding:3px 8px;background:white;border:1.5px solid #e5e7eb;border-radius:5px;cursor:pointer;color:#6b7280;white-space:nowrap;">不要</button>';
+      } else {
+        h += '<button onclick="setOtherAgencyFuyo(\'' + cid + '\',\'' + ag.key + '\',false)" style="font-size:10px;padding:3px 8px;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:5px;cursor:pointer;color:#2563eb;white-space:nowrap;">戻す</button>';
+      }
+      h += '<button onclick="removeOtherAgency(\'' + cid + '\',\'' + ag.key + '\')" style="font-size:10px;padding:3px 8px;background:#fef2f2;border:1.5px solid #fecaca;border-radius:5px;cursor:pointer;color:#ef4444;white-space:nowrap;">削除</button>';
+      h += '</div>';
+    });
     h += '</div>';
-  });
-  h += '</div></div>';
+  }
+  h += '</div>';
   return h;
 }
 
-function toggleOtherAgency(el) {
-  var cid = el.dataset.cid;
-  var agkey = el.dataset.agkey;
-  var enabled = el.checked;
-  var c = cData.find(function(x){ return x.id === cid; });
+function toggleAgencyMenu(cid) {
+  var el = document.getElementById('agencyMenu_'+cid);
+  if(!el) return;
+  el.style.display = el.style.display==='none' ? 'block' : 'none';
+  if(el.style.display==='block'){
+    setTimeout(function(){
+      document.addEventListener('click', function _close(e){
+        if(!el.contains(e.target)){ el.style.display='none'; document.removeEventListener('click',_close); }
+      });
+    }, 100);
+  }
+}
+
+function addOtherAgency(cid, agkey) {
+  var c = cData.find(function(x){ return x.id===cid; });
   if(!c) return;
   if(!c.otherAgencies) c.otherAgencies = {};
-  c.otherAgencies[agkey+'_enabled'] = enabled;
-  if(!enabled) delete c.otherAgencies[agkey+'_status'];
+  c.otherAgencies[agkey] = true;
   saveOtherAgencies(cid, c.otherAgencies);
-  // 再レンダリング
-  var secEl = el.closest('.case-body');
-  if(secEl) renderInfoTab(cid);
+  renderInfoTab(cid);
+}
+
+function removeOtherAgency(cid, agkey) {
+  var c = cData.find(function(x){ return x.id===cid; });
+  if(!c||!c.otherAgencies) return;
+  delete c.otherAgencies[agkey];
+  delete c.otherAgencies[agkey+'_status'];
+  delete c.otherAgencies[agkey+'_fuyo'];
+  saveOtherAgencies(cid, c.otherAgencies);
+  renderInfoTab(cid);
+}
+
+function setOtherAgencyFuyo(cid, agkey, fuyo) {
+  var c = cData.find(function(x){ return x.id===cid; });
+  if(!c||!c.otherAgencies) return;
+  c.otherAgencies[agkey+'_fuyo'] = fuyo;
+  if(fuyo) delete c.otherAgencies[agkey+'_status'];
+  saveOtherAgencies(cid, c.otherAgencies);
+  renderInfoTab(cid);
+}
+
+function toggleOtherAgency(el) {
+  var cid = el.dataset.cid, agkey = el.dataset.agkey;
+  var c = cData.find(function(x){ return x.id===cid; });
+  if(!c) return;
+  if(!c.otherAgencies) c.otherAgencies = {};
+  if(el.checked) c.otherAgencies[agkey] = true;
+  else { delete c.otherAgencies[agkey]; delete c.otherAgencies[agkey+'_status']; delete c.otherAgencies[agkey+'_fuyo']; }
+  saveOtherAgencies(cid, c.otherAgencies);
+  renderInfoTab(cid);
 }
 
 function setOtherAgencyStatus(el) {
-  var cid = el.dataset.cid;
-  var agkey = el.dataset.agkey;
-  var status = el.value;
-  var c = cData.find(function(x){ return x.id === cid; });
+  var cid = el.dataset.cid, agkey = el.dataset.agkey, status = el.value;
+  var c = cData.find(function(x){ return x.id===cid; });
   if(!c) return;
   if(!c.otherAgencies) c.otherAgencies = {};
   c.otherAgencies[agkey+'_status'] = status;
   saveOtherAgencies(cid, c.otherAgencies);
-  // バッジだけ更新（再レンダリングは重いので）
-  var badgeCol = status==='完了'?'#16a34a':status.includes('補正')?'#ef4444':status.includes('申請済')?'#2563eb':'#f59e0b';
-  var parent = el.parentNode;
-  var badge = parent.querySelector('.agency-badge');
-  if(badge){ badge.textContent=status; badge.style.color=badgeCol; badge.style.background=badgeCol+'1a'; }
+  renderInfoTab(cid);
 }
 
 function saveOtherAgencies(cid, data) {
