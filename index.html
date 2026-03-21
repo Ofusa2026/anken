@@ -798,6 +798,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <div style="display:flex;gap:8px;align-items:center;">
       <button onclick="bulkCompleteDocTasks()" id="docsBulkCompleteBtn" style="display:none;font-size:11px;padding:4px 12px;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">✅ 一括完了</button>
       <button onclick="bulkCompleteCurrentTask()" id="docsAllCompleteBtn" style="display:none;font-size:11px;padding:4px 12px;background:#0891b2;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">⚡ 全件完了</button>
+      <button onclick="autoReadPersonFromDrive()" style="font-size:11px;padding:4px 12px;background:#7c3aed;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">🤖 ドライブ一括AI読取</button>
       <select id="docsSortSel" onchange="docsSort=this.value;renderDocsContent()" style="font-size:12px;padding:4px 8px;border:1px solid var(--gray-200);border-radius:6px;background:white;">
         <option value="default">タスク別</option>
         <option value="deadline">期日順</option>
@@ -19261,6 +19262,12 @@ function saveOtherAgencies(cid, data) {
     h = '<div style="margin-bottom:12px;padding:10px 14px;background:'+(isComplete?'#f0fdf4':'white')+';border-radius:10px;border:1.5px solid '+(isComplete?'#86efac':'var(--gray-200)')+';\">';
     h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
     h += '<span style="font-size:11px;font-weight:800;color:'+(isComplete?'var(--green)':'var(--gray-600)')+';\">'+(isComplete?(isManual?'✅ 完了（手動）':'✅ 入力完了'):'人材データ 入力状況')+'</span>';
+    // AIフラグ表示
+    if(p.aiFilledAt){
+      var _aiDate = new Date(p.aiFilledAt);
+      var _aiLabel = (_aiDate.getMonth()+1)+'/'+_aiDate.getDate()+' '+_aiDate.getHours()+':'+('0'+_aiDate.getMinutes()).slice(-2);
+      h += '<span style="font-size:10px;font-weight:700;color:#7c3aed;background:#f5f3ff;border:1px solid #c4b5fd;border-radius:4px;padding:1px 7px;margin-left:6px;">🤖 AI入力 '+_aiLabel+'</span>';
+    }
     h += '<div style="display:flex;align-items:center;gap:8px;">';
     h += '<span style="font-size:12px;font-weight:800;color:' + pBarCol + ';">' + pInfo.pct + '% (' + pInfo.filled + '/' + pInfo.total + ')</span>';
     if (isManual) {
@@ -23681,6 +23688,7 @@ function applyAiPersonData(parsed, caseId){
   var p=personData[caseId];
   var applied=[];
   var appliedCount=0;
+  var newlyAppliedKeys=[];
 
   Object.keys(parsed).forEach(function(key){
     var val=String(parsed[key]||'').trim();
@@ -23691,9 +23699,17 @@ function applyAiPersonData(parsed, caseId){
     } else {
       p[key]=val;
       appliedCount++;
+      newlyAppliedKeys.push(key);
       applied.push('✅ '+(fieldLabels[key]||key)+'：'+val);
     }
   });
+
+  // ★ AIフラグを記録
+  if(newlyAppliedKeys.length>0){
+    p.aiFilledAt = new Date().toISOString();
+    p.aiFilledFields = (p.aiFilledFields||[]).concat(newlyAppliedKeys).filter(function(v,i,a){return a.indexOf(v)===i;});
+  }
+
   // 保存
   if(typeof caseId!=='undefined') persistPersonData(caseId); else persistPersonData();
 
@@ -23726,6 +23742,192 @@ function applyAiPersonData(parsed, caseId){
   // 人材データタブを再表示中なら再レンダリング不要（inputは既に更新済み）
   // 別タブにいる場合はタブ切替時に自動反映
 }
+
+// ===== ドライブ一括AI人材読取 =====
+function autoReadPersonFromDrive() {
+  var apiKey = getApiKey();
+  if(!apiKey){ alert('Claude APIキーが未設定です。\n管理者設定 → AI読取設定 で設定してください。'); return; }
+  if(!GAS_URL){ alert('GAS URLが未設定です。'); return; }
+
+  // 「人材情報入力」タスクが対応中の案件を抽出
+  var personTaskIdx = TASK_NAMES.indexOf('人材情報入力');
+  var targets = cData.filter(function(c){
+    var st = docTaskStatus[c.id+'_'+personTaskIdx]||0;
+    // 0=未着手除外、1=着手中、2=途中、3=未対応 → 1,2のみ対象
+    if(st < 1 || st >= 4) return false;
+    var pd = personData[c.id]||{};
+    var driveUrl = pd.driveUrl || pd.driveUrl2 || pd.driveUrl3;
+    return !!driveUrl;
+  });
+
+  if(!targets.length){
+    alert('対象案件が見つかりません。\n条件：「人材情報入力」タスクが着手中 かつ ドライブURLが設定されている案件');
+    return;
+  }
+
+  var confirmed = confirm(
+    '以下 '+targets.length+' 件の案件のドライブフォルダをスキャンして\nAI人材読取を実行します。\n\n' +
+    targets.slice(0,5).map(function(c){ return '・' + (c.applicant||c.id); }).join('\n') +
+    (targets.length>5 ? '\n… 他' + (targets.length-5) + '件' : '') +
+    '\n\n実行しますか？'
+  );
+  if(!confirmed) return;
+
+  // 進捗モーダル表示
+  var modal = document.createElement('div');
+  modal.id = 'aiDriveReadModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  modal.innerHTML = '<div style="background:white;border-radius:16px;padding:24px;width:480px;max-width:95vw;max-height:80vh;overflow-y:auto;">' +
+    '<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:16px;">🤖 ドライブ一括AI読取</div>' +
+    '<div id="aiDriveReadProgress" style="font-size:12px;line-height:2;"></div>' +
+    '<button onclick="document.getElementById(\'aiDriveReadModal\').remove()" style="margin-top:16px;width:100%;padding:10px;background:#e5e7eb;border:none;border-radius:8px;cursor:pointer;font-weight:700;">閉じる</button>' +
+    '</div>';
+  document.body.appendChild(modal);
+
+  var progEl = document.getElementById('aiDriveReadProgress');
+  var results = [];
+  var idx = 0;
+
+  function processNext() {
+    if(idx >= targets.length) {
+      // 完了
+      var doneCount = results.filter(function(r){ return r.ok; }).length;
+      progEl.innerHTML += '<div style="margin-top:12px;padding:10px;background:#f0fdf4;border-radius:8px;font-weight:700;color:#16a34a;">✅ 完了: '+doneCount+'/'+targets.length+'件 処理しました</div>';
+      showToast('🤖 一括AI読取完了: '+doneCount+'/'+targets.length+'件');
+      return;
+    }
+    var c = targets[idx++];
+    var pd = personData[c.id]||{};
+    var allUrls = [pd.driveUrl, pd.driveUrl2, pd.driveUrl3].filter(Boolean);
+    var name = c.applicant || c.id;
+
+    progEl.innerHTML += '<div id="aidr_'+c.id+'" style="color:#6b7280;">⏳ '+name+' — スキャン中...</div>';
+    progEl.scrollTop = progEl.scrollHeight;
+
+    // フォルダからファイル取得
+    var folderIds = allUrls.map(function(u){ return extractDriveFolderId(u); }).filter(Boolean);
+    if(!folderIds.length){
+      document.getElementById('aidr_'+c.id).innerHTML = '⚠️ '+name+' — フォルダIDを取得できません';
+      results.push({c:c, ok:false});
+      processNext();
+      return;
+    }
+
+    var allFiles = [];
+    var pending = folderIds.length;
+    folderIds.forEach(function(folderId){
+      jsonpPost(GAS_URL, 'getDriveImages', {folderId: folderId, withBase64: true}, function(res){
+        if(res && res.status==='ok' && res.files) allFiles = allFiles.concat(res.files);
+        pending--;
+        if(pending <= 0) readFilesForCase(c, allFiles);
+      });
+    });
+
+    function readFilesForCase(c, files) {
+      // パスポート・在留カードらしいファイルを優先選択（最大4ファイル）
+      var priority = ['パスポート','passport','在留カード','zairyu','card','residencecard'];
+      files.sort(function(a,b){
+        var aP = priority.some(function(k){ return (a.name||'').toLowerCase().indexOf(k.toLowerCase())>=0; });
+        var bP = priority.some(function(k){ return (b.name||'').toLowerCase().indexOf(k.toLowerCase())>=0; });
+        return (bP?1:0)-(aP?1:0);
+      });
+      var targets4 = files.slice(0,4);
+
+      if(!targets4.length){
+        document.getElementById('aidr_'+c.id).innerHTML = '⚠️ '+name+' — ファイルなし';
+        results.push({c:c, ok:false});
+        processNext();
+        return;
+      }
+
+      // base64がなければGASから個別取得
+      var imageData = [];
+      var fetchPending = targets4.length;
+      targets4.forEach(function(f){
+        if(f.base64){
+          imageData.push({type:'image', base64:f.base64, mediaType:f.mime||'image/jpeg', name:f.name});
+          fetchPending--;
+          if(fetchPending<=0) callClaudeForPersonDataBatch(c, imageData);
+        } else if(f.id){
+          jsonpPost(GAS_URL, 'getFileBase64', {fileId: f.id}, function(res){
+            if(res && res.base64){
+              imageData.push({type:'image', base64:res.base64, mediaType:res.mime||'image/jpeg', name:f.name});
+            }
+            fetchPending--;
+            if(fetchPending<=0) callClaudeForPersonDataBatch(c, imageData);
+          });
+        } else {
+          fetchPending--;
+          if(fetchPending<=0) callClaudeForPersonDataBatch(c, imageData);
+        }
+      });
+    }
+
+    function callClaudeForPersonDataBatch(c, fileData) {
+      if(!fileData.length){
+        document.getElementById('aidr_'+c.id).innerHTML = '⚠️ '+name+' — 画像取得失敗';
+        results.push({c:c, ok:false});
+        processNext();
+        return;
+      }
+
+      document.getElementById('aidr_'+c.id).innerHTML = '🔍 '+name+' — AI解析中 ('+fileData.length+'ファイル)...';
+
+      var content = [];
+      fileData.forEach(function(fd){
+        content.push({type:'image', source:{type:'base64', media_type:fd.mediaType, data:fd.base64}});
+      });
+      content.push({type:'text', text:'この書類（在留カード、パスポート、雇用契約書など）から以下の情報を読み取ってください。\n読み取れた項目のみJSONで返してください。読み取れない項目は含めないでください。\nJSON以外のテキストは一切含めないでください。\n\n{\n  "residenceCard": "在留カード番号",\n  "passport": "パスポート番号",\n  "birthdate": "生年月日 (YYYY-MM-DD形式)",\n  "residenceStatus": "在留資格",\n  "nationality": "国籍",\n  "expire": "在留期限 (YYYY-MM-DD形式)",\n  "address": "住所",\n  "applicantName": "氏名（フルネーム）",\n  "applicantNameEn": "氏名（英語・ローマ字）"\n}'});
+
+      fetch('https://api.anthropic.com/v1/messages', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+        body:JSON.stringify({model:'claude-sonnet-4-20250514', max_tokens:1000, messages:[{role:'user',content:content}]})
+      }).then(function(r){ return r.json(); }).then(function(data){
+        if(data.error){ throw new Error(data.error.message||'API error'); }
+        var text='';
+        if(data.content) data.content.forEach(function(b){ if(b.type==='text') text+=b.text; });
+        var jsonStr=text.replace(/```json\s*/g,'').replace(/```/g,'').trim();
+        var parsed = JSON.parse(jsonStr);
+        var count = applyAiPersonDataSilent(parsed, c.id);
+        var el = document.getElementById('aidr_'+c.id);
+        if(el) el.innerHTML = '✅ '+name+' — '+count+'項目反映' + (parsed.aiFilledAt?'':' <span style="color:#7c3aed;font-size:10px;">🤖AI入力</span>');
+        results.push({c:c, ok:true, count:count});
+        processNext();
+      }).catch(function(err){
+        var el = document.getElementById('aidr_'+c.id);
+        if(el) el.innerHTML = '❌ '+name+' — エラー: '+err.message;
+        results.push({c:c, ok:false});
+        processNext();
+      });
+    }
+  }
+
+  processNext();
+}
+
+// 一括処理用：UIを更新せず静かに適用してカウントを返す
+function applyAiPersonDataSilent(parsed, caseId) {
+  if(!personData[caseId]) personData[caseId]={};
+  var p = personData[caseId];
+  var appliedCount = 0;
+  var newlyAppliedKeys = [];
+  Object.keys(parsed).forEach(function(key){
+    var val = String(parsed[key]||'').trim();
+    if(!val) return;
+    if(p[key] && String(p[key]).trim()) return; // 既存値スキップ
+    p[key] = val;
+    appliedCount++;
+    newlyAppliedKeys.push(key);
+  });
+  if(newlyAppliedKeys.length > 0){
+    p.aiFilledAt = new Date().toISOString();
+    p.aiFilledFields = (p.aiFilledFields||[]).concat(newlyAppliedKeys).filter(function(v,i,a){return a.indexOf(v)===i;});
+  }
+  persistPersonData(caseId);
+  return appliedCount;
+}
+// ===== /ドライブ一括AI人材読取 =====
 
 function info(label, val) {
   return '<div class="info-item"><label>' + label + '</label><span>' + (val || '—') + '</span></div>';
