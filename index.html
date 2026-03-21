@@ -19367,6 +19367,8 @@ function saveOtherAgencies(cid, data) {
       {key:'birthdate',     label:'生年月日',       placeholder:'例：1995-03-15', type:'date'},
       {key:'birthPlace',    label:'出生地',         placeholder:'例：ハノイ'},
       {key:'residenceStatus',label:'現在の在留資格', placeholder:'例：特定技能1号'},
+      {key:'stayPeriod',label:'許可された在留期間',type:'select',opts:['1年','3年','5年','4ヶ月','6ヶ月','その他'],ph:'例：1年'},
+      {key:'stayPeriodOther',label:'在留期間（その他の場合）',type:'text',ph:'例：2年',dis:p.stayPeriod!=='その他',showIf:'stayPeriod===その他'},
       {key:'completionDate',label:'技能実習修了日／卒業予定日', placeholder:'', type:'date'},
       {key:'nationality',   label:'国籍',           placeholder:'例：ベトナム'},
       {key:'spouse',        label:'配偶者の有無',   placeholder:'', type:'select', opts:['','有','無']},
@@ -19524,9 +19526,6 @@ function saveOtherAgencies(cid, data) {
       {key:'deportation',label:'退去強制の有無',type:'select',opts:['有 Yes','無 No'],req:1,def:'無 No'},
       {key:'deportationCount',label:'退去強制 回数',type:'select',opts:Array.from({length:100},function(_,i){return String(i+1);}),dis:p.deportation!=='有 Yes'},
       {key:'deportationDate',label:'退去強制 直近送還歴',type:'date',dis:p.deportation!=='有 Yes'},
-      {key:'_s2b',label:'📋 在留期間',type:'section'},
-      {key:'stayPeriod',label:'許可された在留期間',type:'select',opts:['1年','3年','5年','4ヶ月','6ヶ月','その他'],ph:'例：1年'},
-      {key:'stayPeriodOther',label:'在留期間（その他の場合）',type:'text',ph:'例：2年',dis:p.stayPeriod!=='その他'},
       {key:'_s3',label:'📅 通算在留期間',type:'section'},
       {key:'totalStayYear',label:'特定技能1号 通算在留期間(年)',type:'select',opts:['0','1','2','3','4','5'],req:1},
       {key:'totalStayMonth',label:'特定技能1号 通算在留期間(月)',type:'select',opts:['0','1','2','3','4','5','6','7','8','9','10','11'],req:1},
@@ -19563,6 +19562,10 @@ function saveOtherAgencies(cid, data) {
       var sk='case_'+c.id+'_person',skp=isFieldSkipped(sk,f.key),emp=!val;
       var isDis=f.dis===true;
       var bg=skp?'#f3f4f6':(isDis?'#f9fafb':(emp&&f.req?'#fef2f2':'transparent'));
+      // stayPeriodOtherはその他選択時のみ表示
+      if(f.key==='stayPeriodOther'){
+        h+='<div id="pf-stayPeriodOther-wrap" style="display:'+(p.stayPeriod==='その他'?'block':'none')+';">';
+      }
       h+='<div class="person-field" style="background:'+bg+';border-radius:6px;padding:6px 8px;margin-bottom:6px;'+(isDis?'opacity:0.45;':(emp&&f.req?'border:1px solid #fca5a5;':''))+'\">';
       h+='<div style="display:flex;align-items:center;justify-content:space-between;">';
       h+='<label style="margin-bottom:0;">'+(f.req&&!isDis?'<span style="color:#ef4444;">🌐 *</span> ':'')+(skp||isDis?'<s style="color:var(--gray-300);">'+f.label+'</s>':f.label)+'</label>';
@@ -19593,7 +19596,8 @@ function saveOtherAgencies(cid, data) {
       }else if(f.type==='select'){
         var autoRe=(f.key==='pastEntry'||f.key==='pastCOE'||f.key==='deportation'||f.key==='skillEvalType'||f.key==='jpEvalType'||f.key==='spouse');
         var isGijutsuType=(f.key==='gijutsuType');
-        var _pfOc=autoRe?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');showTab(\'person\')':(isGijutsuType?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');updateGijutsuWorkSelect(this.value,\''+c.id+'\')':'');
+        var isStayPeriod=(f.key==='stayPeriod');
+        var _pfOc=autoRe?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');showTab(\'person\')':(isGijutsuType?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');updateGijutsuWorkSelect(this.value,\''+c.id+'\')':isStayPeriod?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');var _ow=document.getElementById(\'pf-stayPeriodOther-wrap\');if(_ow)_ow.style.display=this.value===\'その他\'?\'block\':\'none\';':'');
         h+='<select id="pf-'+f.key+'" '+(_pfOc?'onchange="'+_pfOc+'" ':'')+' style="width:100%;font-size:12px;padding:5px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;outline:none;">';
         h+='<option value="">— 選択 —</option>';
         var _pOpts=typeof f.opts==='function'?f.opts():(f.opts||[]);_pOpts.forEach(function(o){h+='<option value="'+o+'"'+(o===val?' selected':'')+'>'+o+'</option>';});
@@ -23899,7 +23903,7 @@ function autoReadPersonFromDrive() {
           fetchPending--;
           if(fetchPending<=0) callClaudeForPersonDataBatch(c, imageData);
         } else if(f.id){
-          jsonpPost(GAS_URL, 'getFileBase64', {fileId: f.id}, function(res){
+          jsonpPost(GAS_URL, 'getDriveFileBase64', {fileId: f.id}, function(res){
             if(res && res.base64){
               imageData.push({type:'image', base64:res.base64, mediaType:res.mime||'image/jpeg', name:f.name});
             }
