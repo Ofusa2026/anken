@@ -18979,13 +18979,8 @@ function renderOtherAgenciesSection(c) {
   h += '<span style="font-size:11px;font-weight:800;color:#374151;">🏛️ 他機関申請</span>';
   var addable = OTHER_AGENCIES.filter(function(ag){ return !data[ag.key]; });
   if(addable.length>0){
-    h += '<div style="position:relative;display:inline-block;">';
-    h += '<button onclick="toggleAgencyMenu(\'' + cid + '\')" style="font-size:11px;padding:3px 12px;background:#2563eb;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">＋ 追加</button>';
-    h += '<div id="agencyMenu_' + cid + '" style="display:none;position:absolute;right:0;top:100%;margin-top:4px;background:white;border:1.5px solid var(--gray-200);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.12);z-index:200;min-width:160px;">';
-    addable.forEach(function(ag){
-      h += '<div onclick="addOtherAgency(\'' + cid + '\',\'' + ag.key + '\')" style="padding:8px 14px;font-size:13px;cursor:pointer;color:#374151;font-weight:600;border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background=&quot;#eff6ff&quot;" onmouseout="this.style.background=&quot;white&quot;">' + ag.label + '</div>';
-    });
-    h += '</div></div>';
+    // ボタン：クリックでbody直下にドロップダウンをポップアップ
+    h += '<button onclick="showAgencyMenu(event,\'' + cid + '\')" style="font-size:11px;padding:3px 12px;background:#2563eb;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">＋ 追加</button>';
   }
   h += '</div>';
   var added = OTHER_AGENCIES.filter(function(ag){ return data[ag.key]; });
@@ -19026,17 +19021,50 @@ function renderOtherAgenciesSection(c) {
   return h;
 }
 
-function toggleAgencyMenu(cid) {
-  var el = document.getElementById('agencyMenu_'+cid);
-  if(!el) return;
-  el.style.display = el.style.display==='none' ? 'block' : 'none';
-  if(el.style.display==='block'){
-    setTimeout(function(){
-      document.addEventListener('click', function _close(e){
-        if(!el.contains(e.target)){ el.style.display='none'; document.removeEventListener('click',_close); }
-      });
-    }, 100);
-  }
+// body直下にドロップダウンを描画（overflow:hidden を回避）
+function showAgencyMenu(event, cid) {
+  event.stopPropagation();
+  // 既存メニューを削除
+  var existing = document.getElementById('_agencyMenuPopup');
+  if(existing) existing.remove();
+
+  var c = cData.find(function(x){ return x.id===cid; });
+  if(!c) return;
+  var data = (c.otherAgencies && typeof c.otherAgencies === 'object') ? c.otherAgencies : {};
+  var addable = OTHER_AGENCIES.filter(function(ag){ return !data[ag.key]; });
+  if(!addable.length) return;
+
+  // ボタン位置を取得
+  var btn = event.currentTarget || event.target;
+  var rect = btn.getBoundingClientRect();
+
+  var popup = document.createElement('div');
+  popup.id = '_agencyMenuPopup';
+  popup.style.cssText = 'position:fixed;top:' + (rect.bottom + 4) + 'px;right:' + (window.innerWidth - rect.right) + 'px;background:white;border:1.5px solid #e5e7eb;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.15);z-index:99999;min-width:160px;overflow:hidden;';
+
+  addable.forEach(function(ag){
+    var item = document.createElement('div');
+    item.textContent = ag.label;
+    item.style.cssText = 'padding:10px 16px;font-size:13px;cursor:pointer;color:#374151;font-weight:600;border-bottom:1px solid #f1f5f9;';
+    item.onmouseover = function(){ this.style.background='#eff6ff'; };
+    item.onmouseout  = function(){ this.style.background='white'; };
+    item.onclick = function(e){
+      e.stopPropagation();
+      popup.remove();
+      addOtherAgency(cid, ag.key);
+    };
+    popup.appendChild(item);
+  });
+
+  document.body.appendChild(popup);
+
+  // 外クリックで閉じる
+  setTimeout(function(){
+    document.addEventListener('click', function _close(){
+      popup.remove();
+      document.removeEventListener('click', _close);
+    });
+  }, 50);
 }
 
 function addOtherAgency(cid, agkey) {
@@ -23754,14 +23782,14 @@ function autoReadPersonFromDrive() {
   var targets = cData.filter(function(c){
     var st = docTaskStatus[c.id+'_'+personTaskIdx]||0;
     // 0=未着手除外、1=着手中、2=途中、3=未対応 → 1,2のみ対象
-    if(st < 1 || st >= 4) return false;
+    if(st !== 1 && st !== 2) return false;
     var pd = personData[c.id]||{};
     var driveUrl = pd.driveUrl || pd.driveUrl2 || pd.driveUrl3;
     return !!driveUrl;
   });
 
   if(!targets.length){
-    alert('対象案件が見つかりません。\n条件：「人材情報入力」タスクが着手中 かつ ドライブURLが設定されている案件');
+    alert('対象案件が見つかりません。\n条件：「人材情報入力」タスクが依頼または着手中 かつ ドライブURLが設定されている案件');
     return;
   }
 
