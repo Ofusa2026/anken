@@ -16167,7 +16167,8 @@ function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zip
   var tplName = (typeof _selectedTplRef!=='undefined'&&_selectedTplRef&&_selectedTplRef.name)
     ? _selectedTplRef.name
     : ((_tplEntryPN&&_tplEntryPN.filename)||(_tplEntryPN&&_tplEntryPN.name)||'');
-  var isXlsx = /\.xlsx?$/i.test(tplName) || (TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].name==='窓口申請書');
+  var _tplFilename = (_tplEntryPN&&_tplEntryPN.filename)||'';
+  var isXlsx = /\.xlsx?$/i.test(tplName) || /\.xlsx?$/i.test(_tplFilename) || (TEMPLATE_CATEGORIES[ci]&&TEMPLATE_CATEGORIES[ci].name==='窓口申請書');
 
   if (isXlsx) {
     // xlsxテンプレートのプレースホルダー置換
@@ -16177,12 +16178,18 @@ function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zip
       var sheetFiles = fileList.filter(function(f){ return /xl\/worksheets\/sheet\d+\.xml/.test(f); });
 
       function replacePH(xml) {
+        // PLACEHOLDER_MAP（日本語キー）の置換
         Object.keys(PLACEHOLDER_MAP).forEach(function(phKey) {
           var val = rv(PLACEHOLDER_MAP[phKey]);
-          var escaped = String(val||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          var escaped = String(val||'').replace(/[\r\n\t]/g,' ').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
           ['{{'+phKey+'}}','{{ '+phKey+'}}','{{'+phKey+' }}','{{ '+phKey+' }}'].forEach(function(ph){
             xml = xml.split(ph).join(escaped);
           });
+        });
+        // 直接変数（{{es.xxx}} {{co.xxx}} {{p.xxx}} {{applicantName}} 等）の置換
+        xml = xml.replace(/\{\{([^}]+)\}\}/g, function(match, field) {
+          var val = rv(field.trim());
+          return String(val||'').replace(/[\r\n\t]/g,' ').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
         });
         return xml;
       }
