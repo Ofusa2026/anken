@@ -83,6 +83,7 @@ html,body{height:100%;margin:0;padding:0;}body{font-family:-apple-system,BlinkMa
 .table-section{padding:0 24px 24px;flex:1;overflow-y:auto;}
 .table-wrap{background:white;border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--gray-200);overflow:hidden;}
 table{width:100%;border-collapse:collapse;}
+thead{position:sticky;top:0;z-index:10;}
 thead th{padding:6px 10px;font-size:11px;color:var(--gray-400);font-weight:700;text-align:left;border-bottom:1px solid var(--gray-200);background:#fafafa;white-space:nowrap;}
 tbody tr{border-bottom:1px solid var(--gray-200);cursor:pointer;transition:.1s;}
 tbody tr:hover{background:var(--blue-light);}
@@ -10620,10 +10621,17 @@ function importFormResponse(responseId, caseId, formType) {
 function autoSaveInfo(key, value) {
   var c = currentCase; if (!c) return;
   if (key === 'status' && !value) return; // ステータスの空文字は無視
-  var oldVal = c[key] || '';
+  var oldVal = c[key] !== undefined ? c[key] : '';
   c[key] = value;
   _markCaseChanged(c.id);
   logEdit(c.id, '案件', key, oldVal, value);
+  // undoスタックに積む
+  (function(_cid, _key, _old, _new){
+    _pushUndo({
+      label: (_key==='status'?'ステータス変更 → '+_new : _key+' 変更'),
+      undo: function(){ autoSaveInfo(_key, _old); }
+    });
+  })(c.id, key, oldVal, value);
   // 在留期限変更時 → 特例日を自動計算（未入力の場合のみ）
   if (key === 'expire' && value) {
     var auto = addTwoMonths(value);
@@ -15977,6 +15985,51 @@ var _ES_ALIAS = {
   'flexDetail':'flexDetail',
   'resignNoticeDays':'resignNoticeDays'
 };
+
+// ===== UNDO スタック =====
+var _undoStack = [];
+var _undoMaxSize = 20;
+
+function _pushUndo(action) {
+  // action: { label, undo: function }
+  _undoStack.push(action);
+  if (_undoStack.length > _undoMaxSize) _undoStack.shift();
+  _showUndoToast(action.label);
+}
+
+function _showUndoToast(label) {
+  var existing = document.getElementById('_undoToast');
+  if (existing) existing.remove();
+  var d = document.createElement('div');
+  d.id = '_undoToast';
+  d.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1e293b;color:white;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:99999;display:flex;align-items:center;gap:12px;box-shadow:0 4px 20px rgba(0,0,0,.3);';
+  d.innerHTML = '<span>✅ ' + label + '</span><button onclick="doUndo()" style="background:#2563eb;color:white;border:none;border-radius:6px;padding:4px 12px;font-size:12px;font-weight:700;cursor:pointer;">↩ 元に戻す (Ctrl+Z)</button><button onclick="this.parentNode.remove()" style="background:none;border:none;color:#94a3b8;font-size:16px;cursor:pointer;margin-left:4px;">✕</button>';
+  document.body.appendChild(d);
+  clearTimeout(d._timer);
+  d._timer = setTimeout(function(){ if(d.parentNode) d.remove(); }, 5000);
+}
+
+function doUndo() {
+  var action = _undoStack.pop();
+  if (!action) { showToast('元に戻す履歴がありません'); return; }
+  var existing = document.getElementById('_undoToast');
+  if (existing) existing.remove();
+  action.undo();
+  showToast('↩ 「' + action.label + '」を元に戻しました');
+}
+
+// Ctrl+Z キーバインド
+document.addEventListener('keydown', function(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+    var active = document.activeElement;
+    // テキスト入力中はブラウザデフォルトのundoを使う
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')) return;
+    e.preventDefault();
+    doUndo();
+  }
+});
+// ===== /UNDO スタック =====
+
 window.PLACEHOLDER_MAP = {
   '人材データ.氏名(英語)':'applicantNameEn',
   '案件一覧基本情報.各雇用条件.外国人職務内容':'es.foreignerJobDesc',
@@ -17837,8 +17890,9 @@ function _getCoFieldKeys(co) {
 function saveProgressMemo(caseId) {
   var ta = document.getElementById('progressMemo_' + caseId);
   if (!ta) return;
+  var _oldPm = (caseNotes[caseId]||{}).progressMemo||'';
   if (!caseNotes[caseId]) caseNotes[caseId] = { text:'', confirm:false, assignee:'', reply:'', replied:false };
-  caseNotes[caseId].progressMemo = ta.value;
+  (function(_cid,_old,_new){ caseNotes[_cid].progressMemo=_new; _pushUndo({label:'進捗メモ変更',undo:function(){var el=document.getElementById('progressMemo_'+_cid);if(el){el.value=_old;saveProgressMemo(_cid);}}}); })(caseId,_oldPm,ta.value);
   // localStorageに保存
   try { localStorage.setItem('ofusa_caseNotes', JSON.stringify(caseNotes)); } catch(e) {}
   // DBには1件だけ送信（全件送信を避ける）
@@ -17980,7 +18034,7 @@ var currentTab = 'info';
 // ===== TABLE =====
 function renderTable(data) {
   var today = new Date(); today.setHours(0,0,0,0);
-  var COLS = 12;
+  var COLS = 14;
   var h = '';
   if (!data.length) {
     h = '<tr><td colspan="'+COLS+'" style="text-align:center;padding:30px;color:var(--gray-400);">該当する案件がありません</td></tr>';
@@ -18638,13 +18692,15 @@ function setViewMode(mode) {
   var btnList = document.getElementById('viewModeList');
   var btnKanban = document.getElementById('viewModeKanban');
   if (mode === 'kanban') {
-    if(tableEl) tableEl.style.display = 'none';
+    if(tableEl) tableEl.style.display = '';
+    var tb = document.getElementById('caseTable'); if(tb) tb.style.display = 'none';
     if(kanbanEl) kanbanEl.style.display = 'block';
     if(btnList){ btnList.style.background='none'; btnList.style.color='#64748b'; }
     if(btnKanban){ btnKanban.style.background='#2563eb'; btnKanban.style.color='white'; }
     applyFilters();
   } else {
     if(tableEl) tableEl.style.display = '';
+    var tb2 = document.getElementById('caseTable'); if(tb2) tb2.style.display = '';
     if(kanbanEl) kanbanEl.style.display = 'none';
     if(btnList){ btnList.style.background='#2563eb'; btnList.style.color='white'; }
     if(btnKanban){ btnKanban.style.background='none'; btnKanban.style.color='#64748b'; }
@@ -18675,7 +18731,7 @@ function renderKanban() {
     if (!items || !items.length) return;
     found = true;
     h += '<div class="kanban-group" data-status="' + esc(s) + '" style="margin-bottom:10px;">';
-    h += '<div style="font-size:11px;font-weight:800;color:white;padding:5px 12px;background:var(--navy);color:white;border-radius:6px;margin-bottom:4px;padding:4px 12px;display:flex;align-items:center;justify-content:center;gap:12px;">';
+    h += '<div style="font-size:11px;font-weight:800;color:white;padding:5px 12px;background:var(--navy);color:white;border-radius:6px;margin-bottom:4px;padding:4px 12px;display:flex;align-items:center;justify-content:center;gap:12px;position:sticky;top:32px;z-index:5;">';
     h += '<span>▼▼ ' + esc(s) + ' ▼▼</span><span style="font-size:10px;font-weight:500;color:rgba(255,255,255,0.7);">' + items.length + '件</span></div>';
     h += '<table style="width:100%;border-collapse:collapse;">';
     items.forEach(function(c) {
@@ -18744,7 +18800,9 @@ function kanbanUpdateStatus(caseId, newStatus) {
       showToast('\u274c \u30b9\u30c6\u30fc\u30bf\u30b9\u66f4\u65b0\u5931\u6557');
       renderKanban();
     } else {
-      showToast('\u2705 ' + getDisplayName(c) + ' \u2192 ' + newStatus);
+      (function(_id,_old,_new){
+        _pushUndo({label:getDisplayName(c)+' → '+_new,undo:function(){kanbanUpdateStatus(_id,_old);}});
+      })(caseId,oldStatus,newStatus);
       renderKanban();
     }
   });
@@ -19705,7 +19763,8 @@ function addOtherAgency(cid, agkey) {
   if(!c.otherAgencies) c.otherAgencies = {};
   c.otherAgencies[agkey] = true;
   saveOtherAgencies(cid, c.otherAgencies);
-  showTab('info');
+  _pushUndo({label:'他機関申請追加',undo:function(){removeOtherAgency(cid,agkey);}});
+  showTab('agencies');
 }
 
 function _agencyBtn(el) {
@@ -19718,11 +19777,13 @@ function _agencyBtn(el) {
 function removeOtherAgency(cid, agkey) {
   var c = cData.find(function(x){ return x.id===cid; });
   if(!c||!c.otherAgencies) return;
+  var _saved = JSON.parse(JSON.stringify(c.otherAgencies));
   delete c.otherAgencies[agkey];
   delete c.otherAgencies[agkey+'_status'];
   delete c.otherAgencies[agkey+'_fuyo'];
   saveOtherAgencies(cid, c.otherAgencies);
-  showTab('info');
+  _pushUndo({label:'他機関申請削除',undo:function(){c.otherAgencies=_saved;saveOtherAgencies(cid,_saved);showTab('agencies');}});
+  showTab('agencies');
 }
 
 function setOtherAgencyFuyo(cid, agkey, fuyo) {
@@ -19731,7 +19792,7 @@ function setOtherAgencyFuyo(cid, agkey, fuyo) {
   c.otherAgencies[agkey+'_fuyo'] = fuyo;
   if(fuyo) delete c.otherAgencies[agkey+'_status'];
   saveOtherAgencies(cid, c.otherAgencies);
-  showTab('info');
+  showTab('agencies');
 }
 
 function toggleOtherAgency(el) {
@@ -19742,7 +19803,7 @@ function toggleOtherAgency(el) {
   if(el.checked) c.otherAgencies[agkey] = true;
   else { delete c.otherAgencies[agkey]; delete c.otherAgencies[agkey+'_status']; delete c.otherAgencies[agkey+'_fuyo']; }
   saveOtherAgencies(cid, c.otherAgencies);
-  showTab('info');
+  showTab('agencies');
 }
 
 function setOtherAgencyStatus(el) {
@@ -19752,7 +19813,7 @@ function setOtherAgencyStatus(el) {
   if(!c.otherAgencies) c.otherAgencies = {};
   c.otherAgencies[agkey+'_status'] = status;
   saveOtherAgencies(cid, c.otherAgencies);
-  showTab('info');
+  showTab('agencies');
 }
 
 function setOtherAgencyMemo(el) {
