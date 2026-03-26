@@ -939,7 +939,7 @@ tr:hover td { background: var(--blue-light); }
 // ============================================================
 // STATE
 // ============================================================
-const VERSION = '2026.03.26-61';
+const VERSION = '2026.03.26-62';
 
 console.log('%c 売上管理ダッシュボード v' + VERSION + ' ', 'background:#0f2040;color:#fff;font-size:14px;padding:4px 8px;border-radius:4px;font-weight:bold;');
 console.log('%c Supabase直接接続モード ', 'background:#10b981;color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;');
@@ -1312,25 +1312,25 @@ function renderDashboard() {
 
   // 今日
   const todaySales = periodSales.filter(d => fmtDate(d['決定日']) === todayKey);
-  const todayAmount = todaySales.reduce((s,d) => s + (Number(d['純売上'])||Number(d['小計'])||0), 0);
+  const todayAmount = todaySales.reduce((s,d) => s + ((Number(d['小計'])||0) + (d['KBフラグ'] ? (Number(d['KB単価']||0) * Number(d['KB数量']||1)) : 0)), 0);
 
   // 今月
   const thisMonthSales = periodSales.filter(d => fmtDate(d['決定日']).startsWith(thisMonthKey));
-  const monthAmount = thisMonthSales.reduce((s,d) => s + (Number(d['純売上'])||Number(d['小計'])||0), 0);
+  const monthAmount = thisMonthSales.reduce((s,d) => s + ((Number(d['小計'])||0) + (d['KBフラグ'] ? (Number(d['KB単価']||0) * Number(d['KB数量']||1)) : 0)), 0);
 
   // 前月
   const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const prevMonthKey = prevMonthDate.toISOString().slice(0,7);
   const prevMonthSales = periodSales.filter(d => fmtDate(d['決定日']).startsWith(prevMonthKey));
-  const lastMonthAmount = prevMonthSales.reduce((s,d) => s + (Number(d['純売上'])||Number(d['小計'])||0), 0);
+  const lastMonthAmount = prevMonthSales.reduce((s,d) => s + ((Number(d['小計'])||0) + (d['KBフラグ'] ? (Number(d['KB単価']||0) * Number(d['KB数量']||1)) : 0)), 0);
 
   // 今期合計
-  const totalAmount = periodSales.reduce((s,d) => s + (Number(d['純売上'])||Number(d['小計'])||0), 0);
+  const totalAmount = periodSales.reduce((s,d) => s + ((Number(d['小計'])||0) + (d['KBフラグ'] ? (Number(d['KB単価']||0) * Number(d['KB数量']||1)) : 0)), 0);
   const totalCount = periodSales.length;
 
   // 未発行
   const uninvoiced = periodSales.filter(d => d['請求書ステータス'] === '未発行');
-  const uninvoicedAmount = uninvoiced.reduce((s,d) => s + (Number(d['純売上'])||Number(d['小計'])||0), 0);
+  const uninvoicedAmount = uninvoiced.reduce((s,d) => s + ((Number(d['小計'])||0) + (d['KBフラグ'] ? (Number(d['KB単価']||0) * Number(d['KB数量']||1)) : 0)), 0);
 
   // KPIセット
   document.getElementById('kpi-today').textContent = fmt(todayAmount);
@@ -1559,9 +1559,10 @@ function renderSales(list) {
       ${data.map(d => {
         const id = d['ID'];
         const isDirty = `document.getElementById('dot_${id}').classList.add('dirty')`;
-        const kbTanka = Number(d['KB単価']||d['KB金額']||0);
+        const kbTanka = Number(d['KB単価']||0);
         const kbQty = Number(d['KB数量']||1);
         const kbTotal = d['KBフラグ'] ? kbTanka * kbQty : 0;
+        const netAmount = Number(d['小計']||0) + kbTotal; // 純売上 = 小計 + KB税抜額（マイナス）
 
         // 品目セットを解析（複数品目対応）
         let itemSets = [];
@@ -1609,7 +1610,7 @@ function renderSales(list) {
           <td>${qtyCell}</td>
           <td style="text-align:right;font-family:var(--mono);font-size:9px;color:#94a3b8">¥${Number(d['小計']||0).toLocaleString()}</td>
           <td style="text-align:right;font-family:var(--mono);font-size:9px;color:#94a3b8">${calcTaxIncluded(d)}</td>
-          <td style="text-align:right;font-family:var(--mono);font-size:10px;font-weight:700;color:${kbTotal<0?'var(--orange)':'var(--navy)'}">¥${Number(d['純売上']||d['小計']||0).toLocaleString()}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:10px;font-weight:700;color:${netAmount<0?'var(--orange)':'var(--navy)'}">¥${netAmount.toLocaleString()}</td>
           <td style="text-align:center">
             <select class="inline-select" style="font-size:8px;padding:1px" id="f_status_${id}" onchange="${isDirty};autoSaveSale('${id}')">
               ${['未発行','発行済','送付済','入金済'].map(s=>`<option value="${s}" ${d['請求書ステータス']===s?'selected':''}>${s}</option>`).join('')}
@@ -1793,7 +1794,10 @@ function updateSalesSummary(list) {
   if (!list) list = sales;
   const count = list.length;
   const subtotal = list.reduce((s,d) => s + (d['KBフラグ'] ? 0 : (Number(d['小計'])||0)), 0);
-  const net = list.reduce((s,d) => s + (Number(d['純売上'])||Number(d['小計'])||0), 0);
+  const net = list.reduce((s,d) => {
+    const kb = d['KBフラグ'] ? (Number(d['KB単価']||0) * Number(d['KB数量']||1)) : 0;
+    return s + (Number(d['小計'])||0) + kb;
+  }, 0);
   const taxTotal = list.reduce((s,d) => {
     if (d['KBフラグ']) return s;
     const svc = masters.services.find(sv => sv['サービス名'] === d['品目']);
