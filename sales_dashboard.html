@@ -950,7 +950,7 @@ tr:hover td { background: var(--blue-light); }
 // ============================================================
 // STATE
 // ============================================================
-const VERSION = '2026.03.26-42';
+const VERSION = '2026.03.26-48';
 let GAS_URL = localStorage.getItem('gasUrl') || '';
 
 console.log('%c 売上管理ダッシュボード v' + VERSION + ' ', 'background:#0f2040;color:#fff;font-size:14px;padding:4px 8px;border-radius:4px;font-weight:bold;');
@@ -1010,6 +1010,18 @@ async function gasCall(action, data = {}) {
   if (!json.ok) throw new Error(json.error || 'GASエラー');
   return json.data;
 }
+
+// GASウォームアップ（コールドスタート対策）
+function warmupGAS() {
+  if (!GAS_URL) return;
+  fetch(GAS_URL, {
+    method: 'POST',
+    body: JSON.stringify({ action: 'ping', data: {} })
+  }).catch(() => {});
+}
+
+// 3分ごとにウォームアップ
+setInterval(warmupGAS, 3 * 60 * 1000);
 
 async function loadAll() {
   try {
@@ -1326,19 +1338,51 @@ function renderSales(list) {
         const kbTanka = Number(d['KB単価']||d['KB金額']||0);
         const kbQty = Number(d['KB数量']||1);
         const kbTotal = d['KBフラグ'] ? kbTanka * kbQty : 0;
+
+        // 品目セットを解析（複数品目対応）
+        let itemSets = [];
+        try { itemSets = JSON.parse(d['_itemSets'] || '[]'); } catch(e) {}
+        if (!itemSets.length) {
+          // 旧データ互換：品目・申請人名を改行分割
+          const items = (d['品目']||'').split('\n').filter(Boolean);
+          const applicants = (d['申請人名']||'').split('\n').filter(Boolean);
+          itemSets = items.map((item, i) => ({
+            item, applicant: applicants[i] || '',
+            price: i === 0 ? Number(d['単価']||0) : 0,
+            qty: i === 0 ? Number(d['数量']||1) : 1,
+            stamp: i === 0 ? Number(d['収入印紙代']||0) : 0,
+            stampN: i === 0 ? Number(d['収入印紙枚数']||0) : 0,
+          }));
+          if (!itemSets.length) itemSets = [{ item: d['品目']||'', applicant: d['申請人名']||'', price: Number(d['単価']||0), qty: Number(d['数量']||1), stamp: Number(d['収入印紙代']||0), stampN: Number(d['収入印紙枚数']||0) }];
+        }
+
+        // 品目・申請人・単価・数量を複数セット分表示
+        const itemCell = itemSets.map(s =>
+          `<div style="padding:1px 0;border-bottom:1px dashed #f1f5f9;font-size:8px">
+            ${s.item.replace(/</g,'&lt;')}
+            ${s.stamp ? `<span style="color:var(--text3)"> 印紙¥${Number(s.stamp).toLocaleString()}×${s.stampN}</span>` : ''}
+          </div>`
+        ).join('');
+        const applicantCell = itemSets.map(s =>
+          `<div style="padding:1px 0;border-bottom:1px dashed #f1f5f9;font-size:8px">${(s.applicant||'').replace(/</g,'&lt;') || '—'}</div>`
+        ).join('');
+        const priceCell = itemSets.map(s =>
+          `<div style="padding:1px 0;border-bottom:1px dashed #f1f5f9;text-align:right;font-family:var(--mono);font-size:9px;color:#64748b">¥${Number(s.price||0).toLocaleString()}</div>`
+        ).join('');
+        const qtyCell = itemSets.map(s =>
+          `<div style="padding:1px 0;border-bottom:1px dashed #f1f5f9;text-align:center;font-size:9px;color:#64748b">${s.qty||1}</div>`
+        ).join('');
+
         return `<tr id="row_${id}">
           <td style="text-align:center"><input type="checkbox" class="row-check" data-id="${id}" onchange="onRowCheck()" style="cursor:pointer"></td>
           <td style="font-size:9px;white-space:nowrap;color:var(--text3)">${fmtDate(d['決定日'])}</td>
           <td style="font-weight:700;color:var(--navy);font-size:9px">${(d['得意先名']||'').replace(/</g,'&lt;')}</td>
           <td style="font-size:8px;color:var(--accent)">${(d['登録支援機関']||'').replace(/</g,'&lt;')}</td>
-          <td style="font-size:8px">${(d['申請人名']||'').replace(/</g,'&lt;')}</td>
-          <td style="font-size:8px">
-            ${(d['品目']||'').replace(/</g,'&lt;')}
-            ${d['収入印紙代'] ? `<div style="color:var(--text3);font-size:9px">印紙¥${Number(d['収入印紙代']).toLocaleString()}×${d['収入印紙枚数']||1}</div>` : ''}
-          </td>
-          <td style="text-align:right;font-family:var(--mono);font-size:9px;color:#64748b">¥${Number(d['単価']||0).toLocaleString()}</td>
+          <td>${applicantCell}</td>
+          <td>${itemCell}</td>
+          <td>${priceCell}</td>
           <td style="text-align:right;font-size:9px">${d['KBフラグ'] ? `<span style="color:var(--orange);font-family:var(--mono)">¥${kbTanka.toLocaleString()}×${kbQty}<br><span style="color:#94a3b8">=¥${kbTotal.toLocaleString()}</span></span>` : ''}</td>
-          <td style="text-align:center;font-size:9px;color:#64748b">${d['数量']||1}</td>
+          <td>${qtyCell}</td>
           <td style="text-align:right;font-family:var(--mono);font-size:9px;color:#94a3b8">¥${Number(d['小計']||0).toLocaleString()}</td>
           <td style="text-align:right;font-family:var(--mono);font-size:9px;color:#94a3b8">${calcTaxIncluded(d)}</td>
           <td style="text-align:right;font-family:var(--mono);font-size:10px;font-weight:700;color:${kbTotal<0?'var(--orange)':'var(--navy)'}">¥${Number(d['純売上']||d['小計']||0).toLocaleString()}</td>
@@ -1955,18 +1999,38 @@ function openSaleModal(sale) {
   document.getElementById('s-memo').value = sale?.['備考'] || '';
   document.getElementById('s-date').value = sale?.['決定日'] || new Date().toISOString().slice(0,10);
 
-  // 品目行リセット
+  // 品目行リセット → _itemSetsから復元
   itemRowCount = 0;
   document.getElementById('itemRows').innerHTML = '';
-  if (sale?.['品目']) {
-    addItemRow({
-      品目: sale['品目'],
-      申請人名: sale['申請人名'] || '',
-      単価: sale['単価'] || '',
-      数量: sale['数量'] || 1,
-      収入印紙代: sale['収入印紙代'] || '',
-      収入印紙枚数: sale['収入印紙枚数'] || '',
-    });
+
+  let setsToRestore = [];
+  // 新形式：_itemSetsがある場合
+  if (sale?.['_itemSets']) {
+    try { setsToRestore = JSON.parse(sale['_itemSets']); } catch(e) {}
+  }
+  // 旧形式互換：品目を改行分割して復元
+  if (!setsToRestore.length && sale?.['品目']) {
+    const items = sale['品目'].split('\n').filter(Boolean);
+    const applicants = (sale['申請人名'] || '').split('\n');
+    setsToRestore = items.map((item, i) => ({
+      item,
+      applicant: applicants[i] || '',
+      price: i === 0 ? (Number(sale['単価']) || 0) : 0,
+      qty: i === 0 ? (Number(sale['数量']) || 1) : 1,
+      stamp: i === 0 ? (Number(sale['収入印紙代']) || 0) : 0,
+      stampN: i === 0 ? (Number(sale['収入印紙枚数']) || 0) : 0,
+    }));
+  }
+
+  if (setsToRestore.length) {
+    setsToRestore.forEach(s => addItemRow({
+      品目: s.item || '',
+      申請人名: s.applicant || '',
+      単価: s.price || '',
+      数量: s.qty || 1,
+      収入印紙代: s.stamp || '',
+      収入印紙枚数: s.stampN || '',
+    }));
   } else {
     addItemRow();
   }
@@ -2055,62 +2119,53 @@ async function saveSale() {
   const kbNuki = kbAmt * kbQty;
   const kbKomi = kbNuki + Math.round(Math.abs(kbNuki) * 0.1) * Math.sign(kbNuki || 1);
 
-  // 品目の最初の行をメイン、2行目以降は別途登録
+  const baseApplicant = document.getElementById('s-applicant').value.trim();
+  const totalSubtotal = itemRows.reduce((s, r) => s + r.price * r.qty, 0);
   const first = itemRows[0];
 
-  const makeData = (r) => ({
-    'ID': undefined,
+  // 申請人名・品目は全セット改行まとめ
+  const allApplicants = itemRows.map(r => r.applicant).filter(Boolean).join('\n') || baseApplicant;
+  const allItems      = itemRows.map(r => r.item).filter(Boolean).join('\n');
+  // 品目セットをJSONで保存（複数品目の詳細）
+  const itemSetsJson = JSON.stringify(itemRows.map(r => ({
+    item: r.item, applicant: r.applicant,
+    price: r.price, qty: r.qty,
+    stamp: r.stamp, stampN: r.stampN
+  })));
+
+  const data = {
     '取引先コード': document.getElementById('s-code').value.trim(),
     '得意先名': document.getElementById('s-client').value.trim(),
     '登録支援機関': document.getElementById('s-support').value.trim(),
-    '申請人名': r.applicant || document.getElementById('s-applicant').value.trim(),
-    '品目': r.item,
-    '単価': r.price,
-    '数量': r.qty,
-    '収入印紙代': r.stamp,
-    '収入印紙枚数': r.stampN,
-    'KBフラグ': false,
-    'KB単価': 0, 'KB数量': 0, 'KB金額': 0,
+    '申請人名': allApplicants,
+    '品目': allItems,
+    '単価': itemRows.length === 1 ? first.price : 0,
+    '数量': itemRows.reduce((s, r) => s + r.qty, 0),
+    '小計': totalSubtotal,
+    '収入印紙代': itemRows.some(r => r.stamp > 0) ? itemRows.find(r => r.stamp > 0)?.stamp || 0 : 0,
+    '収入印紙枚数': itemRows.reduce((s, r) => s + (r.stampN || 0), 0),
+    'KBフラグ': hasKB,
+    'KB単価': hasKB ? kbAmt : 0,
+    'KB数量': hasKB ? kbQty : 0,
+    'KB金額': hasKB ? kbKomi : 0,
+    '純売上': totalSubtotal,
     '請求書ステータス': document.getElementById('s-status').value,
     '担当スタッフ': document.getElementById('s-staff').value,
     '備考': document.getElementById('s-memo').value.trim(),
     '決定日': document.getElementById('s-date').value,
-  });
+    '_itemSets': itemSetsJson,
+  };
 
   try {
-    if (id && itemRows.length === 1) {
-      // 編集モード（1品目）
-      const data = { ...makeData(first), 'ID': id,
-        'KBフラグ': hasKB, 'KB単価': hasKB ? kbAmt : 0,
-        'KB数量': hasKB ? kbQty : 0, 'KB金額': hasKB ? kbKomi : 0,
-      };
-      const result = await gasCall('updateSale', data);
+    if (id) {
+      const result = await gasCall('updateSale', { ...data, 'ID': id });
       const idx = sales.findIndex(s => s['ID'] === id);
-      if (idx >= 0) {
-        sales[idx] = { ...sales[idx], ...data,
-          '小計': first.price * first.qty,
-          '純売上': result.net || sales[idx]['純売上'],
-        };
-      }
+      if (idx >= 0) sales[idx] = { ...sales[idx], ...data, 'ID': id, '純売上': result.net || totalSubtotal };
       toast('売上を更新しました', 'success');
     } else {
-      // 追加モード（複数品目対応）
-      for (let i = 0; i < itemRows.length; i++) {
-        const r = itemRows[i];
-        const data = makeData(r);
-        if (i === 0) {
-          data['KBフラグ'] = hasKB;
-          data['KB単価'] = hasKB ? kbAmt : 0;
-          data['KB数量'] = hasKB ? kbQty : 0;
-          data['KB金額'] = hasKB ? kbKomi : 0;
-        }
-        const result = await gasCall('addSale', data);
-        sales.unshift({ ...data, 'ID': result.id,
-          '小計': r.price * r.qty,
-          '純売上': result.net || 0,
-        });
-      }
-      toast(`${itemRows.length}件の売上を登録しました`, 'success');
+      const result = await gasCall('addSale', data);
+      sales.unshift({ ...data, 'ID': result.id, '純売上': result.net || totalSubtotal });
+      toast('売上を登録しました', 'success');
     }
     document.getElementById('saleOverlay').classList.remove('open');
     buildMonthFilter();
@@ -2364,7 +2419,9 @@ function previewReport() {
       '申請種別': appTypeLabel,
       '担当スタッフID': '', '担当スタッフ名': staffName,
       'サービス内訳JSON': JSON.stringify([{ name: appTypeLabel, amount }]),
-      '合計金額': amount,
+      '合計金額': amount * count,
+      '単価': amount,
+      '数量': count,
       '決定日': decidedAt,
       '請求書ID': '', '請求書URL': '',
       'ステータス': '未請求',
@@ -2391,14 +2448,18 @@ function previewReport() {
         <th style="padding:6px 10px;text-align:left;border-bottom:1px solid var(--border)">請求先</th>
         <th style="padding:6px 10px;text-align:left;border-bottom:1px solid var(--border)">申請種別</th>
         <th style="padding:6px 10px;text-align:left;border-bottom:1px solid var(--border)">申請人</th>
-        <th style="padding:6px 10px;text-align:right;border-bottom:1px solid var(--border)">金額</th>
+        <th style="padding:6px 10px;text-align:right;border-bottom:1px solid var(--border)">単価</th>
+        <th style="padding:6px 10px;text-align:center;border-bottom:1px solid var(--border)">人数</th>
+        <th style="padding:6px 10px;text-align:right;border-bottom:1px solid var(--border)">合計金額</th>
         <th style="padding:6px 10px;text-align:left;border-bottom:1px solid var(--border)">請求先区分</th>
       </tr></thead>
       <tbody>${parsedReportDeals.map(d => `<tr>
         <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-weight:600">${d['取引先名']}</td>
         <td style="padding:6px 10px;border-bottom:1px solid var(--border)">${d['申請種別']}</td>
         <td style="padding:6px 10px;border-bottom:1px solid var(--border)">${d['依頼人名']}</td>
-        <td style="padding:6px 10px;border-bottom:1px solid var(--border);text-align:right;font-family:var(--mono)">${fmt(d['合計金額'])}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid var(--border);text-align:right;font-family:var(--mono)">${fmt(d['単価']||d['合計金額'])}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid var(--border);text-align:center">${d['数量']||1}名</td>
+        <td style="padding:6px 10px;border-bottom:1px solid var(--border);text-align:right;font-family:var(--mono);font-weight:700;color:var(--navy)">${fmt(d['合計金額'])}</td>
         <td style="padding:6px 10px;border-bottom:1px solid var(--border)">
           <span style="font-size:11px;padding:2px 6px;border-radius:4px;background:${d._billingNote === '指定' ? '#eff6ff':'#f8fafc'};color:${d._billingNote === '指定' ? 'var(--accent)':'var(--text3)'}">
             ${d._billingNote}
@@ -2421,15 +2482,18 @@ async function saveReport() {
         // 内部フィールド除去
         const clean = {...d};
         Object.keys(clean).forEach(k => { if (k.startsWith('_')) delete clean[k]; });
+        const unitPrice = clean['単価'] || clean['合計金額'];
+        const qty = d._count || 1;
+        const subtotal = unitPrice * qty;
         const saleData = {
           '取引先コード': '',
           '得意先名': clean['取引先名'],
           '登録支援機関': d._supportOrg || '',
           '申請人名': clean['依頼人名'],
           '品目': clean['申請種別'],
-          '単価': clean['合計金額'],
-          '数量': 1,
-          '小計': clean['合計金額'],
+          '単価': unitPrice,
+          '数量': qty,
+          '小計': subtotal,
           '収入印紙代': d._stampAmt || 0,
           '収入印紙枚数': d._stampN || 0,
           'KBフラグ': false,
@@ -2441,7 +2505,7 @@ async function saveReport() {
         };
         const result = await gasCall('addSale', saleData);
         // ローカル配列に追加
-        sales.unshift({ ...saleData, 'ID': result.id, '純売上': clean['合計金額'] });
+        sales.unshift({ ...saleData, 'ID': result.id, '純売上': subtotal });
         added++;
       }
     }
@@ -3080,7 +3144,7 @@ function saveSettings() {
   localStorage.setItem('mfToken', MF_TOKEN);
   localStorage.setItem('mfOfficeId', MF_OFFICE);
   toast('設定を保存しました', 'success');
-  if (GAS_URL) loadAll();
+  if (GAS_URL) { loadAll(); setTimeout(warmupGAS, 1000); }
 }
 
 async function testSupabase() {
