@@ -1,0 +1,1474 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>定期届出管理システム — KMT</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=DM+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg:        #f5f6fa;
+  --bg2:       #ffffff;
+  --bg3:       #f0f2f7;
+  --surface:   #f8f9fc;
+  --surface2:  #eef0f6;
+  --border:    #e2e6ef;
+  --border2:   #d0d5e3;
+  --text:      #1a1e2e;
+  --text2:     #4a5068;
+  --text3:     #8b93ad;
+  --blue:      #2563eb;
+  --blue-lt:   #eff4ff;
+  --blue2:     #1d4ed8;
+  --green:     #16a34a;
+  --green-lt:  #f0fdf4;
+  --amber:     #d97706;
+  --amber-lt:  #fffbeb;
+  --red:       #dc2626;
+  --red-lt:    #fff1f1;
+  --purple:    #7c3aed;
+  --purple-lt: #f5f3ff;
+  --teal:      #0891b2;
+  --r:         10px;
+  --r-sm:      6px;
+  --shadow:    0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.1), 0 2px 4px rgba(0,0,0,.06);
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Noto Sans JP',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; font-size:13px; }
+
+/* ===== LAYOUT ===== */
+#app { display:flex; height:100vh; overflow:hidden; }
+
+/* SIDEBAR */
+#sidebar {
+  width:220px; flex-shrink:0; background:var(--bg2);
+  border-right:1px solid var(--border);
+  display:flex; flex-direction:column; overflow-y:auto;
+}
+.sidebar-logo {
+  padding:18px 16px 14px;
+  border-bottom:1px solid var(--border);
+}
+.logo-badge {
+  display:inline-flex; align-items:center; gap:6px;
+  background:var(--blue); border-radius:8px;
+  padding:5px 10px; margin-bottom:10px;
+}
+.logo-badge span { font-size:11px; font-weight:700; color:white; letter-spacing:.04em; }
+.sidebar-title { font-size:14px; font-weight:700; color:var(--text); line-height:1.3; }
+.sidebar-sub { font-size:10px; color:var(--text3); margin-top:2px; }
+
+.nav-section { padding:10px 10px 2px; }
+.nav-section-label { font-size:9px; font-weight:700; color:var(--text3); letter-spacing:.1em; text-transform:uppercase; padding:0 6px; margin-bottom:4px; }
+.nav-item {
+  display:flex; align-items:center; gap:9px;
+  padding:9px 10px; border-radius:var(--r-sm); cursor:pointer;
+  color:var(--text2); transition:.12s; font-size:12px; font-weight:500;
+  border:1px solid transparent; margin-bottom:1px;
+}
+.nav-item:hover { background:var(--bg3); color:var(--text); }
+.nav-item.active { background:var(--blue-lt); color:var(--blue); border-color:rgba(37,99,235,.15); }
+.nav-item .nav-icon { font-size:14px; flex-shrink:0; }
+.nav-badge { margin-left:auto; background:var(--blue); color:white; font-size:9px; font-weight:700; padding:2px 6px; border-radius:99px; }
+
+.sidebar-footer { margin-top:auto; padding:12px 16px; border-top:1px solid var(--border); }
+.gas-status { font-size:10px; color:var(--text3); display:flex; align-items:center; gap:6px; }
+.status-dot { width:6px; height:6px; border-radius:50%; background:var(--green); }
+.status-dot.red { background:var(--red); }
+
+/* MAIN */
+#main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+
+#topbar {
+  height:52px; flex-shrink:0; background:var(--bg2); border-bottom:1px solid var(--border);
+  display:flex; align-items:center; padding:0 20px; gap:10px;
+  box-shadow: 0 1px 0 var(--border);
+}
+.topbar-title { font-size:15px; font-weight:700; color:var(--text); }
+.topbar-sub { font-size:11px; color:var(--text3); margin-left:4px; }
+.topbar-actions { margin-left:auto; display:flex; gap:8px; align-items:center; }
+
+#content { flex:1; overflow-y:auto; padding:20px; }
+.panel { display:none; }
+.panel.active { display:block; }
+
+/* ===== STATS ===== */
+.stats-row { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }
+.stat-card {
+  background:var(--bg2); border:1px solid var(--border); border-radius:var(--r);
+  padding:16px 18px; box-shadow:var(--shadow);
+}
+.stat-card.blue  { border-top:3px solid var(--blue); }
+.stat-card.green { border-top:3px solid var(--green); }
+.stat-card.amber { border-top:3px solid var(--amber); }
+.stat-card.red   { border-top:3px solid var(--red); }
+.stat-label { font-size:10px; color:var(--text3); font-weight:600; margin-bottom:6px; text-transform:uppercase; letter-spacing:.05em; }
+.stat-value { font-size:28px; font-weight:900; color:var(--text); font-family:'DM Mono',monospace; line-height:1; }
+.stat-sub   { font-size:10px; color:var(--text3); margin-top:4px; }
+
+/* ===== TABLE ===== */
+.table-wrapper {
+  background:var(--bg2); border:1px solid var(--border); border-radius:var(--r);
+  overflow:hidden; box-shadow:var(--shadow);
+}
+.table-header {
+  display:flex; align-items:center; padding:12px 16px;
+  border-bottom:1px solid var(--border); gap:10px; background:var(--bg2);
+}
+.table-title { font-size:13px; font-weight:700; color:var(--text); }
+.table-count { font-size:11px; color:var(--text3); margin-left:4px; }
+.table-actions { margin-left:auto; display:flex; gap:8px; }
+
+table { width:100%; border-collapse:collapse; }
+thead th {
+  text-align:left; padding:9px 14px; font-size:10px; font-weight:700;
+  color:var(--text3); letter-spacing:.05em; text-transform:uppercase;
+  background:var(--bg3); border-bottom:1px solid var(--border);
+  white-space:nowrap;
+}
+tbody tr { border-bottom:1px solid var(--border); transition:.1s; }
+tbody tr:hover { background:var(--surface); }
+tbody tr:last-child { border-bottom:none; }
+td { padding:10px 14px; font-size:12px; color:var(--text); vertical-align:middle; }
+
+/* ===== BADGES ===== */
+.badge {
+  display:inline-flex; align-items:center; gap:3px;
+  padding:3px 8px; border-radius:99px; font-size:10px; font-weight:700; white-space:nowrap;
+}
+.badge-blue   { background:var(--blue-lt);   color:var(--blue);   border:1px solid #bfdbfe; }
+.badge-green  { background:var(--green-lt);  color:var(--green);  border:1px solid #bbf7d0; }
+.badge-amber  { background:var(--amber-lt);  color:var(--amber);  border:1px solid #fde68a; }
+.badge-red    { background:var(--red-lt);    color:var(--red);    border:1px solid #fecaca; }
+.badge-gray   { background:var(--bg3);       color:var(--text3);  border:1px solid var(--border2); }
+.badge-purple { background:var(--purple-lt); color:var(--purple); border:1px solid #ddd6fe; }
+
+/* ===== BUTTONS ===== */
+.btn {
+  display:inline-flex; align-items:center; gap:5px;
+  padding:7px 14px; border-radius:var(--r-sm); font-size:12px; font-weight:600;
+  cursor:pointer; border:none; transition:.12s; font-family:inherit; text-decoration:none;
+}
+.btn-primary  { background:var(--blue);  color:white; box-shadow:0 1px 2px rgba(37,99,235,.3); }
+.btn-primary:hover  { background:var(--blue2); }
+.btn-secondary { background:var(--bg2); color:var(--text2); border:1px solid var(--border2); }
+.btn-secondary:hover { background:var(--bg3); }
+.btn-success  { background:var(--green); color:white; }
+.btn-success:hover  { filter:brightness(1.05); }
+.btn-sm   { padding:5px 10px; font-size:11px; }
+.btn-icon { padding:6px 8px; }
+
+/* ===== INPUTS ===== */
+.input {
+  background:var(--bg2); border:1.5px solid var(--border2); color:var(--text);
+  padding:8px 12px; border-radius:var(--r-sm); font-size:12px; font-family:inherit;
+  outline:none; width:100%; transition:.12s;
+}
+.input:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(37,99,235,.1); }
+.input::placeholder { color:var(--text3); }
+select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b93ad' d='M6 8L1 3h10z'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 10px center; padding-right:28px; appearance:none; }
+
+.field-group { display:flex; flex-direction:column; gap:5px; }
+.field-label { font-size:11px; font-weight:600; color:var(--text2); }
+
+.form-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.form-grid.cols3 { grid-template-columns:1fr 1fr 1fr; }
+.form-grid.cols4 { grid-template-columns:repeat(4,1fr); }
+.col-span2 { grid-column:span 2; }
+.col-span3 { grid-column:span 3; }
+
+/* ===== MODAL ===== */
+.modal-overlay {
+  position:fixed; inset:0; background:rgba(15,20,40,.4); z-index:1000;
+  display:none; align-items:center; justify-content:center; padding:20px;
+  backdrop-filter:blur(2px);
+}
+.modal-overlay.open { display:flex; }
+.modal {
+  background:var(--bg2); border:1px solid var(--border2); border-radius:var(--r);
+  width:100%; max-height:90vh; overflow-y:auto; box-shadow:var(--shadow-md);
+}
+.modal.sm { max-width:480px; }
+.modal.md { max-width:680px; }
+.modal.lg { max-width:900px; }
+.modal-head {
+  padding:16px 20px; border-bottom:1px solid var(--border);
+  display:flex; align-items:center; justify-content:space-between;
+  position:sticky; top:0; background:var(--bg2); z-index:1;
+}
+.modal-title { font-size:15px; font-weight:700; color:var(--text); }
+.modal-close { background:none; border:none; color:var(--text3); cursor:pointer; font-size:18px; padding:2px 6px; border-radius:4px; }
+.modal-close:hover { background:var(--bg3); }
+.modal-body { padding:20px; }
+.modal-foot { padding:14px 20px; border-top:1px solid var(--border); display:flex; gap:10px; justify-content:flex-end; background:var(--bg3); }
+
+/* ===== PROGRESS ===== */
+.progress-bar { height:6px; background:var(--bg3); border-radius:99px; overflow:hidden; border:1px solid var(--border); }
+.progress-fill { height:100%; border-radius:99px; background:var(--blue); transition:.3s; }
+.progress-fill.green { background:var(--green); }
+.progress-fill.amber { background:var(--amber); }
+.progress-fill.red   { background:var(--red); }
+
+/* ===== TABS ===== */
+.tab-bar { display:flex; gap:0; border-bottom:2px solid var(--border); margin-bottom:18px; }
+.tab-btn { padding:8px 18px; cursor:pointer; font-size:12px; font-weight:500; color:var(--text3); border:none; background:none; font-family:inherit; transition:.12s; position:relative; bottom:-2px; border-bottom:2px solid transparent; }
+.tab-btn.active { color:var(--blue); border-bottom-color:var(--blue); font-weight:700; }
+.tab-btn:hover { color:var(--text); }
+
+/* ===== SECTION ===== */
+.section-head { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+.section-title { font-size:13px; font-weight:700; color:var(--text); }
+.section-divider { height:1px; background:var(--border); margin:18px 0; }
+
+/* ===== KIJUN ===== */
+.kijun-panel { background:var(--bg3); border:1px solid var(--border); border-radius:var(--r); padding:16px; margin-bottom:14px; }
+.kijun-title { font-size:10px; font-weight:700; color:var(--text3); text-transform:uppercase; letter-spacing:.08em; margin-bottom:12px; }
+.kijun-check { width:18px; height:18px; border-radius:4px; border:1.5px solid var(--border2); cursor:pointer; flex-shrink:0; display:flex; align-items:center; justify-content:center; transition:.12s; background:white; }
+.kijun-check.checked { background:var(--green); border-color:var(--green); }
+.kijun-check.checked::after { content:'✓'; font-size:11px; color:white; font-weight:700; }
+.kijun-item { display:flex; align-items:flex-start; gap:8px; }
+.kijun-label { font-size:12px; color:var(--text2); line-height:1.4; }
+
+/* ===== RESULT BADGE ===== */
+.result-badge { display:inline-flex; align-items:center; gap:8px; padding:10px 16px; border-radius:var(--r-sm); font-weight:700; font-size:12px; }
+.result-badge.eligible   { background:var(--green-lt); color:var(--green); border:1px solid #86efac; }
+.result-badge.ineligible { background:var(--red-lt);   color:var(--red);   border:1px solid #fca5a5; }
+
+/* ===== DOC LIST ===== */
+.doc-list { display:flex; flex-direction:column; gap:5px; }
+.doc-item {
+  display:flex; align-items:center; gap:10px; padding:9px 12px;
+  background:var(--bg2); border-radius:var(--r-sm); border:1px solid var(--border);
+}
+.doc-item.not-needed { opacity:.45; }
+.doc-item.done { background:var(--green-lt); border-color:#bbf7d0; }
+.doc-name { font-size:12px; font-weight:500; flex:1; }
+.doc-who  { font-size:10px; color:var(--text3); }
+.doc-status { margin-left:auto; }
+
+/* ===== SEARCH ===== */
+.search-wrap { position:relative; }
+.search-wrap .search-icon { position:absolute; left:10px; top:50%; transform:translateY(-50%); color:var(--text3); font-size:13px; pointer-events:none; }
+.search-wrap .input { padding-left:32px; }
+
+/* ===== DROP ZONE ===== */
+.drop-zone { border:2px dashed var(--border2); border-radius:var(--r); padding:32px; text-align:center; cursor:pointer; transition:.15s; background:var(--bg3); }
+.drop-zone:hover,.drop-zone.drag { border-color:var(--blue); background:var(--blue-lt); }
+.drop-icon { font-size:32px; margin-bottom:10px; }
+.drop-text { font-size:13px; color:var(--text2); font-weight:500; }
+.drop-sub  { font-size:11px; color:var(--text3); margin-top:4px; }
+
+/* ===== ALERT ===== */
+.alert { padding:10px 14px; border-radius:var(--r-sm); font-size:12px; display:flex; align-items:flex-start; gap:8px; line-height:1.5; }
+.alert-info    { background:var(--blue-lt);   border:1px solid #bfdbfe; color:#1e40af; }
+.alert-warn    { background:var(--amber-lt);  border:1px solid #fde68a; color:#92400e; }
+.alert-success { background:var(--green-lt);  border:1px solid #bbf7d0; color:#14532d; }
+.alert-danger  { background:var(--red-lt);    border:1px solid #fca5a5; color:#991b1b; }
+
+/* ===== DEADLINE BANNER ===== */
+.deadline-banner {
+  background:linear-gradient(135deg,#fffbeb,#fff7ed);
+  border:1px solid #fde68a; border-radius:var(--r);
+  padding:14px 18px; margin-bottom:20px; display:flex; align-items:center; gap:16px;
+  box-shadow:var(--shadow);
+}
+.deadline-days  { font-size:36px; font-weight:900; color:var(--amber); font-family:'DM Mono',monospace; line-height:1; }
+.deadline-label { font-size:12px; color:var(--text2); line-height:1.6; }
+.deadline-label b { color:var(--text); }
+.deadline-progress { flex:1; max-width:220px; }
+
+/* ===== TOAST ===== */
+.toast {
+  position:fixed; bottom:20px; right:20px; z-index:9999;
+  background:var(--bg2); border:1px solid var(--border2); border-radius:var(--r);
+  padding:12px 16px; display:flex; align-items:center; gap:10px;
+  font-size:12px; min-width:280px; max-width:380px;
+  box-shadow:var(--shadow-md); animation:slideIn .2s ease;
+}
+.toast.hidden { display:none; }
+.toast-icon { font-size:16px; flex-shrink:0; }
+.toast-close { margin-left:auto; background:none; border:none; color:var(--text3); cursor:pointer; }
+@keyframes slideIn { from{transform:translateX(20px);opacity:0} to{transform:translateX(0);opacity:1} }
+
+/* ===== MISC ===== */
+.empty-state { text-align:center; padding:48px 24px; }
+.empty-icon  { font-size:40px; margin-bottom:12px; opacity:.25; }
+.empty-text  { font-size:13px; color:var(--text3); }
+.spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(0,0,0,.1); border-top-color:currentColor; border-radius:50%; animation:spin .6s linear infinite; }
+@keyframes spin { to{transform:rotate(360deg)} }
+::-webkit-scrollbar { width:6px; height:6px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border2); border-radius:99px; }
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- SIDEBAR -->
+<div id="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-badge"><span>KMT</span></div>
+    <div class="sidebar-title">定期届出<br>管理システム</div>
+    <div class="sidebar-sub">2025年度 対象</div>
+  </div>
+
+  <div class="nav-section">
+    <div class="nav-section-label">メイン</div>
+    <div class="nav-item active" data-panel="dashboard" onclick="switchPanel('dashboard',this)">
+      <span class="nav-icon">📊</span> ダッシュボード
+    </div>
+    <div class="nav-item" data-panel="companies" onclick="switchPanel('companies',this)">
+      <span class="nav-icon">🏭</span> 所属機関一覧
+      <span class="nav-badge" id="badge-companies">-</span>
+    </div>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">データ管理</div>
+    <div class="nav-item" data-panel="foreigners" onclick="switchPanel('foreigners',this)">
+      <span class="nav-icon">👤</span> 外国人マスタ
+      <span class="nav-badge" id="badge-foreigners">-</span>
+    </div>
+    <div class="nav-item" data-panel="salary" onclick="switchPanel('salary',this)">
+      <span class="nav-icon">💴</span> 給与データ入力
+    </div>
+    <div class="nav-item" data-panel="calc" onclick="switchPanel('calc',this)">
+      <span class="nav-icon">🧮</span> 自動計算・確認
+    </div>
+  </div>
+  <div class="nav-section">
+    <div class="nav-section-label">書類</div>
+    <div class="nav-item" data-panel="doccheck" onclick="switchPanel('doccheck',this)">
+      <span class="nav-icon">📋</span> 書類チェック
+    </div>
+    <div class="nav-item" data-panel="settings" onclick="switchPanel('settings',this)">
+      <span class="nav-icon">⚙️</span> 設定
+    </div>
+  </div>
+
+  <div class="sidebar-footer">
+    <div class="gas-status">
+      <div class="status-dot" id="api-dot"></div>
+      <span id="api-status-text">接続確認中...</span>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+  <div id="topbar">
+    <div>
+      <span class="topbar-title" id="topbar-title">ダッシュボード</span>
+      <span class="topbar-sub" id="topbar-sub">KMT 定期届出 2025年度</span>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn btn-secondary btn-sm" onclick="refreshData()">
+        <span id="refresh-icon">🔄</span> 最新データ取得
+      </button>
+      <button class="btn btn-primary btn-sm" onclick="openModal('modal-company-add')">
+        ＋ 所属機関追加
+      </button>
+    </div>
+  </div>
+
+  <div id="content">
+
+    <!-- DASHBOARD -->
+    <div id="panel-dashboard" class="panel active">
+      <div class="deadline-banner">
+        <div style="text-align:center">
+          <div class="deadline-days" id="days-left">-</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">残り日数</div>
+        </div>
+        <div style="width:1px;height:40px;background:var(--border);flex-shrink:0"></div>
+        <div class="deadline-label">
+          <b>提出期限：2026年5月31日</b><br>
+          対象期間：2025年4月1日〜2026年3月31日
+        </div>
+        <div class="deadline-progress" style="margin-left:auto">
+          <div style="font-size:10px;color:var(--text3);margin-bottom:5px;font-weight:600">対象期間 経過率</div>
+          <div class="progress-bar" style="height:8px">
+            <div class="progress-fill amber" id="period-progress" style="width:0%"></div>
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:4px" id="period-progress-label">計算中...</div>
+        </div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-card blue">
+          <div class="stat-label">所属機関 総数</div>
+          <div class="stat-value" id="stat-total">-</div>
+          <div class="stat-sub">KMT管轄</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-label">提出完了</div>
+          <div class="stat-value" id="stat-done">-</div>
+          <div class="stat-sub" id="stat-done-rate">-</div>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-label">進行中 / 書類収集中</div>
+          <div class="stat-value" id="stat-wip">-</div>
+          <div class="stat-sub">対応中</div>
+        </div>
+        <div class="stat-card red">
+          <div class="stat-label">未着手</div>
+          <div class="stat-value" id="stat-todo">-</div>
+          <div class="stat-sub">要対応</div>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <div class="table-header">
+          <span class="table-title">所属機関 進捗サマリー</span>
+          <span class="table-count" id="dash-table-count"></span>
+          <div class="table-actions">
+            <select class="input btn-sm" style="width:auto" id="dash-filter" onchange="renderDashTable()">
+              <option value="">全て</option>
+              <option value="未着手">未着手</option>
+              <option value="進行中">進行中</option>
+              <option value="書類収集中">書類収集中</option>
+              <option value="確認待ち">確認待ち</option>
+              <option value="完了">完了</option>
+            </select>
+          </div>
+        </div>
+        <div style="max-height:420px;overflow-y:auto">
+          <table>
+            <thead><tr>
+              <th>所属機関名</th><th>ステータス</th><th>一定の基準</th>
+              <th>登録支援機関</th><th>書類進捗</th><th>操作</th>
+            </tr></thead>
+            <tbody id="dash-table-body">
+              <tr><td colspan="6"><div class="empty-state"><div class="spinner"></div></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 所属機関一覧 -->
+    <div id="panel-companies" class="panel">
+      <div class="table-wrapper">
+        <div class="table-header">
+          <span class="table-title">所属機関一覧</span>
+          <div class="search-wrap" style="width:240px">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="input" placeholder="会社名で検索..." id="co-search" oninput="renderCompanyTable()">
+          </div>
+          <div class="table-actions">
+            <select class="input btn-sm" style="width:auto" id="co-status-filter" onchange="renderCompanyTable()">
+              <option value="">全ステータス</option>
+              <option value="未着手">未着手</option>
+              <option value="進行中">進行中</option>
+              <option value="書類収集中">書類収集中</option>
+              <option value="確認待ち">確認待ち</option>
+              <option value="完了">完了</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="openImportModal()">📥 インポート</button>
+            <button class="btn btn-primary btn-sm" onclick="openModal('modal-company-add')">＋ 追加</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table>
+            <thead><tr>
+              <th style="width:36px">#</th><th>所属機関名</th><th>ステータス</th>
+              <th>電子届出</th><th>一定の基準</th><th>登録支援機関</th><th>大房書類</th><th>企業書類</th><th>操作</th>
+            </tr></thead>
+            <tbody id="co-table-body">
+              <tr><td colspan="9"><div class="empty-state"><div class="spinner"></div></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 外国人マスタ -->
+    <div id="panel-foreigners" class="panel">
+      <div class="table-wrapper">
+        <div class="table-header">
+          <span class="table-title">外国人マスタ</span>
+          <div class="search-wrap" style="width:240px">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="input" placeholder="氏名・会社名で検索..." id="fg-search" oninput="renderForeignerTable()">
+          </div>
+          <div class="table-actions">
+            <select class="input btn-sm" style="width:auto" id="fg-status-filter" onchange="renderForeignerTable()">
+              <option value="">全員</option>
+              <option value="在職">在職</option>
+              <option value="退職">退職</option>
+            </select>
+            <select class="input btn-sm" style="width:auto" id="fg-zairyu-filter" onchange="renderForeignerTable()">
+              <option value="">全在留資格</option>
+              <option value="特定技能1号">1号</option>
+              <option value="特定技能2号">2号</option>
+            </select>
+            <button class="btn btn-secondary btn-sm" onclick="openForeignerImport()">📥 CSV取込</button>
+            <button class="btn btn-primary btn-sm" onclick="openModal('modal-foreigner-add')">＋ 追加</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto;max-height:500px">
+          <table>
+            <thead><tr>
+              <th>所属機関</th><th>氏名（英字）</th><th>国籍</th><th>在留資格</th>
+              <th>在留カードNo.</th><th>生年月日</th><th>在留期限</th><th>雇用開始日</th><th>在職</th><th>操作</th>
+            </tr></thead>
+            <tbody id="fg-table-body">
+              <tr><td colspan="9"><div class="empty-state"><div class="spinner"></div></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 給与データ入力 -->
+    <div id="panel-salary" class="panel">
+      <div style="display:grid;grid-template-columns:260px 1fr;gap:16px;height:calc(100vh - 130px)">
+        <div class="table-wrapper" style="overflow-y:auto">
+          <div class="table-header"><span class="table-title">所属機関</span></div>
+          <div style="padding:8px">
+            <input type="text" class="input" placeholder="🔍 検索..." id="sal-co-search" oninput="renderSalaryCoList()" style="margin-bottom:6px">
+          </div>
+          <div id="sal-co-list" style="padding:0 6px 6px"></div>
+        </div>
+        <div id="sal-input-area">
+          <div class="empty-state" style="padding-top:80px">
+            <div class="empty-icon">📄</div>
+            <div class="empty-text">左の所属機関を選択してください</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 自動計算 -->
+    <div id="panel-calc" class="panel">
+      <div style="display:grid;grid-template-columns:260px 1fr;gap:16px">
+        <div class="table-wrapper" style="overflow-y:auto;max-height:calc(100vh-130px)">
+          <div class="table-header"><span class="table-title">所属機関</span></div>
+          <div style="padding:8px">
+            <input type="text" class="input" placeholder="🔍 検索..." id="calc-co-search" oninput="renderCalcCoList()">
+          </div>
+          <div id="calc-co-list" style="padding:0 6px 6px"></div>
+        </div>
+        <div id="calc-result-area">
+          <div class="empty-state" style="padding-top:80px">
+            <div class="empty-icon">🧮</div>
+            <div class="empty-text">左の所属機関を選択してください</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 書類チェック -->
+    <div id="panel-doccheck" class="panel">
+      <div style="display:grid;grid-template-columns:260px 1fr;gap:16px">
+        <div class="table-wrapper" style="overflow-y:auto;max-height:calc(100vh-130px)">
+          <div class="table-header"><span class="table-title">所属機関</span></div>
+          <div style="padding:8px">
+            <input type="text" class="input" placeholder="🔍 検索..." id="doc-co-search" oninput="renderDocCoList()">
+          </div>
+          <div id="doc-co-list" style="padding:0 6px 6px"></div>
+        </div>
+        <div id="doc-detail-area">
+          <div class="empty-state" style="padding-top:80px">
+            <div class="empty-icon">📋</div>
+            <div class="empty-text">左の所属機関を選択してください</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 設定 -->
+    <div id="panel-settings" class="panel">
+      <div style="max-width:560px;display:flex;flex-direction:column;gap:16px">
+        <div class="table-wrapper">
+          <div class="table-header"><span class="table-title">⚙️ API設定</span></div>
+          <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
+            <div class="field-group">
+              <label class="field-label">GAS WebアプリURL</label>
+              <input type="text" class="input" id="setting-gas-url" placeholder="https://script.google.com/macros/s/...">
+            </div>
+            <div class="form-grid">
+              <div class="field-group">
+                <label class="field-label">対象年度</label>
+                <input type="text" class="input" id="setting-year" value="2025">
+              </div>
+              <div class="field-group">
+                <label class="field-label">登録支援機関名</label>
+                <input type="text" class="input" id="setting-org-name" value="株式会社ＫＭＴ">
+              </div>
+            </div>
+            <div class="alert alert-info">ℹ️ スプレッドシート「設定」シートB5のURLを入力してください。</div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-primary" onclick="saveSettings()">💾 設定保存</button>
+              <button class="btn btn-secondary" onclick="testConnection()">🔗 接続テスト</button>
+            </div>
+            <div id="setting-result"></div>
+          </div>
+        </div>
+        <div class="table-wrapper">
+          <div class="table-header"><span class="table-title">📥 データ管理</span></div>
+          <div style="padding:18px;display:flex;flex-direction:column;gap:10px">
+            <div class="alert alert-warn">⚠️ OFUSAからCSVエクスポートした所属機関データをインポートします（新規追加のみ）。</div>
+            <button class="btn btn-secondary" onclick="openImportModal()">📥 所属機関マスタをOFUSAからインポート</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<!-- ===== MODALS ===== -->
+
+<!-- 所属機関 追加/編集 -->
+<div class="modal-overlay" id="modal-company-add">
+  <div class="modal lg">
+    <div class="modal-head">
+      <span class="modal-title" id="co-modal-title">所属機関 追加</span>
+      <button class="modal-close" onclick="closeModal('modal-company-add')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchModalTab('tab-co-basic',this)">基本情報</button>
+        <button class="tab-btn" onclick="switchModalTab('tab-co-kijun',this)">一定の基準</button>
+        <button class="tab-btn" onclick="switchModalTab('tab-co-support',this)">支援機関・役員</button>
+      </div>
+
+      <div id="tab-co-basic">
+        <div class="form-grid">
+          <div class="field-group col-span2">
+            <label class="field-label">会社名（所属機関名） <span style="color:var(--red)">*</span></label>
+            <input type="text" class="input" id="co-name" placeholder="株式会社〇〇">
+          </div>
+          <div class="field-group"><label class="field-label">法人番号</label><input type="text" class="input" id="co-corp-no" placeholder="1234567890123"></div>
+          <div class="field-group"><label class="field-label">対象年度</label><input type="text" class="input" id="co-fiscal-year" value="2025"></div>
+          <div class="field-group"><label class="field-label">郵便番号</label><input type="text" class="input" id="co-zip" placeholder="000-0000"></div>
+          <div class="field-group"><label class="field-label">都道府県</label><input type="text" class="input" id="co-pref" placeholder="東京都"></div>
+          <div class="field-group col-span2"><label class="field-label">住所</label><input type="text" class="input" id="co-address"></div>
+          <div class="field-group"><label class="field-label">電話番号</label><input type="text" class="input" id="co-tel"></div>
+          <div class="field-group"><label class="field-label">代表者名</label><input type="text" class="input" id="co-rep-name"></div>
+          <div class="field-group"><label class="field-label">代表者役職</label><input type="text" class="input" id="co-rep-title" placeholder="代表取締役"></div>
+          <div class="field-group"><label class="field-label">特定産業分野</label><input type="text" class="input" id="co-industry"></div>
+          <div class="field-group"><label class="field-label">ステータス</label>
+            <select class="input" id="co-status">
+              <option>未着手</option><option>進行中</option><option>書類収集中</option><option>確認待ち</option><option>完了</option>
+            </select>
+          </div>
+          <div class="field-group col-span2"><label class="field-label">備考</label><input type="text" class="input" id="co-note"></div>
+        </div>
+      </div>
+
+      <div id="tab-co-kijun" style="display:none">
+        <div class="alert alert-info" style="margin-bottom:14px">ℹ️ 3条件全て満たす場合「基準該当」となり、添付書類が大幅に省略できます。</div>
+        <div class="kijun-panel">
+          <div class="kijun-title">必須条件（両方必要）</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div class="kijun-item">
+              <div class="kijun-check" id="kijun1-check" onclick="toggleKijun('kijun1')"></div>
+              <span class="kijun-label">条件1：過去3年間に指導勧告書・改善命令を受けていない</span>
+            </div>
+            <div class="kijun-item">
+              <div class="kijun-check" id="kijun2-check" onclick="toggleKijun('kijun2')"></div>
+              <span class="kijun-label">条件2：在留諸申請をオンライン申請・各種届出を電子届出で提出している</span>
+            </div>
+          </div>
+        </div>
+        <div class="kijun-panel">
+          <div class="kijun-title">条件3：以下のいずれか1つ</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text2)"><input type="radio" name="kijun3" value="①上場" onchange="updateKijunResult()"> ① 日本の証券取引所に上場している</label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text2)"><input type="radio" name="kijun3" value="②相互会社" onchange="updateKijunResult()"> ② 保険業を営む相互会社</label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text2)"><input type="radio" name="kijun3" value="③イノベーション" onchange="updateKijunResult()"> ③ イノベーション創出企業</label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text2)"><input type="radio" name="kijun3" value="④一定の条件" onchange="updateKijunResult()"> ④ 一定の条件を満たす企業等</label>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text2)"><input type="radio" name="kijun3" value="⑤源泉1000万以上" onchange="updateKijunResult()"> ⑤ 源泉徴収税額が1,000万円以上</label>
+            <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:2px">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text2)"><input type="radio" name="kijun3" value="⑥継続実績" onchange="updateKijunResult()"> ⑥ 3年間継続受入実績あり かつ 債務超過なし</label>
+              <div id="kijun6-detail" style="display:none;margin-left:22px;margin-top:8px;background:var(--bg3);border-radius:6px;padding:10px;display:none">
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:11px;color:var(--text2)"><input type="checkbox" id="kijun6a" onchange="updateKijunResult()"> ⑥-A：3年間継続した受入実績あり</label>
+                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:11px;color:var(--text2)"><input type="checkbox" id="kijun6b" onchange="updateKijunResult()"> ⑥-B：過去3年間に債務超過なし</label>
+                </div>
+              </div>
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text2)"><input type="radio" name="kijun3" value="なし" checked onchange="updateKijunResult()"> 該当なし</label>
+          </div>
+        </div>
+        <div id="kijun-result-display" style="margin-top:14px"></div>
+        <input type="hidden" id="kijun-result-value">
+        <input type="hidden" id="kijun1-value">
+        <input type="hidden" id="kijun2-value">
+        <input type="hidden" id="kijun6a-value">
+        <input type="hidden" id="kijun6b-value">
+        <input type="hidden" id="kijun3-type-value">
+      </div>
+
+      <div id="tab-co-support" style="display:none">
+        <div class="form-grid">
+          <div class="field-group col-span2">
+            <label class="field-label">登録支援機関種別</label>
+            <select class="input" id="co-support-type">
+              <option value="全部委託(KMT)" selected>全部委託（KMT）</option>
+              <option value="自社支援">自社支援</option>
+              <option value="一部委託">一部委託</option>
+            </select>
+          </div>
+          <div class="field-group col-span2">
+            <label class="field-label">他登録支援機関の利用</label>
+            <div style="margin-top:4px">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text2)">
+                <input type="checkbox" id="co-other-support-check" onchange="toggleSupportOther()">
+                他の登録支援機関も利用している
+              </label>
+            </div>
+          </div>
+          <div class="field-group col-span2" id="support-other-wrap" style="display:none">
+            <label class="field-label">他登録支援機関名</label>
+            <input type="text" class="input" id="co-support-other" placeholder="株式会社〇〇（複数の場合はカンマ区切り）">
+          </div>
+          <div class="field-group col-span2">
+            <label class="field-label">業務執行外役員あり</label>
+            <div style="display:flex;gap:16px;margin-top:4px">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px"><input type="radio" name="non-exec" value="✓" id="non-exec-yes"> あり（第1-23号が必要）</label>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px"><input type="radio" name="non-exec" value="✗" id="non-exec-no" checked> なし</label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="closeModal('modal-company-add')">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveCompany()">
+        <span id="co-save-spinner" style="display:none" class="spinner"></span> 保存する
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- 外国人 追加/編集 -->
+<div class="modal-overlay" id="modal-foreigner-add">
+  <div class="modal md">
+    <div class="modal-head">
+      <span class="modal-title" id="fg-modal-title">外国人 追加</span>
+      <button class="modal-close" onclick="closeModal('modal-foreigner-add')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid cols3">
+        <div class="field-group col-span3">
+          <label class="field-label">所属機関名 <span style="color:var(--red)">*</span></label>
+          <input type="text" class="input" id="fg-company" list="fg-company-list">
+          <datalist id="fg-company-list"></datalist>
+        </div>
+        <div class="field-group" style="grid-column:span 2"><label class="field-label">氏名（英字）</label><input type="text" class="input" id="fg-name-en" placeholder="NGUYEN VAN A"></div>
+        <div class="field-group"><label class="field-label">氏名（カナ）</label><input type="text" class="input" id="fg-name-kana"></div>
+        <div class="field-group"><label class="field-label">国籍</label><input type="text" class="input" id="fg-nationality" placeholder="ベトナム"></div>
+        <div class="field-group"><label class="field-label">在留資格</label>
+          <select class="input" id="fg-zairyu"><option>特定技能1号</option><option>特定技能2号</option><option>特定活動</option><option>その他</option></select>
+        </div>
+        <div class="field-group"><label class="field-label">性別</label>
+          <select class="input" id="fg-gender"><option>男</option><option>女</option></select>
+        </div>
+        <div class="field-group" style="grid-column:span 2"><label class="field-label">在留カード番号</label><input type="text" class="input" id="fg-card" placeholder="AB12345678CD"></div>
+        <div class="field-group"><label class="field-label">生年月日</label><input type="text" class="input" id="fg-birth" placeholder="1995-04-15"></div>
+        <div class="field-group"><label class="field-label">在留期限</label><input type="text" class="input" id="fg-expiry" placeholder="2026-09-30"></div>
+        <div class="field-group"><label class="field-label">雇用開始日</label><input type="text" class="input" id="fg-start" placeholder="2023-06-01"></div>
+        <div class="field-group"><label class="field-label">雇用終了日</label><input type="text" class="input" id="fg-end" placeholder="在職中は空欄"></div>
+        <div class="field-group"><label class="field-label">5年満了日</label><input type="text" class="input" id="fg-five-year" placeholder="2028-06-01"></div>
+        <div class="field-group"><label class="field-label">在職状況</label>
+          <select class="input" id="fg-status"><option>在職</option><option>退職</option><option>休職</option></select>
+        </div>
+        <div class="field-group col-span3"><label class="field-label">備考</label><input type="text" class="input" id="fg-memo"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="closeModal('modal-foreigner-add')">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveForeigner()">
+        <span id="fg-save-spinner" style="display:none" class="spinner"></span> 保存する
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- インポート -->
+<div class="modal-overlay" id="modal-import">
+  <div class="modal md">
+    <div class="modal-head">
+      <span class="modal-title">所属機関マスタ インポート</span>
+      <button class="modal-close" onclick="closeModal('modal-import')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="alert alert-info" style="margin-bottom:14px">ℹ️ 所属機関CSVをインポートします。必要列：folderNo, name, corpNo, zip, pref, city, address, tel, repName, repTitle, industry, kijun, memo, email, managerName, supportOrgName, kijun_2_method, kijun_2</div>
+      <div class="drop-zone" id="import-drop" onclick="document.getElementById('import-file').click()">
+        <div class="drop-icon">📄</div>
+        <div class="drop-text">CSVファイルをドロップ または クリックして選択</div>
+        <div class="drop-sub">UTF-8 / BOM付きUTF-8 対応</div>
+      </div>
+      <input type="file" id="import-file" accept=".csv" style="display:none" onchange="handleImportFile(this)">
+      <div id="import-preview" style="margin-top:10px"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="closeModal('modal-import')">キャンセル</button>
+      <button class="btn btn-primary" id="import-btn" onclick="executeImport()" disabled>インポート実行</button>
+    </div>
+  </div>
+</div>
+
+<!-- 外国人CSV -->
+<div class="modal-overlay" id="modal-fg-import">
+  <div class="modal md">
+    <div class="modal-head">
+      <span class="modal-title">外国人マスタ CSVインポート</span>
+      <button class="modal-close" onclick="closeModal('modal-fg-import')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="alert alert-info" style="margin-bottom:14px">ℹ️ 必要列：companyName, nameEn, nameKana, gender, nationality, birthDate, zip, pref, city, address, residenceCard, residenceStatus, residenceExpiry, contractStart, contractEnd, status, fiveYearExpiry, applicationStatus, memo</div>
+      <div class="drop-zone" onclick="document.getElementById('fg-file').click()">
+        <div class="drop-icon">📄</div>
+        <div class="drop-text">CSVファイルをドロップ または クリックして選択</div>
+        <div class="drop-sub">UTF-8 / BOM付きUTF-8 対応</div>
+      </div>
+      <input type="file" id="fg-file" accept=".csv" style="display:none" onchange="handleFgImportFile(this)">
+      <div id="fg-import-preview" style="margin-top:10px"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-secondary" onclick="closeModal('modal-fg-import')">キャンセル</button>
+      <button class="btn btn-primary" id="fg-import-btn" onclick="executeFgImport()" disabled>インポート実行</button>
+    </div>
+  </div>
+</div>
+
+<!-- 所属機関↔外国人 紐付けモーダル -->
+<div class="modal-overlay" id="modal-fg-link">
+  <div class="modal" style="max-width:900px">
+    <div class="modal-head">
+      <span class="modal-title" id="fg-link-modal-title">外国人一覧</span>
+      <button class="modal-close" onclick="closeModal('modal-fg-link')">✕</button>
+    </div>
+    <div id="fg-link-modal-body" style="overflow-y:auto;max-height:70vh"></div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast hidden" id="toast">
+  <span class="toast-icon" id="toast-icon">✅</span>
+  <span id="toast-msg"></span>
+  <button class="toast-close" onclick="hideToast()">✕</button>
+</div>
+
+<script>
+var GAS_URL = localStorage.getItem('gas_url') || '';
+var FISCAL_YEAR = localStorage.getItem('fiscal_year') || '2025';
+var ORG_NAME = localStorage.getItem('org_name') || '株式会社ＫＭＴ';
+var companies = [], foreigners = [], salaryData = [];
+var selectedCompany = null, editingCompanyId = null, editingForeignerId = null;
+var importRows = [], fgImportRows = [];
+var kijun1 = false, kijun2 = false;
+
+document.addEventListener('DOMContentLoaded', function() {
+  loadSettings(); calcDeadline();
+  if (GAS_URL) loadAllData();
+  else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
+});
+
+function loadSettings() {
+  document.getElementById('setting-gas-url').value = GAS_URL;
+  document.getElementById('setting-year').value = FISCAL_YEAR;
+  document.getElementById('setting-org-name').value = ORG_NAME;
+}
+function saveSettings() {
+  GAS_URL = document.getElementById('setting-gas-url').value.trim();
+  FISCAL_YEAR = document.getElementById('setting-year').value.trim();
+  ORG_NAME = document.getElementById('setting-org-name').value.trim();
+  localStorage.setItem('gas_url', GAS_URL);
+  localStorage.setItem('fiscal_year', FISCAL_YEAR);
+  localStorage.setItem('org_name', ORG_NAME);
+  showToast('設定を保存しました','success');
+}
+async function testConnection() {
+  if (!GAS_URL) { showToast('GAS URLが未設定です','warn'); return; }
+  document.getElementById('setting-result').innerHTML = '<div class="alert alert-info"><span class="spinner"></span> 接続テスト中...</div>';
+  try {
+    var res = await gasGet({action:'ping'});
+    if (res.ok) { document.getElementById('setting-result').innerHTML = '<div class="alert alert-success">✅ 接続成功</div>'; setApiStatus(true); }
+    else throw new Error(JSON.stringify(res));
+  } catch(e) { document.getElementById('setting-result').innerHTML = '<div class="alert alert-danger">❌ 接続失敗: '+e.message+'</div>'; setApiStatus(false); }
+}
+function setApiStatus(ok) {
+  var d = document.getElementById('api-dot');
+  d.className = 'status-dot' + (ok ? '' : ' red');
+  document.getElementById('api-status-text').textContent = ok ? 'API接続済み' : 'API未接続';
+}
+async function gasGet(params) {
+  var url = new URL(GAS_URL);
+  Object.keys(params).forEach(k => url.searchParams.set(k, params[k]));
+  return (await fetch(url.toString())).json();
+}
+async function gasPost(data) {
+  return (await fetch(GAS_URL, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})).json();
+}
+async function loadAllData() {
+  if (!GAS_URL) return;
+  try {
+    var [cos, fgs, reports] = await Promise.all([
+      gasGet({action:'getCompanies'}), gasGet({action:'getForeigners'}), gasGet({action:'getReports', year:FISCAL_YEAR})
+    ]);
+    companies = cos || []; foreigners = fgs || [];
+    var rm = {}; (reports||[]).forEach(r => rm[r.companyName]=r);
+    companies.forEach(function(co) {
+      var r = rm[co.name] || {};
+      // 書類ステータス・届出管理データはreportsから取得
+      ['status','kijun_1','kijun_3_type','kijun_6a','kijun_6b','kijun_result','support_org_type','support_org_other','has_non_exec_officer',
+       'doc_36_main','doc_36_bessi1','doc_36_bessi2','doc_517or516','doc_129','doc_1111','doc_123',
+       'doc_touki','doc_juumin','doc_rodo','doc_shakai','doc_nouzei','doc_juminzei','doc_kyuyo','doc_shoyo'].forEach(k => { co[k] = r[k]||co[k]||''; });
+      // kijun_2は所属機関マスタ（co）を優先、なければreportsから
+      co.kijun_2 = co.kijun_2 || r.kijun_2 || '';
+      co.kijun_2_method = co.kijun_2_method || r.kijun_2_method || '';
+      co.status = co.status||'未着手';
+    });
+    setApiStatus(true); renderAll();
+    showToast('データ取得完了（'+companies.length+'社・'+foreigners.length+'名）','success');
+  } catch(e) { setApiStatus(false); showToast('取得失敗: '+e.message,'error'); loadLocalCache(); }
+}
+function loadLocalCache() {
+  var c = localStorage.getItem('teiki_companies'), f = localStorage.getItem('teiki_foreigners');
+  if (c) companies = JSON.parse(c); if (f) foreigners = JSON.parse(f);
+  renderAll();
+}
+function saveLocalCache() {
+  try { localStorage.setItem('teiki_companies', JSON.stringify(companies)); localStorage.setItem('teiki_foreigners', JSON.stringify(foreigners)); } catch(e){}
+}
+function renderAll() { updateBadges(); renderDashStats(); renderDashTable(); renderCompanyTable(); renderForeignerTable(); renderSalaryCoList(); renderCalcCoList(); renderDocCoList(); updateFgCompanyDatalist(); }
+function refreshData() { document.getElementById('refresh-icon').className='spinner'; loadAllData().then(()=>document.getElementById('refresh-icon').textContent='🔄'); }
+function calcDeadline() {
+  var deadline=new Date('2026-05-31'), today=new Date();
+  var diff=Math.ceil((deadline-today)/(1000*60*60*24));
+  document.getElementById('days-left').textContent=diff>0?diff:'期限超過';
+  var start=new Date('2025-04-01'), end=new Date('2026-03-31');
+  var pct=Math.max(0,Math.min(100,Math.round((today-start)/(end-start)*100)));
+  document.getElementById('period-progress').style.width=pct+'%';
+  document.getElementById('period-progress-label').textContent='対象期間 '+pct+'% 経過';
+  document.getElementById('period-progress').className='progress-fill '+(pct>80?'red':pct>50?'amber':'green');
+}
+function updateBadges() {
+  document.getElementById('badge-companies').textContent=companies.length;
+  document.getElementById('badge-foreigners').textContent=foreigners.filter(f=>f.status==='在職').length;
+}
+function renderDashStats() {
+  var t=companies.length, d=companies.filter(c=>c.status==='完了').length;
+  var w=companies.filter(c=>['進行中','書類収集中','確認待ち'].includes(c.status)).length;
+  document.getElementById('stat-total').textContent=t;
+  document.getElementById('stat-done').textContent=d;
+  document.getElementById('stat-done-rate').textContent=t?Math.round(d/t*100)+'% 完了':'0%';
+  document.getElementById('stat-wip').textContent=w;
+  document.getElementById('stat-todo').textContent=companies.filter(c=>c.status==='未着手').length;
+}
+function renderDashTable() {
+  var filter=document.getElementById('dash-filter').value;
+  var list=companies.filter(c=>!filter||c.status===filter);
+  document.getElementById('dash-table-count').textContent=list.length+'社';
+  if (!list.length) { document.getElementById('dash-table-body').innerHTML='<tr><td colspan="6"><div class="empty-state"><div class="empty-icon">🏭</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
+  document.getElementById('dash-table-body').innerHTML=list.map(function(co){
+    var kr=co.kijun_result||calcKijunResult(co);
+    var d=countDocsDone(co,'ofusa'), t=7, pct=Math.round(d/t*100);
+    return '<tr><td style="font-weight:600">'+esc(co.name)+'</td><td>'+statusBadge(co.status)+'</td><td>'+kijunBadge(kr)+'</td>'+
+      '<td style="font-size:11px;color:var(--text2)">'+esc(co.support_org_type||'—')+'</td>'+
+      '<td style="min-width:120px"><div class="progress-bar"><div class="progress-fill" style="width:'+pct+'%"></div></div><span style="font-size:10px;color:var(--text3)">'+d+'/'+t+'</span></td>'+
+      '<td style="white-space:nowrap"><button class="btn btn-secondary btn-sm" onclick="openDocCheck(\''+esc(co.name)+'\')">書類確認</button> <button class="btn btn-danger btn-sm" onclick="confirmDeleteCompany(\''+esc(co.name)+'\')">削除</button></td></tr>';
+  }).join('');
+}
+function renderCompanyTable() {
+  var q=(document.getElementById('co-search').value||'').toLowerCase();
+  var sf=document.getElementById('co-status-filter').value;
+  var list=companies.filter(c=>(!sf||c.status===sf)&&(!q||(c.name||'').toLowerCase().includes(q)));
+  if (!list.length) { document.getElementById('co-table-body').innerHTML='<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">🏭</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
+  document.getElementById('co-table-body').innerHTML=list.map(function(co,i){
+    var kr=co.kijun_result||calcKijunResult(co);
+    var k2 = co.kijun_2==='✓' ? '<span class="badge badge-green">✓ 電子</span>' :
+             co.kijun_2==='✗' ? '<span class="badge badge-red">✗ 郵送</span>' :
+             '<span class="badge badge-gray">未設定</span>';
+    return '<tr><td style="color:var(--text3);font-family:\'DM Mono\',monospace;font-size:11px">'+(i+1)+'</td>'+
+      '<td style="font-weight:600;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><a href="javascript:void(0)" onclick="showCompanyForeigners(\''+esc(co.name)+'\')" style="color:var(--blue);text-decoration:none;font-weight:600">'+esc(co.name)+'</a></td>'+
+      '<td>'+statusBadge(co.status)+'</td>'+
+      '<td>'+k2+'</td>'+
+      '<td>'+kijunBadge(kr)+'</td>'+
+      '<td style="font-size:11px;color:var(--text2)">'+esc(co.support_org_type||'—')+(co.support_org_other?'<br><span style="font-size:10px;color:var(--text3)">'+esc(co.support_org_other)+'</span>':'')+'</td>'+
+      '<td>'+docProgressHtml(countDocsDone(co,'ofusa'),7)+'</td>'+
+      '<td>'+docProgressHtml(countDocsDone(co,'ext'),8)+'</td>'+
+      '<td style="white-space:nowrap">'+
+      '<button class="btn btn-secondary btn-sm" onclick="editCompany(\''+esc(co.name)+'\')">編集</button> '+
+      '<button class="btn btn-secondary btn-sm" onclick="openDocCheck(\''+esc(co.name)+'\')">書類</button> '+
+      '<button class="btn btn-danger btn-sm" onclick="confirmDeleteCompany(\''+esc(co.name)+'\')">削除</button>'+
+      '</td></tr>';
+  }).join('');
+}
+function renderForeignerTable() {
+  var q=(document.getElementById('fg-search').value||'').toLowerCase();
+  var sf=document.getElementById('fg-status-filter').value, zf=document.getElementById('fg-zairyu-filter').value;
+  var list=foreigners.filter(f=>(!sf||f.status===sf)&&(!zf||f.residenceStatus===zf)&&(!q||[(f.nameEn||''),(f.companyName||'')].some(s=>s.toLowerCase().includes(q))));
+  if (!list.length) { document.getElementById('fg-table-body').innerHTML='<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
+  document.getElementById('fg-table-body').innerHTML=list.map(function(f){
+    return '<tr><td style="font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(f.companyName||'—')+'</td>'+
+      '<td style="font-weight:600">'+esc(f.nameEn||'—')+(f.nameKana?'<br><span style="font-size:10px;color:var(--text3)">'+esc(f.nameKana)+'</span>':'')+'</td>'+
+      '<td>'+esc(f.nationality||'—')+'</td>'+
+      '<td><span class="badge '+(f.residenceStatus==='特定技能2号'?'badge-purple':'badge-blue')+'">'+esc(f.residenceStatus||'—')+'</span></td>'+
+      '<td style="font-family:\'DM Mono\',monospace;font-size:11px">'+esc(f.residenceCard||'—')+'</td>'+
+      '<td style="font-size:11px;color:var(--text2)">'+fmtDate(f.birthDate||'—')+'</td>'+
+      '<td style="font-size:11px;color:var(--text2)">'+fmtDate(f.residenceExpiry||'—')+'</td>'+
+      '<td style="font-size:11px;color:var(--text2)">'+esc(f.contractStart||'—')+'</td>'+
+      '<td><span class="badge '+(f.status==='在職'?'badge-green':'badge-gray')+'">'+esc(f.status||'—')+'</span></td>'+
+      '<td><button class="btn btn-secondary btn-sm" onclick="editForeigner(\''+esc(f.nameEn)+'\',\''+esc(f.companyName)+'\')">編集</button></td></tr>';
+  }).join('');
+}
+function renderSalaryCoList() {
+  var q=(document.getElementById('sal-co-search').value||'').toLowerCase();
+  var list=companies.filter(c=>!q||(c.name||'').toLowerCase().includes(q));
+  document.getElementById('sal-co-list').innerHTML=list.map(function(co){
+    var cnt=foreigners.filter(f=>f.companyName===co.name&&f.status==='在職').length;
+    var active=selectedCompany&&selectedCompany.name===co.name;
+    return '<div onclick="selectSalaryCompany(\''+esc(co.name)+'\')" style="padding:8px 10px;border-radius:6px;cursor:pointer;margin-bottom:2px;background:'+(active?'var(--blue-lt)':'transparent')+';border:1px solid '+(active?'#bfdbfe':'transparent')+';transition:.1s">'+
+      '<div style="font-size:12px;font-weight:'+(active?'700':'500')+';color:'+(active?'var(--blue)':'var(--text)')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(co.name)+'</div>'+
+      '<div style="font-size:10px;color:var(--text3);margin-top:1px">在職: '+cnt+'名</div></div>';
+  }).join('')||'<div class="empty-state" style="padding:16px"><div class="empty-text">該当なし</div></div>';
+}
+function renderCalcCoList() {
+  var q=(document.getElementById('calc-co-search').value||'').toLowerCase();
+  document.getElementById('calc-co-list').innerHTML=companies.filter(c=>!q||(c.name||'').toLowerCase().includes(q)).map(function(co){
+    var has=salaryData.some(s=>s.companyName===co.name);
+    return '<div onclick="selectCalcCompany(\''+esc(co.name)+'\')" style="padding:8px 10px;border-radius:6px;cursor:pointer;margin-bottom:2px;border:1px solid transparent;transition:.1s" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'transparent\'">'+
+      '<div style="font-size:12px;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(co.name)+'</div>'+
+      '<div style="font-size:10px;color:'+(has?'var(--green)':'var(--text3)')+';margin-top:1px">'+(has?'✓ 給与データあり':'給与データ未入力')+'</div></div>';
+  }).join('')||'<div class="empty-state" style="padding:16px"><div class="empty-text">該当なし</div></div>';
+}
+function renderDocCoList() {
+  var q=(document.getElementById('doc-co-search').value||'').toLowerCase();
+  document.getElementById('doc-co-list').innerHTML=companies.filter(c=>!q||(c.name||'').toLowerCase().includes(q)).map(function(co){
+    var kr=co.kijun_result||calcKijunResult(co);
+    return '<div onclick="selectDocCompany(\''+esc(co.name)+'\')" style="padding:8px 10px;border-radius:6px;cursor:pointer;margin-bottom:2px;border:1px solid transparent;transition:.1s" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'transparent\'">'+
+      '<div style="font-size:12px;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(co.name)+'</div>'+
+      '<div style="margin-top:3px">'+kijunBadge(kr)+'</div></div>';
+  }).join('')||'<div class="empty-state" style="padding:16px"><div class="empty-text">該当なし</div></div>';
+}
+function selectSalaryCompany(name) {
+  selectedCompany=companies.find(c=>c.name===name); renderSalaryCoList(); renderSalaryInput();
+}
+function renderSalaryInput() {
+  if (!selectedCompany) return;
+  var fgs=foreigners.filter(f=>f.companyName===selectedCompany.name&&f.status==='在職'), co=selectedCompany;
+  var html='<div class="table-wrapper"><div class="table-header"><span class="table-title">給与データ入力 — '+esc(co.name)+'</span><span class="table-count">'+fgs.length+'名</span></div><div style="padding:16px">';
+  if (!fgs.length) html+='<div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">在職中の外国人がいません</div></div>';
+  else {
+    html+='<div class="alert alert-info" style="margin-bottom:14px">ℹ️ 給与明細を見ながら年間の月平均値を整数で入力してください。除外：雇用開始月・終了月（途中の月）　含む：休業月</div>';
+    fgs.forEach(function(f){
+      var sal=salaryData.find(s=>s.companyName===co.name&&s.nameEn===f.nameEn)||{};
+      html+='<div style="border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:12px;background:var(--bg2)">'+
+        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">'+
+        '<span style="font-size:14px;font-weight:700">'+esc(f.nameEn)+'</span>'+
+        '<span class="badge badge-blue">'+esc(f.residenceStatus)+'</span>'+
+        '<span style="font-size:11px;color:var(--text3)">'+esc(f.nationality)+' / 開始: '+esc(f.contractStart||'—')+'</span></div>'+
+        '<div class="form-grid cols4">'+
+        salInput('月平均 実労働日数','workDays',sal.workDays,f.nameEn,'日')+
+        salInput('所定内実労働時間','scheduledHours',sal.scheduledHours,f.nameEn,'時間')+
+        salInput('超過実労働時間','overtimeHours',sal.overtimeHours,f.nameEn,'時間')+
+        salInput('現金給与総額','totalPay',sal.totalPay,f.nameEn,'円')+
+        salInput('うち超過労働給与','overtimePay',sal.overtimePay,f.nameEn,'円')+
+        salInput('控除額合計','deductions',sal.deductions,f.nameEn,'円')+
+        salInput('賞与等（年間合計）','bonus',sal.bonus,f.nameEn,'円')+
+        '</div><div style="margin-top:10px;display:flex;justify-content:flex-end">'+
+        '<button class="btn btn-primary btn-sm" onclick="saveSalary(\''+esc(f.nameEn)+'\',\''+esc(co.name)+'\')">この人のデータを保存</button></div></div>';
+    });
+  }
+  html+='</div></div>';
+  document.getElementById('sal-input-area').innerHTML=html;
+}
+function salInput(label,key,val,nameEn,unit) {
+  var id='sal_'+key+'_'+nameEn.replace(/\s/g,'_');
+  return '<div class="field-group"><label class="field-label">'+label+'（'+unit+'）</label><input type="number" class="input" id="'+id+'" value="'+(val||'')+'" placeholder="0"></div>';
+}
+async function saveSalary(nameEn,coName) {
+  var keys=['workDays','scheduledHours','overtimeHours','totalPay','overtimePay','deductions','bonus'];
+  var data={action:'upsertMonthly',companyName:coName,nameEn:nameEn,yearMonth:'年間'};
+  keys.forEach(function(k){ var el=document.getElementById('sal_'+k+'_'+nameEn.replace(/\s/g,'_')); if(el) data[k]=el.value||''; });
+  var idx=salaryData.findIndex(s=>s.companyName===coName&&s.nameEn===nameEn);
+  if(idx>=0) salaryData[idx]=Object.assign(salaryData[idx],data); else salaryData.push(data);
+  if(GAS_URL) { try { await gasPost(data); } catch(e){} }
+  showToast(nameEn+' の給与データを保存しました','success');
+}
+function selectCalcCompany(name) {
+  var co=companies.find(c=>c.name===name); if(!co) return;
+  var fgs=foreigners.filter(f=>f.companyName===name);
+  var count1=fgs.filter(f=>f.residenceStatus==='特定技能1号').length;
+  var count2=fgs.filter(f=>f.residenceStatus==='特定技能2号').length;
+  var sals=salaryData.filter(s=>s.companyName===name);
+  var kr=co.kijun_result||calcKijunResult(co);
+  var html='<div class="table-wrapper"><div class="table-header"><span class="table-title">計算結果 — '+esc(name)+'</span></div><div style="padding:20px">';
+  html+='<div class="section-head"><span class="section-title">報告対象外国人数</span></div>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">'+
+    '<div class="stat-card blue" style="padding:12px 16px"><div class="stat-label">1号特定技能</div><div class="stat-value" style="font-size:24px">'+count1+'</div><div class="stat-sub">名</div></div>'+
+    '<div class="stat-card" style="border-top:3px solid var(--purple);padding:12px 16px"><div class="stat-label">2号特定技能</div><div class="stat-value" style="font-size:24px">'+count2+'</div><div class="stat-sub">名</div></div></div>';
+  html+='<div class="section-head"><span class="section-title">労働条件（月平均値）</span></div>';
+  if(!sals.length) html+='<div class="alert alert-warn">⚠️ 給与データが未入力です。先に「給与データ入力」タブで入力してください。</div>';
+  else {
+    var av=function(a){return a.length?a.reduce((s,v)=>s+v,0)/a.length:0};
+    html+='<div class="form-grid cols4" style="margin-bottom:18px">'+
+      calcField('実労働日数',Math.round(av(sals.map(s=>parseFloat(s.workDays)||0))),'日')+
+      calcField('所定内実労働時間',Math.round(av(sals.map(s=>parseFloat(s.scheduledHours)||0))),'時間')+
+      calcField('超過実労働時間',Math.round(av(sals.map(s=>parseFloat(s.overtimeHours)||0))),'時間')+
+      calcField('現金給与総額',Math.round(av(sals.map(s=>parseFloat(s.totalPay)||0))).toLocaleString(),'円')+
+      calcField('うち超過労働給与',Math.round(av(sals.map(s=>parseFloat(s.overtimePay)||0))).toLocaleString(),'円')+
+      calcField('控除額合計',Math.round(av(sals.map(s=>parseFloat(s.deductions)||0))).toLocaleString(),'円')+
+      calcField('賞与等（年間）',Math.round(av(sals.map(s=>parseFloat(s.bonus)||0))).toLocaleString(),'円')+
+      '</div>';
+  }
+  html+='<div class="section-divider"></div><div class="section-head"><span class="section-title">一定の基準判定</span></div>'+kijunBadge(kr)+'</div></div>';
+  document.getElementById('calc-result-area').innerHTML=html;
+}
+function calcField(label,val,unit) {
+  return '<div class="field-group"><label class="field-label">'+label+'</label>'+
+    '<div style="padding:8px 12px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--r-sm);font-weight:700;font-size:14px;font-family:\'DM Mono\',monospace">'+val+' <span style="font-size:11px;color:var(--text3);font-weight:400">'+unit+'</span></div></div>';
+}
+function openDocCheck(name) { switchPanel('doccheck',document.querySelector('[data-panel=doccheck]')); selectDocCompany(name); }
+function selectDocCompany(name) {
+  var co=companies.find(c=>c.name===name); if(!co) return;
+  var kr=co.kijun_result||calcKijunResult(co);
+  var isE=kr==='①〜⑤該当'||kr==='⑥該当', isE6=kr==='⑥該当', isN=!isE;
+  var hasOther=co.support_org_type==='全部委託(他社)', hasNE=co.has_non_exec_officer==='✓';
+  var docs_ofusa=[
+    {key:'doc_36_main',name:'受入・活動・支援実施状況に係る届出書（第3-6号）',who:'大房作成',req:true},
+    {key:'doc_36_bessi1',name:'特定技能外国人の受入・活動・支援実施状況（別紙1）',who:'大房作成',req:true},
+    {key:'doc_36_bessi2',name:'届出書署名欄（別紙2）— 他社全部委託の場合のみ',who:'大房作成',req:hasOther},
+    {key:'doc_517or516',name:isN?'基準適合性に関する誓約書（第5-17号）':'一定の事業規模及び基準適合性に関する誓約書（第5-16号）',who:'大房作成',req:true},
+    {key:'doc_129',name:'書類省略に当たっての誓約書（第1-29号）',who:'大房作成',req:isE},
+    {key:'doc_1111',name:'特定技能所属機関概要書（第1-11-1号）'+(isE6?' ※決算のみ':''),who:'大房作成',req:isN||isE6},
+    {key:'doc_123',name:'役員に関する誓約書（第1-23号）— 業務執行外役員がいる場合',who:'大房作成',req:isN&&hasNE}
+  ];
+  var docs_ext=[
+    {key:'doc_touki',name:'登記事項証明書',who:'企業収集',req:isN},
+    {key:'doc_juumin',name:'業務執行役員の住民票の写し',who:'企業収集',req:isN},
+    {key:'doc_rodo',name:'労働保険料の納付に係る資料（直近1年分）',who:'企業収集',req:isN},
+    {key:'doc_shakai',name:'社会保険料の納付に係る資料（12ヶ月分）',who:'企業収集',req:isN},
+    {key:'doc_nouzei',name:'納税証明書（その3）',who:'企業収集',req:isN},
+    {key:'doc_juminzei',name:'法人住民税の納税証明書',who:'企業収集',req:isN},
+    {key:'doc_kyuyo',name:'給与明細（12ヶ月分）',who:'企業収集',req:true},
+    {key:'doc_shoyo',name:'賞与明細（あれば）',who:'企業収集',req:false}
+  ];
+  var all=docs_ofusa.concat(docs_ext);
+  var totalR=all.filter(d=>d.req).length, totalD=all.filter(d=>d.req&&(co[d.key]==='完了'||co[d.key]==='確認OK')).length;
+  var pct=totalR?Math.round(totalD/totalR*100):0;
+  var html='<div class="table-wrapper"><div class="table-header"><span class="table-title">書類チェック — '+esc(co.name)+'</span>'+
+    '<div style="display:flex;align-items:center;gap:10px;margin-left:auto">'+kijunBadge(kr)+
+    '<span style="font-size:11px;color:var(--text3)">'+totalD+'/'+totalR+' 完了</span></div></div>'+
+    '<div style="padding:16px">'+
+    '<div class="progress-bar" style="margin-bottom:16px;height:8px"><div class="progress-fill '+(pct===100?'green':'blue')+'" style="width:'+pct+'%"></div></div>'+
+    '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;display:flex;align-items:center;gap:6px">'+
+    '<span style="display:inline-block;width:10px;height:10px;background:var(--blue);border-radius:2px"></span> 大房作成書類</div>'+
+    '<div class="doc-list" style="margin-bottom:16px">'+docs_ofusa.map(d=>renderDocItem(co,d)).join('')+'</div>'+
+    '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;display:flex;align-items:center;gap:6px">'+
+    '<span style="display:inline-block;width:10px;height:10px;background:var(--amber);border-radius:2px"></span> 企業収集書類</div>'+
+    '<div class="doc-list">'+docs_ext.map(d=>renderDocItem(co,d)).join('')+'</div>'+
+    '<div style="margin-top:16px;display:flex;justify-content:flex-end">'+
+    '<button class="btn btn-primary" onclick="saveDocStatus(\''+esc(co.name)+'\')">💾 ステータスを保存</button></div>'+
+    '</div></div>';
+  document.getElementById('doc-detail-area').innerHTML=html;
+}
+function renderDocItem(co,d) {
+  if (!d.req) return '<div class="doc-item not-needed"><span class="doc-name" style="text-decoration:line-through;color:var(--text3)">'+esc(d.name)+'</span><span class="doc-who">'+d.who+'</span><span class="badge badge-gray" style="margin-left:auto">不要</span></div>';
+  var status=co[d.key]||'未', isDone=status==='完了'||status==='確認OK';
+  var opts=d.who==='大房作成'?['未','作成中','署名待ち','受領済','完了']:['未','依頼済','受領済','確認OK'];
+  return '<div class="doc-item '+(isDone?'done':'')+'" id="docitem-'+d.key+'">'+
+    '<span class="doc-name">'+esc(d.name)+'</span>'+
+    '<span class="doc-who" style="font-size:10px;color:var(--text3);white-space:nowrap">'+d.who+'</span>'+
+    '<select class="input btn-sm" style="padding:3px 8px;width:auto;margin-left:auto" id="docsel-'+d.key+'" onchange="updateDocDisplay(\''+d.key+'\')">'+
+    opts.map(o=>'<option value="'+o+'"'+(status===o?' selected':'')+'>'+o+'</option>').join('')+'</select></div>';
+}
+function updateDocDisplay(key) {
+  var sel=document.getElementById('docsel-'+key), item=document.getElementById('docitem-'+key);
+  if (!sel||!item) return;
+  var v=sel.value;
+  item.className='doc-item '+(v==='完了'||v==='確認OK'?'done':'');
+}
+async function saveDocStatus(coName) {
+  var co=companies.find(c=>c.name===coName); if(!co) return;
+  var keys=['doc_36_main','doc_36_bessi1','doc_36_bessi2','doc_517or516','doc_129','doc_1111','doc_123','doc_touki','doc_juumin','doc_rodo','doc_shakai','doc_nouzei','doc_juminzei','doc_kyuyo','doc_shoyo'];
+  var patch={companyName:coName,fiscalYear:FISCAL_YEAR,action:'upsertReport'};
+  keys.forEach(function(k){ var el=document.getElementById('docsel-'+k); if(el){co[k]=el.value;patch[k]=el.value;} });
+  if(GAS_URL){try{await gasPost(patch);}catch(e){}}
+  saveLocalCache(); showToast('書類ステータスを保存しました','success');
+}
+function openModal(id){document.getElementById(id).classList.add('open');}
+function closeModal(id){
+  document.getElementById(id).classList.remove('open');
+  if(id==='modal-company-add'){editingCompanyId=null;resetCompanyForm();}
+}
+function resetCompanyForm(){
+  ['co-name','co-corp-no','co-zip','co-pref','co-address','co-tel','co-rep-name','co-rep-title','co-industry','co-note'].forEach(id=>{var e=document.getElementById(id);if(e)e.value='';});
+  document.getElementById('co-fiscal-year').value=FISCAL_YEAR;
+  document.getElementById('co-status').value='未着手';
+  document.getElementById('co-support-type').value='全部委託(KMT)';
+  document.getElementById('co-other-support-check').checked=false;
+  document.getElementById('co-support-other').value='';
+  document.getElementById('support-other-wrap').style.display='none';
+  document.getElementById('non-exec-no').checked=true;
+  kijun1=false;kijun2=false;
+  document.getElementById('kijun1-check').className='kijun-check';
+  document.getElementById('kijun2-check').className='kijun-check';
+  document.querySelectorAll('input[name=kijun3]').forEach(r=>r.checked=r.value==='なし');
+  document.getElementById('kijun6-detail').style.display='none';
+  document.getElementById('kijun6a').checked=false;document.getElementById('kijun6b').checked=false;
+  document.getElementById('kijun-result-display').innerHTML='';
+  document.getElementById('co-modal-title').textContent='所属機関 追加';
+  switchModalTab('tab-co-basic',document.querySelector('.tab-bar .tab-btn'));
+}
+function editCompany(name){
+  var co=companies.find(c=>c.name===name); if(!co) return;
+  editingCompanyId=co.name;
+  document.getElementById('co-modal-title').textContent='所属機関 編集';
+  ['name:co-name','corpNo:co-corp-no','zip:co-zip','pref:co-pref','address:co-address','tel:co-tel','repName:co-rep-name','repTitle:co-rep-title','industry:co-industry','note:co-note'].forEach(function(p){
+    var [k,id]=p.split(':'); var el=document.getElementById(id); if(el) el.value=co[k]||'';
+  });
+  document.getElementById('co-fiscal-year').value=co.fiscalYear||FISCAL_YEAR;
+  document.getElementById('co-status').value=co.status||'未着手';
+  kijun1=co.kijun_1==='✓'; kijun2=co.kijun_2==='✓';
+  document.getElementById('kijun1-check').className='kijun-check'+(kijun1?' checked':'');
+  document.getElementById('kijun2-check').className='kijun-check'+(kijun2?' checked':'');
+  var k3=co.kijun_3_type||'なし';
+  document.querySelectorAll('input[name=kijun3]').forEach(r=>r.checked=r.value===k3);
+  document.getElementById('kijun6-detail').style.display=k3==='⑥継続実績'?'block':'none';
+  document.getElementById('kijun6a').checked=co.kijun_6a==='✓';
+  document.getElementById('kijun6b').checked=co.kijun_6b==='✓';
+  updateKijunResult();
+  document.getElementById('co-support-type').value=co.support_org_type||'全部委託(KMT)';
+  document.getElementById('co-support-other').value=co.support_org_other||'';
+  var hasOtherSupport = !!(co.support_org_other && co.support_org_other.trim());
+  document.getElementById('co-other-support-check').checked=hasOtherSupport;
+  document.getElementById('support-other-wrap').style.display=hasOtherSupport?'block':'none';
+  (co.has_non_exec_officer==='✓'?document.getElementById('non-exec-yes'):document.getElementById('non-exec-no')).checked=true;
+  openModal('modal-company-add');
+}
+async function saveCompany(){
+  var name=document.getElementById('co-name').value.trim(); if(!name){showToast('会社名は必須です','warn');return;}
+  var data={action:'upsertReport',companyName:name,fiscalYear:document.getElementById('co-fiscal-year').value,status:document.getElementById('co-status').value,
+    kijun_1:kijun1?'✓':'✗',kijun_2:kijun2?'✓':'✗',kijun_3_type:(document.querySelector('input[name=kijun3]:checked')||{value:'なし'}).value,
+    kijun_6a:document.getElementById('kijun6a').checked?'✓':'✗',kijun_6b:document.getElementById('kijun6b').checked?'✓':'✗',
+    support_org_type:document.getElementById('co-support-type').value,support_org_other:document.getElementById('co-support-other').value,
+    has_non_exec_officer:document.getElementById('non-exec-yes').checked?'✓':'✗',note:document.getElementById('co-note').value};
+  data.kijun_result=calcKijunResultFromData(data);
+  var local=Object.assign({name,corpNo:document.getElementById('co-corp-no').value,zip:document.getElementById('co-zip').value,pref:document.getElementById('co-pref').value,
+    address:document.getElementById('co-address').value,tel:document.getElementById('co-tel').value,repName:document.getElementById('co-rep-name').value,
+    repTitle:document.getElementById('co-rep-title').value,industry:document.getElementById('co-industry').value},data);
+  var idx=companies.findIndex(c=>c.name===name);
+  if(idx>=0) companies[idx]=Object.assign(companies[idx],local); else companies.push(local);
+  saveLocalCache(); renderAll();
+  if(GAS_URL){document.getElementById('co-save-spinner').style.display='inline-block';try{await gasPost(data);await gasPost({action:'importCompanies',rows:[local]});}catch(e){}document.getElementById('co-save-spinner').style.display='none';}
+  closeModal('modal-company-add'); showToast(name+' を保存しました','success');
+}
+function updateFgCompanyDatalist(){document.getElementById('fg-company-list').innerHTML=companies.map(c=>'<option value="'+esc(c.name)+'">').join('');}
+function editForeigner(nameEn,coName){
+  var f=foreigners.find(x=>x.nameEn===nameEn&&x.companyName===coName); if(!f) return;
+  editingForeignerId={nameEn,coName};
+  document.getElementById('fg-modal-title').textContent='外国人 編集';
+  ['fg-company:companyName','fg-name-en:nameEn','fg-name-kana:nameKana','fg-nationality:nationality','fg-card:residenceCard','fg-birth:birthDate','fg-expiry:residenceExpiry','fg-start:contractStart','fg-end:contractEnd','fg-five-year:fiveYearExpiry','fg-memo:memo'].forEach(function(p){
+    var [id,k]=p.split(':'); var el=document.getElementById(id); if(el) el.value=f[k]||'';
+  });
+  document.getElementById('fg-zairyu').value=f.residenceStatus||'特定技能1号';
+  document.getElementById('fg-gender').value=f.gender||'男';
+  document.getElementById('fg-status').value=f.status||'在職';
+  openModal('modal-foreigner-add');
+}
+async function saveForeigner(){
+  var nameEn=document.getElementById('fg-name-en').value.trim(), coName=document.getElementById('fg-company').value.trim();
+  if(!nameEn||!coName){showToast('会社名と氏名は必須です','warn');return;}
+  var data={action:'upsertForeigner',companyName:coName,nameEn,nameKana:document.getElementById('fg-name-kana').value,
+    nationality:document.getElementById('fg-nationality').value,residenceStatus:document.getElementById('fg-zairyu').value,
+    gender:document.getElementById('fg-gender').value,residenceCard:document.getElementById('fg-card').value,
+    birthDate:document.getElementById('fg-birth').value,residenceExpiry:document.getElementById('fg-expiry').value,
+    contractStart:document.getElementById('fg-start').value,
+    contractEnd:document.getElementById('fg-end').value,fiveYearExpiry:document.getElementById('fg-five-year').value,
+    status:document.getElementById('fg-status').value,
+    memo:document.getElementById('fg-memo').value};
+  var idx=foreigners.findIndex(f=>f.nameEn===nameEn&&f.companyName===coName);
+  if(idx>=0) foreigners[idx]=Object.assign(foreigners[idx],data); else foreigners.push(data);
+  saveLocalCache(); updateBadges(); renderForeignerTable(); updateFgCompanyDatalist();
+  if(GAS_URL){document.getElementById('fg-save-spinner').style.display='inline-block';try{await gasPost(data);}catch(e){}document.getElementById('fg-save-spinner').style.display='none';}
+  closeModal('modal-foreigner-add'); editingForeignerId=null; showToast(nameEn+' を保存しました','success');
+}
+function openImportModal(){openModal('modal-import');}
+function openForeignerImport(){openModal('modal-fg-import');}
+function handleImportFile(input){
+  var file=input.files[0]; if(!file) return;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    importRows=parseCSV(e.target.result.replace(/^\uFEFF/,''));
+    document.getElementById('import-preview').innerHTML='<div class="alert alert-success">✅ '+importRows.length+'行を読み込みました</div>';
+    document.getElementById('import-btn').disabled=false;
+  };
+  reader.readAsText(file,'UTF-8');
+}
+async function executeImport(){
+  if(!importRows.length) return;
+  var btn=document.getElementById('import-btn'); btn.disabled=true; btn.textContent='インポート中...';
+  var newRows=importRows.filter(r=>!companies.find(c=>c.name===r.name));
+  newRows.forEach(r=>companies.push(r));
+  saveLocalCache(); renderAll();
+  if(GAS_URL&&newRows.length){try{await gasPost({action:'importCompanies',rows:newRows});}catch(e){}}
+  closeModal('modal-import'); showToast(newRows.length+'社をインポートしました','success');
+  btn.disabled=false; btn.textContent='インポート実行';
+}
+function handleFgImportFile(input){
+  var file=input.files[0]; if(!file) return;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    fgImportRows=parseCSV(e.target.result.replace(/^\uFEFF/,''));
+    document.getElementById('fg-import-preview').innerHTML='<div class="alert alert-success">✅ '+fgImportRows.length+'行を読み込みました</div>';
+    document.getElementById('fg-import-btn').disabled=false;
+  };
+  reader.readAsText(file,'UTF-8');
+}
+async function executeFgImport(){
+  if(!fgImportRows.length) return;
+  var btn=document.getElementById('fg-import-btn'); btn.disabled=true; btn.textContent='インポート中...';
+  var newRows=fgImportRows.filter(r=>!foreigners.find(f=>f.nameEn===r.nameEn&&f.companyName===r.companyName));
+  newRows.forEach(r=>foreigners.push(r));
+  saveLocalCache(); updateBadges(); renderForeignerTable(); updateFgCompanyDatalist();
+  if(GAS_URL&&newRows.length){try{await gasPost({action:'importForeigners',rows:newRows});}catch(e){}}
+  closeModal('modal-fg-import'); showToast(newRows.length+'名をインポートしました','success');
+  btn.disabled=false; btn.textContent='インポート実行';
+}
+function toggleKijun(id){
+  if(id==='kijun1'){kijun1=!kijun1;document.getElementById('kijun1-check').className='kijun-check'+(kijun1?' checked':'');}
+  else{kijun2=!kijun2;document.getElementById('kijun2-check').className='kijun-check'+(kijun2?' checked':'');}
+  updateKijunResult();
+}
+function updateKijunResult(){
+  var k3=(document.querySelector('input[name=kijun3]:checked')||{value:'なし'}).value;
+  document.getElementById('kijun6-detail').style.display=k3==='⑥継続実績'?'block':'none';
+  var k6a=document.getElementById('kijun6a').checked, k6b=document.getElementById('kijun6b').checked;
+  var result=calcKijunResultRaw(kijun1,kijun2,k3,k6a,k6b);
+  var html=result==='①〜⑤該当'?'<div class="result-badge eligible">✅ 基準該当（①〜⑤）— 添付書類を大幅省略できます</div>':
+    result==='⑥該当'?'<div class="result-badge eligible">✅ 基準該当（⑥）— 概要書の決算欄のみ必要</div>':
+    '<div class="result-badge ineligible">❌ 基準非該当 — 通常の添付書類が全て必要</div>';
+  document.getElementById('kijun-result-display').innerHTML=html;
+  document.getElementById('kijun-result-value').value=result;
+}
+function calcKijunResultRaw(k1,k2,k3,k6a,k6b){
+  if(!k1||!k2) return '非該当';
+  if(['①上場','②相互会社','③イノベーション','④一定の条件','⑤源泉1000万以上'].includes(k3)) return '①〜⑤該当';
+  if(k3==='⑥継続実績'&&k6a&&k6b) return '⑥該当';
+  return '非該当';
+}
+function calcKijunResult(co){return calcKijunResultRaw(co.kijun_1==='✓',co.kijun_2==='✓',co.kijun_3_type||'なし',co.kijun_6a==='✓',co.kijun_6b==='✓');}
+function calcKijunResultFromData(d){return calcKijunResultRaw(d.kijun_1==='✓',d.kijun_2==='✓',d.kijun_3_type,d.kijun_6a==='✓',d.kijun_6b==='✓');}
+function fmtDate(s){
+  if(!s||s==='—') return '—';
+  var m=String(s).match(/(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if(m) return m[1]+'年'+parseInt(m[2])+'月'+parseInt(m[3])+'日';
+  return s;
+}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function statusBadge(s){var m={'未着手':'badge-gray','進行中':'badge-blue','書類収集中':'badge-amber','確認待ち':'badge-purple','完了':'badge-green'};return '<span class="badge '+(m[s]||'badge-gray')+'">'+esc(s||'未着手')+'</span>';}
+function kijunBadge(kr){
+  if(kr==='①〜⑤該当'||kr==='⑥該当') return '<span class="badge badge-green">✓ 基準該当</span>';
+  if(kr==='非該当') return '<span class="badge badge-red">非該当</span>';
+  return '<span class="badge badge-gray">未設定</span>';
+}
+function docProgressHtml(done,total){
+  var pct=total?Math.round(done/total*100):0;
+  return '<div style="min-width:90px"><div class="progress-bar"><div class="progress-fill '+(pct===100?'green':'blue')+'" style="width:'+pct+'%"></div></div><span style="font-size:10px;color:var(--text3)">'+done+'/'+total+'</span></div>';
+}
+function countDocsDone(co,type){
+  if(type==='ofusa') return ['doc_36_main','doc_36_bessi1','doc_517or516','doc_1111','doc_123','doc_129','doc_36_bessi2'].filter(k=>co[k]==='完了').length;
+  return ['doc_touki','doc_juumin','doc_rodo','doc_shakai','doc_nouzei','doc_juminzei','doc_kyuyo','doc_shoyo'].filter(k=>co[k]==='確認OK'||co[k]==='受領済').length;
+}
+function toggleSupportOther(){document.getElementById('support-other-wrap').style.display=document.getElementById('co-other-support-check').checked?'block':'none';}
+function switchPanel(id,el){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  var p=document.getElementById('panel-'+id); if(p) p.classList.add('active');
+  if(el) el.classList.add('active');
+  var t={dashboard:'ダッシュボード',companies:'所属機関一覧',foreigners:'外国人マスタ',salary:'給与データ入力',calc:'自動計算・確認',doccheck:'書類チェック',settings:'設定'};
+  document.getElementById('topbar-title').textContent=t[id]||id;
+}
+function switchModalTab(tabId,btn){
+  ['tab-co-basic','tab-co-kijun','tab-co-support'].forEach(function(t){var el=document.getElementById(t);if(el)el.style.display=t===tabId?'block':'none';});
+  document.querySelectorAll('.tab-bar .tab-btn').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+}
+function showToast(msg,type){
+  var icons={success:'✅',warn:'⚠️',error:'❌',info:'ℹ️'};
+  document.getElementById('toast-icon').textContent=icons[type]||'ℹ️';
+  document.getElementById('toast-msg').textContent=msg;
+  document.getElementById('toast').className='toast';
+  clearTimeout(window._toastTimer); window._toastTimer=setTimeout(hideToast,3500);
+}
+function hideToast(){document.getElementById('toast').className='toast hidden';}
+function parseCSV(text){
+  var lines=text.split(/\r?\n/).filter(l=>l.trim()); if(!lines.length) return [];
+  var headers=lines[0].split(',').map(h=>h.trim().replace(/^"|"$/g,''));
+  return lines.slice(1).map(function(line){
+    var vals=line.split(',').map(v=>v.trim().replace(/^"|"$/g,''));
+    var obj={}; headers.forEach((h,i)=>obj[h]=vals[i]||''); return obj;
+  });
+}
+
+// ===== 削除 =====
+function confirmDeleteCompany(name) {
+  if(!confirm('「'+name+'」を削除しますか？\n※紐付く外国人データは削除されません。')) return;
+  companies = companies.filter(c => c.name !== name);
+  saveLocalCache();
+  renderAll();
+  showToast(name+' を削除しました','success');
+  // GASにも通知（no-corsのため成功確認は不可）
+  if(GAS_URL) {
+    fetch(GAS_URL, {method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain'},
+      body: JSON.stringify({action:'deleteCompany', companyName: name})});
+  }
+}
+
+// ===== 所属機関↔外国人 紐付け表示 =====
+function showCompanyForeigners(name) {
+  var fgs = foreigners.filter(f => f.companyName === name);
+  var active  = fgs.filter(f => f.status === '在職');
+  var retired = fgs.filter(f => f.status !== '在職');
+
+  var html = '<div style="padding:20px">';
+  html += '<div style="font-size:16px;font-weight:700;margin-bottom:4px">'+esc(name)+'</div>';
+  html += '<div style="font-size:12px;color:var(--text3);margin-bottom:16px">在職: '+active.length+'名 / 退職: '+retired.length+'名</div>';
+
+  var renderFgRows = function(list, title, color) {
+    if(!list.length) return '';
+    var r = '<div style="font-size:11px;font-weight:700;color:'+color+';text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">'+title+'（'+list.length+'名）</div>';
+    r += '<table style="width:100%;border-collapse:collapse;margin-bottom:16px">';
+    r += '<thead><tr style="background:var(--bg3)">';
+    ['氏名','国籍','在留資格','在留カード','生年月日','在留期限','雇用開始日'].forEach(function(h){
+      r += '<th style="text-align:left;padding:7px 10px;font-size:10px;font-weight:700;color:var(--text3);border-bottom:1px solid var(--border)">'+h+'</th>';
+    });
+    r += '</tr></thead><tbody>';
+    list.forEach(function(f){
+      r += '<tr style="border-bottom:1px solid var(--border)">';
+      r += '<td style="padding:8px 10px;font-size:12px;font-weight:600">'+esc(f.nameEn||'—')+'</td>';
+      r += '<td style="padding:8px 10px;font-size:11px">'+esc(f.nationality||'—')+'</td>';
+      r += '<td style="padding:8px 10px"><span class="badge '+(f.residenceStatus==='特定技能2号'?'badge-purple':'badge-blue')+'">'+esc(f.residenceStatus||'—')+'</span></td>';
+      r += '<td style="padding:8px 10px;font-size:11px;font-family:\'DM Mono\',monospace">'+esc(f.residenceCard||'—')+'</td>';
+      r += '<td style="padding:8px 10px;font-size:11px;color:var(--text2)">'+fmtDate(f.birthDate)+'</td>';
+      r += '<td style="padding:8px 10px;font-size:11px;color:var(--text2)">'+fmtDate(f.residenceExpiry)+'</td>';
+      r += '<td style="padding:8px 10px;font-size:11px;color:var(--text2)">'+fmtDate(f.contractStart)+'</td>';
+      r += '</tr>';
+    });
+    r += '</tbody></table>';
+    return r;
+  };
+
+  html += renderFgRows(active,  '在職中',  'var(--green)');
+  html += renderFgRows(retired, '退職済み', 'var(--text3)');
+  if(!fgs.length) html += '<div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">外国人データなし</div></div>';
+  html += '</div>';
+
+  // モーダルに表示
+  document.getElementById('fg-link-modal-body').innerHTML = html;
+  document.getElementById('fg-link-modal-title').textContent = name + ' の外国人一覧';
+  openModal('modal-fg-link');
+}
+</script>
+</body>
+</html>
