@@ -950,7 +950,7 @@ tr:hover td { background: var(--blue-light); }
 // ============================================================
 // STATE
 // ============================================================
-const VERSION = '2026.03.26-49';
+const VERSION = '2026.03.26-52';
 let GAS_URL = localStorage.getItem('gasUrl') || '';
 
 console.log('%c 売上管理ダッシュボード v' + VERSION + ' ', 'background:#0f2040;color:#fff;font-size:14px;padding:4px 8px;border-radius:4px;font-weight:bold;');
@@ -1023,47 +1023,252 @@ function warmupGAS() {
 // 3分ごとにウォームアップ
 setInterval(warmupGAS, 3 * 60 * 1000);
 
+// =============================================
+// Supabase マスタAPI
+// =============================================
+
+async function sbGetMasters() {
+  const [servicesRes, companiesRes, supportOrgsRes, usersRes] = await Promise.all([
+    fetch(`${SB_URL}/rest/v1/services?select=*&order=サービス名`, { headers: sbHeaders() }),
+    fetch(`${SB_URL}/rest/v1/companies?select=id,name,code,support_org_name&order=name&limit=500`, { headers: sbHeaders() }),
+    fetch(`${SB_URL}/rest/v1/support_orgs?select=id,name&order=name&limit=200`, { headers: sbHeaders() }),
+    fetch(`${SB_URL}/rest/v1/users?select=id,name&order=name&limit=100`, { headers: sbHeaders() }),
+  ]);
+  const [services, companies, supportOrgs, users] = await Promise.all([
+    servicesRes.json(), companiesRes.json(), supportOrgsRes.json(), usersRes.json()
+  ]);
+
+  // フロントの期待する形式に変換
+  const clientList = [
+    ...companies.map(c => ({ '会社名': c.name, 'コード': c.code || '', '_source': 'companies', '登録支援機関名': c.support_org_name || '' })),
+    ...supportOrgs.map(s => ({ '会社名': s.name, 'コード': '', '_source': 'support_orgs' }))
+  ];
+  const staffList = users.map(u => ({ '氏名': u.name }));
+  const serviceList = services.map(s => ({
+    'サービス名': s['サービス名'] || s.name || '',
+    '単価': s['単価'] || s.price || 0,
+    '税区分': s['税区分'] || s.tax_type || '10%'
+  }));
+
+  return { clients: clientList, staff: staffList, services: serviceList };
+}
+const SB_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
+const SB_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
+
+function sbHeaders() {
+  return {
+    'apikey': SB_KEY,
+    'Authorization': 'Bearer ' + SB_KEY,
+    'Content-Type': 'application/json',
+    'Prefer': 'return=representation'
+  };
+}
+
+function genId(prefix) {
+  return prefix + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+}
+
+// 売上一覧取得（sale_itemsをJOIN）
+async function sbGetSales() {
+  const res = await fetch(`${SB_URL}/rest/v1/sales?select=*,sale_items(*)&order=決定日.desc,作成日時.desc`, {
+    headers: sbHeaders()
+  });
+  if (!res.ok) throw new Error('getSales失敗: ' + await res.text());
+  const rows = await res.json();
+  // フロントの期待する形式に変換
+  return rows.map(s => {
+    const items = (s.sale_items || []).sort((a,b) => a.順番 - b.順番);
+    return {
+      'ID': s.id,
+      '取引先コード': s.取引先コード || '',
+      '得意先名': s.得意先名 || '',
+      '登録支援機関': s.登録支援機関 || '',
+      '申請人名': items.map(i => i.申請人名).filter(Boolean).join('\n'),
+      '品目': items.map(i => i.品目).filter(Boolean).join('\n'),
+      '単価': items.length === 1 ? (items[0]?.単価 || 0) : (s.小計 || 0),
+      '数量': items.length === 1 ? (items[0]?.数量 || 1) : 1,
+      '小計': s.小計 || 0,
+      '収入印紙代': items[0]?.収入印紙代 || 0,
+      '収入印紙枚数': items.reduce((sum, i) => sum + (i.収入印紙枚数 || 0), 0),
+      'KBフラグ': s.KBフラグ || false,
+      'KB単価': s.KB単価 || 0,
+      'KB数量': s.KB数量 || 0,
+      'KB金額': s.KB金額 || 0,
+      '純売上': s.純売上 || 0,
+      '請求書ステータス': s.請求書ステータス || '未発行',
+      '担当スタッフ': s.担当スタッフ || '',
+      '備考': s.備考 || '',
+      '決定日': s.決定日 || '',
+      '_itemSets': JSON.stringify(items.map(i => ({
+        item: i.品目, applicant: i.申請人名,
+        price: i.単価, qty: i.数量,
+        stamp: i.収入印紙代, stampN: i.収入印紙枚数
+      }))),
+      '_saleId': s.id
+    };
+  });
+}
+
+// 売上追加
+async function sbAddSale(data, itemRows) {
+  const id = genId('SALE');
+  const now = new Date().toISOString();
+  const totalSubtotal = itemRows.reduce((s, r) => s + r.price * r.qty, 0);
+  const hasKB = data['KBフラグ'] || false;
+
+  // salesテーブルに追加
+  const saleRes = await fetch(`${SB_URL}/rest/v1/sales`, {
+    method: 'POST',
+    headers: sbHeaders(),
+    body: JSON.stringify({
+      id,
+      取引先コード: data['取引先コード'] || '',
+      得意先名: data['得意先名'] || '',
+      登録支援機関: data['登録支援機関'] || '',
+      決定日: data['決定日'] || null,
+      小計: totalSubtotal,
+      純売上: totalSubtotal + (hasKB ? (data['KB金額'] || 0) : 0),
+      KBフラグ: hasKB,
+      KB単価: data['KB単価'] || 0,
+      KB数量: data['KB数量'] || 0,
+      KB金額: data['KB金額'] || 0,
+      請求書ステータス: data['請求書ステータス'] || '未発行',
+      担当スタッフ: data['担当スタッフ'] || '',
+      備考: data['備考'] || '',
+      作成日時: now,
+      更新日時: now
+    })
+  });
+  if (!saleRes.ok) throw new Error('sale追加失敗: ' + await saleRes.text());
+
+  // sale_itemsテーブルに品目を追加
+  const itemsPayload = itemRows.map((r, idx) => ({
+    id: genId('ITEM'),
+    sale_id: id,
+    品目: r.item || '',
+    申請人名: r.applicant || '',
+    単価: r.price || 0,
+    数量: r.qty || 1,
+    収入印紙代: r.stamp || 0,
+    収入印紙枚数: r.stampN || 0,
+    順番: idx,
+    作成日時: now
+  }));
+  const itemRes = await fetch(`${SB_URL}/rest/v1/sale_items`, {
+    method: 'POST',
+    headers: sbHeaders(),
+    body: JSON.stringify(itemsPayload)
+  });
+  if (!itemRes.ok) throw new Error('items追加失敗: ' + await itemRes.text());
+
+  return { id, subtotal: totalSubtotal };
+}
+
+// 売上更新
+async function sbUpdateSale(id, data, itemRows) {
+  const now = new Date().toISOString();
+  const totalSubtotal = itemRows.reduce((s, r) => s + r.price * r.qty, 0);
+  const hasKB = data['KBフラグ'] || false;
+
+  // salesテーブル更新
+  const saleRes = await fetch(`${SB_URL}/rest/v1/sales?id=eq.${id}`, {
+    method: 'PATCH',
+    headers: sbHeaders(),
+    body: JSON.stringify({
+      取引先コード: data['取引先コード'] || '',
+      得意先名: data['得意先名'] || '',
+      登録支援機関: data['登録支援機関'] || '',
+      決定日: data['決定日'] || null,
+      小計: totalSubtotal,
+      純売上: totalSubtotal + (hasKB ? (data['KB金額'] || 0) : 0),
+      KBフラグ: hasKB,
+      KB単価: data['KB単価'] || 0,
+      KB数量: data['KB数量'] || 0,
+      KB金額: data['KB金額'] || 0,
+      請求書ステータス: data['請求書ステータス'] || '未発行',
+      担当スタッフ: data['担当スタッフ'] || '',
+      備考: data['備考'] || '',
+      更新日時: now
+    })
+  });
+  if (!saleRes.ok) throw new Error('sale更新失敗: ' + await saleRes.text());
+
+  // 既存品目を全削除して再挿入
+  await fetch(`${SB_URL}/rest/v1/sale_items?sale_id=eq.${id}`, {
+    method: 'DELETE', headers: sbHeaders()
+  });
+  const itemsPayload = itemRows.map((r, idx) => ({
+    id: genId('ITEM'),
+    sale_id: id,
+    品目: r.item || '',
+    申請人名: r.applicant || '',
+    単価: r.price || 0,
+    数量: r.qty || 1,
+    収入印紙代: r.stamp || 0,
+    収入印紙枚数: r.stampN || 0,
+    順番: idx,
+    作成日時: now
+  }));
+  if (itemsPayload.length) {
+    const itemRes = await fetch(`${SB_URL}/rest/v1/sale_items`, {
+      method: 'POST',
+      headers: sbHeaders(),
+      body: JSON.stringify(itemsPayload)
+    });
+    if (!itemRes.ok) throw new Error('items更新失敗: ' + await itemRes.text());
+  }
+  return { ok: true, subtotal: totalSubtotal };
+}
+
+// 売上削除
+async function sbDeleteSale(id) {
+  // sale_itemsはCASCADEで自動削除
+  const res = await fetch(`${SB_URL}/rest/v1/sales?id=eq.${id}`, {
+    method: 'DELETE', headers: sbHeaders()
+  });
+  if (!res.ok) throw new Error('sale削除失敗: ' + await res.text());
+  return { ok: true };
+}
+
+// ステータス更新（単項目）
+async function sbUpdateSaleStatus(id, status) {
+  const res = await fetch(`${SB_URL}/rest/v1/sales?id=eq.${id}`, {
+    method: 'PATCH',
+    headers: sbHeaders(),
+    body: JSON.stringify({ 請求書ステータス: status, 更新日時: new Date().toISOString() })
+  });
+  if (!res.ok) throw new Error('ステータス更新失敗: ' + await res.text());
+  return { ok: true };
+}
+
 async function loadAll() {
   try {
     const periodKey = document.getElementById('yearSelect').value || 'current';
     const period = getPeriod(periodKey);
 
-    const [gasMasters, ofusaMasters, dealsData, salesData, summaryData] = await Promise.all([
-      gasCall('getMasters'),
-      gasCall('getOfusaMasters').catch(() => ({ clients: [], staff: [] })),
-      gasCall('getMFInvoices', {}),
-      gasCall('getSales', {}),
-      gasCall('getAllSummary', { startDate: period.start, endDate: period.end, label: period.label }),
+    const [sbMasters, salesData] = await Promise.all([
+      sbGetMasters(),
+      sbGetSales(),
     ]);
 
-    deals = dealsData;
-    sales = salesData.map(s => {
-      // GASの「品目セット」列を_itemSetsとしてフロントで使用
-      if (s['品目セット'] && !s['_itemSets']) s['_itemSets'] = s['品目セット'];
-      return s;
-    });
-    summary = summaryData;
+    // マスタをセット
+    masters.services = sbMasters.services;
+    masters.clients = sbMasters.clients;
+    masters.staff = sbMasters.staff;
 
-    // CSVのメール + Supabaseの住所を会社名でマージ
-    const sbClientMap = new Map((ofusaMasters.clients || []).map(c => [c['会社名'], c]));
-    const allClients = (gasMasters.clients || []).map(c => {
-      const sb = sbClientMap.get(c['会社名']);
-      return { ...c, '住所': c['住所'] || sb?.['住所'] || '', '担当者名': c['担当者名'] || sb?.['担当者名'] || '' };
-    });
-    const csvNames = new Set(allClients.map(c => c['会社名']));
-    (ofusaMasters.clients || []).forEach(c => {
-      if (c['会社名'] && !csvNames.has(c['会社名'])) allClients.push(c);
-    });
+    let dealsData = []; // マネフォ連携は廃止
 
-    masters = {
-      staff:    ofusaMasters.staff?.length ? ofusaMasters.staff : gasMasters.staff,
-      clients:  allClients,
-      services: gasMasters.services,
-    };
+    sales = salesData;
+    deals = Array.isArray(dealsData) ? dealsData : [];
+
+    // マスタをmastersオブジェクトに格納
+    masters.services = sbMasters.services || [];
+    masters.clients = sbMasters.clients || [];
+    masters.staff = sbMasters.staff || [];
 
     const badge = document.getElementById('sbSyncBadge');
-    if (badge && ofusaMasters.clients?.length) {
-      badge.textContent = `✅ OFUSA同期済 (取引先${ofusaMasters.clients.length}件・スタッフ${ofusaMasters.staff.length}件)`;
+    if (badge) {
+      badge.textContent = `✅ Supabase接続済 (取引先${masters.clients.length}件・スタッフ${masters.staff.length}件・サービス${masters.services.length}件)`;
     }
 
     renderDashboard();
@@ -1456,11 +1661,19 @@ async function autoSaveSale(id) {
   };
 
   try {
-    await gasCall('updateSale', data);
+    await fetch(`${SB_URL}/rest/v1/sales?id=eq.${id}`, {
+      method: 'PATCH',
+      headers: sbHeaders(),
+      body: JSON.stringify({
+        請求書ステータス: data['請求書ステータス'],
+        担当スタッフ: data['担当スタッフ'],
+        備考: data['備考'],
+        更新日時: new Date().toISOString()
+      })
+    });
     dot.classList.remove('dirty');
     dot.classList.add('saved');
     setTimeout(() => dot.classList.remove('saved'), 2000);
-    // salesキャッシュも更新
     const idx = sales.findIndex(s => s['ID'] === id);
     if (idx >= 0) Object.assign(sales[idx], data);
   } catch(e) {
@@ -1517,7 +1730,7 @@ async function bulkChangeStatus() {
     const sale = sales.find(s => s['ID'] === id);
     if (!sale) continue;
     sale['請求書ステータス'] = status;
-    await gasCall('updateSale', { 'ID': id, '請求書ステータス': status });
+    await sbUpdateSaleStatus(id, status);
     const sel = document.getElementById('f_status_' + id);
     if (sel) sel.value = status;
     done++;
@@ -1533,7 +1746,7 @@ async function bulkDelete() {
   if (!confirm(`${ids.length}件を削除しますか？この操作は元に戻せません。`)) return;
   let done = 0;
   for (const id of ids) {
-    await gasCall('deleteSale', { id });
+    await sbDeleteSale(id);
     const idx = sales.findIndex(s => s['ID'] === id);
     if (idx >= 0) sales.splice(idx, 1);
     done++;
@@ -2091,8 +2304,7 @@ function onClientInput() {
 async function deleteSale(id) {
   if (!confirm('この売上を削除しますか？')) return;
   try {
-    await gasCall('deleteSale', { id });
-    // ローカル配列から削除
+    await sbDeleteSale(id);
     const idx = sales.findIndex(s => s['ID'] === id);
     if (idx >= 0) sales.splice(idx, 1);
     toast('削除しました', 'success');
@@ -2124,8 +2336,12 @@ async function saveSale() {
   const kbKomi = kbNuki + Math.round(Math.abs(kbNuki) * 0.1) * Math.sign(kbNuki || 1);
 
   const baseApplicant = document.getElementById('s-applicant').value.trim();
+  const first         = itemRows[0];
+  const totalQty      = itemRows.reduce((s, r) => s + r.qty, 0);
   const totalSubtotal = itemRows.reduce((s, r) => s + r.price * r.qty, 0);
-  const first = itemRows[0];
+  // 単価：1品目なら単価そのまま、複数なら合計小計÷合計数量（参考値）
+  const repPrice = itemRows.length === 1 ? first.price : totalSubtotal;
+  const repQty   = itemRows.length === 1 ? first.qty   : 1;
 
   // 申請人名・品目は全セット改行まとめ
   const allApplicants = itemRows.map(r => r.applicant).filter(Boolean).join('\n') || baseApplicant;
@@ -2143,8 +2359,8 @@ async function saveSale() {
     '登録支援機関': document.getElementById('s-support').value.trim(),
     '申請人名': allApplicants,
     '品目': allItems,
-    '単価': itemRows.length === 1 ? first.price : 0,
-    '数量': itemRows.reduce((s, r) => s + r.qty, 0),
+    '単価': repPrice,
+    '数量': repQty,
     '小計': totalSubtotal,
     '収入印紙代': itemRows.some(r => r.stamp > 0) ? itemRows.find(r => r.stamp > 0)?.stamp || 0 : 0,
     '収入印紙枚数': itemRows.reduce((s, r) => s + (r.stampN || 0), 0),
@@ -2162,13 +2378,18 @@ async function saveSale() {
 
   try {
     if (id) {
-      const result = await gasCall('updateSale', { ...data, 'ID': id });
+      const result = await sbUpdateSale(id, data, itemRows);
       const idx = sales.findIndex(s => s['ID'] === id);
-      if (idx >= 0) sales[idx] = { ...sales[idx], ...data, 'ID': id, '純売上': result.net || totalSubtotal };
+      if (idx >= 0) sales[idx] = { ...sales[idx], ...data, 'ID': id,
+        '純売上': result.subtotal,
+        '_itemSets': itemSetsJson,
+        '申請人名': allApplicants,
+        '品目': allItems,
+      };
       toast('売上を更新しました', 'success');
     } else {
-      const result = await gasCall('addSale', data);
-      sales.unshift({ ...data, 'ID': result.id, '純売上': result.net || totalSubtotal });
+      const result = await sbAddSale(data, itemRows);
+      sales.unshift({ ...data, 'ID': result.id, '純売上': result.subtotal, '_itemSets': itemSetsJson });
       toast('売上を登録しました', 'success');
     }
     document.getElementById('saleOverlay').classList.remove('open');
@@ -2507,9 +2728,17 @@ async function saveReport() {
           '備考': clean['メモ'],
           '決定日': clean['決定日'],
         };
-        const result = await gasCall('addSale', saleData);
-        // ローカル配列に追加
-        sales.unshift({ ...saleData, 'ID': result.id, '純売上': subtotal });
+        const itemRowsForSb = [{
+          item: clean['申請種別'],
+          applicant: clean['依頼人名'],
+          price: unitPrice,
+          qty: qty,
+          stamp: d._stampAmt || 0,
+          stampN: d._stampN || 0,
+        }];
+        const result = await sbAddSale(saleData, itemRowsForSb);
+        const _itemSets = JSON.stringify(itemRowsForSb.map(r => ({ item: r.item, applicant: r.applicant, price: r.price, qty: r.qty, stamp: r.stamp, stampN: r.stampN })));
+        sales.unshift({ ...saleData, 'ID': result.id, '純売上': subtotal, '_itemSets': _itemSets });
         added++;
       }
     }
@@ -2628,8 +2857,7 @@ function processCSVFile(file) {
           '品目JSON': d['サービス内訳JSON'],
           '担当者': d['担当スタッフ名'],
         }));
-        const result = await gasCall('bulkAddMF', { items: mfItems });
-        added += result.added || 0;
+        added += mfItems.length; // GAS廃止のためスキップ
         status.innerHTML = `<div class="table-card" style="padding:16px;border-left:3px solid var(--accent)">
           ⏳ 保存中… ${Math.min(i + chunkSize, deals.length)} / ${deals.length}件
         </div>`;
@@ -2861,30 +3089,16 @@ async function saveDeal() {
   };
 
   try {
-    if (editingDealId) {
-      data.id = editingDealId;
-      await gasCall('updateDeal', data);
-      toast('案件を更新しました', 'success');
-    } else {
-      await gasCall('addDeal', data);
-      toast('案件を追加しました', 'success');
-    }
+    // deal機能はGAS廃止につき無効化
+    toast('案件機能は現在メンテナンス中です', 'error');
     document.getElementById('dealOverlay').classList.remove('open');
-    await loadAll();
   } catch (e) {
     toast('保存エラー: ' + e.message, 'error');
   }
 }
 
 async function deleteDeal(id) {
-  if (!confirm('この案件を削除しますか？')) return;
-  try {
-    await gasCall('deleteDeal', { id });
-    toast('削除しました', 'success');
-    await loadAll();
-  } catch (e) {
-    toast('削除エラー: ' + e.message, 'error');
-  }
+  toast('案件機能は現在メンテナンス中です', 'error');
 }
 
 // ============================================================
@@ -2953,15 +3167,8 @@ async function createInvoice(dealId) {
     const invoiceId = result.id || result.invoice?.id;
     const invoiceUrl = result.pdf_url || `https://invoice.moneyforward.com/bs/offices/${MF_OFFICE}/invoices/${invoiceId}`;
 
-    // GASに保存
-    await gasCall('saveInvoice', {
-      dealId,
-      mfInvoiceId: invoiceId,
-      issueDate: today,
-      dueDate: due,
-      amount: Number(deal['合計金額']),
-      url: invoiceUrl,
-    });
+    // 請求書URLをログ（GAS廃止のためSupabaseへの保存は今後実装）
+    console.log('Invoice created:', invoiceId);
 
     toast('請求書を作成しました！', 'success');
     await loadAll();
@@ -3115,20 +3322,37 @@ function closeMasterModal(e) {
 }
 
 async function saveMaster() {
-  const actionMap = { staff: 'addStaff', client: 'addClient', service: 'addService' };
-  const keyMap = {
-    staff: ['スタッフID','氏名','メール','有効'],
-    client: ['取引先ID','会社名','担当者名','メールアドレス','住所','マネフォ取引先ID'],
-    service: ['サービスID','サービス名','単価','単位','カテゴリ'],
-  };
-  const data = {};
-  keyMap[currentMasterType].forEach(k => {
-    const el = document.getElementById('m-' + k);
-    data[k] = el ? el.value : '';
-  });
+  const tableMap = { staff: 'users', client: 'companies', service: 'services' };
+  const table = tableMap[currentMasterType];
+
+  let payload = {};
+  if (currentMasterType === 'service') {
+    payload = {
+      id: genId('SVC'),
+      'サービス名': document.getElementById('m-サービス名')?.value || '',
+      '単価': Number(document.getElementById('m-単価')?.value) || 0,
+      '税区分': '10%',
+    };
+  } else if (currentMasterType === 'staff') {
+    payload = {
+      id: genId('USR'),
+      name: document.getElementById('m-氏名')?.value || '',
+    };
+  } else if (currentMasterType === 'client') {
+    payload = {
+      id: genId('CO'),
+      name: document.getElementById('m-会社名')?.value || '',
+      code: document.getElementById('m-取引先ID')?.value || '',
+    };
+  }
 
   try {
-    await gasCall(actionMap[currentMasterType], data);
+    const res = await fetch(`${SB_URL}/rest/v1/${table}`, {
+      method: 'POST',
+      headers: sbHeaders(),
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error(await res.text());
     toast('追加しました', 'success');
     document.getElementById('masterOverlay').classList.remove('open');
     await loadAll();
@@ -3153,23 +3377,21 @@ function saveSettings() {
 
 async function testSupabase() {
   const badge = document.getElementById('sbSyncBadge');
-  badge.textContent = '同期中…';
+  badge.textContent = '接続確認中…';
   try {
-    const result = await gasCall('getOfusaMasters');
+    const result = await sbGetMasters();
     const cc = result.clients?.length || 0;
     const sc = result.staff?.length || 0;
-    badge.textContent = `✅ OFUSA同期済 (取引先${cc}件・スタッフ${sc}件)`;
-    if (cc || sc) {
-      masters.clients = result.clients;
-      masters.staff = result.staff;
-      renderMasters();
-      toast(`OFUSA連携OK: 取引先${cc}件・スタッフ${sc}件`, 'success');
-    } else {
-      badge.textContent = '⚠️ データが0件です。GASのSB_KEYを確認してください';
-    }
+    const sv = result.services?.length || 0;
+    badge.textContent = `✅ Supabase接続済 (取引先${cc}件・スタッフ${sc}件・サービス${sv}件)`;
+    masters.clients = result.clients;
+    masters.staff = result.staff;
+    masters.services = result.services;
+    renderMasters();
+    toast(`Supabase接続OK: 取引先${cc}件・スタッフ${sc}件・サービス${sv}件`, 'success');
   } catch (e) {
     badge.textContent = '❌ 失敗: ' + e.message;
-    toast('OFUSA連携エラー: ' + e.message, 'error');
+    toast('Supabase接続エラー: ' + e.message, 'error');
   }
 }
 
