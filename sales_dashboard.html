@@ -939,7 +939,7 @@ tr:hover td { background: var(--blue-light); }
 // ============================================================
 // STATE
 // ============================================================
-const VERSION = '2026.03.26-58';
+const VERSION = '2026.03.26-60';
 
 console.log('%c 売上管理ダッシュボード v' + VERSION + ' ', 'background:#0f2040;color:#fff;font-size:14px;padding:4px 8px;border-radius:4px;font-weight:bold;');
 console.log('%c Supabase直接接続モード ', 'background:#10b981;color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;');
@@ -1296,51 +1296,93 @@ function getPeriod(key) {
 }
 
 function renderDashboard() {
-  const s = summary;
   const now = new Date();
-  const thisMonth = now.toISOString().slice(0,7);
+  const todayKey   = now.toISOString().slice(0,10);
+  const thisMonthKey = now.toISOString().slice(0,7);
 
-  // 今日・今月（売上一覧ベース）
-  document.getElementById('kpi-today').textContent = fmt(s.todayAmount || 0);
-  document.getElementById('kpi-today-count').textContent = (s.todayCount || 0) + ' 件';
-  document.getElementById('kpi-month').textContent = fmt(s.monthAmount || 0);
-  document.getElementById('kpi-month-count').textContent = (s.monthCount || 0) + ' 件';
+  // 期間取得
+  const periodKey = document.getElementById('yearSelect')?.value || 'current';
+  const period = getPeriod(periodKey);
 
-  // 前月比（マネフォベース）
-  const lastMonthAmt = s.lastMonthAmount || 0;
-  const monthAmt = s.monthAmount || 0;
-  const momPct = lastMonthAmt ? Math.round((monthAmt / lastMonthAmt - 1) * 100) : null;
+  // 期内の売上のみ
+  const periodSales = sales.filter(d => {
+    const dt = fmtDate(d['決定日']);
+    return dt >= period.start && dt <= period.end;
+  });
+
+  // 今日
+  const todaySales = periodSales.filter(d => fmtDate(d['決定日']) === todayKey);
+  const todayAmount = todaySales.reduce((s,d) => s + (Number(d['純売上'])||Number(d['小計'])||0), 0);
+
+  // 今月
+  const thisMonthSales = periodSales.filter(d => fmtDate(d['決定日']).startsWith(thisMonthKey));
+  const monthAmount = thisMonthSales.reduce((s,d) => s + (Number(d['純売上'])||Number(d['小計'])||0), 0);
+
+  // 前月
+  const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevMonthKey = prevMonthDate.toISOString().slice(0,7);
+  const prevMonthSales = periodSales.filter(d => fmtDate(d['決定日']).startsWith(prevMonthKey));
+  const lastMonthAmount = prevMonthSales.reduce((s,d) => s + (Number(d['純売上'])||Number(d['小計'])||0), 0);
+
+  // 今期合計
+  const totalAmount = periodSales.reduce((s,d) => s + (Number(d['純売上'])||Number(d['小計'])||0), 0);
+  const totalCount = periodSales.length;
+
+  // 未発行
+  const uninvoiced = periodSales.filter(d => d['請求書ステータス'] === '未発行');
+  const uninvoicedAmount = uninvoiced.reduce((s,d) => s + (Number(d['純売上'])||Number(d['小計'])||0), 0);
+
+  // KPIセット
+  document.getElementById('kpi-today').textContent = fmt(todayAmount);
+  document.getElementById('kpi-today-count').textContent = todaySales.length + ' 件';
+  document.getElementById('kpi-month').textContent = fmt(monthAmount);
+  document.getElementById('kpi-month-count').textContent = thisMonthSales.length + ' 件';
+
+  const momPct = lastMonthAmount ? Math.round((monthAmount / lastMonthAmount - 1) * 100) : null;
   document.getElementById('kpi-mom').textContent = momPct !== null ? (momPct >= 0 ? '▲' : '▼') + Math.abs(momPct) + '%' : '—';
-  document.getElementById('kpi-mom-amount').textContent = '前月 ' + fmt(lastMonthAmt);
+  document.getElementById('kpi-mom-amount').textContent = '前月 ' + fmt(lastMonthAmount);
+  document.getElementById('kpi-yoy').textContent = '—';
+  document.getElementById('kpi-yoy-amount').textContent = '前期データなし';
 
-  // 前期比（マネフォベース）
-  const prevAmt = s.prevTotalAmount || 0;
-  const totalAmt = s.totalAmount || 0;
-  const yoyPct = prevAmt ? Math.round((totalAmt / prevAmt - 1) * 100) : null;
-  document.getElementById('kpi-yoy').textContent = yoyPct !== null ? (yoyPct >= 0 ? '▲' : '▼') + Math.abs(yoyPct) + '%' : '—';
-  document.getElementById('kpi-yoy-amount').textContent = '前期 ' + fmt(prevAmt);
+  document.getElementById('kpi-total').textContent = fmt(totalAmount);
+  document.getElementById('kpi-total-count').textContent = totalCount + ' 件';
+  document.getElementById('kpi-uninvoiced').textContent = fmt(uninvoicedAmount);
+  document.getElementById('kpi-uninvoiced-count').textContent = uninvoiced.length + ' 件';
 
-  // 今期売上高・未請求
-  document.getElementById('kpi-total').textContent = fmt(s.totalAmount || 0);
-  document.getElementById('kpi-total-count').textContent = (s.totalCount || 0) + ' 件';
-  document.getElementById('kpi-uninvoiced').textContent = fmt(s.uninvoicedAmount || 0);
-  document.getElementById('kpi-uninvoiced-count').textContent = (s.byStatus?.['未請求']?.count || 0) + ' 件';
+  // 月別集計（sales配列から）
+  const monthly = {};
+  periodSales.forEach(d => {
+    const m = fmtDate(d['決定日']).slice(0,7);
+    if (!m) return;
+    if (!monthly[m]) monthly[m] = { total: 0, count: 0 };
+    monthly[m].total += Number(d['純売上'])||Number(d['小計'])||0;
+    monthly[m].count++;
+  });
 
-  // 当月分を売上一覧で上書き
-  const thisMonthKey = new Date().toISOString().slice(0,7);
-  const mergedMonthly = { ...s.monthly };
-  const thisMonthSales = sales.filter(d => fmtDate(d['決定日']).startsWith(thisMonthKey));
-  const thisMonthSalesTotal = thisMonthSales.reduce((sum,d) => sum + (Number(d['純売上'])||Number(d['小計'])||0), 0);
-  if (mergedMonthly[thisMonthKey]) {
-    mergedMonthly[thisMonthKey] = { ...mergedMonthly[thisMonthKey], total: thisMonthSalesTotal, count: thisMonthSales.length };
-  }
+  // 担当別集計
+  const byStaff = {};
+  periodSales.forEach(d => {
+    const st = d['担当スタッフ'] || '未設定';
+    if (!byStaff[st]) byStaff[st] = { total: 0, count: 0 };
+    byStaff[st].total += Number(d['純売上'])||Number(d['小計'])||0;
+    byStaff[st].count++;
+  });
 
-  drawMonthly(mergedMonthly);
-  drawType(s.byType || {});
-  drawDaily(thisMonth, s.daily || {});
-  drawStaff(s.byStaff || {});
-  drawStatus(s.byStatus || {});
-  drawCount(mergedMonthly);
+  // ステータス別集計
+  const byStatus = {};
+  periodSales.forEach(d => {
+    const st = d['請求書ステータス'] || '未発行';
+    if (!byStatus[st]) byStatus[st] = { total: 0, count: 0 };
+    byStatus[st].total += Number(d['純売上'])||Number(d['小計'])||0;
+    byStatus[st].count++;
+  });
+
+  drawMonthly(monthly);
+  drawType({});
+  drawDaily(thisMonthKey, {});
+  drawStaff(byStaff);
+  drawStatus(byStatus);
+  drawCount(monthly);
 }
 
 const COLORS = ['#2563eb','#7c3aed','#16a34a','#ea580c','#dc2626','#d97706','#0891b2','#4f46e5'];
@@ -2227,7 +2269,7 @@ function openSaleModal(sale) {
   
   const hasKB = sale?.['KBフラグ'] === true || sale?.['KBフラグ'] === '✓';
   document.getElementById('s-kb-flag').checked = hasKB;
-  document.getElementById('s-kb-amount').value = sale?.['KB金額'] || '';
+  document.getElementById('s-kb-amount').value = sale?.['KB単価'] || '';
   document.getElementById('s-kb-qty').value = sale?.['KB数量'] || 1;
   document.getElementById('kbFields').style.display = hasKB ? '' : 'none';
   document.getElementById('kbRow').style.display = hasKB ? 'flex' : 'none';
