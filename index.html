@@ -1030,7 +1030,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             <th style="width:42px;text-align:center;font-size:9px;color:#6b7280;cursor:pointer;" title="優先順位順にソート" onclick="var el=document.getElementById('fSort');if(el){el.value='priority';applyFilters();}">優先 ▲</th>
             <th style="width:32px;"><input type="checkbox" id="groupSelectAll" onchange="toggleGroupSelectAll(this)" style="width:15px;height:15px;cursor:pointer;accent-color:#2563eb;" title="グループ化する案件を選択"></th>
             <th class="sortable-th" onclick="colSort('main','id')" style="width:70px;">番号 <span id="si-main-id"></span></th><th class="sortable-th" onclick="colSort('main','name')">案件名/申請者 <span id="si-main-name"></span></th><th class="sortable-th" onclick="colSort('main','org')" style="max-width:100px;">企業/支援機関 <span id="si-main-org"></span></th>
-            <th class="sortable-th" onclick="colSort('main','appType')" style="width:50px;">種別 <span id="si-main-appType"></span></th><th class="sortable-th" onclick="colSort('main','team')" style="width:70px;">担当 <span id="si-main-team"></span></th><th class="sortable-th" onclick="colSort('main','status')" style="width:80px;">状態 <span id="si-main-status"></span></th><th class="sortable-th" onclick="colSort('main','taskPct')" style="width:70px;">進捗 <span id="si-main-taskPct"></span></th><th class="sortable-th" onclick="colSort('main','expire')" style="width:85px;">在留期限<br>特例日 <span id="si-main-expire"></span></th><th class="sortable-th" onclick="colSort('main','tempReturn')">帰国予定 <span id="si-main-tempReturn"></span></th><th class="sortable-th" onclick="colSort('main','applicationDeadline')" style="width:70px;">申請期限 <span id="si-main-applicationDeadline"></span></th><th class="sortable-th" onclick="colSort('main','shinsaDate')" style="width:80px;">審査完了 <span id="si-main-shinsaDate"></span></th><th class="sortable-th" onclick="colSort('main','receiptDate')" style="min-width:70px;">受付番号<br><span style="font-size:9px;font-weight:400;color:#94a3b8;">申請日</span> <span id="si-main-receiptDate"></span></th>
+            <th class="sortable-th" onclick="colSort('main','appType')" style="width:50px;">種別 <span id="si-main-appType"></span></th><th class="sortable-th" onclick="colSort('main','team')" style="width:70px;">担当 <span id="si-main-team"></span></th><th class="sortable-th" onclick="colSort('main','status')" style="width:80px;">状態 <span id="si-main-status"></span></th><th class="sortable-th" onclick="colSort('main','taskPct')" style="width:70px;">進捗 <span id="si-main-taskPct"></span></th><th class="sortable-th" onclick="colSort('main','expire')" style="width:85px;">在留期限<br>特例日 <span id="si-main-expire"></span></th><th class="sortable-th" onclick="colSort('main','tempReturn')">帰国予定 <span id="si-main-tempReturn"></span></th><th class="sortable-th" onclick="colSort('main','applicationDeadline')" style="width:70px;">申請期限 <span id="si-main-applicationDeadline"></span></th><th class="sortable-th" onclick="colSort('main','shinsaDate')" style="width:80px;">審査完了 <span id="si-main-shinsaDate"></span></th><th class="sortable-th" onclick="colSort('main','receiptDate')" style="min-width:70px;">受付番号<br><span style="font-size:9px;font-weight:400;color:#94a3b8;">申請日</span> <span id="si-main-receiptDate"></span></th><th style="min-width:150px;font-size:10px;color:#6b7280;">進捗状況</th>
           </tr>
         </thead>
         <tbody id="caseTable"></tbody>
@@ -18205,6 +18205,13 @@ function buildCaseRow(c, today, inGroup) {
   h += (c.receiptNo?'<span style="color:var(--blue);font-weight:700;">'+c.receiptNo+'</span>':'<span style="color:var(--gray-300);">—</span>');
   if(c.receiptDate) h += '<div style="font-size:9px;color:#64748b;margin-top:1px;">'+c.receiptDate+'</div>';
   h += '</td>';
+  // 進捗状況メモ
+  var _pm = (caseNotes[c.id] || {}).progressMemo || '';
+  h += '<td style="'+cs+'min-width:150px;max-width:220px;vertical-align:top;padding:6px 8px;">';
+  if (_pm) {
+    h += '<div style="font-size:11px;color:#374151;line-height:1.5;white-space:pre-wrap;word-break:break-all;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:6px;padding:6px 8px;max-height:80px;overflow:hidden;">' + esc(_pm) + '</div>';
+  }
+  h += '</td>';
   h += '</tr>';
   return h;
 }
@@ -18627,12 +18634,14 @@ function setViewMode(mode) {
   }
 }
 
+var _kanbanDragCid = null;
+var _kanbanDragStatus = null;
+
 function renderKanban() {
   var el = document.getElementById('kanbanView');
   if (!el) return;
   var data = window._filteredCases || cData;
 
-  // STATUS_LIST順にグループ化
   var statusGroups = {};
   STATUS_LIST.forEach(function(s){ statusGroups[s] = []; });
   data.forEach(function(c){
@@ -18647,31 +18656,71 @@ function renderKanban() {
     if (!items || !items.length) return;
     found = true;
 
-    // グループヘッダー
     var grpDiv = document.createElement('div');
     grpDiv.style.marginBottom = '10px';
+    grpDiv.dataset.status = s;
+
+    grpDiv.addEventListener('dragover', function(e){
+      e.preventDefault();
+      if (_kanbanDragStatus !== this.dataset.status) {
+        this.style.outline = '2px dashed #2563eb';
+        this.style.background = '#eff6ff';
+      }
+    });
+    grpDiv.addEventListener('dragleave', function(e){
+      if (!this.contains(e.relatedTarget)) {
+        this.style.outline = '';
+        this.style.background = '';
+      }
+    });
+    grpDiv.addEventListener('drop', function(e){
+      e.preventDefault();
+      this.style.outline = '';
+      this.style.background = '';
+      var newStatus = this.dataset.status;
+      if (!_kanbanDragCid || newStatus === _kanbanDragStatus) return;
+      kanbanUpdateStatus(_kanbanDragCid, newStatus);
+    });
 
     var hdr = document.createElement('div');
     hdr.style.cssText = 'font-size:11px;font-weight:800;color:#374151;padding:5px 12px;background:#f1f5f9;border-radius:6px;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between;';
     var hdrL = document.createElement('span');
-    hdrL.textContent = '▼▼ ' + s + ' ▼▼';
+    hdrL.textContent = '\u25bc\u25bc ' + s + ' \u25bc\u25bc';
     var hdrR = document.createElement('span');
     hdrR.style.cssText = 'font-size:10px;font-weight:500;color:#94a3b8;';
-    hdrR.textContent = items.length + '件';
+    hdrR.textContent = items.length + '\u4ef6';
     hdr.appendChild(hdrL);
     hdr.appendChild(hdrR);
     grpDiv.appendChild(hdr);
 
-    // 案件行
     items.forEach(function(c) {
       var expire = c.expire || '';
       var isExpiring = expire && expire <= new Date(Date.now()+30*86400000).toISOString().slice(0,10);
       var nat = c.nationality || '';
-      var flag = nat.includes('ベトナム')?'🇻🇳':nat.includes('インドネシア')?'🇮🇩':nat.includes('カンボジア')?'🇰🇭':nat.includes('ミャンマー')?'🇲🇲':nat.includes('フィリピン')?'🇵🇭':nat.includes('タイ')?'🇹🇭':nat.includes('中国')?'🇨🇳':'🌏';
+      var flag = nat.includes('\u30d9\u30c8\u30ca\u30e0')?'\ud83c\uddfb\ud83c\uddf3':nat.includes('\u30a4\u30f3\u30c9\u30cd\u30b7\u30a2')?'\ud83c\uddee\ud83c\udde9':nat.includes('\u30ab\u30f3\u30dc\u30b8\u30a2')?'\ud83c\uddf0\ud83c\udded':nat.includes('\u30df\u30e3\u30f3\u30de\u30fc')?'\ud83c\uddf2\ud83c\uddf2':nat.includes('\u30d5\u30a3\u30ea\u30d4\u30f3')?'\ud83c\uddf5\ud83c\udded':nat.includes('\u30bf\u30a4')?'\ud83c\uddf9\ud83c\udded':nat.includes('\u4e2d\u56fd')?'\ud83c\udde8\ud83c\uddf3':'\ud83c\udf0f';
 
       var row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 12px;background:white;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:3px;cursor:pointer;';
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 12px;background:white;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:3px;cursor:grab;';
       row.dataset.cid = c.id;
+      row.dataset.status = s;
+      row.draggable = true;
+
+      row.addEventListener('dragstart', function(e){
+        _kanbanDragCid = this.dataset.cid;
+        _kanbanDragStatus = this.dataset.status;
+        e.dataTransfer.effectAllowed = 'move';
+        this.style.opacity = '0.5';
+      });
+      row.addEventListener('dragend', function(){
+        this.style.opacity = '';
+        _kanbanDragCid = null;
+        _kanbanDragStatus = null;
+        // ドロップゾーンの残留スタイルをクリア
+        document.querySelectorAll('#kanbanView [data-status]').forEach(function(el){
+          el.style.outline = '';
+          el.style.background = '';
+        });
+      });
       row.addEventListener('click', function(){ openCase(this.dataset.cid); });
 
       var flagEl = document.createElement('span');
@@ -18687,11 +18736,10 @@ function renderKanban() {
 
       var subEl = document.createElement('div');
       subEl.style.cssText = 'font-size:11px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-      subEl.textContent = (c.company||c.org||'') + (c.appType ? ' · '+c.appType : '');
+      subEl.textContent = (c.company||c.org||'') + (c.appType ? ' \u00b7 '+c.appType : '');
 
       info.appendChild(nameEl);
       info.appendChild(subEl);
-
       row.appendChild(flagEl);
       row.appendChild(info);
 
@@ -18704,7 +18752,7 @@ function renderKanban() {
 
       var staffEl = document.createElement('span');
       staffEl.style.cssText = 'font-size:10px;color:#64748b;flex-shrink:0;white-space:nowrap;';
-      staffEl.textContent = (c.team||'') + (c.staff ? ' 👤'+c.staff : '');
+      staffEl.textContent = (c.team||'') + (c.staff ? ' \ud83d\udc64'+c.staff : '');
       row.appendChild(staffEl);
 
       grpDiv.appendChild(row);
@@ -18714,10 +18762,27 @@ function renderKanban() {
   });
 
   if (!found) {
-    el.innerHTML = '<div style="padding:40px;text-align:center;color:#94a3b8;">表示する案件がありません</div>';
+    el.innerHTML = '<div style="padding:40px;text-align:center;color:#94a3b8;">\u8868\u793a\u3059\u308b\u6848\u4ef6\u304c\u3042\u308a\u307e\u305b\u3093</div>';
   }
 }
-// ===== /カンバンビュー =====
+
+function kanbanUpdateStatus(caseId, newStatus) {
+  var c = cData.find(function(x){ return x.id === caseId; });
+  if (!c) return;
+  var oldStatus = c.status;
+  c.status = newStatus;
+  _sb.from('cases').update({ status: newStatus }).eq('id', caseId).then(function(res){
+    if (res.error) {
+      c.status = oldStatus;
+      showToast('\u274c \u30b9\u30c6\u30fc\u30bf\u30b9\u66f4\u65b0\u5931\u6557');
+      renderKanban();
+    } else {
+      showToast('\u2705 ' + getDisplayName(c) + ' \u2192 ' + newStatus);
+      renderKanban();
+    }
+  });
+}
+// ===== /\u30ab\u30f3\u30d0\u30f3\u30d3\u30e5\u30fc =====
 function applyFilters(resetPage) {
   if (resetPage !== false) currentPage = 1;
   var team = document.getElementById('fTeam').value;
