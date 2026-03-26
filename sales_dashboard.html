@@ -1,0 +1,3095 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>売上管理ダッシュボード｜大房行政書士法人</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+:root {
+  --bg: #f1f5f9;
+  --surface: #ffffff;
+  --surface2: #f8fafc;
+  --border: #e2e8f0;
+  --accent: #2563eb;
+  --accent2: #7c3aed;
+  --green: #16a34a;
+  --orange: #ea580c;
+  --red: #dc2626;
+  --yellow: #d97706;
+  --navy: #0f2040;
+  --text: #0f2040;
+  --text2: #334155;
+  --text3: #94a3b8;
+  --blue-light: #eff6ff;
+  --shadow: 0 2px 12px rgba(0,0,0,0.08);
+  --mono: 'JetBrains Mono', monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans JP', sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-size: 14px;
+}
+
+/* ---- LAYOUT ---- */
+.app { display: flex; height: 100vh; overflow: hidden; }
+
+.sidebar {
+  width: 220px;
+  min-width: 220px;
+  background: var(--navy);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
+.logo {
+  padding: 20px 16px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  margin-bottom: 8px;
+}
+.logo-text {
+  background: #2563eb;
+  color: white;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-bottom: 6px;
+  letter-spacing: 1px;
+}
+.logo-title { font-size: 12px; font-weight: 700; color: white; line-height: 1.4; }
+
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 16px;
+  cursor: pointer;
+  color: #94a3b8;
+  font-size: 13px;
+  border-radius: 6px;
+  margin: 1px 8px;
+  border-left: none;
+  transition: all 0.15s;
+}
+.nav-item:hover { background: rgba(255,255,255,0.1); color: white; }
+.nav-item.active { background: rgba(255,255,255,0.1); color: white; }
+.nav-icon { font-size: 15px; width: 20px; text-align: center; }
+
+.sidebar-bottom {
+  margin-top: auto;
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+.settings-btn {
+  background: none; border: 1px solid rgba(255,255,255,0.15);
+  color: #94a3b8; padding: 8px 12px;
+  border-radius: 6px; cursor: pointer; font-size: 12px;
+  width: 100%; font-family: var(--sans);
+  transition: all 0.15s;
+}
+.settings-btn:hover { border-color: white; color: white; }
+
+.main { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+
+.topbar {
+  background: white;
+  border-bottom: 1px solid var(--border);
+  padding: 14px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; z-index: 10;
+  box-shadow: var(--shadow);
+}
+.page-title { font-size: 18px; font-weight: 800; color: var(--navy); }
+.topbar-right { display: flex; gap: 10px; align-items: center; }
+
+.year-select {
+  background: white; border: 1.5px solid var(--border);
+  color: var(--navy); padding: 6px 12px;
+  border-radius: 6px; font-size: 13px; font-family: var(--sans);
+  cursor: pointer;
+}
+.year-select:focus { outline: none; border-color: var(--accent); }
+
+.btn {
+  padding: 8px 16px; border-radius: 6px; font-size: 13px;
+  cursor: pointer; font-family: var(--sans); font-weight: 600;
+  transition: all 0.15s; border: none;
+}
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover { background: #1d4ed8; }
+.btn-secondary { background: white; color: var(--navy); border: 1.5px solid var(--border); }
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+.btn-danger { background: #fef2f2; color: var(--red); border: 1.5px solid #fecaca; }
+.btn-danger:hover { background: #fee2e2; }
+.btn-green { background: #f0fdf4; color: var(--green); border: 1.5px solid #bbf7d0; }
+.btn-green:hover { background: #dcfce7; }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+
+.content { padding: 20px 24px; flex: 1; }
+
+/* ---- VIEWS ---- */
+.view { display: none; }
+.view.active { display: block; }
+
+/* ---- CARDS ---- */
+.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+
+.kpi-card {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+  position: relative;
+  overflow: hidden;
+}
+.kpi-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+}
+.kpi-card.blue::before { background: var(--accent); }
+.kpi-card.purple::before { background: var(--accent2); }
+.kpi-card.green::before { background: var(--green); }
+.kpi-card.orange::before { background: var(--orange); }
+
+.kpi-label { font-size: 11px; color: var(--text3); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 8px; }
+.kpi-value { font-family: var(--mono); font-size: 24px; font-weight: 700; line-height: 1; }
+.kpi-value.blue { color: var(--accent); }
+.kpi-value.purple { color: var(--accent2); }
+.kpi-value.green { color: var(--green); }
+.kpi-value.orange { color: var(--orange); }
+.kpi-sub { font-size: 11px; color: var(--text3); margin-top: 6px; }
+
+/* ---- CHARTS ---- */
+.charts-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 24px; }
+.chart-card {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: var(--shadow);
+}
+.chart-title { font-size: 13px; font-weight: 700; margin-bottom: 16px; color: var(--navy); }
+.chart-wrap { position: relative; height: 200px; }
+
+.charts-grid2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+
+/* ---- TABLE ---- */
+.table-card {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.table-header {
+  padding: 14px 20px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+.table-header-title { font-size: 14px; font-weight: 700; color: var(--navy); }
+
+.search-input {
+  background: var(--bg); border: 1.5px solid var(--border);
+  color: var(--navy); padding: 6px 12px;
+  border-radius: 6px; font-size: 13px; font-family: var(--sans);
+  width: 200px;
+}
+.search-input:focus { outline: none; border-color: var(--accent); }
+
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left; padding: 8px 14px;
+  font-size: 11px; color: var(--text3);
+  letter-spacing: 0.05em; text-transform: uppercase;
+  background: #fafafa;
+  border-bottom: 1px solid var(--border);
+  font-weight: 700;
+}
+td { padding: 11px 14px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text2); }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--blue-light); }
+
+.badge {
+  display: inline-flex; align-items: center;
+  padding: 3px 8px; border-radius: 4px;
+  font-size: 11px; font-weight: 600;
+}
+.badge-uninvoiced { background: #fff7ed; color: var(--orange); }
+.badge-invoiced { background: #f0fdf4; color: var(--green); }
+.badge-paid { background: var(--blue-light); color: var(--accent); }
+.badge-sent { background: #f0f4ff; color: #7c3aed; }
+.badge-cancelled { background: #f8fafc; color: var(--text3); }
+
+.amount { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--navy); }
+
+/* ---- MODAL ---- */
+.overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(15,32,64,0.4); z-index: 100;
+  align-items: center; justify-content: center;
+}
+.overlay.open { display: flex; }
+
+.modal {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 620px; max-width: 95vw;
+  max-height: 90vh; overflow-y: auto;
+  padding: 28px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+}
+.modal-title { font-size: 16px; font-weight: 800; color: var(--navy); margin-bottom: 24px; }
+.modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
+
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-group.full { grid-column: 1/-1; }
+.form-label { font-size: 11px; color: var(--text3); font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+.form-input, .form-select, .form-textarea {
+  background: white; border: 1.5px solid var(--border);
+  color: var(--navy); padding: 8px 12px;
+  border-radius: 6px; font-size: 13px; font-family: var(--sans);
+}
+.form-input:focus, .form-select:focus, .form-textarea:focus {
+  outline: none; border-color: var(--accent);
+}
+.form-textarea { resize: vertical; min-height: 70px; }
+
+/* サービス内訳 */
+.service-list { display: flex; flex-direction: column; gap: 8px; }
+.service-row {
+  display: grid; grid-template-columns: 1fr 1fr 36px; gap: 8px; align-items: center;
+}
+.add-service-btn {
+  background: none; border: 1.5px dashed var(--border);
+  color: var(--text3); padding: 8px;
+  border-radius: 6px; cursor: pointer; font-size: 12px;
+  width: 100%; margin-top: 6px; font-family: var(--sans);
+  transition: all 0.15s;
+}
+.add-service-btn:hover { border-color: var(--accent); color: var(--accent); }
+.remove-btn {
+  background: none; border: 1.5px solid var(--border);
+  color: var(--red); border-radius: 6px;
+  width: 36px; height: 36px; cursor: pointer; font-size: 14px;
+  transition: all 0.15s;
+}
+.remove-btn:hover { background: #fef2f2; }
+
+/* ---- SETTINGS ---- */
+.settings-section { margin-bottom: 28px; }
+.settings-title { font-size: 13px; font-weight: 700; color: var(--navy); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.settings-field { margin-bottom: 12px; }
+
+/* ---- TOAST ---- */
+.toast {
+  position: fixed; bottom: 24px; right: 24px; z-index: 200;
+  background: var(--navy); border-radius: 8px; padding: 12px 16px;
+  font-size: 13px; color: white; display: none;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+  animation: slideUp 0.3s ease;
+}
+.toast.show { display: block; }
+.toast.success { background: var(--green); }
+.toast.error { background: var(--red); }
+
+@keyframes slideUp {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* ---- LOADING ---- */
+.loading { text-align: center; padding: 60px; color: var(--text3); }
+.spinner {
+  width: 32px; height: 32px; border: 3px solid var(--border);
+  border-top-color: var(--accent); border-radius: 50%;
+  animation: spin 0.8s linear infinite; margin: 0 auto 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* マネフォ請求書ボタン */
+.mf-btn {
+  background: var(--accent);
+  color: white; border: none; padding: 6px 12px;
+  border-radius: 5px; font-size: 12px; cursor: pointer;
+  font-family: var(--sans); font-weight: 600;
+  transition: opacity 0.15s;
+}
+.mf-btn:hover { background: #1d4ed8; }
+.mf-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* レスポンシブ */
+@media (max-width: 1100px) {
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .charts-grid { grid-template-columns: 1fr; }
+  .charts-grid2 { grid-template-columns: 1fr 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ===== SIDEBAR ===== -->
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-text">大房行政書士法人</div>
+      <div class="logo-title">売上管理</div>
+    </div>
+    <div class="nav-item active" onclick="showView('dashboard')">
+      <span class="nav-icon">📊</span> ダッシュボード
+    </div>
+    <div class="nav-item" onclick="showView('sales')">
+      <span class="nav-icon">💰</span> 売上一覧
+    </div>
+    <div class="nav-item" onclick="showView('deals')">
+      <span class="nav-icon">📋</span> 請求一覧（マネフォ）
+    </div>
+    <div class="nav-item" onclick="showView('masters')">
+      <span class="nav-icon">🗂️</span> マスタ管理
+    </div>
+    <div class="sidebar-bottom">
+      <button class="settings-btn" onclick="showView('settings')">⚙️ 設定</button>
+    </div>
+  </aside>
+
+  <!-- ===== MAIN ===== -->
+  <main class="main">
+    <div class="topbar">
+      <div class="page-title" id="pageTitle">ダッシュボード</div>
+      <div class="topbar-right">
+        <select class="year-select" id="yearSelect" onchange="onYearChange()"></select>
+        <button class="btn btn-primary" onclick="openReportModal()">📨 決定報告を取込</button>
+        <button class="btn btn-secondary" onclick="openDealModal()">＋ 請求追加</button>
+        <button class="btn btn-secondary" onclick="loadAll()">🔄 更新</button>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- ===== DASHBOARD VIEW ===== -->
+      <div class="view active" id="view-dashboard">
+        <!-- 今日・今月サマリー -->
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:16px">
+          <div class="kpi-card blue" style="padding:14px">
+            <div class="kpi-label">今日の売上</div>
+            <div class="kpi-value blue" id="kpi-today" style="font-size:20px">—</div>
+            <div class="kpi-sub" id="kpi-today-count">— 件</div>
+          </div>
+          <div class="kpi-card green" style="padding:14px">
+            <div class="kpi-label">今月累計</div>
+            <div class="kpi-value green" id="kpi-month" style="font-size:20px">—</div>
+            <div class="kpi-sub" id="kpi-month-count">— 件</div>
+          </div>
+          <div class="kpi-card purple" style="padding:14px">
+            <div class="kpi-label">前月比</div>
+            <div class="kpi-value purple" id="kpi-mom" style="font-size:20px">—</div>
+            <div class="kpi-sub" id="kpi-mom-amount">前月 —</div>
+          </div>
+          <div class="kpi-card purple" style="padding:14px">
+            <div class="kpi-label">前期比</div>
+            <div class="kpi-value purple" id="kpi-yoy" style="font-size:20px">—</div>
+            <div class="kpi-sub" id="kpi-yoy-amount">前期 —</div>
+          </div>
+          <div class="kpi-card blue" style="padding:14px">
+            <div class="kpi-label">今期売上高</div>
+            <div class="kpi-value blue" id="kpi-total" style="font-size:20px">—</div>
+            <div class="kpi-sub" id="kpi-total-count">— 件</div>
+          </div>
+          <div class="kpi-card orange" style="padding:14px">
+            <div class="kpi-label">未請求</div>
+            <div class="kpi-value orange" id="kpi-uninvoiced" style="font-size:20px">—</div>
+            <div class="kpi-sub" id="kpi-uninvoiced-count">— 件</div>
+          </div>
+        </div>
+        <!-- 旧KPI（非表示・互換性維持） -->
+        <div style="display:none">
+          <div id="kpi-invoiced"></div>
+          <div id="kpi-monthly-avg"></div>
+        </div>
+
+        <div class="charts-grid">
+          <div class="chart-card">
+            <div class="chart-title">月別売上推移</div>
+            <div class="chart-wrap"><canvas id="chartMonthly"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">申請種別</div>
+            <div class="chart-wrap"><canvas id="chartType"></canvas></div>
+          </div>
+        </div>
+
+        <!-- 日別グラフ -->
+        <div class="chart-card" style="margin-bottom:24px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div class="chart-title" style="margin-bottom:0">日別売上（今月）</div>
+            <div style="font-size:12px;color:var(--text3)" id="dailyChartMonth"></div>
+          </div>
+          <div class="chart-wrap" style="height:160px"><canvas id="chartDaily"></canvas></div>
+        </div>
+
+        <div class="charts-grid2">
+          <div class="chart-card">
+            <div class="chart-title">担当者別売上</div>
+            <div class="chart-wrap" style="height:180px"><canvas id="chartStaff"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">ステータス別件数</div>
+            <div class="chart-wrap" style="height:180px"><canvas id="chartStatus"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">月別件数</div>
+            <div class="chart-wrap" style="height:180px"><canvas id="chartCount"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== SALES VIEW ===== -->
+      <div class="view" id="view-sales">
+        <!-- 合計バー -->
+        <div id="salesSummaryBar" style="margin-bottom:12px;background:white;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,0.08);overflow:hidden">
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid #f1f5f9">
+            <select id="salesMonthFilter" class="year-select" style="width:130px;font-size:12px" onchange="filterSalesByMonth()">
+              <option value="">全期間</option>
+            </select>
+            <span style="font-size:11px;color:var(--text3)">絞り込み</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0">
+            <div style="padding:10px 14px;border-right:1px solid #f1f5f9">
+              <div style="font-size:10px;color:var(--text3);margin-bottom:2px">件数</div>
+              <div id="sum-count" style="font-size:15px;font-weight:700;color:var(--navy)">—</div>
+            </div>
+            <div style="padding:10px 14px;border-right:1px solid #f1f5f9">
+              <div style="font-size:10px;color:var(--text3);margin-bottom:2px">小計（税抜）</div>
+              <div id="sum-subtotal" style="font-size:13px;font-weight:600;color:var(--text2)">—</div>
+            </div>
+            <div style="padding:10px 14px;border-right:1px solid #f1f5f9">
+              <div style="font-size:10px;color:var(--text3);margin-bottom:2px">税込</div>
+              <div id="sum-tax" style="font-size:13px;font-weight:600;color:var(--text2)">—</div>
+            </div>
+            <div style="padding:10px 14px;border-right:1px solid #f1f5f9">
+              <div style="font-size:10px;color:var(--orange);margin-bottom:2px;font-weight:600">KB合計（税込）</div>
+              <div id="sum-kb" style="font-size:13px;font-weight:700;color:var(--orange)">—</div>
+            </div>
+            <div style="padding:10px 14px;background:#f0f9ff">
+              <div style="font-size:10px;color:var(--accent);margin-bottom:2px;font-weight:600">純売上合計</div>
+              <div id="sum-net" style="font-size:18px;font-weight:800;color:var(--accent)">—</div>
+            </div>
+          </div>
+        </div>
+        <div class="table-card">
+          <div class="table-header">
+            <div class="table-header-title">💰 売上一覧</div>
+            <div style="display:flex;gap:8px">
+              <input class="search-input" id="salesSearch" placeholder="🔍 得意先・申請人…" oninput="filterSales()" style="width:180px">
+              <select class="year-select" id="salesStatusFilter" onchange="filterSales()">
+                <option value="">全ステータス</option>
+                <option value="未発行">未発行</option>
+                <option value="発行済">発行済</option>
+                <option value="送付済">送付済</option>
+                <option value="入金済">入金済</option>
+              </select>
+              <button class="btn btn-secondary" onclick="downloadSalesCSV()" style="white-space:nowrap">📥 CSV</button>
+              <button class="btn btn-secondary" onclick="downloadMFCSV()" style="white-space:nowrap;background:#1e3a5f;color:white">📤 マネフォ</button>
+              <button class="btn btn-primary" onclick="openSaleModal()">＋ 売上追加</button>
+            </div>
+          </div>
+          <div id="salesTableWrap">
+            <div class="loading"><div class="spinner"></div>読み込み中…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== DEALS VIEW ===== -->
+      <div class="view" id="view-deals">
+        <!-- CSVインポート（右上小型） -->
+        <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+          <div id="csvDropZone" style="border:1.5px dashed var(--border);border-radius:8px;background:white;cursor:pointer;transition:all 0.2s;padding:8px 14px;display:flex;align-items:center;gap:8px"
+            onclick="document.getElementById('csvFileInput').click()"
+            ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='var(--blue-light)'"
+            ondragleave="this.style.borderColor='var(--border)';this.style.background='white'"
+            ondrop="event.preventDefault();this.style.borderColor='var(--border)';this.style.background='white';handleCSVDrop(event)">
+            <span style="font-size:16px">📂</span>
+            <span style="font-size:12px;color:var(--text2);font-weight:600">CSVを取込</span>
+            <input type="date" id="csvCutoffDate" value="2025-11-01" class="form-input" style="width:130px;padding:3px 8px;font-size:11px;margin-left:4px" onclick="event.stopPropagation()">
+          </div>
+          <input type="file" id="csvFileInput" accept=".csv" style="display:none" onchange="handleCSVFile(this)">
+        </div>
+        <div id="csvImportStatus" style="display:none;margin-bottom:12px"></div>
+
+        <div class="table-card">
+          <div class="table-header">
+            <div class="table-header-title">請求一覧</div>
+            <div style="display:flex;gap:8px">
+              <input class="search-input" id="dealSearch" placeholder="🔍 案件名・依頼人・会社名…" oninput="filterDeals()">
+              <select class="year-select" id="dealStatusFilter" onchange="filterDeals()">
+                <option value="">全ステータス</option>
+                <option value="未請求">未請求</option>
+                <option value="請求済">請求済</option>
+                <option value="入金済">入金済</option>
+                <option value="キャンセル">キャンセル</option>
+              </select>
+            </div>
+          </div>
+          <div id="dealsTableWrap">
+            <div class="loading"><div class="spinner"></div>読み込み中…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== INVOICES VIEW ===== -->
+      <div class="view" id="view-invoices">
+        <div class="table-card">
+          <div class="table-header">
+            <div class="table-header-title">請求書発行履歴</div>
+          </div>
+          <div id="invoicesTableWrap">
+            <div class="loading"><div class="spinner"></div>読み込み中…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== MASTERS VIEW ===== -->
+      <div class="view" id="view-masters">
+        <div style="display:flex;flex-direction:column;gap:16px">
+          <!-- スタッフ -->
+          <div class="table-card">
+            <div class="table-header" style="cursor:pointer" onclick="toggleSection('staffBody','staffChevron')">
+              <div class="table-header-title">👤 スタッフ（<span id="staffCount">0</span>名）<span id="staffChevron" style="margin-left:8px;font-size:12px;color:var(--text3)">▼</span></div>
+              <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openMasterModal('staff')">＋追加</button>
+            </div>
+            <div id="staffBody"><div id="staffTable"></div></div>
+          </div>
+          <!-- 取引先 -->
+          <div class="table-card">
+            <div class="table-header" style="cursor:pointer" onclick="toggleSection('clientBody','clientChevron')">
+              <div class="table-header-title">🏢 取引先（<span id="clientCount">0</span>件）<span id="clientChevron" style="margin-left:8px;font-size:12px;color:var(--text3)">▼</span></div>
+              <div style="display:flex;gap:8px" onclick="event.stopPropagation()">
+                <input class="search-input" id="clientSearch" placeholder="🔍 会社名・担当者…" oninput="filterMasterClients()" style="width:180px">
+                <button class="btn btn-secondary btn-sm" onclick="openMasterModal('client')">＋追加</button>
+              </div>
+            </div>
+            <div id="clientBody"><div id="clientTable"></div></div>
+          </div>
+          <!-- サービス -->
+          <div class="table-card">
+            <div class="table-header" style="cursor:pointer" onclick="toggleSection('serviceBody','serviceChevron')">
+              <div class="table-header-title">💴 サービス単価（<span id="serviceCount">0</span>件）<span id="serviceChevron" style="margin-left:8px;font-size:12px;color:var(--text3)">▼</span></div>
+              <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openMasterModal('service')">＋追加</button>
+            </div>
+            <div id="serviceBody"><div id="serviceTable"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== SETTINGS VIEW ===== -->
+      <div class="view" id="view-settings">
+        <div class="table-card" style="max-width:600px;padding:28px">
+          <div class="settings-section">
+            <div class="settings-title">🔗 GAS連携設定</div>
+            <div class="settings-field form-group">
+              <label class="form-label">GAS WebアプリURL</label>
+              <input class="form-input" id="gasUrl" placeholder="https://script.google.com/macros/s/…/exec">
+            </div>
+            <button class="btn btn-primary" onclick="saveSettings()">保存</button>
+            <button class="btn btn-secondary" style="margin-left:8px" onclick="testGas()">接続テスト</button>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-title">🏢 OFUSA（Supabase）連携</div>
+            <p style="color:var(--text2);font-size:12px;margin-bottom:14px;line-height:1.7">
+              OFUSAのSupabaseから取引先・スタッフを自動取得します。<br>
+              接続設定はGASスクリプト内の <code style="color:var(--accent)">SB_KEY</code> に設定済みです。
+            </p>
+            <input type="hidden" id="sbUrl" value="https://ehwlgbwpycglmopiqyty.supabase.co">
+            <input type="hidden" id="sbKey" value="">
+            <button class="btn btn-primary" onclick="testSupabase()">🔄 今すぐ同期</button>
+            <div id="sbSyncBadge" style="margin-top:10px;font-size:12px;color:var(--text3)"></div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-title">💳 マネーフォワード設定</div>
+            <div class="settings-field form-group">
+              <label class="form-label">アクセストークン</label>
+              <input class="form-input" id="mfToken" type="password" placeholder="取得後に入力">
+            </div>
+            <div class="settings-field form-group">
+              <label class="form-label">事業所ID（office_id）</label>
+              <input class="form-input" id="mfOfficeId" placeholder="例: abc123">
+            </div>
+            <button class="btn btn-primary" onclick="saveSettings()">保存</button>
+            <button class="btn btn-secondary" style="margin-left:8px" onclick="testMF()">接続テスト</button>
+          </div>
+          <div class="settings-section">
+            <div class="settings-title">ℹ️ マネフォAPIキー取得方法</div>
+            <p style="color:var(--text2);font-size:12px;line-height:1.8">
+              1. マネーフォワード クラウド請求書にログイン<br>
+              2. 右上アカウント → <strong>APIアクセストークン</strong><br>
+              3. 「アクセストークンを発行する」をクリック<br>
+              4. 発行されたトークンを上に入力してください<br>
+              <br>
+              ※ 事業所IDはURLに含まれます：<br>
+              <code style="font-size:11px;color:var(--accent)">invoice.moneyforward.com/bs/offices/<strong>[事業所ID]</strong></code>
+            </p>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </main>
+</div>
+
+<!-- ===== DEAL MODAL ===== -->
+<div class="overlay" id="dealOverlay" onclick="closeDealModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-title" id="dealModalTitle">請求追加</div>
+    <input type="hidden" id="editDealId">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">案件名</label>
+        <input class="form-input" id="f-dealName" placeholder="例: 山田太郎 特定技能1号">
+      </div>
+      <div class="form-group">
+        <label class="form-label">依頼人名</label>
+        <input class="form-input" id="f-clientName" placeholder="例: 山田太郎">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">取引先（請求先会社）</label>
+        <select class="form-select" id="f-clientId" onchange="onClientSelect()">
+          <option value="">選択してください</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">申請種別</label>
+        <select class="form-select" id="f-appType">
+          <option value="特定技能1号">特定技能1号</option>
+          <option value="特定技能2号">特定技能2号</option>
+          <option value="技能実習">技能実習</option>
+          <option value="就労ビザ">就労ビザ</option>
+          <option value="配偶者ビザ">配偶者ビザ</option>
+          <option value="永住許可">永住許可</option>
+          <option value="帰化申請">帰化申請</option>
+          <option value="その他">その他</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">担当スタッフ</label>
+        <select class="form-select" id="f-staffId" onchange="onStaffSelect()">
+          <option value="">選択してください</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">決定日</label>
+        <input class="form-input" type="date" id="f-decidedAt">
+      </div>
+    </div>
+
+    <!-- サービス内訳 -->
+    <div class="form-group full" style="margin-bottom:14px">
+      <label class="form-label">サービス内訳（請求金額）</label>
+      <div class="service-list" id="serviceList"></div>
+      <button class="add-service-btn" onclick="addServiceRow()">＋ サービスを追加</button>
+      <div style="text-align:right;margin-top:8px;font-family:var(--mono);color:var(--accent);font-size:14px">
+        合計: <span id="totalAmount">¥0</span>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">ステータス</label>
+        <select class="form-select" id="f-status">
+          <option value="未請求">未請求</option>
+          <option value="請求済">請求済</option>
+          <option value="入金済">入金済</option>
+          <option value="キャンセル">キャンセル</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">メモ</label>
+        <input class="form-input" id="f-memo" placeholder="備考など">
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeDealModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveDeal()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MASTER MODAL ===== -->
+<div class="overlay" id="masterOverlay" onclick="closeMasterModal(event)">
+  <div class="modal" onclick="event.stopPropagation()" style="width:400px">
+    <div class="modal-title" id="masterModalTitle">追加</div>
+    <div id="masterFormBody"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeMasterModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveMaster()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 売上入力モーダル ===== -->
+<div class="overlay" id="saleOverlay" onclick="closeSaleModal(event)">
+  <div class="modal" onclick="event.stopPropagation()" style="width:680px">
+    <div class="modal-title" id="saleModalTitle">💰 売上追加</div>
+    <input type="hidden" id="saleEditId">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">取引先コード</label>
+        <input class="form-input" id="s-code" placeholder="例: 0005">
+      </div>
+      <div class="form-group">
+        <label class="form-label">決定日</label>
+        <input class="form-input" type="date" id="s-date" value="">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full">
+        <label class="form-label">得意先名（請求先）</label>
+        <input class="form-input" id="s-client" placeholder="例: 株式会社JAM" list="clientList" oninput="onClientInput()">
+        <datalist id="clientList"></datalist>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full">
+        <label class="form-label">
+          登録支援機関（紹介元）
+          <span style="font-size:11px;color:var(--text3);font-weight:400;margin-left:6px">※得意先選択で自動入力</span>
+          <span id="supportAutoBadge" style="display:none;font-size:10px;background:#eff6ff;color:var(--accent);padding:2px 6px;border-radius:4px;margin-left:6px">自動</span>
+        </label>
+        <input class="form-input" id="s-support" placeholder="" list="supportList">
+        <datalist id="supportList"></datalist>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full">
+        <label class="form-label">申請人名</label>
+        <input class="form-input" id="s-applicant" placeholder="例: NGUYEN VAN A　様">
+      </div>
+    </div>
+
+    <!-- 品目セット（複数対応） -->
+    <div style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <label class="form-label" style="margin:0;font-weight:700">品目（複数登録可）</label>
+        <button type="button" onclick="addItemRow()" style="font-size:11px;padding:4px 10px;background:#2563eb;color:white;border:none;border-radius:6px;cursor:pointer">＋ 品目追加</button>
+      </div>
+      <div id="itemRows"></div>
+    </div>
+
+    <!-- KB -->
+    <div style="background:#fff7ed;border:1.5px solid #fed7aa;border-radius:8px;padding:14px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <input type="checkbox" id="s-kb-flag" style="width:16px;height:16px;cursor:pointer" onchange="toggleKB()">
+        <label for="s-kb-flag" style="font-size:13px;font-weight:700;color:var(--orange);cursor:pointer">KB（キックバック）あり</label>
+      </div>
+      <div id="kbFields" style="display:none">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">KB単価（マイナスで入力）</label>
+            <input class="form-input" type="number" id="s-kb-amount" placeholder="例: -20000" oninput="calcSaleTotal()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">KB数量</label>
+            <input class="form-input" type="number" id="s-kb-qty" value="1" min="1" oninput="calcSaleTotal()">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 合計表示 -->
+    <div style="background:var(--blue-light);border:1.5px solid #bfdbfe;border-radius:8px;padding:14px;margin-bottom:14px;font-family:var(--mono)">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+        <span style="font-size:12px;color:var(--text2)">小計（税抜）</span>
+        <span id="saleSubtotal" style="font-weight:700;color:var(--navy)">¥0</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+        <span style="font-size:12px;color:var(--text2)">小計（税込）</span>
+        <span id="saleWithTax" style="font-weight:700;color:var(--navy)">¥0</span>
+      </div>
+      <div id="kbRow" style="display:none;flex-direction:column;gap:4px;margin-bottom:6px;padding:8px;background:#fff7ed;border-radius:6px">
+        <div style="display:flex;justify-content:space-between">
+          <span style="font-size:12px;color:var(--orange)">KB（税抜）</span>
+          <span id="saleKB" style="font-weight:700;color:var(--orange)">¥0</span>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span style="font-size:12px;color:var(--orange)">KB（税込）</span>
+          <span id="saleKBTax" style="font-weight:700;color:var(--orange)">¥0</span>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;border-top:1px solid #bfdbfe;padding-top:8px;margin-top:4px">
+        <span style="font-size:13px;font-weight:700;color:var(--navy)">純売上（税込・印紙除く）</span>
+        <span id="saleNet" style="font-size:18px;font-weight:800;color:var(--accent)">¥0</span>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">請求書ステータス</label>
+        <select class="form-select" id="s-status">
+          <option value="未発行">未発行</option>
+          <option value="発行済">発行済</option>
+          <option value="入金済">入金済</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">担当スタッフ</label>
+        <select class="form-select" id="s-staff">
+          <option value="">選択してください</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:14px">
+      <label class="form-label">備考</label>
+      <input class="form-input" id="s-memo" placeholder="メモ・特記事項など">
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeSaleModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveSale()">💾 保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- ===== 決定報告取込モーダル ===== -->
+<div class="overlay" id="reportOverlay" onclick="closeReportModal(event)">
+  <div class="modal" onclick="event.stopPropagation()" style="width:680px">
+    <div class="modal-title">📨 決定報告を取込</div>
+    <p style="color:var(--text2);font-size:12px;margin-bottom:12px;line-height:1.7">
+      LINEやSlackの決定報告テキストをそのまま貼り付けてください。<br>
+      自動で案件を解析してスプレッドシートに登録します。
+    </p>
+    <div class="form-group" style="margin-bottom:16px">
+      <label class="form-label">決定報告テキスト</label>
+      <textarea class="form-textarea" id="reportText" style="min-height:200px;font-size:12px;font-family:var(--mono)" placeholder="【決定報告（新規申請）】
+登録支援機関名：（〇〇）
+所属機関名：株式会社〇〇
+( 1 )名　決定です！
+申請人名：山田太郎
+申請：認定
+申請費用：8万"></textarea>
+    </div>
+    <div class="form-row" style="margin-bottom:16px">
+      <div class="form-group">
+        <label class="form-label">決定日</label>
+        <input class="form-input" type="date" id="reportDate">
+      </div>
+      <div class="form-group">
+        <label class="form-label">担当スタッフ</label>
+        <select class="form-select" id="reportStaff">
+          <option value="">選択してください</option>
+        </select>
+      </div>
+    </div>
+    <div id="reportPreview" style="display:none;margin-bottom:16px"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeReportModal()">キャンセル</button>
+      <button class="btn btn-secondary" onclick="previewReport()">🔍 プレビュー</button>
+      <button class="btn btn-primary" id="reportSaveBtn" style="display:none" onclick="saveReport()">💾 登録する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== PROMPT MODAL ===== -->
+<div class="overlay" id="promptOverlay" onclick="closePromptModal(event)">
+  <div class="modal" onclick="event.stopPropagation()" style="width:560px">
+    <div class="modal-title">🤖 Claude in Chrome に貼り付けてください</div>
+    <p style="color:var(--text2);font-size:12px;margin-bottom:12px">以下をコピーして、Claude in Chrome のチャットに貼り付けてください。マネフォが自動で開きます。</p>
+    <textarea class="form-textarea" id="promptText" style="min-height:220px;font-size:12px;font-family:var(--mono);width:100%"></textarea>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closePromptModal()">閉じる</button>
+      <button class="btn btn-primary" onclick="copyPromptText()">📋 コピー</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+const VERSION = '2026.03.26-41';
+let GAS_URL = localStorage.getItem('gasUrl') || '';
+
+console.log('%c 売上管理ダッシュボード v' + VERSION + ' ', 'background:#0f2040;color:#fff;font-size:14px;padding:4px 8px;border-radius:4px;font-weight:bold;');
+console.log('%cGAS: ' + (GAS_URL ? GAS_URL.slice(-20) : '未設定'), 'color:#2563eb');
+let MF_TOKEN = localStorage.getItem('mfToken') || '';
+let MF_OFFICE = localStorage.getItem('mfOfficeId') || '';
+
+let deals = [];      // マネフォCSV請求
+let sales = [];      // 手動売上一覧
+let masters = { staff: [], clients: [], services: [] };
+let summary = {};
+let charts = {};
+let currentMasterType = '';
+let editingDealId = null;
+
+// Supabaseから同期した取引先・スタッフ
+let sbClients = [];
+let sbStaff = [];
+
+const APP_TYPES = ['特定技能1号','特定技能2号','技能実習','就労ビザ','配偶者ビザ','永住許可','帰化申請','その他'];
+
+// ============================================================
+// INIT
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+  // 設定読み込み
+  document.getElementById('gasUrl').value = GAS_URL;
+  document.getElementById('mfToken').value = MF_TOKEN;
+  document.getElementById('mfOfficeId').value = MF_OFFICE;
+
+  // 期セレクト生成（今期・前期）
+  const sel = document.getElementById('yearSelect');
+  sel.innerHTML = `
+    <option value="current">今期（2025/11〜2026/10）</option>
+    <option value="prev">前期（2024/11〜2025/10）</option>
+    <option value="prev2">前々期（2023/11〜2024/10）</option>
+  `;
+
+  if (!GAS_URL) {
+    showView('settings');
+    toast('まずGAS URLを設定してください', 'error');
+  } else {
+    loadAll();
+  }
+});
+
+// ============================================================
+// API
+// ============================================================
+async function gasCall(action, data = {}) {
+  if (!GAS_URL) throw new Error('GAS URLが設定されていません');
+  const res = await fetch(GAS_URL, {
+    method: 'POST',
+    body: JSON.stringify({ action, data })
+  });
+  const json = await res.json();
+  if (!json.ok) throw new Error(json.error || 'GASエラー');
+  return json.data;
+}
+
+async function loadAll() {
+  try {
+    const periodKey = document.getElementById('yearSelect').value || 'current';
+    const period = getPeriod(periodKey);
+
+    const [gasMasters, ofusaMasters, dealsData, salesData, summaryData] = await Promise.all([
+      gasCall('getMasters'),
+      gasCall('getOfusaMasters').catch(() => ({ clients: [], staff: [] })),
+      gasCall('getMFInvoices', {}),
+      gasCall('getSales', {}),
+      gasCall('getAllSummary', { startDate: period.start, endDate: period.end, label: period.label }),
+    ]);
+
+    deals = dealsData;
+    sales = salesData;
+    summary = summaryData;
+
+    // CSVのメール + Supabaseの住所を会社名でマージ
+    const sbClientMap = new Map((ofusaMasters.clients || []).map(c => [c['会社名'], c]));
+    const allClients = (gasMasters.clients || []).map(c => {
+      const sb = sbClientMap.get(c['会社名']);
+      return { ...c, '住所': c['住所'] || sb?.['住所'] || '', '担当者名': c['担当者名'] || sb?.['担当者名'] || '' };
+    });
+    const csvNames = new Set(allClients.map(c => c['会社名']));
+    (ofusaMasters.clients || []).forEach(c => {
+      if (c['会社名'] && !csvNames.has(c['会社名'])) allClients.push(c);
+    });
+
+    masters = {
+      staff:    ofusaMasters.staff?.length ? ofusaMasters.staff : gasMasters.staff,
+      clients:  allClients,
+      services: gasMasters.services,
+    };
+
+    const badge = document.getElementById('sbSyncBadge');
+    if (badge && ofusaMasters.clients?.length) {
+      badge.textContent = `✅ OFUSA同期済 (取引先${ofusaMasters.clients.length}件・スタッフ${ofusaMasters.staff.length}件)`;
+    }
+
+    renderDashboard();
+    renderSales();
+    renderDeals();
+    renderMasters();
+  } catch (e) {
+    toast('データ取得エラー: ' + e.message, 'error');
+  }
+}
+
+// ============================================================
+// VIEW ROUTING
+// ============================================================
+const viewTitles = {
+  dashboard: 'ダッシュボード',
+  sales: '売上一覧',
+  deals: '請求一覧',
+  invoices: '請求書履歴',
+  masters: 'マスタ管理',
+  settings: '設定',
+};
+
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-' + name).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => {
+    if (n.textContent.trim().includes(viewTitles[name]?.slice(0,3) || '')) n.classList.add('active');
+  });
+  document.getElementById('pageTitle').textContent = viewTitles[name] || name;
+  if (name === 'invoices') renderInvoices();
+}
+
+function onYearChange() { loadAll(); }
+
+// ============================================================
+// DASHBOARD
+// ============================================================
+function fmt(n) {
+  if (n === undefined || n === null || isNaN(n)) return '—';
+  return '¥' + Number(n).toLocaleString();
+}
+
+function getPeriod(key) {
+  const periods = {
+    current: { start: '2025-11-01', end: '2026-10-31', label: '今期（2025/11〜2026/10）' },
+    prev:    { start: '2024-11-01', end: '2025-10-31', label: '前期（2024/11〜2025/10）' },
+    prev2:   { start: '2023-11-01', end: '2024-10-31', label: '前々期（2023/11〜2024/10）' },
+  };
+  return periods[key] || periods.current;
+}
+
+function renderDashboard() {
+  const s = summary;
+  const now = new Date();
+  const thisMonth = now.toISOString().slice(0,7);
+
+  // 今日・今月（売上一覧ベース）
+  document.getElementById('kpi-today').textContent = fmt(s.todayAmount || 0);
+  document.getElementById('kpi-today-count').textContent = (s.todayCount || 0) + ' 件';
+  document.getElementById('kpi-month').textContent = fmt(s.monthAmount || 0);
+  document.getElementById('kpi-month-count').textContent = (s.monthCount || 0) + ' 件';
+
+  // 前月比（マネフォベース）
+  const lastMonthAmt = s.lastMonthAmount || 0;
+  const monthAmt = s.monthAmount || 0;
+  const momPct = lastMonthAmt ? Math.round((monthAmt / lastMonthAmt - 1) * 100) : null;
+  document.getElementById('kpi-mom').textContent = momPct !== null ? (momPct >= 0 ? '▲' : '▼') + Math.abs(momPct) + '%' : '—';
+  document.getElementById('kpi-mom-amount').textContent = '前月 ' + fmt(lastMonthAmt);
+
+  // 前期比（マネフォベース）
+  const prevAmt = s.prevTotalAmount || 0;
+  const totalAmt = s.totalAmount || 0;
+  const yoyPct = prevAmt ? Math.round((totalAmt / prevAmt - 1) * 100) : null;
+  document.getElementById('kpi-yoy').textContent = yoyPct !== null ? (yoyPct >= 0 ? '▲' : '▼') + Math.abs(yoyPct) + '%' : '—';
+  document.getElementById('kpi-yoy-amount').textContent = '前期 ' + fmt(prevAmt);
+
+  // 今期売上高・未請求
+  document.getElementById('kpi-total').textContent = fmt(s.totalAmount || 0);
+  document.getElementById('kpi-total-count').textContent = (s.totalCount || 0) + ' 件';
+  document.getElementById('kpi-uninvoiced').textContent = fmt(s.uninvoicedAmount || 0);
+  document.getElementById('kpi-uninvoiced-count').textContent = (s.byStatus?.['未請求']?.count || 0) + ' 件';
+
+  // 当月分を売上一覧で上書き
+  const thisMonthKey = new Date().toISOString().slice(0,7);
+  const mergedMonthly = { ...s.monthly };
+  const thisMonthSales = sales.filter(d => fmtDate(d['決定日']).startsWith(thisMonthKey));
+  const thisMonthSalesTotal = thisMonthSales.reduce((sum,d) => sum + (Number(d['純売上'])||Number(d['小計'])||0), 0);
+  if (mergedMonthly[thisMonthKey]) {
+    mergedMonthly[thisMonthKey] = { ...mergedMonthly[thisMonthKey], total: thisMonthSalesTotal, count: thisMonthSales.length };
+  }
+
+  drawMonthly(mergedMonthly);
+  drawType(s.byType || {});
+  drawDaily(thisMonth, s.daily || {});
+  drawStaff(s.byStaff || {});
+  drawStatus(s.byStatus || {});
+  drawCount(mergedMonthly);
+}
+
+const COLORS = ['#2563eb','#7c3aed','#16a34a','#ea580c','#dc2626','#d97706','#0891b2','#4f46e5'];
+
+function destroyChart(id) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+}
+
+function drawMonthly(monthly) {
+  destroyChart('monthly');
+  const labels = Object.keys(monthly).map(k => k.slice(5) + '月');
+  const data = Object.values(monthly).map(v => v.total);
+  charts.monthly = new Chart(document.getElementById('chartMonthly'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: '売上',
+        data,
+        backgroundColor: 'rgba(37,99,235,0.15)',
+        borderColor: '#2563eb',
+        borderWidth: 1,
+        borderRadius: 4,
+      }]
+    },
+    options: chartOpts('¥')
+  });
+}
+
+function drawType(byType) {
+  destroyChart('type');
+  const keys = Object.keys(byType);
+  if (!keys.length) return;
+  charts.type = new Chart(document.getElementById('chartType'), {
+    type: 'doughnut',
+    data: {
+      labels: keys,
+      datasets: [{ data: keys.map(k => byType[k].total), backgroundColor: COLORS, borderWidth: 0 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#334155', font: { size: 11 } } } } }
+  });
+}
+
+function drawStaff(byStaff) {
+  destroyChart('staff');
+  const keys = Object.keys(byStaff);
+  if (!keys.length) return;
+  charts.staff = new Chart(document.getElementById('chartStaff'), {
+    type: 'bar',
+    data: {
+      labels: keys,
+      datasets: [{ data: keys.map(k => byStaff[k].total), backgroundColor: COLORS, borderRadius: 4 }]
+    },
+    options: { ...chartOpts('¥'), indexAxis: 'y' }
+  });
+}
+
+function drawStatus(byStatus) {
+  destroyChart('status');
+  const keys = Object.keys(byStatus);
+  if (!keys.length) return;
+  const colors = { '未請求': '#ea580c', '請求済': '#16a34a', '入金済': '#2563eb', 'キャンセル': '#94a3b8' };
+  charts.status = new Chart(document.getElementById('chartStatus'), {
+    type: 'pie',
+    data: {
+      labels: keys.map(k => k + '(' + byStatus[k].count + '件)'),
+      datasets: [{ data: keys.map(k => byStatus[k].count), backgroundColor: keys.map(k => colors[k] || '#94a3b8'), borderWidth: 0 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#334155', font: { size: 11 } } } } }
+  });
+}
+
+function drawCount(monthly) {
+  destroyChart('count');
+  const labels = Object.keys(monthly).map(k => k.slice(5) + '月');
+  const data = Object.values(monthly).map(v => v.count);
+  charts.count = new Chart(document.getElementById('chartCount'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: '件数', data,
+        borderColor: '#7c3aed', backgroundColor: 'rgba(124,58,237,0.08)',
+        fill: true, tension: 0.4, pointRadius: 3,
+      }]
+    },
+    options: chartOpts('')
+  });
+}
+
+function chartOpts(prefix) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: '#94a3b8', font: { size: 11 } }, grid: { color: '#f1f5f9' } },
+      y: { ticks: { color: '#94a3b8', font: { size: 11 }, callback: v => prefix === '¥' ? fmt(v) : v }, grid: { color: '#f1f5f9' } }
+    }
+  };
+}
+
+// ============================================================
+// DEALS TABLE
+// ============================================================
+function renderSales(list) {
+  const data = list || sales;
+  const wrap = document.getElementById('salesTableWrap');
+  if (!wrap) return;
+  if (!data.length) {
+    wrap.innerHTML = '<div class="loading" style="padding:40px">売上がありません<br><small style="color:var(--text3)">「＋ 売上追加」または「📨 決定報告を取込」から登録してください</small></div>';
+    updateSalesSummary([]);
+    return;
+  }
+  if (!list) { buildMonthFilter(); }
+
+  const staffOptions = masters.staff.map(s => `<option value="${s['氏名']}">${s['氏名']}</option>`).join('');
+  const statusOptions = ['未発行','発行済','送付済','入金済'].map(s => `<option value="${s}">${s}</option>`).join('');
+
+  wrap.innerHTML = `
+    <style>
+      .sale-table { width:100%; border-collapse:collapse; font-size:8px; }
+      .sale-table th { background:#f8fafc; color:#64748b; font-weight:600; padding:6px 6px; border-bottom:2px solid #e2e8f0; white-space:nowrap; position:sticky; top:0; z-index:10; }
+      .sale-table td { padding:4px 5px; border-bottom:1px solid #f1f5f9; vertical-align:middle; }
+      .sale-table tr:hover td { background:#fafbff; }
+      .sale-table tr.checked td { background:#eff6ff; }
+      .sale-table-wrap { max-height:calc(100vh - 320px); overflow-y:auto; border-radius:8px; }
+      .inline-input { border:none; background:transparent; width:100%; font-size:8px; font-family:inherit; color:inherit; padding:2px 4px; border-radius:4px; }
+      .inline-input:focus { outline:none; background:#eff6ff; border:1px solid #93c5fd; }
+      .inline-select { border:none; background:transparent; width:100%; font-size:8px; font-family:inherit; color:inherit; padding:1px 2px; border-radius:4px; cursor:pointer; }
+      .inline-select:focus { outline:none; background:#eff6ff; }
+      .inline-num { text-align:right; font-family:var(--mono); }
+      .save-dot { width:6px; height:6px; border-radius:50%; background:#e2e8f0; display:inline-block; margin-left:4px; transition:background 0.3s; cursor:pointer; }
+      .save-dot.dirty { background:#f59e0b; }
+      .save-dot.saved { background:#22c55e; }
+      #bulkBar { display:none; align-items:center; gap:10px; padding:8px 14px; background:#1e3a5f; color:white; border-radius:8px; margin-bottom:8px; font-size:12px; }
+      #bulkBar.show { display:flex; }
+    </style>
+    <!-- 一括操作バー -->
+    <div id="bulkBar">
+      <span id="bulkCount" style="font-weight:700">0件選択</span>
+      <span style="color:#94a3b8;font-size:10px">一括操作：</span>
+      <select id="bulkStatus" style="font-size:11px;padding:3px 6px;border-radius:4px;border:none;color:#1e3a5f">
+        <option value="">ステータス変更</option>
+        <option value="未発行">未発行</option>
+        <option value="発行済">発行済</option>
+        <option value="送付済">送付済</option>
+        <option value="入金済">入金済</option>
+      </select>
+      <button onclick="bulkChangeStatus()" style="padding:4px 10px;background:#2563eb;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px">適用</button>
+      <button onclick="bulkDelete()" style="padding:4px 10px;background:#dc2626;color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px">削除</button>
+      <button onclick="clearSelection()" style="margin-left:auto;padding:4px 10px;background:rgba(255,255,255,0.2);color:white;border:none;border-radius:4px;cursor:pointer;font-size:11px">✕ 解除</button>
+    </div>
+    <div class="sale-table-wrap">
+    <table class="sale-table">
+      <thead><tr>
+        <th style="width:2%;text-align:center"><input type="checkbox" id="checkAll" onchange="toggleAllCheck(this.checked)" style="cursor:pointer"></th>
+        <th style="width:4%">決定日</th>
+        <th style="width:12%">得意先名</th>
+        <th style="width:7%">支援機関</th>
+        <th style="width:7%">申請人名</th>
+        <th style="width:10%">品目</th>
+        <th style="width:5%;text-align:right;font-size:9px">単価</th>
+        <th style="width:6%;text-align:right;font-size:9px">KB</th>
+        <th style="width:3%;text-align:center;font-size:9px">数量</th>
+        <th style="width:4%;text-align:right;font-size:9px">小計</th>
+        <th style="width:4%;text-align:right;font-size:9px">税込</th>
+        <th style="width:6%;text-align:right">純売上</th>
+        <th style="width:6%;text-align:center">ステータス</th>
+        <th style="width:8%">担当</th>
+        <th style="width:8%">備考</th>
+        <th style="width:3%;text-align:center">操作</th>
+      </tr></thead>
+      <tbody>
+      ${data.map(d => {
+        const id = d['ID'];
+        const isDirty = `document.getElementById('dot_${id}').classList.add('dirty')`;
+        const kbTanka = Number(d['KB単価']||d['KB金額']||0);
+        const kbQty = Number(d['KB数量']||1);
+        const kbTotal = d['KBフラグ'] ? kbTanka * kbQty : 0;
+        return `<tr id="row_${id}">
+          <td style="text-align:center"><input type="checkbox" class="row-check" data-id="${id}" onchange="onRowCheck()" style="cursor:pointer"></td>
+          <td style="font-size:9px;white-space:nowrap;color:var(--text3)">${fmtDate(d['決定日'])}</td>
+          <td style="font-weight:700;color:var(--navy);font-size:9px">${(d['得意先名']||'').replace(/</g,'&lt;')}</td>
+          <td style="font-size:8px;color:var(--accent)">${(d['登録支援機関']||'').replace(/</g,'&lt;')}</td>
+          <td style="font-size:8px">${(d['申請人名']||'').replace(/</g,'&lt;')}</td>
+          <td style="font-size:8px">
+            ${(d['品目']||'').replace(/</g,'&lt;')}
+            ${d['収入印紙代'] ? `<div style="color:var(--text3);font-size:9px">印紙¥${Number(d['収入印紙代']).toLocaleString()}×${d['収入印紙枚数']||1}</div>` : ''}
+          </td>
+          <td style="text-align:right;font-family:var(--mono);font-size:9px;color:#64748b">¥${Number(d['単価']||0).toLocaleString()}</td>
+          <td style="text-align:right;font-size:9px">${d['KBフラグ'] ? `<span style="color:var(--orange);font-family:var(--mono)">¥${kbTanka.toLocaleString()}×${kbQty}<br><span style="color:#94a3b8">=¥${kbTotal.toLocaleString()}</span></span>` : ''}</td>
+          <td style="text-align:center;font-size:9px;color:#64748b">${d['数量']||1}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:9px;color:#94a3b8">¥${Number(d['小計']||0).toLocaleString()}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:9px;color:#94a3b8">${calcTaxIncluded(d)}</td>
+          <td style="text-align:right;font-family:var(--mono);font-size:10px;font-weight:700;color:${kbTotal<0?'var(--orange)':'var(--navy)'}">¥${Number(d['純売上']||d['小計']||0).toLocaleString()}</td>
+          <td style="text-align:center">
+            <select class="inline-select" style="font-size:8px;padding:1px" id="f_status_${id}" onchange="${isDirty};autoSaveSale('${id}')">
+              ${['未発行','発行済','送付済','入金済'].map(s=>`<option value="${s}" ${d['請求書ステータス']===s?'selected':''}>${s}</option>`).join('')}
+            </select>
+          </td>
+          <td style="font-size:8px">
+            <select class="inline-select" id="f_staff_${id}" onchange="${isDirty};autoSaveSale('${id}')">
+              <option value="${d['担当スタッフ']||''}">${d['担当スタッフ']||'—'}</option>
+              ${staffOptions}
+            </select>
+          </td>
+          <td style="font-size:8px;color:var(--text3)">${(d['備考']||'').replace(/</g,'&lt;')}</td>
+          <td style="text-align:center;white-space:nowrap">
+            <button style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px" title="編集" onclick="openSaleModal(sales.find(s=>s['ID']==='${id}'))">✏️</button>
+            <span class="save-dot" id="dot_${id}" title="変更あり・クリックで保存" onclick="autoSaveSale('${id}')"></span>
+            <button class="btn btn-danger btn-sm" style="padding:1px 5px;font-size:9px" onclick="deleteSale('${id}')">✕</button>
+          </td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table>
+    </div>`;
+  updateSalesSummary(data);
+}
+
+function calcTaxIncluded(d) {
+  // 品目マスタから税区分を取得
+  const service = masters.services.find(s => s['サービス名'] === d['品目']);
+  const tax = service?.['税区分'] || '10%';
+  const price = Number(d['単価']||0);
+  const qty = Number(d['数量']||1);
+  const stamp = Number(d['収入印紙代']||0);
+  const stampN = Number(d['収入印紙枚数']||0);
+  const taxRate = tax === '10%' ? 0.1 : 0;
+  const itemWithTax = Math.round(price * qty * (1 + taxRate));
+  return '¥' + itemWithTax.toLocaleString();
+}
+
+function recalcRow(id) {
+  const price = Number(document.getElementById(`f_price_${id}`)?.value) || 0;
+  const qty   = Number(document.getElementById(`f_qty_${id}`)?.value) || 1;
+  const subEl = document.getElementById(`f_sub_${id}`);
+  const netEl = document.getElementById(`f_net_${id}`);
+  if (subEl) subEl.textContent = '¥' + (price * qty).toLocaleString();
+  if (netEl) netEl.textContent = '¥' + (price * qty).toLocaleString();
+}
+
+async function autoSaveSale(id) {
+  const dot = document.getElementById(`dot_${id}`);
+  if (!dot?.classList.contains('dirty')) return;
+
+  const data = {
+    'ID': id,
+    '得意先名':    document.getElementById(`f_client_${id}`)?.value || '',
+    '登録支援機関': document.getElementById(`f_support_${id}`)?.value || '',
+    '申請人名':    document.getElementById(`f_applicant_${id}`)?.value || '',
+    '品目':        document.getElementById(`f_item_${id}`)?.value || '',
+    '単価':        Number(document.getElementById(`f_price_${id}`)?.value) || 0,
+    '数量':        Number(document.getElementById(`f_qty_${id}`)?.value) || 1,
+    '請求書ステータス': document.getElementById(`f_status_${id}`)?.value || '未発行',
+    '担当スタッフ': document.getElementById(`f_staff_${id}`)?.value || '',
+    '備考':        document.getElementById(`f_memo_${id}`)?.value || '',
+    '決定日':      document.getElementById(`f_date_${id}`)?.value || '',
+  };
+
+  try {
+    await gasCall('updateSale', data);
+    dot.classList.remove('dirty');
+    dot.classList.add('saved');
+    setTimeout(() => dot.classList.remove('saved'), 2000);
+    // salesキャッシュも更新
+    const idx = sales.findIndex(s => s['ID'] === id);
+    if (idx >= 0) Object.assign(sales[idx], data);
+  } catch(e) {
+    toast('保存エラー: ' + e.message, 'error');
+  }
+}
+
+function getCheckedIds() {
+  return Array.from(document.querySelectorAll('.row-check:checked')).map(c => c.dataset.id);
+}
+
+function onRowCheck() {
+  const ids = getCheckedIds();
+  const bar = document.getElementById('bulkBar');
+  const cnt = document.getElementById('bulkCount');
+  if (!bar || !cnt) return;
+  if (ids.length > 0) {
+    bar.classList.add('show');
+    cnt.textContent = ids.length + '件選択';
+  } else {
+    bar.classList.remove('show');
+  }
+  // 行の背景色
+  document.querySelectorAll('.row-check').forEach(c => {
+    const row = document.getElementById('row_' + c.dataset.id);
+    if (row) row.classList.toggle('checked', c.checked);
+  });
+  // 全選択チェックボックスの状態
+  const all = document.querySelectorAll('.row-check');
+  const allCheck = document.getElementById('checkAll');
+  if (allCheck) allCheck.indeterminate = ids.length > 0 && ids.length < all.length;
+  if (allCheck) allCheck.checked = ids.length === all.length;
+}
+
+function toggleAllCheck(checked) {
+  document.querySelectorAll('.row-check').forEach(c => { c.checked = checked; });
+  onRowCheck();
+}
+
+function clearSelection() {
+  document.querySelectorAll('.row-check').forEach(c => { c.checked = false; });
+  const allCheck = document.getElementById('checkAll');
+  if (allCheck) { allCheck.checked = false; allCheck.indeterminate = false; }
+  onRowCheck();
+}
+
+async function bulkChangeStatus() {
+  const ids = getCheckedIds();
+  const status = document.getElementById('bulkStatus')?.value;
+  if (!ids.length || !status) { toast('ステータスを選択してください', 'error'); return; }
+  if (!confirm(`${ids.length}件のステータスを「${status}」に変更しますか？`)) return;
+  let done = 0;
+  for (const id of ids) {
+    const sale = sales.find(s => s['ID'] === id);
+    if (!sale) continue;
+    sale['請求書ステータス'] = status;
+    await gasCall('updateSale', { 'ID': id, '請求書ステータス': status });
+    const sel = document.getElementById('f_status_' + id);
+    if (sel) sel.value = status;
+    done++;
+  }
+  toast(`${done}件のステータスを変更しました`, 'success');
+  clearSelection();
+  filterSalesByMonth();
+}
+
+async function bulkDelete() {
+  const ids = getCheckedIds();
+  if (!ids.length) return;
+  if (!confirm(`${ids.length}件を削除しますか？この操作は元に戻せません。`)) return;
+  let done = 0;
+  for (const id of ids) {
+    await gasCall('deleteSale', { id });
+    const idx = sales.findIndex(s => s['ID'] === id);
+    if (idx >= 0) sales.splice(idx, 1);
+    done++;
+  }
+  toast(`${done}件を削除しました`, 'success');
+  buildMonthFilter();
+  filterSalesByMonth();
+}
+
+function saleStatusClass(status) {
+  const m = { '未発行': 'badge-uninvoiced', '発行済': 'badge-invoiced', '送付済': 'badge-sent', '入金済': 'badge-paid' };
+  return m[status] || '';
+}
+
+function filterSalesByMonth() {
+  const month = document.getElementById('salesMonthFilter')?.value || '';
+  let list = sales;
+  if (month) list = list.filter(s => fmtDate(s['決定日']).startsWith(month));
+  // テキスト検索・ステータスフィルターも併用
+  const q = (document.getElementById('salesSearch')?.value || '').toLowerCase();
+  const st = document.getElementById('salesStatusFilter')?.value || '';
+  if (q) list = list.filter(d => (d['得意先名']||'').toLowerCase().includes(q) || (d['申請人名']||'').toLowerCase().includes(q));
+  if (st) list = list.filter(d => d['請求書ステータス'] === st);
+  renderSales(list);
+  updateSalesSummary(list);
+}
+
+function updateSalesSummary(list) {
+  if (!list) list = sales;
+  const count = list.length;
+  const subtotal = list.reduce((s,d) => s + (d['KBフラグ'] ? 0 : (Number(d['小計'])||0)), 0);
+  const net = list.reduce((s,d) => s + (Number(d['純売上'])||Number(d['小計'])||0), 0);
+  const taxTotal = list.reduce((s,d) => {
+    if (d['KBフラグ']) return s;
+    const svc = masters.services.find(sv => sv['サービス名'] === d['品目']);
+    const taxRate = svc?.['税区分'] === '10%' ? 0.1 : 0;
+    return s + Math.round(Number(d['単価']||0) * Number(d['数量']||1) * (1 + taxRate));
+  }, 0);
+  const kbTotal = list.reduce((s,d) => {
+    if (!d['KBフラグ']) return s;
+    return s + (Number(d['KB金額'])||Number(d['KB単価']||0) * Number(d['KB数量']||1));
+  }, 0);
+
+  document.getElementById('sum-count').textContent = count + '件';
+  document.getElementById('sum-subtotal').textContent = '¥' + subtotal.toLocaleString();
+  document.getElementById('sum-tax').textContent = '¥' + taxTotal.toLocaleString();
+  document.getElementById('sum-kb').textContent = kbTotal ? '¥' + kbTotal.toLocaleString() : '—';
+  document.getElementById('sum-net').textContent = '¥' + net.toLocaleString();
+}
+
+function downloadMFCSV() {
+  // チェックされた行を優先、なければ現在表示中の全件
+  const checkedIds = getCheckedIds();
+  let targets;
+
+  if (checkedIds.length > 0) {
+    targets = sales.filter(d => checkedIds.includes(d['ID']) && d['得意先名'] && !d['KBフラグ']);
+    if (!targets.length) { toast('選択した行にKB・返金以外のデータがありません', 'error'); return; }
+  } else {
+    const month = document.getElementById('salesMonthFilter')?.value || '';
+    const q = (document.getElementById('salesSearch')?.value || '').toLowerCase();
+    const st = document.getElementById('salesStatusFilter')?.value || '';
+    let list = sales;
+    if (month) list = list.filter(s => fmtDate(s['決定日']).startsWith(month));
+    if (q) list = list.filter(d => (d['得意先名']||'').toLowerCase().includes(q) || (d['申請人名']||'').toLowerCase().includes(q));
+    if (st) list = list.filter(d => d['請求書ステータス'] === st);
+    targets = list.filter(d => d['得意先名'] && !d['KBフラグ']);
+  }
+
+  if (!targets.length) { toast('出力対象がありません', 'error'); return; }
+
+  const headers = [
+    'csv_type(変更不可)','行形式','取引先名称','件名','請求日','お支払期限','請求書番号',
+    '売上計上日','メモ','タグ','小計','消費税','合計金額','取引先敬称','取引先郵便番号',
+    '取引先都道府県','取引先住所1','取引先住所2','取引先部署','取引先担当者役職',
+    '取引先担当者氏名','自社担当者氏名','備考','振込先','入金ステータス',
+    'メール送信ステータス','郵送ステータス','ダウンロードステータス',
+    '納品日','品名','品目コード','単価','数量','単位','納品書番号','詳細','金額','品目消費税率'
+  ];
+
+  const escape = v => `"${String(v||'').replace(/"/g,'""')}"`;
+
+  const emptyRow = (override = {}) => {
+    const row = new Array(38).fill('');
+    Object.entries(override).forEach(([k, v]) => { row[k] = v; });
+    return row;
+  };
+
+  const rows = [headers];
+
+  targets.forEach(d => {
+    const svc = masters.services.find(s => s['サービス名'] === d['品目']);
+    const taxLabel = svc?.['税区分'] || '10%';
+    const taxRate = taxLabel === '10%' ? 0.1 : 0;
+    const tanka = Number(d['単価']||0);
+    const qty   = Number(d['数量']||1);
+    const subtotal = tanka * qty;
+    const tax   = Math.round(subtotal * taxRate);
+    const total = subtotal + tax;
+    const stamp = Number(d['収入印紙代']||0) * Number(d['収入印紙枚数']||0);
+    const date  = fmtDate(d['決定日']).replace(/-/g, '/');
+    const invStatus = d['請求書ステータス'] === '入金済' ? '入金済み' :
+                      d['請求書ステータス'] === '発行済' ? '請求済み' : '未処理';
+
+    // 請求書行
+    const invoiceRow = emptyRow({
+      0: '40101', 1: '請求書',
+      2: d['得意先名']||'',
+      3: d['品目']||'',
+      4: date, 5: date, 6: '',
+      7: date,
+      8: d['備考']||'',
+      10: subtotal + stamp,
+      11: tax,
+      12: total + stamp,
+      21: d['担当スタッフ']||'',
+      24: invStatus,
+    });
+    rows.push(invoiceRow);
+
+    // 品目行（メイン）
+    const itemRow = emptyRow({
+      0: '40101', 1: '品目',
+      28: date,
+      29: d['品目']||'',
+      31: tanka,
+      32: qty,
+      36: subtotal,
+      37: taxLabel,
+    });
+    rows.push(itemRow);
+
+    // 収入印紙行
+    if (stamp > 0) {
+      const stampRow = emptyRow({
+        0: '40101', 1: '品目',
+        28: date,
+        29: '収入印紙',
+        31: Number(d['収入印紙代']||0),
+        32: Number(d['収入印紙枚数']||0),
+        36: stamp,
+        37: '不課税',
+      });
+      rows.push(stampRow);
+    }
+  });
+
+  // Shift-JISに変換してBlobを作成
+  const csvStr = rows.map(r => r.map(escape).join(',')).join('\r\n');
+
+  // Shift-JIS変換（TextEncoder非対応のためISO-2022-JPで代替 → 実際はUTF-8+BOM for Excel）
+  // マネフォはShift-JIS対応なのでShift-JISで出力
+  try {
+    const encoder = new TextEncoder();
+    // Shift-JIS変換ライブラリがないためUTF-8 BOMで出力（マネフォはUTF-8も対応）
+    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+    const body = encoder.encode(csvStr);
+    const blob = new Blob([bom, body], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const label = (typeof month !== 'undefined' && month) ? month.replace('-','年')+'月' : (checkedIds.length > 0 ? `選択${targets.length}件` : '全期間');
+    a.href = url;
+    a.download = `マネフォ請求書_${label}_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    const msg = checkedIds.length > 0 ? `選択${targets.length}件をマネフォCSVで出力しました` : `${targets.length}件をマネフォCSVで出力しました`;
+    toast(msg, 'success');
+  } catch(e) {
+    toast('CSV出力エラー: ' + e.message, 'error');
+  }
+}
+
+function downloadSalesCSV() {
+  // 現在表示中のリストを取得（フィルター適用済み）
+  const month = document.getElementById('salesMonthFilter')?.value || '';
+  const q = (document.getElementById('salesSearch')?.value || '').toLowerCase();
+  const st = document.getElementById('salesStatusFilter')?.value || '';
+  let list = sales;
+  if (month) list = list.filter(s => fmtDate(s['決定日']).startsWith(month));
+  if (q) list = list.filter(d => (d['得意先名']||'').toLowerCase().includes(q) || (d['申請人名']||'').toLowerCase().includes(q));
+  if (st) list = list.filter(d => d['請求書ステータス'] === st);
+
+  const headers = ['決定日','得意先名','登録支援機関','申請人名','品目','単価','数量','小計','収入印紙代','収入印紙枚数','税込','KBフラグ','KB単価','KB数量','KB金額','純売上','請求書ステータス','担当スタッフ','備考'];
+
+  const rows = list.map(d => {
+    const svc = masters.services.find(s => s['サービス名'] === d['品目']);
+    const taxRate = svc?.['税区分'] === '10%' ? 0.1 : 0;
+    const taxIncluded = Math.round(Number(d['単価']||0) * Number(d['数量']||1) * (1 + taxRate)) + Number(d['収入印紙代']||0) * Number(d['収入印紙枚数']||0);
+    return [
+      fmtDate(d['決定日']),
+      d['得意先名']||'',
+      d['登録支援機関']||'',
+      d['申請人名']||'',
+      d['品目']||'',
+      Number(d['単価']||0),
+      Number(d['数量']||1),
+      Number(d['小計']||0),
+      Number(d['収入印紙代']||0),
+      Number(d['収入印紙枚数']||0),
+      taxIncluded,
+      d['KBフラグ'] ? '✓' : '',
+      d['KBフラグ'] ? Number(d['KB単価']||0) : '',
+      d['KBフラグ'] ? Number(d['KB数量']||1) : '',
+      d['KBフラグ'] ? Number(d['KB金額']||0) : '',
+      Number(d['純売上']||d['小計']||0),
+      d['請求書ステータス']||'',
+      d['担当スタッフ']||'',
+      d['備考']||'',
+    ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(',');
+  });
+
+  const bom = '\uFEFF';
+  const csv = bom + [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const label = month ? month.replace('-','年') + '月' : '全期間';
+  a.href = url;
+  a.download = `売上一覧_${label}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast(`${list.length}件をCSVで出力しました`, 'success');
+}
+
+function buildMonthFilter() {
+  const sel = document.getElementById('salesMonthFilter');
+  if (!sel) return;
+  const months = [...new Set(sales.map(s => fmtDate(s['決定日']).slice(0,7)).filter(Boolean))].sort().reverse();
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">全期間</option>' + months.map(m => {
+    const [y,mo] = m.split('-');
+    return `<option value="${m}" ${m===cur?'selected':''}>${y}年${parseInt(mo)}月</option>`;
+  }).join('');
+}
+
+function filterSales() {
+  filterSalesByMonth();
+}
+
+// ============================================================
+// 売上入力モーダル
+// ============================================================
+function lastDayOfMonth() {
+  const now = new Date();
+  const last = new Date(now.getFullYear(), now.getMonth()+1, 0);
+  return last.toISOString().slice(0,10);
+}
+
+let itemRowCount = 0;
+
+function getItemOptions() {
+  return masters.services.map(s =>
+    `<option value="${s['サービス名'].replace(/"/g,'&quot;')}">${s['サービス名']}</option>`
+  ).join('');
+}
+
+function addItemRow(data = {}) {
+  itemRowCount++;
+  const n = itemRowCount;
+  const itemOpts = getItemOptions();
+  const div = document.createElement('div');
+  div.id = `item-row-${n}`;
+  div.style.cssText = 'background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;margin-bottom:8px;position:relative';
+  div.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-size:11px;font-weight:700;color:var(--navy)">品目 ${n}</span>
+      ${n > 1 ? `<button type="button" onclick="removeItemRow(${n})" style="background:none;border:none;cursor:pointer;color:#dc2626;font-size:14px">✕</button>` : ''}
+    </div>
+    <div class="form-row" style="margin-bottom:6px">
+      <div class="form-group full">
+        <select class="form-input" id="ir-item-${n}" onchange="onItemSelectChange(${n})" style="font-size:12px">
+          <option value="">-- 品目を選択 --</option>
+          ${itemOpts}
+        </select>
+      </div>
+    </div>
+    <div class="form-row" style="margin-bottom:6px">
+      <div class="form-group">
+        <label class="form-label" style="font-size:10px">申請人名</label>
+        <input class="form-input" id="ir-applicant-${n}" placeholder="NGUYEN VAN A 様" style="font-size:11px" oninput="calcSaleTotal()">
+      </div>
+      <div class="form-group">
+        <label class="form-label" style="font-size:10px">単価（円）</label>
+        <input class="form-input" type="number" id="ir-price-${n}" placeholder="130000" oninput="calcSaleTotal()" style="font-size:11px" value="${data.単価||''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label" style="font-size:10px">数量</label>
+        <input class="form-input" type="number" id="ir-qty-${n}" value="${data.数量||1}" min="1" oninput="calcSaleTotal()" style="font-size:11px">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label" style="font-size:10px">収入印紙代（円）</label>
+        <input class="form-input" type="number" id="ir-stamp-${n}" placeholder="5500" oninput="calcSaleTotal()" style="font-size:11px" value="${data.収入印紙代||''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label" style="font-size:10px">収入印紙枚数</label>
+        <input class="form-input" type="number" id="ir-stamp-n-${n}" placeholder="2" oninput="calcSaleTotal()" style="font-size:11px" value="${data.収入印紙枚数||''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label" style="font-size:10px">税区分</label>
+        <span id="ir-tax-${n}" style="font-size:11px;padding:3px 8px;border-radius:4px;background:#f0fdf4;color:var(--green);font-weight:600;display:inline-block;margin-top:4px">10%</span>
+      </div>
+    </div>
+  `;
+  document.getElementById('itemRows').appendChild(div);
+
+  // 既存データがあれば品目を選択
+  if (data.品目) {
+    const sel = document.getElementById(`ir-item-${n}`);
+    if (sel) {
+      sel.value = data.品目;
+      onItemSelectChange(n);
+    }
+    if (data.申請人名) document.getElementById(`ir-applicant-${n}`).value = data.申請人名;
+  }
+  calcSaleTotal();
+}
+
+function removeItemRow(n) {
+  const el = document.getElementById(`item-row-${n}`);
+  if (el) el.remove();
+  calcSaleTotal();
+}
+
+function onItemSelectChange(n) {
+  const sel = document.getElementById(`ir-item-${n}`);
+  const itemName = sel?.value;
+  if (!itemName) return;
+  const svc = masters.services.find(s => s['サービス名'] === itemName);
+  if (svc) {
+    const priceEl = document.getElementById(`ir-price-${n}`);
+    const taxEl = document.getElementById(`ir-tax-${n}`);
+    if (priceEl && !priceEl.value) priceEl.value = svc['単価'] || '';
+    if (taxEl) {
+      const tax = svc['税区分'] || '10%';
+      taxEl.textContent = tax;
+      taxEl.dataset.tax = tax;
+    }
+  }
+  calcSaleTotal();
+}
+
+function getItemRows() {
+  const rows = [];
+  document.querySelectorAll('[id^="item-row-"]').forEach(div => {
+    const n = div.id.split('-').pop();
+    const item     = document.getElementById(`ir-item-${n}`)?.value || '';
+    const applicant= document.getElementById(`ir-applicant-${n}`)?.value || '';
+    const price    = Number(document.getElementById(`ir-price-${n}`)?.value) || 0;
+    const qty      = Number(document.getElementById(`ir-qty-${n}`)?.value) || 1;
+    const stamp    = Number(document.getElementById(`ir-stamp-${n}`)?.value) || 0;
+    const stampN   = Number(document.getElementById(`ir-stamp-n-${n}`)?.value) || 0;
+    const taxLabel = document.getElementById(`ir-tax-${n}`)?.dataset?.tax || '10%';
+    if (item || price) rows.push({ item, applicant, price, qty, stamp, stampN, taxLabel });
+  });
+  return rows;
+}
+
+function buildItemRow(n) {
+  // 後方互換：旧s-item等が存在する場合
+  return null;
+}
+
+function onItemInput() {} // 後方互換用（空関数）
+
+function calcSaleTotal() {
+  const rows = getItemRows();
+  const hasKB = document.getElementById('s-kb-flag')?.checked;
+  const kbAmt = Number(document.getElementById('s-kb-amount')?.value) || 0;
+  const kbQty = Number(document.getElementById('s-kb-qty')?.value) || 1;
+
+  let subtotal = 0, taxTotal = 0, stampTotal = 0;
+  rows.forEach(r => {
+    const taxRate = r.taxLabel === '10%' ? 0.1 : 0;
+    subtotal  += r.price * r.qty;
+    taxTotal  += Math.round(r.price * r.qty * taxRate);
+    stampTotal+= r.stamp * r.stampN;
+  });
+  const withTax = subtotal + taxTotal + stampTotal;
+
+  const kbNuki  = kbAmt * kbQty;
+  const kbTaxR  = 0.1;
+  const kbKomi  = kbNuki + Math.round(Math.abs(kbNuki) * kbTaxR) * Math.sign(kbNuki || 1);
+  const net     = subtotal + taxTotal + (hasKB ? kbKomi : 0);
+  const netColor= net < 0 ? 'var(--red,#dc2626)' : 'var(--accent)';
+
+  const el = id => document.getElementById(id);
+  if (el('saleSubtotal')) el('saleSubtotal').textContent = '¥' + subtotal.toLocaleString();
+  if (el('saleWithTax'))  el('saleWithTax').textContent  = '¥' + withTax.toLocaleString();
+  if (hasKB) {
+    if (el('saleKB'))    el('saleKB').textContent    = '¥' + kbNuki.toLocaleString();
+    if (el('saleKBTax')) el('saleKBTax').textContent = '¥' + kbKomi.toLocaleString();
+  }
+  if (el('saleNet')) { el('saleNet').textContent = '¥' + net.toLocaleString(); el('saleNet').style.color = netColor; }
+}
+
+function openSaleModal(sale) {
+  const isEdit = !!sale;
+  document.getElementById('saleModalTitle').textContent = isEdit ? '💰 売上編集' : '💰 売上追加';
+  document.getElementById('saleEditId').value = sale?.['ID'] || '';
+
+  // datalistを生成
+  const cl = document.getElementById('clientList');
+  if (cl) cl.innerHTML = masters.clients.map(c => `<option value="${c['会社名']}">`).join('');
+  const sl = document.getElementById('supportList');
+  if (sl) sl.innerHTML = masters.clients.map(c => `<option value="${c['会社名']}">`).join('');
+
+  // スタッフ
+  const sel = document.getElementById('s-staff');
+  sel.innerHTML = '<option value="">選択してください</option>';
+  masters.staff.forEach(s => {
+    const o = document.createElement('option');
+    o.value = s['氏名']; o.textContent = s['氏名'];
+    if (sale?.['担当スタッフ'] === s['氏名']) o.selected = true;
+    sel.appendChild(o);
+  });
+
+  // フィールドセット
+  document.getElementById('s-code').value = sale?.['取引先コード'] || '';
+  document.getElementById('s-client').value = sale?.['得意先名'] || '';
+  document.getElementById('s-support').value = sale?.['登録支援機関'] || '';
+  document.getElementById('s-applicant').value = sale?.['申請人名'] || '';
+  document.getElementById('s-status').value = sale?.['請求書ステータス'] || '未発行';
+  document.getElementById('s-memo').value = sale?.['備考'] || '';
+  document.getElementById('s-date').value = sale?.['決定日'] || new Date().toISOString().slice(0,10);
+
+  // 品目行リセット
+  itemRowCount = 0;
+  document.getElementById('itemRows').innerHTML = '';
+  if (sale?.['品目']) {
+    addItemRow({
+      品目: sale['品目'],
+      申請人名: sale['申請人名'] || '',
+      単価: sale['単価'] || '',
+      数量: sale['数量'] || 1,
+      収入印紙代: sale['収入印紙代'] || '',
+      収入印紙枚数: sale['収入印紙枚数'] || '',
+    });
+  } else {
+    addItemRow();
+  }
+  
+  const hasKB = sale?.['KBフラグ'] === true || sale?.['KBフラグ'] === '✓';
+  document.getElementById('s-kb-flag').checked = hasKB;
+  document.getElementById('s-kb-amount').value = sale?.['KB金額'] || '';
+  document.getElementById('s-kb-qty').value = sale?.['KB数量'] || 1;
+  document.getElementById('kbFields').style.display = hasKB ? '' : 'none';
+  document.getElementById('kbRow').style.display = hasKB ? 'flex' : 'none';
+
+  calcSaleTotal();
+  document.getElementById('saleOverlay').classList.add('open');
+}
+
+function closeSaleModal(e) {
+  if (!e || e.target === document.getElementById('saleOverlay'))
+    document.getElementById('saleOverlay').classList.remove('open');
+}
+
+function editSale(id) {
+  const s = sales.find(s => s['ID'] === id);
+  if (s) openSaleModal(s);
+}
+
+function onClientInput() {
+  const clientName = document.getElementById('s-client').value.trim();
+  if (!clientName) return;
+
+  // mastersから該当取引先を検索
+  const client = masters.clients.find(c => c['会社名'] === clientName);
+  if (!client) return;
+
+  const supportField = document.getElementById('s-support');
+  const badge = document.getElementById('supportAutoBadge');
+
+  // support_orgs（登録支援機関）の場合：請求先＝登録支援機関なので同じ名前をセット
+  if (client['_source'] === 'support_orgs') {
+    supportField.value = clientName;
+    badge.style.display = '';
+    badge.title = '登録支援機関が請求先です';
+  }
+  // companies（所属機関）の場合：support_org_nameが紐づく登録支援機関
+  else if (client['登録支援機関名']) {
+    supportField.value = client['登録支援機関名'];
+    badge.style.display = '';
+    badge.title = 'OFUSAから自動取得';
+  } else {
+    // 支援機関情報なし
+    badge.style.display = 'none';
+  }
+}
+
+async function deleteSale(id) {
+  if (!confirm('この売上を削除しますか？')) return;
+  try {
+    await gasCall('deleteSale', { id });
+    // ローカル配列から削除
+    const idx = sales.findIndex(s => s['ID'] === id);
+    if (idx >= 0) sales.splice(idx, 1);
+    toast('削除しました', 'success');
+    buildMonthFilter();
+    filterSalesByMonth();
+  } catch(e) {
+    toast('削除エラー: ' + e.message, 'error');
+  }
+}
+
+function toggleKB() {
+  const checked = document.getElementById('s-kb-flag').checked;
+  document.getElementById('kbFields').style.display = checked ? '' : 'none';
+  document.getElementById('kbRow').style.display = checked ? 'flex' : 'none';
+  calcSaleTotal();
+}
+
+async function saveSale() {
+  const id = document.getElementById('saleEditId').value;
+  const itemRows = getItemRows();
+  if (!itemRows.length || !itemRows[0].item) {
+    toast('品目を1つ以上入力してください', 'error'); return;
+  }
+
+  const hasKB = document.getElementById('s-kb-flag').checked;
+  const kbAmt = hasKB ? (Number(document.getElementById('s-kb-amount').value) || 0) : 0;
+  const kbQty = hasKB ? (Number(document.getElementById('s-kb-qty')?.value) || 1) : 1;
+  const kbNuki = kbAmt * kbQty;
+  const kbKomi = kbNuki + Math.round(Math.abs(kbNuki) * 0.1) * Math.sign(kbNuki || 1);
+
+  // 品目の最初の行をメイン、2行目以降は別途登録
+  const first = itemRows[0];
+
+  const makeData = (r) => ({
+    'ID': undefined,
+    '取引先コード': document.getElementById('s-code').value.trim(),
+    '得意先名': document.getElementById('s-client').value.trim(),
+    '登録支援機関': document.getElementById('s-support').value.trim(),
+    '申請人名': r.applicant || document.getElementById('s-applicant').value.trim(),
+    '品目': r.item,
+    '単価': r.price,
+    '数量': r.qty,
+    '収入印紙代': r.stamp,
+    '収入印紙枚数': r.stampN,
+    'KBフラグ': false,
+    'KB単価': 0, 'KB数量': 0, 'KB金額': 0,
+    '請求書ステータス': document.getElementById('s-status').value,
+    '担当スタッフ': document.getElementById('s-staff').value,
+    '備考': document.getElementById('s-memo').value.trim(),
+    '決定日': document.getElementById('s-date').value,
+  });
+
+  try {
+    if (id && itemRows.length === 1) {
+      // 編集モード（1品目）
+      const data = { ...makeData(first), 'ID': id,
+        'KBフラグ': hasKB, 'KB単価': hasKB ? kbAmt : 0,
+        'KB数量': hasKB ? kbQty : 0, 'KB金額': hasKB ? kbKomi : 0,
+      };
+      const result = await gasCall('updateSale', data);
+      const idx = sales.findIndex(s => s['ID'] === id);
+      if (idx >= 0) {
+        sales[idx] = { ...sales[idx], ...data,
+          '小計': first.price * first.qty,
+          '純売上': result.net || sales[idx]['純売上'],
+        };
+      }
+      toast('売上を更新しました', 'success');
+    } else {
+      // 追加モード（複数品目対応）
+      for (let i = 0; i < itemRows.length; i++) {
+        const r = itemRows[i];
+        const data = makeData(r);
+        if (i === 0) {
+          data['KBフラグ'] = hasKB;
+          data['KB単価'] = hasKB ? kbAmt : 0;
+          data['KB数量'] = hasKB ? kbQty : 0;
+          data['KB金額'] = hasKB ? kbKomi : 0;
+        }
+        const result = await gasCall('addSale', data);
+        sales.unshift({ ...data, 'ID': result.id,
+          '小計': r.price * r.qty,
+          '純売上': result.net || 0,
+        });
+      }
+      toast(`${itemRows.length}件の売上を登録しました`, 'success');
+    }
+    document.getElementById('saleOverlay').classList.remove('open');
+    buildMonthFilter();
+    filterSalesByMonth();
+  } catch(e) {
+    toast('保存エラー: ' + e.message, 'error');
+  }
+}
+
+function fmtDate(str) {
+  if (!str) return '';
+  // ISO形式（2025-11-29T17:00:00.000Z）を日付のみに
+  return str.toString().slice(0, 10);
+}
+
+function fmtTax(taxStr) {
+  if (!taxStr) return '';
+  if (taxStr === '10%') return '<span style="font-size:10px;color:var(--text3)">課税10%</span>';
+  if (taxStr === '非課税') return '<span style="font-size:10px;color:var(--text3)">非課税</span>';
+  if (taxStr === '不課税') return '<span style="font-size:10px;color:var(--text3)">不課税</span>';
+  return `<span style="font-size:10px;color:var(--text3)">${taxStr}</span>`;
+}
+
+function renderServiceItems(d) {
+  let services = [];
+  try { services = JSON.parse(d['サービス内訳JSON'] || '[]'); } catch(e) {}
+  if (!services.length) {
+    // サービスなし → 案件名と合計金額だけ表示
+    return `<div style="font-size:13px">${d['案件名'] || ''}</div>`;
+  }
+  return services.map(s => `
+    <div style="display:flex;align-items:center;gap:6px;padding:2px 0">
+      <span style="font-size:13px;flex:1">${s.name || ''}</span>
+      <span style="font-family:var(--mono);font-size:13px;font-weight:600;white-space:nowrap">¥${Number(s.amount||0).toLocaleString()}</span>
+      ${s.tax ? fmtTax(s.tax) : ''}
+    </div>
+  `).join('');
+}
+
+function renderDeals(list) {
+  const data = list || deals;
+  const wrap = document.getElementById('dealsTableWrap');
+  if (!data.length) { wrap.innerHTML = '<div class="loading" style="padding:40px">案件がありません</div>'; return; }
+
+  wrap.innerHTML = `<table>
+    <thead><tr>
+      <th style="width:22%">取引先</th>
+      <th style="width:40%">請求項目</th>
+      <th style="width:12%">請求日</th>
+      <th style="width:14%;text-align:right">合計（税込）</th>
+      <th style="width:12%">ステータス</th>
+    </tr></thead>
+    <tbody>
+    ${data.map(d => `
+      <tr>
+        <td style="font-weight:700;color:var(--navy);vertical-align:top;padding-top:14px">${d['取引先名'] || ''}</td>
+        <td style="vertical-align:top">${renderServiceItems(d)}</td>
+        <td style="vertical-align:top;padding-top:14px;white-space:nowrap">${fmtDate(d['請求日'] || d['売上計上日'] || d['決定日'])}</td>
+        <td style="vertical-align:top;padding-top:14px;text-align:right;font-family:var(--mono);font-weight:700;color:var(--navy);white-space:nowrap">${fmtMan(Number(d['合計金額']))}</td>
+        <td style="vertical-align:top;padding-top:12px"><span class="badge ${badgeClass(d['ステータス'])}">${d['ステータス'] || ''}</span></td>
+      </tr>
+    `).join('')}
+    </tbody>
+  </table>`;
+}
+
+function fmtMan(n) {
+  if (!n || isNaN(n)) return '—';
+  return '¥' + Number(n).toLocaleString() + '円';
+}
+
+function badgeClass(status) {
+  const m = { '未請求': 'badge-uninvoiced', '請求済': 'badge-invoiced', '入金済': 'badge-paid', 'キャンセル': 'badge-cancelled' };
+  return m[status] || '';
+}
+
+// ============================================================
+// 日別グラフ
+// ============================================================
+function drawDaily(yearMonth, dailyData) {
+  destroyChart('daily');
+  const now = new Date();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+  const labels = [], data = [], cumData = [];
+  let cum = 0;
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = yearMonth + '-' + String(d).padStart(2,'0');
+    const dayAmt = (dailyData[dateStr]?.total) || 0;
+    cum += dayAmt;
+    labels.push(d + '日');
+    data.push(dayAmt);
+    cumData.push(cum);
+  }
+
+  const el = document.getElementById('dailyChartMonth');
+  if (el) el.textContent = yearMonth.replace('-','年') + '月';
+
+  charts.daily = new Chart(document.getElementById('chartDaily'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: '日次', data, backgroundColor: 'rgba(37,99,235,0.2)', borderColor: '#2563eb', borderWidth: 1, borderRadius: 3, yAxisID: 'y' },
+        { label: '累計', data: cumData, type: 'line', borderColor: '#16a34a', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 2, tension: 0.3, yAxisID: 'y2' }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#334155', font: { size: 11 } } } },
+      scales: {
+        x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { display: false } },
+        y: { ticks: { color: '#94a3b8', font: { size: 10 }, callback: v => fmt(v) }, grid: { color: '#f1f5f9' } },
+        y2: { position: 'right', ticks: { color: '#16a34a', font: { size: 10 }, callback: v => fmt(v) }, grid: { display: false } }
+      }
+    }
+  });
+}
+
+// ============================================================
+// 決定報告テキスト解析・取込
+// ============================================================
+let parsedReportDeals = [];
+
+function openReportModal() {
+  document.getElementById('reportDate').value = new Date().toISOString().slice(0,10);
+  const sel = document.getElementById('reportStaff');
+  sel.innerHTML = '<option value="">選択してください</option>';
+  masters.staff.forEach(s => {
+    const o = document.createElement('option');
+    o.value = s['氏名']; o.textContent = s['氏名'];
+    sel.appendChild(o);
+  });
+  document.getElementById('reportPreview').style.display = 'none';
+  document.getElementById('reportSaveBtn').style.display = 'none';
+  document.getElementById('reportText').value = '';
+  parsedReportDeals = [];
+  document.getElementById('reportOverlay').classList.add('open');
+}
+
+function closeReportModal(e) {
+  if (!e || e.target === document.getElementById('reportOverlay'))
+    document.getElementById('reportOverlay').classList.remove('open');
+}
+
+function parseAmount(str) {
+  if (!str) return 0;
+  str = str.trim();
+  // 全角→半角変換
+  str = str.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  str = str.replace(/[×ｘＸ]/g, 'x');
+  // 単価×数量パターン
+  const multiMatch = str.match(/([0-9,万千百]+円?)\s*[×xXｘ]\s*(\d+)/i);
+  if (multiMatch) return parseSingleAmount(multiMatch[1]) * parseInt(multiMatch[2]);
+  return parseSingleAmount(str.split(/[＋+]/)[0]);
+}
+
+function parseSingleAmount(str) {
+  str = str.replace(/[円,\s税込()（）名]/g, '');
+  // 全角数字→半角
+  str = str.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  if (str.includes('万')) {
+    const parts = str.split('万');
+    return (parseFloat(parts[0]) || 0) * 10000 + (parseInt(parts[1]) || 0);
+  }
+  return parseInt(str) || 0;
+}
+
+function previewReport() {
+  const text = document.getElementById('reportText').value.trim();
+  const decidedAt = document.getElementById('reportDate').value;
+  const staffName = document.getElementById('reportStaff').value;
+  if (!text) { toast('テキストを入力してください', 'error'); return; }
+
+  parsedReportDeals = [];
+  const blocks = text.split(/(?:-----|\n\s*\n\s*\n)/).map(b => b.trim()).filter(b => b);
+
+  blocks.forEach(block => {
+    const supportMatch = block.match(/登録支援機関名[：:]\s*[（(]?\s*([^）)\n]+?)\s*[）)]?$/m);
+    const supportOrg = supportMatch ? supportMatch[1].trim() : '';
+    const companyMatch = block.match(/所属機関名[：:]\s*(.+)/);
+    const company = companyMatch ? companyMatch[1].trim() : '';
+    const countMatch = block.match(/[（(]\s*(\d+)\s*[）)]\s*名/);
+    const count = countMatch ? parseInt(countMatch[1]) : 1;
+
+    // 申請人名：次の行（収入印紙・申請費用・請求先の手前まで）
+    const nameMatch = block.match(/申請人名[：:]\s*([\s\S]+?)(?=\n(?:収入印紙|申請費用|請求先)|$)/);
+    let applicantName = nameMatch ? nameMatch[1].trim().replace(/\n/g,' ').trim() : '';
+
+    // 在留資格・種別
+    const typeMatch = block.match(/在留資格[・．]?種別[：:]\s*(.+)/);
+    const appType = typeMatch ? typeMatch[1].trim() : '';
+
+    // 申請費用（税抜/税込対応）
+    const feeMatch = block.match(/申請費用[：:]\s*(.+)/);
+    const feeStr = feeMatch ? feeMatch[1] : '0';
+    const amount = parseAmount(feeStr);
+
+    // 収入印紙
+    const stampMatch = block.match(/収入印紙[：:]\s*(.+)/);
+    let stampAmt = 0, stampN = 1, stampNum = 1;
+    if (stampMatch) {
+      const stampStr = stampMatch[1];
+      // 例: 5,500円(不課税) x 1名 x2 → 単価5500 × 枚数2
+      const stampAmtMatch = stampStr.match(/([0-9０-９,，万]+)円/);
+      if (stampAmtMatch) stampAmt = parseSingleAmount(stampAmtMatch[1]);
+      // "x 1名 x2" → 名数×枚数
+      const stampNMatch = stampStr.match(/[xｘ×]\s*(\d+)\s*名\s*[xｘ×]\s*(\d+)/);
+      if (stampNMatch) {
+        stampNum = parseInt(stampNMatch[1]); // 名数
+        stampN   = parseInt(stampNMatch[2]); // 枚数/名
+      } else {
+        // "x 2" パターン
+        const simpleN = stampStr.match(/[xｘ×]\s*(\d+)/);
+        if (simpleN) stampN = parseInt(simpleN[1]);
+      }
+    }
+    const totalStampN = stampNum * stampN; // 合計枚数
+
+    if (!company && !supportOrg) return;
+
+    // 請求先
+    const billingMatch = block.match(/請求先[：:]\s*(.+)/);
+    const billingRaw = billingMatch ? billingMatch[1].trim() : '';
+    // 「所属機関」→ company, 「登録支援機関」→ supportOrg, それ以外→そのまま
+    let billingTo = company;
+    let billingNote = '所属機関（デフォルト）';
+    if (billingRaw) {
+      if (billingRaw.includes('登録支援機関')) {
+        billingTo = supportOrg || company;
+        billingNote = '登録支援機関';
+      } else if (billingRaw.includes('所属機関')) {
+        billingTo = company;
+        billingNote = '所属機関';
+      } else {
+        billingTo = billingRaw;
+        billingNote = '指定';
+      }
+    }
+
+    const appTypeLabel = appType.includes('認定') ? '特定技能（認定）' :
+                         appType.includes('更新') ? '特定技能（更新）' :
+                         appType.includes('変更') ? '特定技能（変更）' :
+                         appType.includes('家族') ? '家族滞在' : appType;
+
+    parsedReportDeals.push({
+      '案件ID': 'rpt_' + Date.now() + '_' + Math.random().toString(36).substr(2,4),
+      '案件名': (applicantName || '確認中') + ' ' + appTypeLabel,
+      '依頼人名': applicantName || '確認中',
+      '取引先ID': '', '取引先名': billingTo,
+      '申請種別': appTypeLabel,
+      '担当スタッフID': '', '担当スタッフ名': staffName,
+      'サービス内訳JSON': JSON.stringify([{ name: appTypeLabel, amount }]),
+      '合計金額': amount,
+      '決定日': decidedAt,
+      '請求書ID': '', '請求書URL': '',
+      'ステータス': '未請求',
+      'メモ': `支援機関: ${supportOrg} / 所属: ${company} / ${count}名`,
+      '作成日時': '', '更新日時': '',
+      _billingNote: billingNote, _count: count,
+      _stampAmt: stampAmt, _stampN: totalStampN,
+      _supportOrg: supportOrg,
+    });
+  });
+
+  const preview = document.getElementById('reportPreview');
+  if (!parsedReportDeals.length) {
+    preview.style.display = 'block';
+    preview.innerHTML = '<div style="color:var(--red);padding:12px">案件を検出できませんでした。</div>';
+    return;
+  }
+
+  preview.style.display = 'block';
+  preview.innerHTML = `
+    <div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:8px">📋 ${parsedReportDeals.length}件を検出</div>
+    <table style="width:100%;font-size:12px;border-collapse:collapse">
+      <thead><tr style="background:#f8fafc">
+        <th style="padding:6px 10px;text-align:left;border-bottom:1px solid var(--border)">請求先</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:1px solid var(--border)">申請種別</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:1px solid var(--border)">申請人</th>
+        <th style="padding:6px 10px;text-align:right;border-bottom:1px solid var(--border)">金額</th>
+        <th style="padding:6px 10px;text-align:left;border-bottom:1px solid var(--border)">請求先区分</th>
+      </tr></thead>
+      <tbody>${parsedReportDeals.map(d => `<tr>
+        <td style="padding:6px 10px;border-bottom:1px solid var(--border);font-weight:600">${d['取引先名']}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid var(--border)">${d['申請種別']}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid var(--border)">${d['依頼人名']}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid var(--border);text-align:right;font-family:var(--mono)">${fmt(d['合計金額'])}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid var(--border)">
+          <span style="font-size:11px;padding:2px 6px;border-radius:4px;background:${d._billingNote === '指定' ? '#eff6ff':'#f8fafc'};color:${d._billingNote === '指定' ? 'var(--accent)':'var(--text3)'}">
+            ${d._billingNote}
+          </span>
+        </td>
+      </tr>`).join('')}</tbody>
+    </table>
+    <div style="margin-top:10px;text-align:right;font-family:var(--mono);font-weight:700;color:var(--navy)">
+      合計: ${fmt(parsedReportDeals.reduce((s,d) => s + d['合計金額'], 0))}
+    </div>`;
+  document.getElementById('reportSaveBtn').style.display = '';
+}
+
+async function saveReport() {
+  if (!parsedReportDeals.length) return;
+  try {
+    let added = 0;
+    for (const d of parsedReportDeals) {
+      if (d._billingNote !== undefined) {
+        // 内部フィールド除去
+        const clean = {...d};
+        Object.keys(clean).forEach(k => { if (k.startsWith('_')) delete clean[k]; });
+        const saleData = {
+          '取引先コード': '',
+          '得意先名': clean['取引先名'],
+          '登録支援機関': d._supportOrg || '',
+          '申請人名': clean['依頼人名'],
+          '品目': clean['申請種別'],
+          '単価': clean['合計金額'],
+          '数量': 1,
+          '小計': clean['合計金額'],
+          '収入印紙代': d._stampAmt || 0,
+          '収入印紙枚数': d._stampN || 0,
+          'KBフラグ': false,
+          'KB金額': 0,
+          '請求書ステータス': '未発行',
+          '担当スタッフ': clean['担当スタッフ名'],
+          '備考': clean['メモ'],
+          '決定日': clean['決定日'],
+        };
+        const result = await gasCall('addSale', saleData);
+        // ローカル配列に追加
+        sales.unshift({ ...saleData, 'ID': result.id, '純売上': clean['合計金額'] });
+        added++;
+      }
+    }
+    toast(`${added}件を売上一覧に登録しました！`, 'success');
+    document.getElementById('reportOverlay').classList.remove('open');
+    // ローカルに追加して再描画
+    buildMonthFilter();
+    filterSalesByMonth();
+  } catch(e) {
+    toast('登録エラー: ' + e.message, 'error');
+  }
+}
+
+// ============================================================
+// マネフォCSV インポート
+// ============================================================
+function handleCSVDrop(e) {
+  const file = e.dataTransfer.files[0];
+  if (file) processCSVFile(file);
+}
+
+function handleCSVFile(input) {
+  const file = input.files[0];
+  if (file) processCSVFile(file);
+  input.value = '';
+}
+
+function processCSVFile(file) {
+  const cutoffStr = document.getElementById('csvCutoffDate').value;
+  const cutoff = new Date(cutoffStr);
+  const status = document.getElementById('csvImportStatus');
+  status.style.display = 'block';
+  status.innerHTML = `<div class="table-card" style="padding:16px">
+    <div class="spinner" style="width:20px;height:20px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:8px"></div>
+    CSVを読み込み中…
+  </div>`;
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const text = e.target.result;
+      const rows = parseCSV(text);
+      const headers = rows[0];
+
+      const deals = [];
+      let current = null;
+
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (row.length < 2) continue;
+        const rowType = (row[1] || '').trim();
+
+        if (rowType === '請求書') {
+          // 売上計上日チェック
+          const saleDateStr = (row[7] || '').trim();
+          if (!saleDateStr) { current = null; continue; }
+          const saleDate = new Date(saleDateStr.replace(/\//g, '-'));
+          if (isNaN(saleDate) || saleDate < cutoff) { current = null; continue; }
+
+          const status_val = (row[24] || '').trim();
+          current = {
+            '案件ID': 'mf_' + (row[6] || '').trim(),
+            '案件名': (row[3] || '').trim() || (row[2] || '').trim().replace(/\t/g, ''),
+            '依頼人名': '',
+            '取引先ID': '',
+            '取引先名': (row[2] || '').trim().replace(/\t/g, ''),
+            '申請種別': '',
+            '担当スタッフID': '',
+            '担当スタッフ名': (row[21] || '').trim(),
+            'サービス内訳JSON': [],
+            '合計金額': parseFloat(row[12]) || 0,
+            '決定日': saleDateStr.replace(/\//g, '-'),
+            '請求書ID': (row[6] || '').trim(),
+            '請求書URL': '',
+            'ステータス': status_val === '入金済み' ? '入金済' : '請求済',
+            'メモ': (row[8] || '').trim(),
+            '作成日時': '',
+            '更新日時': '',
+          };
+          deals.push(current);
+
+        } else if (rowType === '品目' && current) {
+          const name = (row[29] || '').trim();
+          const amount = parseFloat(row[36]) || 0;
+          if (name) {
+            current['サービス内訳JSON'].push({ name, amount });
+            if (!current['案件名'] || current['案件名'] === current['取引先名']) {
+              current['案件名'] = name;
+            }
+          }
+        }
+      }
+
+      // サービス内訳をJSON文字列化
+      deals.forEach(d => {
+        d['サービス内訳JSON'] = JSON.stringify(d['サービス内訳JSON']);
+      });
+
+      status.innerHTML = `<div class="table-card" style="padding:16px;border-left:3px solid var(--accent)">
+        📊 ${deals.length}件を検出（${cutoffStr}以降）。スプレッドシートに保存中…
+      </div>`;
+
+      // GASに分割して送信（50件ずつ）
+      const chunkSize = 50;
+      let added = 0;
+      for (let i = 0; i < deals.length; i += chunkSize) {
+        const chunk = deals.slice(i, i + chunkSize);
+        // マネフォシートに送信
+        const mfItems = chunk.map(d => ({
+          '請求書番号': d['案件ID'].replace('mf_',''),
+          '取引先名': d['取引先名'],
+          '請求日': d['決定日'],
+          '売上計上日': d['決定日'],
+          '合計金額': d['合計金額'],
+          '入金ステータス': d['ステータス'] === '入金済' ? '入金済み' : '',
+          '品目JSON': d['サービス内訳JSON'],
+          '担当者': d['担当スタッフ名'],
+        }));
+        const result = await gasCall('bulkAddMF', { items: mfItems });
+        added += result.added || 0;
+        status.innerHTML = `<div class="table-card" style="padding:16px;border-left:3px solid var(--accent)">
+          ⏳ 保存中… ${Math.min(i + chunkSize, deals.length)} / ${deals.length}件
+        </div>`;
+      }
+
+      status.innerHTML = `<div class="table-card" style="padding:16px;border-left:3px solid var(--green)">
+        ✅ ${added}件を取り込みました（重複はスキップ）
+      </div>`;
+      await loadAll();
+
+    } catch(err) {
+      status.innerHTML = `<div class="table-card" style="padding:16px;border-left:3px solid var(--red)">
+        ❌ エラー: ${err.message}
+      </div>`;
+    }
+  };
+  reader.readAsText(file, 'Shift_JIS');
+}
+
+function parseCSV(text) {
+  const rows = [];
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const cols = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') { inQ = !inQ; }
+      else if (c === ',' && !inQ) { cols.push(cur); cur = ''; }
+      else { cur += c; }
+    }
+    cols.push(cur);
+    rows.push(cols);
+  }
+  return rows;
+}
+function copyInvoicePrompt(dealId) {
+  const d = deals.find(d => d['案件ID'] === dealId);
+  if (!d) return;
+
+  const services = Array.isArray(d['サービス内訳JSON']) ? d['サービス内訳JSON'] : [];
+  const itemsText = services.length
+    ? services.map(s => `  ・${s.name}：¥${Number(s.amount).toLocaleString()}`).join('\n')
+    : `  ・${d['案件名']}：¥${Number(d['合計金額']).toLocaleString()}`;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const due = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+
+  const prompt = `マネーフォワード クラウド請求書（https://invoice.moneyforward.com）で以下の内容で請求書を作成してください。
+
+【請求先】${d['取引先名'] || ''}
+【件名】${d['案件名'] || ''}
+【請求日】${today}
+【支払期限】${due}
+【品目】
+${itemsText}
+【合計金額】¥${Number(d['合計金額']).toLocaleString()}（税込）
+【備考】申請種別: ${d['申請種別'] || ''} / 担当: ${d['担当スタッフ名'] || ''}
+
+作成後、請求書のURLを教えてください。`;
+
+  navigator.clipboard.writeText(prompt).then(() => {
+    toast('Claudeへの指示をコピーしました！Claude in Chromeに貼り付けてください', 'success');
+    // マネフォを新しいタブで開く
+    window.open('https://invoice.moneyforward.com/billings/new', '_blank');
+  }).catch(() => {
+    // クリップボードAPIが使えない場合はモーダルで表示
+    showPromptModal(prompt);
+  });
+}
+
+function filterDeals() {
+  const q = document.getElementById('dealSearch').value.toLowerCase();
+  const st = document.getElementById('dealStatusFilter').value;
+  let list = deals;
+  if (q) list = list.filter(d =>
+    (d['案件名'] || '').toLowerCase().includes(q) ||
+    (d['依頼人名'] || '').toLowerCase().includes(q) ||
+    (d['取引先名'] || '').toLowerCase().includes(q)
+  );
+  if (st) list = list.filter(d => d['ステータス'] === st);
+  renderDeals(list);
+}
+
+// ============================================================
+// DEAL MODAL
+// ============================================================
+function openDealModal(deal) {
+  editingDealId = deal ? deal['案件ID'] : null;
+  document.getElementById('dealModalTitle').textContent = deal ? '案件編集' : '請求追加';
+  document.getElementById('editDealId').value = editingDealId || '';
+
+  // 取引先セレクト
+  const cs = document.getElementById('f-clientId');
+  cs.innerHTML = '<option value="">選択してください</option>';
+  masters.clients.forEach(c => {
+    const o = document.createElement('option');
+    o.value = c['取引先ID']; o.textContent = c['会社名'];
+    if (deal && deal['取引先ID'] === c['取引先ID']) o.selected = true;
+    cs.appendChild(o);
+  });
+
+  // スタッフセレクト
+  const ss = document.getElementById('f-staffId');
+  ss.innerHTML = '<option value="">選択してください</option>';
+  masters.staff.forEach(s => {
+    const o = document.createElement('option');
+    o.value = s['スタッフID']; o.textContent = s['氏名'];
+    if (deal && deal['担当スタッフID'] === s['スタッフID']) o.selected = true;
+    ss.appendChild(o);
+  });
+
+  if (deal) {
+    document.getElementById('f-dealName').value = deal['案件名'] || '';
+    document.getElementById('f-clientName').value = deal['依頼人名'] || '';
+    document.getElementById('f-appType').value = deal['申請種別'] || '';
+    document.getElementById('f-decidedAt').value = deal['決定日'] || '';
+    document.getElementById('f-status').value = deal['ステータス'] || '未請求';
+    document.getElementById('f-memo').value = deal['メモ'] || '';
+    // サービス
+    document.getElementById('serviceList').innerHTML = '';
+    const services = Array.isArray(deal['サービス内訳JSON']) ? deal['サービス内訳JSON'] : [];
+    if (services.length) services.forEach(s => addServiceRow(s));
+    else addServiceRow();
+  } else {
+    document.getElementById('f-dealName').value = '';
+    document.getElementById('f-clientName').value = '';
+    document.getElementById('f-appType').value = '特定技能1号';
+    document.getElementById('f-decidedAt').value = new Date().toISOString().slice(0,10);
+    document.getElementById('f-status').value = '未請求';
+    document.getElementById('f-memo').value = '';
+    document.getElementById('serviceList').innerHTML = '';
+    addServiceRow();
+  }
+  calcTotal();
+  document.getElementById('dealOverlay').classList.add('open');
+}
+
+function closeDealModal(e) {
+  if (!e || e.target === document.getElementById('dealOverlay'))
+    document.getElementById('dealOverlay').classList.remove('open');
+}
+
+function editDeal(id) {
+  const d = deals.find(d => d['案件ID'] === id);
+  if (d) openDealModal(d);
+}
+
+function addServiceRow(svc) {
+  const list = document.getElementById('serviceList');
+  const row = document.createElement('div');
+  row.className = 'service-row';
+
+  // サービス名セレクト
+  const sel = document.createElement('select');
+  sel.className = 'form-select';
+  sel.innerHTML = '<option value="">サービス選択</option>' +
+    masters.services.map(s => `<option value="${s['サービス名']}" data-price="${s['単価']}">${s['サービス名']}（¥${Number(s['単価']).toLocaleString()}）</option>`).join('');
+  if (svc?.name) sel.value = svc.name;
+  sel.onchange = () => {
+    const opt = sel.selectedOptions[0];
+    if (opt?.dataset.price) inp.value = opt.dataset.price;
+    calcTotal();
+  };
+
+  // 金額
+  const inp = document.createElement('input');
+  inp.className = 'form-input';
+  inp.type = 'number';
+  inp.placeholder = '金額（円）';
+  inp.value = svc?.amount || '';
+  inp.oninput = calcTotal;
+
+  // 削除
+  const del = document.createElement('button');
+  del.className = 'remove-btn';
+  del.textContent = '×';
+  del.onclick = () => { row.remove(); calcTotal(); };
+
+  row.append(sel, inp, del);
+  list.appendChild(row);
+}
+
+function calcTotal() {
+  let total = 0;
+  document.querySelectorAll('#serviceList .service-row').forEach(row => {
+    const v = Number(row.querySelector('input').value) || 0;
+    total += v;
+  });
+  document.getElementById('totalAmount').textContent = '¥' + total.toLocaleString();
+}
+
+function getServiceRows() {
+  const rows = [];
+  document.querySelectorAll('#serviceList .service-row').forEach(row => {
+    const name = row.querySelector('select').value;
+    const amount = Number(row.querySelector('input').value) || 0;
+    if (name || amount) rows.push({ name, amount });
+  });
+  return rows;
+}
+
+function onClientSelect() {
+  const id = document.getElementById('f-clientId').value;
+  const c = masters.clients.find(c => c['取引先ID'] === id);
+  // 必要に応じて会社名などを自動入力
+}
+
+function onStaffSelect() {}
+
+async function saveDeal() {
+  const services = getServiceRows();
+  const staffId = document.getElementById('f-staffId').value;
+  const staffName = masters.staff.find(s => s['スタッフID'] === staffId)?.['氏名'] || '';
+  const clientId = document.getElementById('f-clientId').value;
+  const clientCo = masters.clients.find(c => c['取引先ID'] === clientId)?.['会社名'] || '';
+
+  const data = {
+    dealName: document.getElementById('f-dealName').value,
+    clientName: document.getElementById('f-clientName').value,
+    clientId, clientCo,
+    appType: document.getElementById('f-appType').value,
+    staffId, staffName,
+    services,
+    decidedAt: document.getElementById('f-decidedAt').value,
+    status: document.getElementById('f-status').value,
+    memo: document.getElementById('f-memo').value,
+  };
+
+  try {
+    if (editingDealId) {
+      data.id = editingDealId;
+      await gasCall('updateDeal', data);
+      toast('案件を更新しました', 'success');
+    } else {
+      await gasCall('addDeal', data);
+      toast('案件を追加しました', 'success');
+    }
+    document.getElementById('dealOverlay').classList.remove('open');
+    await loadAll();
+  } catch (e) {
+    toast('保存エラー: ' + e.message, 'error');
+  }
+}
+
+async function deleteDeal(id) {
+  if (!confirm('この案件を削除しますか？')) return;
+  try {
+    await gasCall('deleteDeal', { id });
+    toast('削除しました', 'success');
+    await loadAll();
+  } catch (e) {
+    toast('削除エラー: ' + e.message, 'error');
+  }
+}
+
+// ============================================================
+// マネフォ請求書作成
+// ============================================================
+async function createInvoice(dealId) {
+  if (!MF_TOKEN) {
+    toast('設定でマネフォAPIキーを入力してください', 'error');
+    showView('settings');
+    return;
+  }
+  const deal = deals.find(d => d['案件ID'] === dealId);
+  if (!deal) return;
+
+  const client = masters.clients.find(c => c['取引先ID'] === deal['取引先ID']);
+  if (!client) { toast('取引先を設定してください', 'error'); return; }
+
+  if (!confirm(`「${deal['案件名']}」の請求書をマネフォで作成しますか？\n金額: ${fmt(Number(deal['合計金額']))}`)) return;
+
+  try {
+    toast('請求書を作成中…');
+
+    // マネフォAPI: 請求書作成
+    const today = new Date().toISOString().slice(0,10);
+    const due = new Date(Date.now() + 30 * 86400000).toISOString().slice(0,10);
+
+    const services = Array.isArray(deal['サービス内訳JSON']) ? deal['サービス内訳JSON'] : [];
+    const items = services.map(s => ({
+      name: s.name,
+      quantity: 1,
+      unit_price: s.amount,
+      excise: 'ten_percent'
+    }));
+    if (!items.length) items.push({ name: deal['案件名'], quantity: 1, unit_price: Number(deal['合計金額']), excise: 'ten_percent' });
+
+    const payload = {
+      invoice: {
+        partner_id: client['マネフォ取引先ID'] || null,
+        partner_name: client['会社名'],
+        title: deal['案件名'],
+        memo: `申請種別: ${deal['申請種別']} / 担当: ${deal['担当スタッフ名']}`,
+        invoice_date: today,
+        payment_due_on: due,
+        invoice_layout: 'standard_layout',
+        tax_entry_method: 'inclusive',
+        items,
+      }
+    };
+
+    const res = await fetch(`https://invoice.moneyforward.com/api/v3/offices/${MF_OFFICE}/invoices`, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + MF_TOKEN,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || res.statusText);
+    }
+
+    const result = await res.json();
+    const invoiceId = result.id || result.invoice?.id;
+    const invoiceUrl = result.pdf_url || `https://invoice.moneyforward.com/bs/offices/${MF_OFFICE}/invoices/${invoiceId}`;
+
+    // GASに保存
+    await gasCall('saveInvoice', {
+      dealId,
+      mfInvoiceId: invoiceId,
+      issueDate: today,
+      dueDate: due,
+      amount: Number(deal['合計金額']),
+      url: invoiceUrl,
+    });
+
+    toast('請求書を作成しました！', 'success');
+    await loadAll();
+
+    if (confirm('請求書をマネフォで開きますか？')) window.open(invoiceUrl, '_blank');
+
+  } catch (e) {
+    toast('請求書作成エラー: ' + e.message, 'error');
+    console.error(e);
+  }
+}
+
+// ============================================================
+// INVOICES
+// ============================================================
+async function renderInvoices() {
+  const wrap = document.getElementById('invoicesTableWrap');
+  // GASから取得は未実装 → dealsから請求済のものを表示
+  const invoiced = deals.filter(d => d['請求書ID']);
+  if (!invoiced.length) { wrap.innerHTML = '<div class="loading" style="padding:40px">請求書履歴がありません</div>'; return; }
+
+  wrap.innerHTML = `<table>
+    <thead><tr><th>案件名</th><th>取引先</th><th>金額</th><th>ステータス</th><th>請求書</th></tr></thead>
+    <tbody>
+    ${invoiced.map(d => `<tr>
+      <td>${d['案件名']}</td>
+      <td>${d['取引先名']}</td>
+      <td class="amount">${fmt(Number(d['合計金額']))}</td>
+      <td><span class="badge ${badgeClass(d['ステータス'])}">${d['ステータス']}</span></td>
+      <td>${d['請求書URL'] ? `<a href="${d['請求書URL']}" target="_blank" class="btn btn-green btn-sm">開く</a>` : '—'}</td>
+    </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+// ============================================================
+// MASTERS
+// ============================================================
+function renderMasters() {
+  // スタッフ
+  const staffEl = document.getElementById('staffCount');
+  if (staffEl) staffEl.textContent = masters.staff.length;
+  const staffWrap = document.getElementById('staffTable');
+  if (staffWrap) {
+    if (!masters.staff.length) {
+      staffWrap.innerHTML = '<div style="padding:20px;color:var(--text3);font-size:12px">データなし</div>';
+    } else {
+      staffWrap.innerHTML = `<table>
+        <thead><tr><th style="width:40%">氏名</th><th style="width:60%">メール</th></tr></thead>
+        <tbody>${masters.staff.map(r => `<tr>
+          <td style="font-weight:600;color:var(--navy)">${r['氏名'] || ''}</td>
+          <td style="font-size:12px"><a href="mailto:${r['メール'] || ''}" style="color:var(--accent);text-decoration:none">${r['メール'] || ''}</a></td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+    }
+  }
+
+  // 取引先
+  const clientEl = document.getElementById('clientCount');
+  if (clientEl) clientEl.textContent = masters.clients.length;
+  renderClientTable(masters.clients);
+
+  // サービス
+  const serviceEl = document.getElementById('serviceCount');
+  if (serviceEl) serviceEl.textContent = masters.services.length;
+  renderMasterTable('serviceTable', masters.services, ['サービス名','単価','単位','カテゴリ']);
+}
+
+function renderClientTable(data) {
+  const wrap = document.getElementById('clientTable');
+  if (!data || !data.length) { wrap.innerHTML = '<div style="padding:20px;color:var(--text3);font-size:12px">データなし</div>'; return; }
+  wrap.innerHTML = `<table>
+    <thead><tr>
+      <th style="width:30%">会社名</th>
+      <th style="width:15%">担当者名</th>
+      <th style="width:25%">メールアドレス</th>
+      <th style="width:30%">住所</th>
+    </tr></thead>
+    <tbody>${data.map(r => `<tr>
+      <td style="font-weight:600;color:var(--navy)">${r['会社名'] || ''}</td>
+      <td>${r['担当者名'] || ''}</td>
+      <td style="font-size:12px"><a href="mailto:${r['メールアドレス'] || ''}" style="color:var(--accent);text-decoration:none">${r['メールアドレス'] || ''}</a></td>
+      <td style="font-size:12px;color:var(--text3)">${r['住所'] || ''}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+
+function toggleSection(bodyId, chevronId) {
+  const body = document.getElementById(bodyId);
+  const chevron = document.getElementById(chevronId);
+  if (!body) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : '';
+  if (chevron) chevron.textContent = isOpen ? '▶' : '▼';
+}
+
+function filterMasterClients() {
+  const q = document.getElementById('clientSearch')?.value.toLowerCase() || '';
+  const filtered = q ? masters.clients.filter(c =>
+    (c['会社名'] || '').toLowerCase().includes(q) ||
+    (c['担当者名'] || '').toLowerCase().includes(q) ||
+    (c['メールアドレス'] || '').toLowerCase().includes(q)
+  ) : masters.clients;
+  renderClientTable(filtered);
+}
+
+function renderMasterTable(wrapperId, data, cols) {
+  const wrap = document.getElementById(wrapperId);
+  if (!data || !data.length) { wrap.innerHTML = '<div style="padding:20px;color:var(--text3);font-size:12px">データなし</div>'; return; }
+  wrap.innerHTML = `<table>
+    <thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>
+    <tbody>${data.map(r => `<tr>${cols.map(c => `<td>${r[c] || ''}</td>`).join('')}</tr>`).join('')}</tbody>
+  </table>`;
+}
+
+function openMasterModal(type) {
+  currentMasterType = type;
+  const titles = { staff: 'スタッフ追加', client: '取引先追加', service: 'サービス追加' };
+  document.getElementById('masterModalTitle').textContent = titles[type];
+
+  const forms = {
+    staff: `
+      <div class="form-group" style="margin-bottom:12px"><label class="form-label">スタッフID</label><input class="form-input" id="m-スタッフID" placeholder="例: STAFF001"></div>
+      <div class="form-group" style="margin-bottom:12px"><label class="form-label">氏名</label><input class="form-input" id="m-氏名" placeholder="例: 田中 花子"></div>
+      <div class="form-group" style="margin-bottom:12px"><label class="form-label">メール</label><input class="form-input" id="m-メール" type="email"></div>
+      <div class="form-group"><label class="form-label">有効</label><select class="form-select" id="m-有効"><option>TRUE</option><option>FALSE</option></select></div>
+    `,
+    client: `
+      <div class="form-group" style="margin-bottom:12px"><label class="form-label">取引先ID</label><input class="form-input" id="m-取引先ID" placeholder="例: CLI001"></div>
+      <div class="form-group" style="margin-bottom:12px"><label class="form-label">会社名</label><input class="form-input" id="m-会社名"></div>
+      <div class="form-group" style="margin-bottom:12px"><label class="form-label">担当者名</label><input class="form-input" id="m-担当者名"></div>
+      <div class="form-group" style="margin-bottom:12px"><label class="form-label">メールアドレス</label><input class="form-input" id="m-メールアドレス" type="email"></div>
+      <div class="form-group" style="margin-bottom:12px"><label class="form-label">住所</label><input class="form-input" id="m-住所"></div>
+      <div class="form-group"><label class="form-label">マネフォ取引先ID（後で入力可）</label><input class="form-input" id="m-マネフォ取引先ID" placeholder="マネフォで確認"></div>
+    `,
+    service: `
+      <div class="form-group" style="margin-bottom:12px"><label class="form-label">サービスID</label><input class="form-input" id="m-サービスID" placeholder="例: SVC001"></div>
+      <div class="form-group" style="margin-bottom:12px"><label class="form-label">サービス名</label><input class="form-input" id="m-サービス名" placeholder="例: 特定技能1号申請サポート"></div>
+      <div class="form-group" style="margin-bottom:12px"><label class="form-label">単価（円）</label><input class="form-input" id="m-単価" type="number" placeholder="例: 150000"></div>
+      <div class="form-group" style="margin-bottom:12px"><label class="form-label">単位</label><input class="form-input" id="m-単位" placeholder="例: 件"></div>
+      <div class="form-group"><label class="form-label">カテゴリ</label><input class="form-input" id="m-カテゴリ" placeholder="例: 特定技能"></div>
+    `
+  };
+  document.getElementById('masterFormBody').innerHTML = forms[type];
+  document.getElementById('masterOverlay').classList.add('open');
+}
+
+function closeMasterModal(e) {
+  if (!e || e.target === document.getElementById('masterOverlay'))
+    document.getElementById('masterOverlay').classList.remove('open');
+}
+
+async function saveMaster() {
+  const actionMap = { staff: 'addStaff', client: 'addClient', service: 'addService' };
+  const keyMap = {
+    staff: ['スタッフID','氏名','メール','有効'],
+    client: ['取引先ID','会社名','担当者名','メールアドレス','住所','マネフォ取引先ID'],
+    service: ['サービスID','サービス名','単価','単位','カテゴリ'],
+  };
+  const data = {};
+  keyMap[currentMasterType].forEach(k => {
+    const el = document.getElementById('m-' + k);
+    data[k] = el ? el.value : '';
+  });
+
+  try {
+    await gasCall(actionMap[currentMasterType], data);
+    toast('追加しました', 'success');
+    document.getElementById('masterOverlay').classList.remove('open');
+    await loadAll();
+  } catch (e) {
+    toast('エラー: ' + e.message, 'error');
+  }
+}
+
+// ============================================================
+// SETTINGS
+// ============================================================
+function saveSettings() {
+  GAS_URL = document.getElementById('gasUrl').value.trim();
+  MF_TOKEN = document.getElementById('mfToken').value.trim();
+  MF_OFFICE = document.getElementById('mfOfficeId').value.trim();
+  localStorage.setItem('gasUrl', GAS_URL);
+  localStorage.setItem('mfToken', MF_TOKEN);
+  localStorage.setItem('mfOfficeId', MF_OFFICE);
+  toast('設定を保存しました', 'success');
+  if (GAS_URL) loadAll();
+}
+
+async function testSupabase() {
+  const badge = document.getElementById('sbSyncBadge');
+  badge.textContent = '同期中…';
+  try {
+    const result = await gasCall('getOfusaMasters');
+    const cc = result.clients?.length || 0;
+    const sc = result.staff?.length || 0;
+    badge.textContent = `✅ OFUSA同期済 (取引先${cc}件・スタッフ${sc}件)`;
+    if (cc || sc) {
+      masters.clients = result.clients;
+      masters.staff = result.staff;
+      renderMasters();
+      toast(`OFUSA連携OK: 取引先${cc}件・スタッフ${sc}件`, 'success');
+    } else {
+      badge.textContent = '⚠️ データが0件です。GASのSB_KEYを確認してください';
+    }
+  } catch (e) {
+    badge.textContent = '❌ 失敗: ' + e.message;
+    toast('OFUSA連携エラー: ' + e.message, 'error');
+  }
+}
+
+async function testGas() {
+  try {
+    const res = await fetch(GAS_URL);
+    const json = await res.json();
+    toast('GAS接続OK: ' + (json.data?.message || 'OK'), 'success');
+  } catch (e) {
+    toast('GAS接続エラー: ' + e.message, 'error');
+  }
+}
+
+async function testMF() {
+  if (!MF_TOKEN || !MF_OFFICE) { toast('トークンと事業所IDを入力してください', 'error'); return; }
+  try {
+    const res = await fetch(`https://invoice.moneyforward.com/api/v3/offices/${MF_OFFICE}`, {
+      headers: { 'Authorization': 'Bearer ' + MF_TOKEN, 'Accept': 'application/json' }
+    });
+    if (res.ok) toast('マネフォ接続OK！', 'success');
+    else toast('マネフォ接続エラー: ' + res.status, 'error');
+  } catch (e) {
+    toast('マネフォ接続エラー: ' + e.message, 'error');
+  }
+}
+
+function showPromptModal(prompt) {
+  document.getElementById('promptText').value = prompt;
+  document.getElementById('promptOverlay').classList.add('open');
+  window.open('https://invoice.moneyforward.com/billings/new', '_blank');
+}
+
+function closePromptModal(e) {
+  if (!e || e.target === document.getElementById('promptOverlay'))
+    document.getElementById('promptOverlay').classList.remove('open');
+}
+
+function copyPromptText() {
+  const text = document.getElementById('promptText').value;
+  navigator.clipboard.writeText(text).then(() => {
+    toast('コピーしました！', 'success');
+  });
+}
+
+// ============================================================
+// TOAST
+// ============================================================
+let toastTimer;
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (type ? ' ' + type : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
+}
+</script>
+</body>
+</html>
