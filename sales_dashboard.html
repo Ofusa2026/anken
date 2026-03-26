@@ -596,24 +596,13 @@ tr:hover td { background: var(--blue-light); }
       <div class="view" id="view-settings">
         <div class="table-card" style="max-width:600px;padding:28px">
           <div class="settings-section">
-            <div class="settings-title">🔗 GAS連携設定</div>
-            <div class="settings-field form-group">
-              <label class="form-label">GAS WebアプリURL</label>
-              <input class="form-input" id="gasUrl" placeholder="https://script.google.com/macros/s/…/exec">
-            </div>
-            <button class="btn btn-primary" onclick="saveSettings()">保存</button>
-            <button class="btn btn-secondary" style="margin-left:8px" onclick="testGas()">接続テスト</button>
-          </div>
-
-          <div class="settings-section">
-            <div class="settings-title">🏢 OFUSA（Supabase）連携</div>
+            <div class="settings-title">🏢 Supabase接続状況</div>
             <p style="color:var(--text2);font-size:12px;margin-bottom:14px;line-height:1.7">
-              OFUSAのSupabaseから取引先・スタッフを自動取得します。<br>
-              接続設定はGASスクリプト内の <code style="color:var(--accent)">SB_KEY</code> に設定済みです。
+              取引先・スタッフ・サービスマスタ・売上データは全てSupabaseで管理されています。
             </p>
             <input type="hidden" id="sbUrl" value="https://ehwlgbwpycglmopiqyty.supabase.co">
             <input type="hidden" id="sbKey" value="">
-            <button class="btn btn-primary" onclick="testSupabase()">🔄 今すぐ同期</button>
+            <button class="btn btn-primary" onclick="testSupabase()">🔄 接続確認・再同期</button>
             <div id="sbSyncBadge" style="margin-top:10px;font-size:12px;color:var(--text3)"></div>
           </div>
 
@@ -950,11 +939,10 @@ tr:hover td { background: var(--blue-light); }
 // ============================================================
 // STATE
 // ============================================================
-const VERSION = '2026.03.26-52';
-let GAS_URL = localStorage.getItem('gasUrl') || '';
+const VERSION = '2026.03.26-54';
 
 console.log('%c 売上管理ダッシュボード v' + VERSION + ' ', 'background:#0f2040;color:#fff;font-size:14px;padding:4px 8px;border-radius:4px;font-weight:bold;');
-console.log('%cGAS: ' + (GAS_URL ? GAS_URL.slice(-20) : '未設定'), 'color:#2563eb');
+console.log('%c Supabase直接接続モード ', 'background:#10b981;color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;');
 let MF_TOKEN = localStorage.getItem('mfToken') || '';
 let MF_OFFICE = localStorage.getItem('mfOfficeId') || '';
 
@@ -989,39 +977,20 @@ document.addEventListener('DOMContentLoaded', () => {
     <option value="prev2">前々期（2023/11〜2024/10）</option>
   `;
 
-  if (!GAS_URL) {
-    showView('settings');
-    toast('まずGAS URLを設定してください', 'error');
-  } else {
-    loadAll();
-  }
+  loadAll();
 });
 
 // ============================================================
-// API
+// API（GAS廃止済み・互換性のため残存）
 // ============================================================
 async function gasCall(action, data = {}) {
-  if (!GAS_URL) throw new Error('GAS URLが設定されていません');
-  const res = await fetch(GAS_URL, {
-    method: 'POST',
-    body: JSON.stringify({ action, data })
-  });
-  const json = await res.json();
-  if (!json.ok) throw new Error(json.error || 'GASエラー');
-  return json.data;
+  // GAS廃止済み - 呼び出されたらエラーをログに出してスキップ
+  console.warn('gasCall deprecated:', action);
+  return {};
 }
 
-// GASウォームアップ（コールドスタート対策）
-function warmupGAS() {
-  if (!GAS_URL) return;
-  fetch(GAS_URL, {
-    method: 'POST',
-    body: JSON.stringify({ action: 'ping', data: {} })
-  }).catch(() => {});
-}
-
-// 3分ごとにウォームアップ
-setInterval(warmupGAS, 3 * 60 * 1000);
+// GASウォームアップ（廃止）
+function warmupGAS() {}
 
 // =============================================
 // Supabase マスタAPI
@@ -1070,39 +1039,38 @@ function genId(prefix) {
 
 // 売上一覧取得（sale_itemsをJOIN）
 async function sbGetSales() {
-  const res = await fetch(`${SB_URL}/rest/v1/sales?select=*,sale_items(*)&order=決定日.desc,作成日時.desc`, {
+  const res = await fetch(`${SB_URL}/rest/v1/sales?select=*,sale_items(*)&order=decided_at.desc,created_at.desc`, {
     headers: sbHeaders()
   });
   if (!res.ok) throw new Error('getSales失敗: ' + await res.text());
   const rows = await res.json();
-  // フロントの期待する形式に変換
   return rows.map(s => {
-    const items = (s.sale_items || []).sort((a,b) => a.順番 - b.順番);
+    const items = (s.sale_items || []).sort((a,b) => a.sort_order - b.sort_order);
     return {
       'ID': s.id,
-      '取引先コード': s.取引先コード || '',
-      '得意先名': s.得意先名 || '',
-      '登録支援機関': s.登録支援機関 || '',
-      '申請人名': items.map(i => i.申請人名).filter(Boolean).join('\n'),
-      '品目': items.map(i => i.品目).filter(Boolean).join('\n'),
-      '単価': items.length === 1 ? (items[0]?.単価 || 0) : (s.小計 || 0),
-      '数量': items.length === 1 ? (items[0]?.数量 || 1) : 1,
-      '小計': s.小計 || 0,
-      '収入印紙代': items[0]?.収入印紙代 || 0,
-      '収入印紙枚数': items.reduce((sum, i) => sum + (i.収入印紙枚数 || 0), 0),
-      'KBフラグ': s.KBフラグ || false,
-      'KB単価': s.KB単価 || 0,
-      'KB数量': s.KB数量 || 0,
-      'KB金額': s.KB金額 || 0,
-      '純売上': s.純売上 || 0,
-      '請求書ステータス': s.請求書ステータス || '未発行',
-      '担当スタッフ': s.担当スタッフ || '',
-      '備考': s.備考 || '',
-      '決定日': s.決定日 || '',
+      '取引先コード': s.client_code || '',
+      '得意先名': s.client_name || '',
+      '登録支援機関': s.support_org || '',
+      '申請人名': items.map(i => i.applicant).filter(Boolean).join('\n'),
+      '品目': items.map(i => i.item_name).filter(Boolean).join('\n'),
+      '単価': items.length === 1 ? (items[0]?.unit_price || 0) : (s.subtotal || 0),
+      '数量': items.length === 1 ? (items[0]?.qty || 1) : 1,
+      '小計': s.subtotal || 0,
+      '収入印紙代': items[0]?.stamp_price || 0,
+      '収入印紙枚数': items.reduce((sum, i) => sum + (i.stamp_qty || 0), 0),
+      'KBフラグ': s.is_kb || false,
+      'KB単価': s.kb_price || 0,
+      'KB数量': s.kb_qty || 0,
+      'KB金額': s.kb_amount || 0,
+      '純売上': s.net_amount || 0,
+      '請求書ステータス': s.invoice_status || '未発行',
+      '担当スタッフ': s.staff || '',
+      '備考': s.memo || '',
+      '決定日': s.decided_at || '',
       '_itemSets': JSON.stringify(items.map(i => ({
-        item: i.品目, applicant: i.申請人名,
-        price: i.単価, qty: i.数量,
-        stamp: i.収入印紙代, stampN: i.収入印紙枚数
+        item: i.item_name, applicant: i.applicant,
+        price: i.unit_price, qty: i.qty,
+        stamp: i.stamp_price, stampN: i.stamp_qty
       }))),
       '_saleId': s.id
     };
@@ -1116,43 +1084,41 @@ async function sbAddSale(data, itemRows) {
   const totalSubtotal = itemRows.reduce((s, r) => s + r.price * r.qty, 0);
   const hasKB = data['KBフラグ'] || false;
 
-  // salesテーブルに追加
   const saleRes = await fetch(`${SB_URL}/rest/v1/sales`, {
     method: 'POST',
     headers: sbHeaders(),
     body: JSON.stringify({
       id,
-      取引先コード: data['取引先コード'] || '',
-      得意先名: data['得意先名'] || '',
-      登録支援機関: data['登録支援機関'] || '',
-      決定日: data['決定日'] || null,
-      小計: totalSubtotal,
-      純売上: totalSubtotal + (hasKB ? (data['KB金額'] || 0) : 0),
-      KBフラグ: hasKB,
-      KB単価: data['KB単価'] || 0,
-      KB数量: data['KB数量'] || 0,
-      KB金額: data['KB金額'] || 0,
-      請求書ステータス: data['請求書ステータス'] || '未発行',
-      担当スタッフ: data['担当スタッフ'] || '',
-      備考: data['備考'] || '',
-      作成日時: now,
-      更新日時: now
+      client_code: data['取引先コード'] || '',
+      client_name: data['得意先名'] || '',
+      support_org: data['登録支援機関'] || '',
+      decided_at: data['決定日'] || null,
+      subtotal: totalSubtotal,
+      net_amount: totalSubtotal + (hasKB ? (data['KB金額'] || 0) : 0),
+      is_kb: hasKB,
+      kb_price: data['KB単価'] || 0,
+      kb_qty: data['KB数量'] || 0,
+      kb_amount: data['KB金額'] || 0,
+      invoice_status: data['請求書ステータス'] || '未発行',
+      staff: data['担当スタッフ'] || '',
+      memo: data['備考'] || '',
+      created_at: now,
+      updated_at: now
     })
   });
   if (!saleRes.ok) throw new Error('sale追加失敗: ' + await saleRes.text());
 
-  // sale_itemsテーブルに品目を追加
   const itemsPayload = itemRows.map((r, idx) => ({
     id: genId('ITEM'),
     sale_id: id,
-    品目: r.item || '',
-    申請人名: r.applicant || '',
-    単価: r.price || 0,
-    数量: r.qty || 1,
-    収入印紙代: r.stamp || 0,
-    収入印紙枚数: r.stampN || 0,
-    順番: idx,
-    作成日時: now
+    item_name: r.item || '',
+    applicant: r.applicant || '',
+    unit_price: r.price || 0,
+    qty: r.qty || 1,
+    stamp_price: r.stamp || 0,
+    stamp_qty: r.stampN || 0,
+    sort_order: idx,
+    created_at: now
   }));
   const itemRes = await fetch(`${SB_URL}/rest/v1/sale_items`, {
     method: 'POST',
@@ -1170,44 +1136,42 @@ async function sbUpdateSale(id, data, itemRows) {
   const totalSubtotal = itemRows.reduce((s, r) => s + r.price * r.qty, 0);
   const hasKB = data['KBフラグ'] || false;
 
-  // salesテーブル更新
   const saleRes = await fetch(`${SB_URL}/rest/v1/sales?id=eq.${id}`, {
     method: 'PATCH',
     headers: sbHeaders(),
     body: JSON.stringify({
-      取引先コード: data['取引先コード'] || '',
-      得意先名: data['得意先名'] || '',
-      登録支援機関: data['登録支援機関'] || '',
-      決定日: data['決定日'] || null,
-      小計: totalSubtotal,
-      純売上: totalSubtotal + (hasKB ? (data['KB金額'] || 0) : 0),
-      KBフラグ: hasKB,
-      KB単価: data['KB単価'] || 0,
-      KB数量: data['KB数量'] || 0,
-      KB金額: data['KB金額'] || 0,
-      請求書ステータス: data['請求書ステータス'] || '未発行',
-      担当スタッフ: data['担当スタッフ'] || '',
-      備考: data['備考'] || '',
-      更新日時: now
+      client_code: data['取引先コード'] || '',
+      client_name: data['得意先名'] || '',
+      support_org: data['登録支援機関'] || '',
+      decided_at: data['決定日'] || null,
+      subtotal: totalSubtotal,
+      net_amount: totalSubtotal + (hasKB ? (data['KB金額'] || 0) : 0),
+      is_kb: hasKB,
+      kb_price: data['KB単価'] || 0,
+      kb_qty: data['KB数量'] || 0,
+      kb_amount: data['KB金額'] || 0,
+      invoice_status: data['請求書ステータス'] || '未発行',
+      staff: data['担当スタッフ'] || '',
+      memo: data['備考'] || '',
+      updated_at: now
     })
   });
   if (!saleRes.ok) throw new Error('sale更新失敗: ' + await saleRes.text());
 
-  // 既存品目を全削除して再挿入
   await fetch(`${SB_URL}/rest/v1/sale_items?sale_id=eq.${id}`, {
     method: 'DELETE', headers: sbHeaders()
   });
   const itemsPayload = itemRows.map((r, idx) => ({
     id: genId('ITEM'),
     sale_id: id,
-    品目: r.item || '',
-    申請人名: r.applicant || '',
-    単価: r.price || 0,
-    数量: r.qty || 1,
-    収入印紙代: r.stamp || 0,
-    収入印紙枚数: r.stampN || 0,
-    順番: idx,
-    作成日時: now
+    item_name: r.item || '',
+    applicant: r.applicant || '',
+    unit_price: r.price || 0,
+    qty: r.qty || 1,
+    stamp_price: r.stamp || 0,
+    stamp_qty: r.stampN || 0,
+    sort_order: idx,
+    created_at: now
   }));
   if (itemsPayload.length) {
     const itemRes = await fetch(`${SB_URL}/rest/v1/sale_items`, {
@@ -1222,7 +1186,6 @@ async function sbUpdateSale(id, data, itemRows) {
 
 // 売上削除
 async function sbDeleteSale(id) {
-  // sale_itemsはCASCADEで自動削除
   const res = await fetch(`${SB_URL}/rest/v1/sales?id=eq.${id}`, {
     method: 'DELETE', headers: sbHeaders()
   });
@@ -1230,12 +1193,12 @@ async function sbDeleteSale(id) {
   return { ok: true };
 }
 
-// ステータス更新（単項目）
+// ステータス更新
 async function sbUpdateSaleStatus(id, status) {
   const res = await fetch(`${SB_URL}/rest/v1/sales?id=eq.${id}`, {
     method: 'PATCH',
     headers: sbHeaders(),
-    body: JSON.stringify({ 請求書ステータス: status, 更新日時: new Date().toISOString() })
+    body: JSON.stringify({ invoice_status: status, updated_at: new Date().toISOString() })
   });
   if (!res.ok) throw new Error('ステータス更新失敗: ' + await res.text());
   return { ok: true };
@@ -1665,10 +1628,10 @@ async function autoSaveSale(id) {
       method: 'PATCH',
       headers: sbHeaders(),
       body: JSON.stringify({
-        請求書ステータス: data['請求書ステータス'],
-        担当スタッフ: data['担当スタッフ'],
-        備考: data['備考'],
-        更新日時: new Date().toISOString()
+        invoice_status: data['請求書ステータス'],
+        staff: data['担当スタッフ'],
+        memo: data['備考'],
+        updated_at: new Date().toISOString()
       })
     });
     dot.classList.remove('dirty');
@@ -3365,14 +3328,11 @@ async function saveMaster() {
 // SETTINGS
 // ============================================================
 function saveSettings() {
-  GAS_URL = document.getElementById('gasUrl').value.trim();
-  MF_TOKEN = document.getElementById('mfToken').value.trim();
-  MF_OFFICE = document.getElementById('mfOfficeId').value.trim();
-  localStorage.setItem('gasUrl', GAS_URL);
+  MF_TOKEN = document.getElementById('mfToken')?.value.trim() || '';
+  MF_OFFICE = document.getElementById('mfOfficeId')?.value.trim() || '';
   localStorage.setItem('mfToken', MF_TOKEN);
   localStorage.setItem('mfOfficeId', MF_OFFICE);
   toast('設定を保存しました', 'success');
-  if (GAS_URL) { loadAll(); setTimeout(warmupGAS, 1000); }
 }
 
 async function testSupabase() {
@@ -3392,16 +3352,6 @@ async function testSupabase() {
   } catch (e) {
     badge.textContent = '❌ 失敗: ' + e.message;
     toast('Supabase接続エラー: ' + e.message, 'error');
-  }
-}
-
-async function testGas() {
-  try {
-    const res = await fetch(GAS_URL);
-    const json = await res.json();
-    toast('GAS接続OK: ' + (json.data?.message || 'OK'), 'success');
-  } catch (e) {
-    toast('GAS接続エラー: ' + e.message, 'error');
   }
 }
 
