@@ -939,7 +939,7 @@ tr:hover td { background: var(--blue-light); }
 // ============================================================
 // STATE
 // ============================================================
-const VERSION = '2026.03.26-54';
+const VERSION = '2026.03.26-55';
 
 console.log('%c 売上管理ダッシュボード v' + VERSION + ' ', 'background:#0f2040;color:#fff;font-size:14px;padding:4px 8px;border-radius:4px;font-weight:bold;');
 console.log('%c Supabase直接接続モード ', 'background:#10b981;color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;');
@@ -1209,9 +1209,10 @@ async function loadAll() {
     const periodKey = document.getElementById('yearSelect').value || 'current';
     const period = getPeriod(periodKey);
 
-    const [sbMasters, salesData] = await Promise.all([
+    const [sbMasters, salesData, mfData] = await Promise.all([
       sbGetMasters(),
       sbGetSales(),
+      fetch(`${SB_URL}/rest/v1/mf_invoices?select=*&order=sale_date.desc&limit=500`, { headers: sbHeaders() }).then(r => r.json()).catch(() => []),
     ]);
 
     // マスタをセット
@@ -1222,7 +1223,17 @@ async function loadAll() {
     let dealsData = []; // マネフォ連携は廃止
 
     sales = salesData;
-    deals = Array.isArray(dealsData) ? dealsData : [];
+    // mf_invoicesをdealsの形式に変換
+    deals = (Array.isArray(mfData) ? mfData : []).map(d => ({
+      '案件ID': d.id,
+      '取引先名': d.client_name || '',
+      '合計金額': d.total_amount || 0,
+      '決定日': d.sale_date || '',
+      'ステータス': d.payment_status || '',
+      'サービス内訳JSON': d.items_json || '[]',
+      '担当スタッフ名': d.staff || '',
+      'メモ': d.memo || '',
+    }));
 
     // マスタをmastersオブジェクトに格納
     masters.services = sbMasters.services || [];
@@ -2801,26 +2812,31 @@ function processCSVFile(file) {
       });
 
       status.innerHTML = `<div class="table-card" style="padding:16px;border-left:3px solid var(--accent)">
-        📊 ${deals.length}件を検出（${cutoffStr}以降）。スプレッドシートに保存中…
+        📊 ${deals.length}件を検出（${cutoffStr}以降）。Supabaseに保存中…
       </div>`;
 
-      // GASに分割して送信（50件ずつ）
+      // Supabaseに保存（重複スキップ）
+      const SB_H = { ...sbHeaders(), 'Prefer': 'resolution=ignore-duplicates,return=minimal' };
       const chunkSize = 50;
       let added = 0;
       for (let i = 0; i < deals.length; i += chunkSize) {
         const chunk = deals.slice(i, i + chunkSize);
-        // マネフォシートに送信
-        const mfItems = chunk.map(d => ({
-          '請求書番号': d['案件ID'].replace('mf_',''),
-          '取引先名': d['取引先名'],
-          '請求日': d['決定日'],
-          '売上計上日': d['決定日'],
-          '合計金額': d['合計金額'],
-          '入金ステータス': d['ステータス'] === '入金済' ? '入金済み' : '',
-          '品目JSON': d['サービス内訳JSON'],
-          '担当者': d['担当スタッフ名'],
+        const payload = chunk.map(d => ({
+          id: d['案件ID'],
+          client_name: d['取引先名'],
+          invoice_date: d['決定日'] || null,
+          sale_date: d['決定日'] || null,
+          total_amount: d['合計金額'],
+          payment_status: d['ステータス'] || '',
+          items_json: d['サービス内訳JSON'],
+          staff: d['担当スタッフ名'] || '',
+          memo: d['メモ'] || '',
         }));
-        added += mfItems.length; // GAS廃止のためスキップ
+        const res = await fetch(`${SB_URL}/rest/v1/mf_invoices`, {
+          method: 'POST', headers: SB_H, body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(await res.text());
+        added += chunk.length;
         status.innerHTML = `<div class="table-card" style="padding:16px;border-left:3px solid var(--accent)">
           ⏳ 保存中… ${Math.min(i + chunkSize, deals.length)} / ${deals.length}件
         </div>`;
