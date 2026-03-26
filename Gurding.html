@@ -1,0 +1,1624 @@
+<!DOCTYPE html>
+<!-- OFUSA_ADMIN v1.0 -->
+<html lang="ja"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>管理ダッシュボード — 大房行政書士法人</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+:root {
+  --navy:#0f2040; --blue:#2563eb; --blue-light:#eff6ff;
+  --green:#16a34a; --orange:#ea580c; --red:#dc2626; --purple:#7c3aed;
+  --gray-100:#f1f5f9; --gray-200:#e2e8f0; --gray-400:#94a3b8; --gray-700:#334155;
+  --white:#ffffff; --shadow:0 2px 12px rgba(0,0,0,0.08);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--gray-100);color:var(--navy);}
+
+/* ===== LAYOUT ===== */
+.shell{display:flex;height:100vh;overflow:hidden;}
+.sidebar{width:220px;background:var(--navy);flex-shrink:0;display:flex;flex-direction:column;position:fixed;top:0;left:0;height:100vh;z-index:100;overflow-y:auto;}
+.main{margin-left:220px;width:calc(100vw - 220px);height:100vh;overflow:hidden;display:flex;flex-direction:column;}
+
+/* ===== SIDEBAR ===== */
+.sidebar-logo{padding:20px 16px 16px;}
+.logo-badge{background:#2563eb;color:white;font-size:11px;font-weight:800;padding:3px 8px;border-radius:4px;display:inline-block;margin-bottom:6px;letter-spacing:1px;}
+.logo-title{color:white;font-size:12px;font-weight:700;line-height:1.4;}
+.logo-sub{color:#475569;font-size:10px;margin-top:2px;}
+.sidebar-section{padding:8px 12px 4px;font-size:10px;color:#475569;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 16px;color:#94a3b8;font-size:13px;cursor:pointer;border-radius:6px;margin:1px 8px;}
+.nav-item:hover,.nav-item.active{background:rgba(255,255,255,0.1);color:white;}
+.nav-item .nbadge{background:#dc2626;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:auto;min-width:18px;text-align:center;display:none;}
+.nav-item .nbadge.orange{background:#ea580c;}
+.nav-item .nbadge.blue{background:#2563eb;}
+.nav-item .nbadge.show{display:inline-block;}
+.sidebar-user{padding:12px 16px;border-top:1px solid rgba(255,255,255,0.08);margin-top:auto;}
+.user-info{display:flex;align-items:center;gap:10px;}
+.user-avatar{width:32px;height:32px;border-radius:50%;background:#2563eb;display:flex;align-items:center;justify-content:center;color:white;font-size:13px;font-weight:700;flex-shrink:0;}
+.user-name{color:white;font-size:12px;font-weight:600;}
+.user-role{color:#94a3b8;font-size:10px;}
+
+/* ===== TOPBAR ===== */
+.topbar{background:white;border-bottom:1px solid var(--gray-200);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0;}
+.page-title{font-size:18px;font-weight:800;color:var(--navy);}
+.topbar-right{display:flex;align-items:center;gap:10px;}
+.last-updated{font-size:11px;color:var(--gray-400);}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.15s;font-family:inherit;}
+.btn-outline{background:white;border:1.5px solid var(--gray-200);color:var(--navy);}
+.btn-outline:hover{border-color:var(--blue);color:var(--blue);}
+.btn-primary{background:var(--blue);color:white;}
+.btn-primary:hover{background:#1d4ed8;}
+
+/* ===== CONTENT SCROLL AREA ===== */
+.content{flex:1;overflow-y:auto;padding:0;}
+
+/* ===== STATS ===== */
+.stats-section{padding:16px 24px 0;}
+.stats-grid{display:flex;gap:10px;}
+.stat-card{background:white;border-radius:10px;padding:12px 16px;box-shadow:var(--shadow);border:1px solid var(--gray-200);cursor:pointer;transition:.15s;flex:1;}
+.stat-card:hover{border-color:var(--blue);}
+.stat-card.active{border-color:var(--blue);background:var(--blue-light);}
+.stat-label{font-size:11px;color:var(--gray-400);font-weight:600;margin-bottom:6px;}
+.stat-num{font-size:28px;font-weight:800;line-height:1;}
+.stat-num.blue{color:var(--blue);}
+.stat-num.orange{color:var(--orange);}
+.stat-num.green{color:var(--green);}
+.stat-num.red{color:var(--red);}
+.stat-sub{font-size:10px;color:var(--gray-400);margin-top:4px;}
+
+/* ===== FILTERS ===== */
+.filters-section{padding:12px 24px;}
+.filters{background:white;border-radius:10px;padding:10px 14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;box-shadow:var(--shadow);border:1px solid var(--gray-200);}
+.filter-select{border:1px solid var(--gray-200);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--navy);background:white;cursor:pointer;font-family:inherit;}
+.filter-select:focus{outline:none;border-color:var(--blue);}
+.search-input{border:1px solid var(--gray-200);border-radius:6px;padding:6px 12px;font-size:12px;flex:1;min-width:180px;font-family:inherit;}
+.search-input:focus{outline:none;border-color:var(--blue);}
+.filter-count{margin-left:auto;font-size:12px;color:var(--gray-400);font-weight:600;}
+
+/* ===== TABLE ===== */
+.table-section{padding:0 24px 24px;}
+.table-wrap{background:white;border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--gray-200);overflow:hidden;}
+.card-header{padding:10px 16px;border-bottom:1px solid var(--gray-200);background:#fafafa;display:flex;align-items:center;justify-content:space-between;}
+.card-title{font-size:13px;font-weight:700;color:var(--navy);}
+table{width:100%;border-collapse:collapse;}
+thead th{padding:7px 10px;font-size:11px;color:var(--gray-400);font-weight:700;text-align:left;border-bottom:1px solid var(--gray-200);background:#fafafa;white-space:nowrap;}
+tbody tr{border-bottom:1px solid var(--gray-200);transition:.1s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--blue-light);}
+tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
+.td-name{font-weight:600;font-size:13px;}
+.td-sub{font-size:10px;color:var(--gray-400);}
+
+/* ===== BADGES ===== */
+.st-badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;}
+.st-blue{background:#eff6ff;color:#2563eb;}
+.st-yellow{background:#fef3c7;color:#d97706;}
+.st-green{background:#f0fdf4;color:#16a34a;}
+.st-red{background:#fef2f2;color:#dc2626;}
+.st-purple{background:#fdf4ff;color:#7c3aed;}
+.st-orange{background:#fff7ed;color:#ea580c;}
+.st-gray{background:#f8fafc;color:#64748b;}
+.type-badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;}
+.type-new{background:#eff6ff;color:#2563eb;}
+.type-renew{background:#f0fdf4;color:#16a34a;}
+.type-change{background:#fff7ed;color:#ea580c;}
+
+/* ===== SECTION TABS ===== */
+.sec-tabs{display:flex;border-bottom:2px solid var(--gray-200);background:white;padding:0 24px;gap:0;flex-shrink:0;}
+.sec-tab{padding:10px 16px;font-size:13px;font-weight:600;color:var(--gray-400);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;white-space:nowrap;transition:.15s;}
+.sec-tab:hover{color:var(--navy);}
+.sec-tab.active{color:var(--blue);border-bottom-color:var(--blue);}
+
+/* ===== SECTIONS ===== */
+.section{display:none;}
+.section.active{display:block;}
+
+/* ===== ALERT ROWS ===== */
+.alert-row{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--gray-200);transition:.1s;}
+.alert-row:last-child{border-bottom:none;}
+.alert-row:hover{background:var(--blue-light);}
+.alert-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.alert-dot.red{background:var(--red);}
+.alert-dot.orange{background:var(--orange);}
+.alert-dot.yellow{background:#d97706;}
+.alert-info{flex:1;}
+.alert-name{font-size:13px;font-weight:600;}
+.alert-meta{font-size:11px;color:var(--gray-400);margin-top:2px;}
+.alert-right{text-align:right;white-space:nowrap;}
+.days-badge{font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;}
+
+/* ===== FORM RESPONSES ===== */
+.form-row{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--gray-200);transition:.1s;}
+.form-row:last-child{border-bottom:none;}
+.form-row:hover{background:var(--blue-light);}
+.form-icon{font-size:16px;flex-shrink:0;}
+.form-info{flex:1;}
+.form-name{font-size:13px;font-weight:600;}
+.form-sub{font-size:11px;color:var(--gray-400);margin-top:2px;}
+
+/* ===== INTAKE ===== */
+.intake-row{display:flex;align-items:flex-start;gap:12px;padding:12px 16px;border-bottom:1px solid var(--gray-200);transition:.1s;}
+.intake-row:hover{background:var(--blue-light);}
+.intake-dot{width:8px;height:8px;border-radius:50%;background:var(--blue);margin-top:4px;flex-shrink:0;}
+.intake-dot.gray{background:var(--gray-400);}
+
+/* ===== USERS ===== */
+.user-row{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--gray-200);transition:.1s;}
+.user-row:hover{background:var(--blue-light);}
+.u-avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:13px;font-weight:700;flex-shrink:0;}
+.u-name{font-size:13px;font-weight:600;}
+.u-team{font-size:11px;color:var(--gray-400);}
+.u-meta{margin-left:auto;text-align:right;}
+
+/* ===== SHIMSA ARCHIVE ===== */
+.shinsa-row{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--gray-200);transition:.1s;}
+.shinsa-row:hover{background:var(--blue-light);}
+
+/* ===== STATUS DIST ===== */
+.dist-wrap{padding:16px;}
+.dist-bar{display:flex;height:10px;border-radius:5px;overflow:hidden;gap:1px;margin-bottom:12px;}
+.dist-seg{height:100%;transition:width .5s;}
+.dist-legend{display:flex;flex-wrap:wrap;gap:10px;}
+.dist-item{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--gray-700);}
+.dist-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+
+/* ===== GRID ===== */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:0 24px 24px;}
+
+/* ===== LOADING ===== */
+.loading{text-align:center;padding:32px;color:var(--gray-400);font-size:13px;}
+.spinner{width:28px;height:28px;border:3px solid var(--gray-200);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 10px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* ===== EMPTY ===== */
+.empty{text-align:center;padding:32px;color:var(--gray-400);font-size:13px;}
+
+/* ===== TOAST ===== */
+#toast{position:fixed;bottom:20px;right:20px;z-index:9999;background:var(--navy);color:white;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;display:none;box-shadow:0 4px 20px rgba(0,0,0,.2);}
+
+/* ===== LOGIN ===== */
+#loginScreen{display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--gray-100);}
+.login-box{background:white;border-radius:16px;padding:36px 40px;width:360px;box-shadow:0 8px 40px rgba(0,0,0,.1);border:1px solid var(--gray-200);}
+.login-logo-badge{background:#2563eb;color:white;font-size:12px;font-weight:800;padding:4px 10px;border-radius:5px;display:inline-block;margin-bottom:8px;letter-spacing:1px;}
+.login-title{font-size:16px;font-weight:800;color:var(--navy);margin-bottom:4px;}
+.login-sub{font-size:12px;color:var(--gray-400);margin-bottom:24px;}
+.login-box input{width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:14px;color:var(--navy);font-family:inherit;outline:none;margin-bottom:10px;transition:.15s;}
+.login-box input:focus{border-color:var(--blue);}
+.login-box .login-btn{width:100%;padding:11px;background:var(--blue);color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;transition:.15s;}
+.login-box .login-btn:hover{background:#1d4ed8;}
+.login-err{color:var(--red);font-size:12px;margin-top:8px;text-align:center;}
+
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--gray-200);border-radius:3px;}
+</style>
+</head><body>
+
+<!-- ══ LOGIN ══ -->
+<div id="loginScreen">
+  <div class="login-box">
+    <div class="login-logo-badge">OFUSA</div>
+    <div class="login-title">管理ダッシュボード</div>
+    <div class="login-sub">大房行政書士法人 — Admin Monitor</div>
+    <input type="password" id="loginPass" placeholder="管理者パスワード" onkeydown="if(event.key==='Enter')doLogin()">
+    <button class="login-btn" onclick="doLogin()">ログイン</button>
+    <div class="login-err" id="loginErr"></div>
+  </div>
+</div>
+
+<!-- ══ APP ══ -->
+<div class="shell" id="app" style="display:none">
+
+  <!-- SIDEBAR -->
+  <nav class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-badge">OFUSA</div>
+      <div class="logo-title">大房行政書士法人</div>
+      <div class="logo-sub">管理ダッシュボード</div>
+    </div>
+    <div class="sidebar-section">概要</div>
+    <div class="nav-item active" onclick="nav('dashboard')">📊 ダッシュボード</div>
+    <div class="sidebar-section">案件管理</div>
+    <div class="nav-item" onclick="nav('alerts')">🚨 期限アラート <span class="nbadge" id="bdg-alerts">0</span></div>
+    <div class="nav-item" onclick="nav('cases')">📁 案件一覧</div>
+    <div class="nav-item" onclick="nav('tasks')">⚡ タスクアラート <span class="nbadge orange" id="bdg-tasks">0</span></div>
+    <div class="nav-item" onclick="nav('shinsa')">✅ 審査完了 / 認定証 <span class="nbadge orange" id="bdg-shinsa">0</span></div>
+    <div class="sidebar-section">フォーム・受信</div>
+    <div class="nav-item" onclick="nav('forms')">📝 ヒアリング対応 <span class="nbadge orange" id="bdg-forms">0</span></div>
+    <div class="nav-item" onclick="nav('intake')">📥 新規取込 <span class="nbadge blue" id="bdg-intake">0</span></div>
+    <div class="sidebar-section">システム</div>
+    <div class="nav-item" onclick="nav('users')">👥 ユーザー管理</div>
+    <div class="nav-item" onclick="nav('settings')">⚙️ 設定</div>
+    <div class="sidebar-user">
+      <div class="user-info">
+        <div class="user-avatar">管</div>
+        <div>
+          <div class="user-name">管理者</div>
+          <div class="user-role" id="connStatus">接続中...</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px;">
+        <button class="btn btn-outline" style="font-size:11px;padding:5px 10px;" onclick="refreshAll()">🔄 更新</button>
+        <button class="btn btn-outline" style="font-size:11px;padding:5px 10px;" onclick="doLogout()">切断</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="topbar">
+      <div class="page-title" id="pageTitle">ダッシュボード</div>
+      <div class="topbar-right">
+        <span class="last-updated" id="lastUpdated"></span>
+        <button class="btn btn-primary" onclick="refreshAll()">🔄 データ更新</button>
+      </div>
+    </div>
+
+    <div class="content" id="mainContent">
+
+      <!-- ══ DASHBOARD ══ -->
+      <div class="section active" id="sec-dashboard">
+        <div class="stats-section">
+          <div class="stats-grid">
+            <div class="stat-card" onclick="nav('cases')">
+              <div class="stat-label">総案件数（進行中）</div>
+              <div class="stat-num blue" id="st-total">—</div>
+              <div class="stat-sub">完了・審査完了を除く</div>
+            </div>
+            <div class="stat-card" onclick="nav('alerts')">
+              <div class="stat-label">期限切迫（10日以内）</div>
+              <div class="stat-num red" id="st-expiring">—</div>
+              <div class="stat-sub">在留期限</div>
+            </div>
+            <div class="stat-card" onclick="navCasesTokureiAlert()">
+              <div class="stat-label">特例期限 切迫（14日以内）</div>
+              <div class="stat-num red" id="st-tokurei">—</div>
+              <div class="stat-sub">特例期限</div>
+            </div>
+            <div class="stat-card" onclick="navCasesTempReturn()">
+              <div class="stat-label">一時帰国 予定（10日以内）</div>
+              <div class="stat-num blue" id="st-tempreturn">—</div>
+              <div class="stat-sub">帰国予定日</div>
+            </div>
+            <div class="stat-card" onclick="nav('shinsa')">
+              <div class="stat-label">審査完了・認定証 未対応</div>
+              <div class="stat-num orange" id="st-shinsa">—</div>
+              <div class="stat-sub">1日以上経過・未報告</div>
+            </div>
+            <div class="stat-card" onclick="nav('forms')">
+              <div class="stat-label">ヒアリング 未取込</div>
+              <div class="stat-num orange" id="st-forms">—</div>
+              <div class="stat-sub">form_responses</div>
+            </div>
+            <div class="stat-card" onclick="nav('intake')">
+              <div class="stat-label">新規受信 未処理</div>
+              <div class="stat-num blue" id="st-intake">—</div>
+              <div class="stat-sub">intake_requests</div>
+            </div>
+            <div class="stat-card" onclick="navCasesNoExpire()">
+              <div class="stat-label">在留期限 未入力</div>
+              <div class="stat-num red" id="st-no-expire">—</div>
+              <div class="stat-sub">更新・変更／ドライブあり</div>
+            </div>
+            <div class="stat-card" onclick="navCasesNoDrive()">
+              <div class="stat-label">ドライブ 未設定</div>
+              <div class="stat-num red" id="st-no-drive">—</div>
+              <div class="stat-sub">在留期限あり</div>
+            </div>
+            <div class="stat-card" onclick="navCasesBoth()">
+              <div class="stat-label">在留期限＋ドライブ 両方未入力</div>
+              <div class="stat-num red" id="st-both">—</div>
+              <div class="stat-sub">更新・変更のみ</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid2" style="padding-top:16px;">
+          <!-- ステータス分布 -->
+          <div class="table-wrap">
+            <div class="card-header"><div class="card-title">案件ステータス分布</div></div>
+            <div id="statusDist"><div class="loading"><div class="spinner"></div>読み込み中...</div></div>
+          </div>
+          <!-- 期限アラートTOP -->
+          <div class="table-wrap">
+            <div class="card-header">
+              <div class="card-title">🚨 期限切迫 TOP10</div>
+            </div>
+            <div id="alertPreview"><div class="loading"><div class="spinner"></div></div></div>
+          </div>
+        </div>
+
+        <div class="table-section" style="padding-top:0;">
+          <div class="table-wrap">
+            <div class="card-header">
+              <div class="card-title">📝 ヒアリング 未取込フォーム</div>
+            </div>
+            <div id="formPreview"><div class="loading"><div class="spinner"></div></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ ALERTS ══ -->
+      <div class="section" id="sec-alerts">
+        <div class="filters-section">
+          <div class="filters">
+            <input class="search-input" id="alertSearch" placeholder="🔍 氏名・所属機関で検索..." oninput="renderAlerts()">
+            <select class="filter-select" id="alertDays" onchange="renderAlerts()">
+              <option value="7">7日以内</option>
+              <option value="10" selected>10日以内</option>
+              <option value="30">30日以内</option>
+              <option value="60">60日以内</option>
+              <option value="999">全件（期限切れ含む）</option>
+            </select>
+            <select class="filter-select" id="alertTeam" onchange="renderAlerts()">
+              <option value="">全チーム</option>
+            </select>
+            <span class="filter-count" id="alertCount">—件</span>
+          </div>
+        </div>
+        <div class="table-section" style="padding-top:0;">
+          <div class="table-wrap"><div id="alertList"><div class="loading"><div class="spinner"></div></div></div></div>
+        </div>
+      </div>
+
+      <!-- ══ CASES ══ -->
+      <div class="section" id="sec-cases">
+        <div class="filters-section">
+          <div class="filters">
+            <input class="search-input" id="caseSearch" placeholder="🔍 氏名・所属機関・ステータスで検索..." oninput="renderCases()">
+            <select class="filter-select" id="caseStatus" onchange="renderCases()">
+              <option value="">全ステータス</option>
+            </select>
+            <select class="filter-select" id="caseStaff" onchange="renderCases()">
+              <option value="">全担当者</option>
+              <option value="__empty__">担当未入力</option>
+            </select>
+            <select class="filter-select" id="caseTeam" onchange="renderCases()">
+              <option value="">全チーム</option>
+            </select>
+            <select class="filter-select" id="caseType" onchange="renderCases()">
+              <option value="">全種別</option>
+              <option value="認定">認定</option>
+              <option value="更新">更新</option>
+              <option value="変更">変更</option>
+            </select>
+            <button id="caseNoExpireTab" class="btn btn-outline" onclick="toggleNoExpireFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">⚠️ 在留期限未入力 <span id="noExpireTabCount" style="background:#dc2626;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
+            <button id="caseNoDriveTab" class="btn btn-outline" onclick="toggleNoDriveFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">📁 ドライブ未設定 <span id="noDriveTabCount" style="background:#dc2626;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
+            <button id="caseBothTab" class="btn btn-outline" onclick="toggleBothFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">⚠️📁 在留期限＋ドライブURL未入力 <span id="bothTabCount" style="background:#7c3aed;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
+            <button id="caseTokureiTab" class="btn btn-outline" onclick="toggleTokureiFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">⏰ 特例期限14日以内 <span id="tokureiTabCount" style="background:#dc2626;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
+            <button id="caseTempReturnTab" class="btn btn-outline" onclick="toggleTempReturnFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">✈️ 一時帰国10日以内 <span id="tempReturnTabCount" style="background:#2563eb;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
+            <span class="filter-count" id="caseCount">—件</span>
+          </div>
+        </div>
+        <div class="table-section" style="padding-top:0;">
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>氏名</th><th>所属機関</th><th>種別</th>
+                <th>ステータス</th><th>在留期限</th><th>特例期限</th><th>一時帰国</th>
+                <th>担当</th><th>チーム</th><th>タスク</th><th></th>
+              </tr></thead>
+              <tbody id="caseBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ TASKS ══ -->
+      <div class="section" id="sec-tasks">
+        <div class="filters-section">
+          <div class="filters">
+            <input class="search-input" id="taskSearch" placeholder="🔍 氏名・タスク名・担当で検索..." oninput="renderTasks()">
+            <select class="filter-select" id="taskTeam" onchange="renderTasks()">
+              <option value="">全チーム</option>
+            </select>
+            <select class="filter-select" id="taskStaff" onchange="renderTasks()">
+              <option value="">全担当者</option>
+            </select>
+            <span class="filter-count" id="taskCount">—件</span>
+          </div>
+        </div>
+        <div class="table-section" style="padding-top:0;">
+          <div id="taskAlertList"><div class="loading"><div class="spinner"></div></div></div>
+        </div>
+      </div>
+
+      <!-- ══ SHINSA / CERT ══ -->
+      <div class="section" id="sec-shinsa">
+        <div class="sec-tabs">
+          <div class="sec-tab active" onclick="shinsaTab('shinsa_archive',this)">✅ 審査完了 (shinsa_archive)</div>
+          <div class="sec-tab" onclick="shinsaTab('cert_archive',this)">📜 認定証 (cert_archive)</div>
+          <div class="sec-tab" onclick="shinsaTab('receipt_archive',this)">🧾 受領書 (receipt_archive)</div>
+        </div>
+        <div class="filters-section">
+          <div class="filters">
+            <input class="search-input" id="shinsaSearch" placeholder="🔍 氏名・所属機関で検索..." oninput="renderShinsa()">
+            <span class="filter-count" id="shinsaCount">—件</span>
+          </div>
+        </div>
+        <div class="table-section" style="padding-top:0;">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>氏名</th><th>所属機関</th><th>日付</th><th>移動日時</th><th>報告</th><th>PDF</th></tr></thead>
+              <tbody id="shinsaBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ FORMS ══ -->
+      <div class="section" id="sec-forms">
+        <div class="filters-section">
+          <div class="filters">
+            <input class="search-input" id="formSearch" placeholder="🔍 氏名・フォーム種別で検索..." oninput="renderForms()">
+            <select class="filter-select" id="formType" onchange="renderForms()">
+              <option value="">全種別</option>
+              <option value="company">🏢 企業</option>
+              <option value="tokutei_nintei">👤 特定技能・認定</option>
+              <option value="tokutei_koushin">👤 特定技能・更新</option>
+              <option value="tokutei_henkou">👤 特定技能・変更</option>
+              <option value="gijinkoku_nintei">👤 技人国・認定</option>
+              <option value="gijinkoku_koushin">👤 技人国・更新</option>
+              <option value="gijinkoku_henkou">👤 技人国・変更</option>
+            </select>
+            <select class="filter-select" id="formImported" onchange="renderForms()">
+              <option value="0">未取込のみ</option>
+              <option value="">全件</option>
+              <option value="1">取込済みのみ</option>
+            </select>
+            <span class="filter-count" id="formCount">—件</span>
+          </div>
+        </div>
+        <div class="table-section" style="padding-top:0;">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>氏名</th><th>フォーム種別</th><th>送信日時</th><th>取込状況</th><th>case_id</th></tr></thead>
+              <tbody id="formBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ INTAKE ══ -->
+      <div class="section" id="sec-intake">
+        <div class="filters-section">
+          <div class="filters">
+            <input class="search-input" id="intakeSearch" placeholder="🔍 機関名・担当者で検索..." oninput="renderIntake()">
+            <select class="filter-select" id="intakeStatus" onchange="renderIntake()">
+              <option value="pending">未処理のみ</option>
+              <option value="">全件</option>
+              <option value="done">処理済みのみ</option>
+            </select>
+            <span class="filter-count" id="intakeCount">—件</span>
+          </div>
+        </div>
+        <div class="table-section" style="padding-top:0;">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>受信日時</th><th>機関名</th><th>担当者</th><th>内容</th><th>ステータス</th></tr></thead>
+              <tbody id="intakeBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ USERS ══ -->
+      <div class="section" id="sec-users">
+        <div class="filters-section">
+          <div class="filters">
+            <input class="search-input" id="userSearch" placeholder="🔍 名前・チームで検索..." oninput="renderUsers()">
+            <select class="filter-select" id="userTeam" onchange="renderUsers()">
+              <option value="">全チーム</option>
+            </select>
+            <span class="filter-count" id="userCount">—件</span>
+          </div>
+        </div>
+        <div class="table-section" style="padding-top:0;">
+          <div class="table-wrap"><div id="userList"></div></div>
+        </div>
+      </div>
+
+      <!-- ══ SETTINGS ══ -->
+      <div class="section" id="sec-settings">
+        <div class="table-section">
+          <div class="table-wrap" style="padding:20px 24px;">
+            <div style="font-size:14px;font-weight:700;color:var(--navy);margin-bottom:16px;">Supabase 接続設定</div>
+            <div style="margin-bottom:12px;">
+              <div style="font-size:11px;font-weight:700;color:var(--gray-400);margin-bottom:4px;">Project URL</div>
+              <input id="settUrl" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Courier New',monospace;outline:none;" />
+            </div>
+            <div style="margin-bottom:16px;">
+              <div style="font-size:11px;font-weight:700;color:var(--gray-400);margin-bottom:4px;">Anon Key (publishable)</div>
+              <input id="settKey" style="width:100%;padding:9px 12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;font-family:'Courier New',monospace;outline:none;" />
+            </div>
+            <button class="btn btn-primary" onclick="saveSettings()">保存・再接続</button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /mainContent -->
+  </div><!-- /main -->
+</div><!-- /shell -->
+
+<!-- ══ LINE通知文モーダル ══ -->
+<div id="lineModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9000;align-items:center;justify-content:center;">
+  <div style="background:white;border-radius:16px;width:560px;max-width:90vw;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.2);">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;justify-content:space-between;">
+      <div style="font-size:15px;font-weight:800;color:var(--navy);">📱 LINE通知文</div>
+      <button onclick="document.getElementById('lineModal').style.display='none'" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--gray-400);">✕</button>
+    </div>
+    <div style="padding:14px 20px;border-bottom:1px solid var(--gray-200);">
+      <div style="font-size:12px;color:var(--gray-400);margin-bottom:6px;" id="lineModalMeta"></div>
+      <textarea id="lineModalText" style="width:100%;height:280px;padding:12px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:13px;line-height:1.7;font-family:inherit;resize:none;outline:none;" readonly></textarea>
+    </div>
+    <div style="padding:12px 20px;display:flex;justify-content:flex-end;gap:8px;">
+      <button onclick="copyLineText()" style="background:#06c755;color:white;border:none;border-radius:8px;padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer;">📋 コピー</button>
+      <button onclick="document.getElementById('lineModal').style.display='none'" style="background:var(--gray-100);color:var(--navy);border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600;cursor:pointer;">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════
+var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
+var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
+var ADMIN_PASS   = 'ofusa2026admin'; // ← 適宜変更
+var CFG_KEY      = 'ofusa_admin_cfg';
+
+var STATUS_LIST = ['未着手','★質問票送付','質問票回答待ち(送付済)','1-6作成','★1-6企業送付','1-6企業確認待ち(送付済)','1-6修正','★1-6修正送付','サイン書類作成','★サイン書類送付','サイン書類返送待ち(送付済)','★企業押印送付','企業押印返送待ち(送付済)','スキャン書類作成','申請','申請済(番号待)','審査中','要追完','郵送交付','窓口受取','完了'];
+var FORM_TYPE_LABEL = {
+  company:'🏢 企業', tokutei_nintei:'👤 特定・認定', tokutei_koushin:'👤 特定・更新',
+  tokutei_henkou:'👤 特定・変更', gijinkoku_nintei:'👤 技人国・認定',
+  gijinkoku_koushin:'👤 技人国・更新', gijinkoku_henkou:'👤 技人国・変更'
+};
+var TEAM_COLORS = ['#2563eb','#16a34a','#ea580c','#7c3aed','#dc2626','#0891b2','#d97706'];
+
+var _sb = null;
+var DATA = { cases:[], shinsaArchive:[], certArchive:[], receiptArchive:[], forms:[], intake:[], users:[], persons:[], taskStatus:[], taskUrgent:[], taskDeadline:[] };
+var _currentShinsaTable = 'shinsa_archive';
+var _caseNoExpireFilter = false; // 在留期限未入力フィルター状態
+var _caseNoDriveFilter  = false; // ドライブ未設定フィルター状態
+var _caseBothFilter     = false; // 在留期限＋ドライブ両方未入力フィルター状態
+var _caseTokureiFilter  = false; // 特例期限フィルター状態
+var _caseTempReturnFilter = false; // 一時帰国フィルター状態
+var EXCLUDE_STATUSES = ['完了','申請済(番号待)','審査中','要追完','郵送交付','窓口受取'];
+function normalizeStatus(s){
+  return (s||'').replace(/^★/,'').trim()
+    .replace(/（/g,'(').replace(/）/g,')').replace(/\(番号待ち\)/,'(番号待)');
+}
+function isExcluded(status){ return EXCLUDE_STATUSES.indexOf(normalizeStatus(status))!==-1; }
+function getTokureiDate(c){
+  if(c.tokurei_date) return c.tokurei_date;
+  if(c.expire){
+    var parts = c.expire.slice(0,10).split('-');
+    var y=parseInt(parts[0]), m=parseInt(parts[1]), d=parseInt(parts[2]);
+    m += 2;
+    if(m > 12){ m -= 12; y += 1; }
+    // 月末補正
+    var maxD = new Date(y, m, 0).getDate();
+    if(d > maxD) d = maxD;
+    return y+'-'+(m<10?'0'+m:m)+'-'+(d<10?'0'+d:d);
+  }
+  return null;
+}
+function getPersonExtra(caseId){
+  var p=DATA.persons.find(function(p){ return p.case_id===caseId; });
+  if(!p||!p.extra) return {};
+  var ex=p.extra; if(typeof ex==='string'){try{ex=JSON.parse(ex);}catch(e){ex={};}} return ex;
+}
+function getTempReturn(c){
+  return c.temp_return || (getPersonExtra(c.id).tempReturn) || '';
+}
+function hasDrive(caseId){
+  var p = DATA.persons.find(function(p){ return p.case_id===caseId; });
+  if(!p||!p.extra) return false;
+  var ex = p.extra;
+  if(typeof ex === 'string'){ try{ ex = JSON.parse(ex); }catch(e){ return false; } }
+  return !!(ex.driveUrl||ex.driveUrl2||ex.driveUrl3);
+}
+
+// ═══════════════════════════════════════════════
+// LOGIN
+// ═══════════════════════════════════════════════
+window.onload = function(){
+  var cfg = loadCfg();
+  if(cfg.url){ SUPABASE_URL = cfg.url; }
+  if(cfg.key){ SUPABASE_KEY = cfg.key; }
+  // auto-login if saved
+  if(cfg.authed){
+    initApp();
+  }
+};
+
+function doLogin(){
+  var pass = document.getElementById('loginPass').value;
+  var err  = document.getElementById('loginErr');
+  var cfg  = loadCfg();
+  var expected = cfg.adminPass || ADMIN_PASS;
+  if(!pass){ err.textContent = 'パスワードを入力してください'; return; }
+  if(pass !== expected){ err.textContent = 'パスワードが正しくありません'; return; }
+  cfg.authed = true;
+  saveCfg(cfg);
+  initApp();
+}
+
+function doLogout(){
+  var cfg = loadCfg();
+  cfg.authed = false;
+  saveCfg(cfg);
+  _sb = null;
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('loginPass').value = '';
+  document.getElementById('loginErr').textContent = '';
+}
+
+function initApp(){
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  var lib = window.supabase || (window.Supabase && window.Supabase.createClient ? window.Supabase : null);
+  if(lib && lib.createClient){
+    _sb = lib.createClient(SUPABASE_URL, SUPABASE_KEY);
+  }
+  document.getElementById('settUrl').value = SUPABASE_URL;
+  document.getElementById('settKey').value = SUPABASE_KEY;
+  document.getElementById('connStatus').textContent = '接続中 ●';
+  refreshAll();
+}
+
+function saveSettings(){
+  var url = document.getElementById('settUrl').value.trim();
+  var key = document.getElementById('settKey').value.trim();
+  var cfg = loadCfg();
+  cfg.url = url; cfg.key = key;
+  saveCfg(cfg);
+  SUPABASE_URL = url; SUPABASE_KEY = key;
+  var lib = window.supabase || window.Supabase;
+  if(lib && lib.createClient) _sb = lib.createClient(url, key);
+  showToast('✅ 設定を保存しました');
+  refreshAll();
+}
+
+function saveCfg(obj){ try{ localStorage.setItem(CFG_KEY, JSON.stringify(obj)); }catch(e){} }
+function loadCfg(){ try{ return JSON.parse(localStorage.getItem(CFG_KEY)||'{}'); }catch(e){ return {}; } }
+
+// ═══════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════
+var TITLES = { dashboard:'ダッシュボード', alerts:'期限アラート', cases:'案件一覧', tasks:'タスクアラート', shinsa:'審査完了・認定証', forms:'ヒアリングフォーム対応', intake:'新規案件取込', users:'ユーザー管理', settings:'設定' };
+function nav(sec){
+  document.querySelectorAll('.section').forEach(function(s){ s.classList.remove('active'); });
+  document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
+  var el = document.getElementById('sec-'+sec);
+  if(el) el.classList.add('active');
+  var ni = document.querySelector('.nav-item[onclick*="\''+sec+'\'"]');
+  if(ni) ni.classList.add('active');
+  document.getElementById('pageTitle').textContent = TITLES[sec]||sec;
+  window.scrollTo(0,0);
+}
+
+// ═══════════════════════════════════════════════
+// DATA FETCH
+// ═══════════════════════════════════════════════
+function refreshAll(){
+  if(!_sb){ showToast('⚠️ DB未接続'); return; }
+  document.getElementById('lastUpdated').textContent = '更新中...';
+  var done = 0; var total = 10;
+  function tick(){ done++; if(done>=total){ renderAll(); document.getElementById('lastUpdated').textContent = '最終更新: '+new Date().toLocaleTimeString('ja-JP'); showToast('🔄 データ更新完了'); } }
+
+  // cases
+  // cases - 1000件制限回避のため複数バッチで取得
+  var allCases = [];
+  function fetchCasesBatch(from){
+    _sb.from('cases').select('id,name,applicant,nationality,org,company,app_type,residence_status,team,staff,status,expire,shinsa_date,task_done,task_total,updated_at,memo,tokurei_date,temp_return').range(from, from+999).then(function(r){
+      if(!r.error && r.data && r.data.length){
+        allCases = allCases.concat(r.data);
+        if(r.data.length===1000){
+          fetchCasesBatch(from+1000);
+        } else {
+          DATA.cases = allCases;
+          tick();
+        }
+      } else {
+        DATA.cases = allCases;
+        tick();
+      }
+    }).catch(function(){ DATA.cases=allCases; tick(); });
+  }
+  fetchCasesBatch(0);
+
+  // persons (driveUrl判定用)
+  // persons - バッチ取得
+  var allPersons = [];
+  function fetchPersonsBatch(from){
+    _sb.from('persons').select('case_id,extra').range(from, from+999).then(function(r){
+      if(!r.error && r.data && r.data.length){
+        allPersons = allPersons.concat(r.data);
+        if(r.data.length===1000){
+          fetchPersonsBatch(from+1000);
+        } else {
+          DATA.persons = allPersons;
+          tick();
+        }
+      } else {
+        DATA.persons = allPersons;
+        tick();
+      }
+    }).catch(function(){ DATA.persons=[]; tick(); });
+  }
+  fetchPersonsBatch(0);
+
+  // shinsa_archive
+  _sb.from('shinsa_archive').select('*').order('date',{ascending:false}).then(function(r){
+    if(!r.error) DATA.shinsaArchive = r.data||[];
+    tick();
+  }).catch(function(){ tick(); });
+
+  // cert_archive
+  _sb.from('cert_archive').select('*').order('date',{ascending:false}).then(function(r){
+    if(!r.error) DATA.certArchive = r.data||[];
+    tick();
+  }).catch(function(){ tick(); });
+
+  // receipt_archive
+  _sb.from('receipt_archive').select('*').order('date',{ascending:false}).then(function(r){
+    if(!r.error) DATA.receiptArchive = r.data||[];
+    tick();
+  }).catch(function(){ tick(); });
+
+  // form_responses (未削除のみ)
+  _sb.from('form_responses').select('id,case_id,form_type,submitted_at,imported_at,response').is('deleted_at',null).order('submitted_at',{ascending:false}).limit(300).then(function(r){
+    if(!r.error) DATA.forms = r.data||[];
+    tick();
+  }).catch(function(){ tick(); });
+
+  // intake_requests
+  _sb.from('intake_requests').select('*').order('received_at',{ascending:false}).limit(200).then(function(r){
+    if(!r.error) DATA.intake = r.data||[];
+    else DATA.intake = [];
+    tick();
+  }).catch(function(){ DATA.intake=[]; tick(); });
+
+  // doc_tasks (ステータス・期日・急ぎフラグ)
+  _sb.from('doc_tasks').select('case_id,task_index,status,deadline').then(function(r){
+    if(!r.error) DATA.taskStatus = r.data||[];
+    else DATA.taskStatus=[];
+    tick();
+  }).catch(function(){ DATA.taskStatus=[]; tick(); });
+
+  // settings (急ぎフラグ: key='taskMeta')
+  _sb.from('settings').select('value').eq('key','taskMeta').then(function(r){
+    if(!r.error && r.data && r.data[0]){
+      var meta = r.data[0].value;
+      DATA.taskUrgent = (meta && meta.taskUrgent) ? meta.taskUrgent : {};
+    } else {
+      DATA.taskUrgent = {};
+    }
+    tick();
+  }).catch(function(){ DATA.taskUrgent={}; tick(); });
+
+  // task_deadline は doc_tasks に統合済みのためダミーtick
+  DATA.taskDeadline = {};
+  tick();
+}
+
+function loadUsers(){
+  if(!_sb) return;
+  _sb.from('users').select('*').then(function(r){
+    if(!r.error) DATA.users = r.data||[];
+    renderUsers();
+  });
+}
+
+// ═══════════════════════════════════════════════
+// RENDER ALL
+// ═══════════════════════════════════════════════
+function renderAll(){
+  updateBadges();
+  renderDashboard();
+  renderAlerts();
+  renderCases();
+  renderTasks();
+  renderShinsa();
+  renderForms();
+  renderIntake();
+}
+
+// ── BADGES ──
+function updateBadges(){
+  var expiring = DATA.cases.filter(function(c){ var d=daysLeft(c.expire); return d!==null && d<=10 && d>=0 && !isExcluded(c.status); });
+  var now = new Date(); now.setHours(0,0,0,0);
+  var shinsaPending = DATA.shinsaArchive.filter(function(d){ return isOverdueUnreported(d); });
+  var certPending   = DATA.certArchive.filter(function(d){ return isOverdueUnreported(d); });
+  var formPending   = DATA.forms.filter(function(f){ return !f.imported_at; });
+  var intakePending = DATA.intake.filter(function(d){ return d.status==='pending'||!d.status; });
+  var totalShinsa   = shinsaPending.length + certPending.length;
+  var both     = DATA.cases.filter(function(c){ return (c.app_type==='更新'||c.app_type==='変更') && !c.expire && !isExcluded(c.status) && !hasDrive(c.id); });
+  var noExpire = DATA.cases.filter(function(c){ return (c.app_type==='更新'||c.app_type==='変更') && !c.expire && !isExcluded(c.status); });
+  var noDrive  = DATA.cases.filter(function(c){ return !isExcluded(c.status) && !hasDrive(c.id) && c.expire; });
+
+  setBadge('bdg-alerts', expiring.length);
+  setBadge('bdg-shinsa', totalShinsa);
+  setBadge('bdg-forms',  formPending.length);
+  setBadge('bdg-intake', intakePending.length);
+
+  // タスクアラートバッジ（期日未設定 or 期日超過）
+  var taskAlerts = buildTaskAlertItems();
+  setBadge('bdg-tasks', taskAlerts.urgent.length + taskAlerts.overdue.length + taskAlerts.noDeadline.length);
+
+  // タブバッジ更新
+  var tabCount = document.getElementById('noExpireTabCount');
+  if(tabCount){
+    tabCount.textContent = noExpire.length;
+    tabCount.style.display = noExpire.length > 0 ? 'inline-block' : 'none';
+  }
+  var driveTabCount = document.getElementById('noDriveTabCount');
+  if(driveTabCount){
+    driveTabCount.textContent = noDrive.length;
+    driveTabCount.style.display = noDrive.length > 0 ? 'inline-block' : 'none';
+  }
+  var bothTabCount = document.getElementById('bothTabCount');
+  if(bothTabCount){
+    bothTabCount.textContent = both.length;
+    bothTabCount.style.display = both.length > 0 ? 'inline-block' : 'none';
+  }
+
+  // active cases (not 完了/審査完了)
+  var active = DATA.cases.filter(function(c){ return c.status!=='完了'&&c.status!=='審査完了'; });
+  setTxt('st-total',     active.length);
+  setTxt('st-expiring',  expiring.length);
+  setTxt('st-shinsa',    totalShinsa);
+  setTxt('st-forms',     formPending.length);
+  setTxt('st-intake',    intakePending.length);
+  setTxt('st-no-expire', noExpire.length);
+  setTxt('st-no-drive',  noDrive.length);
+  setTxt('st-both',      both.length);
+
+  // 特例期限：対象ステータス絞り込み・14日以内・expire+2ヶ月フォールバック
+  var TOKUREI_TARGET = ['審査中','申請済(番号待)','郵送交付','窓口受取','要追完'];
+  var tokureiAlert = DATA.cases.filter(function(c){
+    var st=normalizeStatus(c.status);
+    if(TOKUREI_TARGET.indexOf(st)===-1) return false;
+    var d=daysLeft(getTokureiDate(c));
+    return d!==null && d<=14 && d>=0;
+  });
+  // 一時帰国：persons.extra.tempReturn・除外ステータスあり・10日以内
+  var TR_EXCLUDE = ['申請済(番号待)','審査中','要追完','郵送交付','窓口受取','完了','審査完了'];
+  var tempReturnAlert = DATA.cases.filter(function(c){
+    var st=normalizeStatus(c.status);
+    if(TR_EXCLUDE.indexOf(st)!==-1) return false;
+    var d=daysLeft(getTempReturn(c)); return d!==null && d<=10 && d>=0;
+  });
+  setTxt('st-tokurei',    tokureiAlert.length);
+  setTxt('st-tempreturn', tempReturnAlert.length);
+  var tokureiTab = document.getElementById('tokureiTabCount');
+  if(tokureiTab){ tokureiTab.textContent=tokureiAlert.length; tokureiTab.style.display=tokureiAlert.length>0?'inline-block':'none'; }
+  var tempReturnTab = document.getElementById('tempReturnTabCount');
+  if(tempReturnTab){ tempReturnTab.textContent=tempReturnAlert.length; tempReturnTab.style.display=tempReturnAlert.length>0?'inline-block':'none'; }
+}
+
+// ── DASHBOARD ──
+function renderDashboard(){
+  renderStatusDist();
+  renderAlertPreview();
+  renderFormPreview();
+}
+
+function renderStatusDist(){
+  var counts={};
+  DATA.cases.forEach(function(c){ var s=c.status||'不明'; counts[s]=(counts[s]||0)+1; });
+  var entries = Object.entries(counts).sort(function(a,b){return b[1]-a[1];});
+  var total = DATA.cases.length||1;
+  var pal = ['#2563eb','#16a34a','#d97706','#ea580c','#7c3aed','#dc2626','#0891b2','#94a3b8'];
+  var el = document.getElementById('statusDist');
+  if(!entries.length){ el.innerHTML='<div class="empty">案件データなし</div>'; return; }
+  var bar = entries.map(function(e,i){ return '<div class="dist-seg" style="width:'+(e[1]/total*100).toFixed(1)+'%;background:'+pal[i%pal.length]+';"></div>'; }).join('');
+  var legend = entries.map(function(e,i){ return '<div class="dist-item"><div class="dist-dot" style="background:'+pal[i%pal.length]+'"></div>'+esc(e[0])+' <strong style="color:var(--navy);margin-left:2px">'+e[1]+'</strong></div>'; }).join('');
+  el.innerHTML='<div class="dist-wrap"><div class="dist-bar">'+bar+'</div><div class="dist-legend">'+legend+'</div></div>';
+}
+
+function renderAlertPreview(){
+  var items = DATA.cases.filter(function(c){ var d=daysLeft(c.expire); return d!==null && d<=10 && d>=-30 && !isExcluded(c.status); })
+    .sort(function(a,b){ return (daysLeft(a.expire)??999)-(daysLeft(b.expire)??999); }).slice(0,10);
+  var el = document.getElementById('alertPreview');
+  if(!items.length){ el.innerHTML='<div class="empty">期限切迫案件なし</div>'; return; }
+  el.innerHTML = items.map(function(c){ return alertRowHtml(c); }).join('');
+}
+
+function renderFormPreview(){
+  var items = DATA.forms.filter(function(f){ return !f.imported_at; }).slice(0,8);
+  var el = document.getElementById('formPreview');
+  if(!items.length){ el.innerHTML='<div class="empty" style="padding:20px">未取込のヒアリングフォームなし</div>'; return; }
+  el.innerHTML = items.map(function(f){ return formRowHtml(f); }).join('');
+}
+
+// ── ALERTS ──
+function renderAlerts(){
+  var q = (document.getElementById('alertSearch').value||'').toLowerCase();
+  var days = parseInt(document.getElementById('alertDays').value||10);
+  var team = document.getElementById('alertTeam').value||'';
+
+  // populate team select
+  var teams = [...new Set(DATA.cases.map(function(c){ return c.team; }).filter(Boolean))];
+  popSelect('alertTeam', teams, team);
+
+  var items = DATA.cases.filter(function(c){
+    var d = daysLeft(c.expire);
+    if(d===null||d>days||d<-999) return false;
+    if(isExcluded(c.status)) return false;
+    if(team && c.team!==team) return false;
+    if(q){ var s=(c.name||'')+(c.org||'')+(c.company||''); if(!s.toLowerCase().includes(q)) return false; }
+    return true;
+  }).sort(function(a,b){ return (daysLeft(a.expire)??999)-(daysLeft(b.expire)??999); });
+
+  setTxt('alertCount', items.length+'件');
+  var el = document.getElementById('alertList');
+  if(!items.length){ el.innerHTML='<div class="empty">該当案件なし</div>'; return; }
+  el.innerHTML = items.map(function(c){ return alertRowHtml(c); }).join('');
+}
+
+function alertRowHtml(c){
+  var d = daysLeft(c.expire);
+  var dot = d<0?'red':d<=5?'red':'orange';
+  var badge, bstyle;
+  if(d<0){    badge='期限切れ '+Math.abs(d)+'日超過'; bstyle='background:#fef2f2;color:#dc2626'; }
+  else if(d===0){ badge='本日期限'; bstyle='background:#fef2f2;color:#dc2626'; }
+  else if(d<=5){  badge='残'+d+'日'; bstyle='background:#fef2f2;color:#dc2626'; }
+  else{           badge='残'+d+'日'; bstyle='background:#fff7ed;color:#ea580c'; }
+  return '<div class="alert-row">'
+    +'<div class="alert-dot '+dot+'"></div>'
+    +'<div class="alert-info">'
+    +'<div class="alert-name">'+esc(c.name||'—')+'<span style="font-weight:400;color:var(--gray-400);font-size:12px;margin-left:8px;">'+esc(c.org||c.company||'')+'</span></div>'
+    +(c.applicant?'<div style="font-size:11px;color:var(--gray-400);margin-top:1px;">'+esc(c.applicant)+'</div>':'')
+    +'<div class="alert-meta">'+typeBadge(c.app_type)+'&nbsp;'+stBadge(c.status)+'&nbsp;担当: '+esc(c.staff||'—')+'　チーム: '+esc(c.team||'—')+'</div>'
+    +'</div>'
+    +'<div class="alert-right">'
+    +'<div class="days-badge" style="'+bstyle+'">'+badge+'</div>'
+    +'<div style="font-size:10px;color:var(--gray-400);margin-top:3px;">'+fmtDate(c.expire)+'</div>'
+    +'</div>'
+    +'</div>';
+}
+
+// ── CASES ──
+function toggleNoExpireFilter(){
+  _caseNoExpireFilter = !_caseNoExpireFilter;
+  if(_caseNoExpireFilter){ _caseNoDriveFilter=false; _caseBothFilter=false; _caseTokureiFilter=false; _caseTempReturnFilter=false; resetFilterBtns(); }
+  var btn = document.getElementById('caseNoExpireTab');
+  if(_caseNoExpireFilter){
+    btn.style.background = '#fef2f2';
+    btn.style.borderColor = '#dc2626';
+    btn.style.color = '#dc2626';
+  } else {
+    btn.style.background = '';
+    btn.style.borderColor = '';
+    btn.style.color = '';
+  }
+  renderCases();
+}
+
+function navCasesNoExpire(){
+  nav('cases');
+  if(!_caseNoExpireFilter) toggleNoExpireFilter();
+}
+
+function toggleNoDriveFilter(){
+  _caseNoDriveFilter = !_caseNoDriveFilter;
+  if(_caseNoDriveFilter){ _caseNoExpireFilter=false; _caseBothFilter=false; _caseTokureiFilter=false; _caseTempReturnFilter=false; resetFilterBtns(); }
+  var btn = document.getElementById('caseNoDriveTab');
+  if(_caseNoDriveFilter){
+    btn.style.background = '#fef2f2';
+    btn.style.borderColor = '#dc2626';
+    btn.style.color = '#dc2626';
+  } else {
+    btn.style.background = '';
+    btn.style.borderColor = '';
+    btn.style.color = '';
+  }
+  renderCases();
+}
+
+function navCasesNoDrive(){
+  nav('cases');
+  if(!_caseNoDriveFilter) toggleNoDriveFilter();
+}
+
+function navCasesBoth(){
+  nav('cases');
+  if(!_caseBothFilter) toggleBothFilter();
+}
+
+function toggleTokureiFilter(){
+  _caseTokureiFilter = !_caseTokureiFilter;
+  if(_caseTokureiFilter){ _caseNoExpireFilter=false; _caseNoDriveFilter=false; _caseBothFilter=false; _caseTempReturnFilter=false; resetFilterBtns(); }
+  var btn = document.getElementById('caseTokureiTab');
+  btn.style.background   = _caseTokureiFilter ? '#fef2f2' : '';
+  btn.style.borderColor  = _caseTokureiFilter ? '#dc2626' : '';
+  btn.style.color        = _caseTokureiFilter ? '#dc2626' : '';
+  renderCases();
+}
+function toggleTempReturnFilter(){
+  _caseTempReturnFilter = !_caseTempReturnFilter;
+  if(_caseTempReturnFilter){ _caseNoExpireFilter=false; _caseNoDriveFilter=false; _caseBothFilter=false; _caseTokureiFilter=false; resetFilterBtns(); }
+  var btn = document.getElementById('caseTempReturnTab');
+  btn.style.background   = _caseTempReturnFilter ? '#eff6ff' : '';
+  btn.style.borderColor  = _caseTempReturnFilter ? '#2563eb' : '';
+  btn.style.color        = _caseTempReturnFilter ? '#2563eb' : '';
+  renderCases();
+}
+function navCasesTokureiAlert(){
+  nav('cases');
+  if(!_caseTokureiFilter) toggleTokureiFilter();
+}
+function navCasesTempReturn(){
+  nav('cases');
+  if(!_caseTempReturnFilter) toggleTempReturnFilter();
+}
+function resetFilterBtns(){
+  ['caseNoExpireTab','caseNoDriveTab','caseBothTab','caseTokureiTab','caseTempReturnTab'].forEach(function(id){
+    var b=document.getElementById(id); if(b){ b.style.background=''; b.style.borderColor=''; b.style.color=''; }
+  });
+}
+
+function toggleBothFilter(){
+  _caseBothFilter = !_caseBothFilter;
+  if(_caseBothFilter){ _caseNoExpireFilter=false; _caseNoDriveFilter=false; _caseTokureiFilter=false; _caseTempReturnFilter=false; resetFilterBtns(); }
+  var btn = document.getElementById('caseBothTab');
+  if(_caseBothFilter){
+    btn.style.background = '#fdf4ff';
+    btn.style.borderColor = '#7c3aed';
+    btn.style.color = '#7c3aed';
+  } else {
+    btn.style.background = '';
+    btn.style.borderColor = '';
+    btn.style.color = '';
+  }
+  renderCases();
+}
+
+function renderCases(){
+  var q    = (document.getElementById('caseSearch').value||'').toLowerCase();
+  var st   = document.getElementById('caseStatus').value||'';
+  var sf   = document.getElementById('caseStaff').value||'';
+  var tm   = document.getElementById('caseTeam').value||'';
+  var tp   = document.getElementById('caseType').value||'';
+
+  var statuses = [...new Set(DATA.cases.map(function(c){return c.status;}).filter(Boolean))];
+  var staffs   = [...new Set(DATA.cases.map(function(c){return c.staff;}).filter(Boolean))].sort();
+  var teams    = [...new Set(DATA.cases.map(function(c){return c.team;}).filter(Boolean))].sort();
+  popSelect('caseStatus', statuses, st);
+  // 担当未入力オプションを保持
+  var staffEl = document.getElementById('caseStaff');
+  if(staffEl){
+    staffEl.innerHTML = '<option value="">全担当者</option><option value="__empty__">担当未入力</option>';
+    staffs.forEach(function(s){ var o=document.createElement('option'); o.value=s; o.textContent=s; staffEl.appendChild(o); });
+    staffEl.value = sf;
+  }
+  popSelect('caseTeam',   teams,    tm);
+
+  // ANDインジケーター
+  var andEl = document.getElementById('andIndicator');
+  if(andEl) andEl.style.display = (_caseNoExpireFilter && _caseNoDriveFilter) ? 'inline-flex' : 'none';
+
+  var items = DATA.cases.filter(function(c){
+    if(st && c.status!==st) return false;
+    if(sf==='__empty__' && c.staff) return false;
+    if(sf && sf!=='__empty__' && c.staff!==sf) return false;
+    if(tm && c.team!==tm)   return false;
+    if(tp && c.app_type!==tp) return false;
+    if(_caseNoExpireFilter){
+      if(c.app_type!=='更新' && c.app_type!=='変更') return false;
+      if(c.expire) return false;
+      if(isExcluded(c.status)) return false;
+    }
+    if(_caseNoDriveFilter){
+      if(isExcluded(c.status)) return false;
+      if(hasDrive(c.id)) return false;
+      if(!c.expire) return false; // 両方なしはbothへ
+    }
+    if(_caseBothFilter){
+      if(c.app_type!=='更新' && c.app_type!=='変更') return false;
+      if(c.expire) return false;
+      if(isExcluded(c.status)) return false;
+      if(hasDrive(c.id)) return false;
+    }
+    if(_caseTokureiFilter){
+      var st2=normalizeStatus(c.status);
+      if(['審査中','申請済(番号待)','郵送交付','窓口受取','要追完'].indexOf(st2)===-1) return false;
+      var td2=daysLeft(getTokureiDate(c));
+      if(td2===null||td2>14||td2<0) return false;
+    }
+    if(_caseTempReturnFilter){
+      var st3=normalizeStatus(c.status);
+      if(['申請済(番号待)','審査中','要追完','郵送交付','窓口受取','完了','審査完了'].indexOf(st3)!==-1) return false;
+      var rd3=daysLeft(getTempReturn(c));
+      if(rd3===null||rd3>10||rd3<0) return false;
+    }
+    if(q){ var s=(c.name||'')+(c.org||'')+(c.company||'')+(c.status||'')+(c.staff||''); if(!s.toLowerCase().includes(q)) return false; }
+    return true;
+  });
+
+  setTxt('caseCount', items.length+'件');
+  var tbody = document.getElementById('caseBody');
+  if(!items.length){ tbody.innerHTML='<tr><td colspan="11" class="empty">該当案件なし</td></tr>'; return; }
+  tbody.innerHTML = items.map(function(c){
+    var d = daysLeft(c.expire);
+    var expCls = d!==null&&d<=10 ? (d<0?'st-red':'st-yellow') : 'st-gray';
+    var prog = (c.task_total>0) ? Math.round(c.task_done/c.task_total*100)+'%' : '—';
+    var isNoExpireAlert = (c.app_type==='更新'||c.app_type==='変更') && !c.expire && !isExcluded(c.status);
+    var isNoDriveAlert  = !isExcluded(c.status) && !hasDrive(c.id);
+    var td = daysLeft(getTokureiDate(c));
+    var trDate = getTempReturn(c);
+    var rd = daysLeft(trDate);
+    var tokSt=normalizeStatus(c.status);
+    var isTokureiAlert   = td!==null && td<=14 && td>=0 && ['審査中','申請済(番号待)','郵送交付','窓口受取','要追完'].indexOf(tokSt)!==-1;
+    var trSt=normalizeStatus(c.status);
+    var isTempReturnAlert= rd!==null && rd<=10 && rd>=0 && ['申請済(番号待)','審査中','要追完','郵送交付','窓口受取','完了','審査完了'].indexOf(trSt)===-1;
+    var expireCell = isNoExpireAlert
+      ? '<span class="st-badge st-red" style="border:1.5px solid #dc2626;">⚠️ 未入力</span>'
+      : '<span class="st-badge '+expCls+'">'+fmtDate(c.expire)+'</span>';
+    var tokureiCell = getTokureiDate(c)
+      ? '<span class="st-badge '+(isTokureiAlert?'st-red':'st-gray')+'">'+fmtDate(getTokureiDate(c))+(isTokureiAlert?' (残'+td+'日)':'')+'</span>'
+      : '<span style="color:var(--gray-400);font-size:11px;">—</span>';
+    var tempReturnCell = trDate
+      ? '<span class="st-badge '+(isTempReturnAlert?'st-blue':'st-gray')+'">'+fmtDate(trDate)+(isTempReturnAlert?' (残'+rd+'日)':'')+'</span>'
+      : '<span style="color:var(--gray-400);font-size:11px;">—</span>';
+    var rowStyle = isNoExpireAlert   ? ' style="background:#fff5f5;"'
+                 : isTokureiAlert    ? ' style="background:#fef2f2;"'
+                 : isTempReturnAlert ? ' style="background:#eff6ff;"'
+                 : isNoDriveAlert    ? ' style="background:#fffbeb;"'
+                 : '';
+    var isBothAlert = isNoExpireAlert && !hasDrive(c.id);
+    var isOnlyDriveAlert = !isNoExpireAlert && isNoDriveAlert;
+    var lineBtn = isBothAlert
+      ? '<button onclick="showLineModal(\''+esc(c.staff||'')+'\',\'both\',event)" style="font-size:11px;padding:4px 8px;background:#7c3aed;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">📱 LINE通知文</button>'
+      : isNoExpireAlert
+        ? '<button onclick="showLineModal(\''+esc(c.staff||'')+'\',\'expire\',event)" style="font-size:11px;padding:4px 8px;background:#06c755;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">📱 LINE通知文</button>'
+        : isOnlyDriveAlert
+          ? '<button onclick="showLineModal(\''+esc(c.staff||'')+'\',\'drive\',event)" style="font-size:11px;padding:4px 8px;background:#d97706;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">📱 LINE通知文</button>'
+          : '';
+    return '<tr'+rowStyle+'>'
+      +'<td><div class="td-name">'+esc(c.name||'—')+'</div><div class="td-sub">'+esc(c.applicant||'')+'</div></td>'
+      +'<td style="font-size:12px;">'+esc(c.org||c.company||'—')+'</td>'
+      +'<td>'+typeBadge(c.app_type)+'</td>'
+      +'<td>'+stBadge(c.status)+'</td>'
+      +'<td>'+expireCell+'</td>'
+      +'<td>'+tokureiCell+'</td>'
+      +'<td>'+tempReturnCell+'</td>'
+      +'<td style="font-size:12px;">'+esc(c.staff||'—')+(isNoDriveAlert?'&nbsp;<span title="ドライブ未設定" style="color:#d97706;">📁</span>':'')+'</td>'
+      +'<td style="font-size:11px;color:var(--gray-400);">'+esc(c.team||'—')+'</td>'
+      +'<td style="font-size:11px;">'+(c.task_total>0?'<div style="display:flex;align-items:center;gap:6px;"><div style="width:60px;height:4px;background:var(--gray-200);border-radius:2px;overflow:hidden;"><div style="width:'+prog+';height:100%;background:var(--blue);border-radius:2px;"></div></div><span style="color:var(--gray-400)">'+c.task_done+'/'+c.task_total+'</span></div>':'—')+'</td>'
+      +'<td>'+lineBtn+'</td>'
+      +'</tr>';
+  }).join('');
+}
+
+// ── TASKS ──
+function buildTaskAlertItems(){
+  // doc_tasks: [{case_id, task_index, status, deadline}, ...]
+  // taskUrgent: {"case_xxx_0": true, ...} (object形式)
+  var urgentMap = (DATA.taskUrgent && typeof DATA.taskUrgent==='object' && !Array.isArray(DATA.taskUrgent))
+    ? DATA.taskUrgent : {};
+
+  var today = new Date(); today.setHours(0,0,0,0);
+  var todayStr = today.toISOString().slice(0,10);
+
+  var urgent=[], overdue=[], noDeadline=[];
+
+  // caseIdでcaseを引くためのMap
+  var caseMap={};
+  DATA.cases.forEach(function(c){ caseMap[c.id]=c; });
+
+  DATA.taskStatus.forEach(function(row){
+    var c = caseMap[row.case_id];
+    if(!c) return;
+    if(isExcluded(c.status)) return;
+    var st = row.status;
+    if(st===4||st===5) return; // 完了・不要はスキップ
+    var ti = row.task_index;
+    var key = row.case_id+'_'+ti;
+    var dl = row.deadline||'';
+    var isUrgent = !!urgentMap[key];
+    var isOverdue = dl && dl < todayStr;
+    var item = { c:c, key:key, ti:ti, st:st, dl:dl, isUrgent:isUrgent, isOverdue:isOverdue };
+    if(isUrgent && isOverdue) urgent.push(item);
+    else if(isOverdue) overdue.push(item);
+    else if(!dl) noDeadline.push(item);
+  });
+
+  // 期日順ソート
+  function byDl(a,b){
+    if(a.dl&&!b.dl) return -1; if(!a.dl&&b.dl) return 1;
+    return a.dl<b.dl?-1:a.dl>b.dl?1:0;
+  }
+  urgent.sort(byDl); overdue.sort(byDl);
+  return { urgent:urgent, overdue:overdue, noDeadline:noDeadline };
+}
+
+var TASK_NAMES_GUARDING = ['質問票作成','1-6作成','サイン書類作成','企業押印書類作成','企業押印依頼','オンラインExcel作成','スキャン作成','窓口申請準備','オンライン申請','窓口申請','追加資料提出','預かり証作成','郵送交付','国交省申請','国交省修正','推薦票取り寄せ'];
+function taskLabel(ti){ return TASK_NAMES_GUARDING[ti]||('タスク'+(ti+1)); }
+function stLabel(st){ return ['未着手','着手依頼','着手中','確認','完了','不要'][st]||'—'; }
+function stColor(st){ return ['#94a3b8','#2563eb','#8b5cf6','#f97316','#16a34a','#94a3b8'][st]||'#94a3b8'; }
+
+function renderTasks(){
+  var q     = (document.getElementById('taskSearch').value||'').toLowerCase();
+  var team  = document.getElementById('taskTeam').value||'';
+  var staff = document.getElementById('taskStaff').value||'';
+
+  var teams  = [...new Set(DATA.cases.map(function(c){ return c.team; }).filter(Boolean))].sort();
+  var staffs = [...new Set(DATA.cases.map(function(c){ return c.staff; }).filter(Boolean))].sort();
+  popSelect('taskTeam',  teams,  team);
+  popSelect('taskStaff', staffs, staff);
+
+  var all = buildTaskAlertItems();
+
+  function filterItem(item){
+    if(team  && item.c.team!==team)   return false;
+    if(staff && item.c.staff!==staff) return false;
+    if(q){
+      var s=(item.c.name||'')+(item.c.org||item.c.company||'')+(item.c.staff||'')+(taskLabel(item.ti));
+      if(!s.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  }
+  var urgent    = all.urgent.filter(filterItem);
+  var overdue   = all.overdue.filter(filterItem);
+  var noDeadline= all.noDeadline.filter(filterItem);
+  var total = urgent.length+overdue.length+noDeadline.length;
+  setTxt('taskCount', total+'件');
+
+  var el = document.getElementById('taskAlertList');
+  if(!total){
+    var dbg = 'アラート対象のタスクなし';
+    if(!DATA.taskStatus.length) dbg += '（doc_tasksデータ未取得 — テーブル名を確認してください）';
+    el.innerHTML='<div class="empty">'+dbg+'</div>';
+    return;
+  }
+
+  // ブロック種別ラベル（左端縦表示用）
+  var BLOCK_DEF = {
+    urgent:     { label:'🔥\n急ぎ\n期日\n超過', bg:'#fff5f5', headerBg:'#fef2f2', border:'#fca5a5', color:'#dc2626' },
+    overdue:    { label:'⚠️\n期日\n超過',       bg:'#fffbeb', headerBg:'#fff7ed', border:'#fdba74', color:'#ea580c' },
+    noDeadline: { label:'📅\n期日\n未設定',      bg:'white',   headerBg:'#f8fafc', border:'#e2e8f0', color:'#64748b' }
+  };
+
+  function taskRow(item, blockKey){
+    var bd = BLOCK_DEF[blockKey];
+    var c=item.c, dl=item.dl, isOverdue=item.isOverdue, isUrgent=item.isUrgent;
+    var d = daysLeft(c.expire);
+    var expCls = d!==null&&d<=10 ? (d<0?'st-red':'st-yellow') : 'st-gray';
+    var dlCell = !dl
+      ? '<span class="st-badge st-gray">未設定</span>'
+      : isOverdue
+        ? '<span class="st-badge st-red" style="border:1.5px solid #dc2626;">⚠️ '+dl+'</span>'
+        : '<span class="st-badge st-yellow">'+dl+'</span>';
+    // 左端ラベルを行ごとに動的に決定
+    var rowLabel, rowLabelColor, rowLabelBg, rowLabelBorder;
+    if(isUrgent && isOverdue){
+      rowLabel='🔥\n急ぎ\n+\n期日\n超過'; rowLabelColor='#dc2626'; rowLabelBg='#fef2f2'; rowLabelBorder='#fca5a5';
+    } else if(isOverdue){
+      rowLabel='⚠️\n期日\n超過'; rowLabelColor='#ea580c'; rowLabelBg='#fff7ed'; rowLabelBorder='#fdba74';
+    } else {
+      rowLabel='📅\n期日\n未設定'; rowLabelColor='#64748b'; rowLabelBg='#f8fafc'; rowLabelBorder='#e2e8f0';
+    }
+    return '<tr style="background:'+bd.bg+';">'
+      +'<td style="padding:0;width:38px;">'
+        +'<div style="width:38px;min-height:48px;height:100%;background:'+rowLabelBg+';border-right:2px solid '+rowLabelBorder+';display:flex;align-items:center;justify-content:center;">'
+          +'<span style="font-size:8px;font-weight:800;color:'+rowLabelColor+';text-align:center;line-height:1.5;white-space:pre-line;">'+rowLabel+'</span>'
+        +'</div>'
+      +'</td>'
+      // 案件名
+      +'<td><div class="td-name">'+esc(c.name||'—')+'</div>'
+        +'<div class="td-sub" style="display:flex;gap:4px;align-items:center;margin-top:2px;flex-wrap:wrap;">'
+          +'<span style="font-size:10px;color:var(--gray-400);">'+esc(c.applicant||'')+'</span>'
+          +'<span style="font-size:10px;font-weight:700;color:'+stColor(item.st)+';background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;padding:1px 5px;">'+taskLabel(item.ti)+'</span>'
+          +(isUrgent?'<span style="font-size:10px;font-weight:800;color:#dc2626;">🔥急ぎ</span>':'')
+        +'</div>'
+      +'</td>'
+      // 所属機関
+      +'<td style="font-size:12px;">'+esc(c.org||c.company||'—')+'</td>'
+      // 種別
+      +'<td>'+typeBadge(c.app_type)+'</td>'
+      // ステータス
+      +'<td>'+stBadge(c.status)+'</td>'
+      // 在留期限
+      +'<td><span class="st-badge '+expCls+'">'+fmtDate(c.expire)+'</span></td>'
+      // 担当
+      +'<td style="font-size:12px;">'+esc(c.staff||'—')+'</td>'
+      // チーム
+      +'<td style="font-size:11px;color:var(--gray-400);">'+esc(c.team||'—')+'</td>'
+      // タスク期日
+      +'<td>'+dlCell+'</td>'
+      +'</tr>';
+  }
+
+  function taskBlock(items, blockKey, headerHtml){
+    if(!items.length) return '';
+    var bd = BLOCK_DEF[blockKey];
+    return '<div class="table-wrap" style="margin-bottom:12px;">'
+      +'<div class="card-header" style="background:'+bd.headerBg+';border-bottom:2px solid '+bd.border+';">'+headerHtml+'</div>'
+      +'<table><thead><tr>'
+        +'<th style="width:38px;padding:0;"></th>'
+        +'<th>氏名 / タスク</th><th>所属機関</th><th>種別</th>'
+        +'<th>ステータス</th><th>在留期限</th><th>担当</th><th>チーム</th><th>タスク期日</th>'
+      +'</tr></thead>'
+      +'<tbody>'+items.map(function(i){ return taskRow(i, blockKey); }).join('')+'</tbody>'
+      +'</table></div>';
+  }
+
+  var html = '';
+  html += taskBlock(urgent,     'urgent',     '<div class="card-title" style="color:#dc2626;">🔥 急ぎ＋期日超過 <span style="background:#dc2626;color:white;font-size:10px;padding:1px 8px;border-radius:10px;margin-left:6px;">'+urgent.length+'件</span></div>');
+  html += taskBlock(overdue,    'overdue',    '<div class="card-title" style="color:#ea580c;">⚠️ 期日超過 <span style="background:#ea580c;color:white;font-size:10px;padding:1px 8px;border-radius:10px;margin-left:6px;">'+overdue.length+'件</span></div>');
+  html += taskBlock(noDeadline, 'noDeadline', '<div class="card-title" style="color:#64748b;">📅 期日未設定 <span style="background:#64748b;color:white;font-size:10px;padding:1px 8px;border-radius:10px;margin-left:6px;">'+noDeadline.length+'件</span></div>');
+  el.innerHTML = '<div style="padding:0 24px 24px;">'+html+'</div>';
+}
+function shinsaTab(tbl, el){
+  _currentShinsaTable = tbl;
+  document.querySelectorAll('.sec-tab').forEach(function(t){ t.classList.remove('active'); });
+  el.classList.add('active');
+  renderShinsa();
+}
+
+function renderShinsa(){
+  var q = (document.getElementById('shinsaSearch').value||'').toLowerCase();
+  var data = _currentShinsaTable==='shinsa_archive' ? DATA.shinsaArchive
+           : _currentShinsaTable==='cert_archive'    ? DATA.certArchive
+           : DATA.receiptArchive;
+
+  var items = data.filter(function(d){
+    if(d.reported) return false; // 未報告のみ固定
+    if(q){ var s=(d.name||'')+(d.org||'')+(d.sub||''); if(!s.toLowerCase().includes(q)) return false; }
+    return true;
+  });
+
+  setTxt('shinsaCount', items.length+'件');
+  var tbody = document.getElementById('shinsaBody');
+  if(!items.length){ tbody.innerHTML='<tr><td colspan="6" class="empty">該当データなし</td></tr>'; return; }
+  var today = new Date(); today.setHours(0,0,0,0);
+  tbody.innerHTML = items.map(function(d){
+    var isOverdue = isOverdueUnreported(d);
+    var rowStyle = isOverdue ? ' style="background:#fff5f5;"' : '';
+    var reportedCell = d.reported
+      ? '<span class="st-badge st-green">✓ 報告済</span>'
+      : isOverdue
+        ? '<span class="st-badge st-red" style="border:1.5px solid #dc2626;">⚠️ 未報告</span>'
+        : '<span class="st-badge st-yellow">未報告</span>';
+    return '<tr'+rowStyle+'>'
+      +'<td class="td-name">'+esc(d.name||'—')+'</td>'
+      +'<td style="font-size:12px;">'+esc(d.org||'—')+'</td>'
+      +'<td style="font-size:12px;">'+fmtDate(d.date)+'</td>'
+      +'<td style="font-size:11px;color:var(--gray-400);">'+fmtDateTime(d.moved_at)+'</td>'
+      +'<td>'+reportedCell+'</td>'
+      +'<td>'+(d.pdf_done?'<span class="st-badge st-green">✓</span>':'<span class="st-badge st-gray">—</span>')+'</td>'
+      +'</tr>';
+  }).join('');
+}
+
+// ── FORMS ──
+function renderForms(){
+  var q  = (document.getElementById('formSearch').value||'').toLowerCase();
+  var tp = document.getElementById('formType').value||'';
+  var im = document.getElementById('formImported').value;
+
+  var items = DATA.forms.filter(function(f){
+    if(tp && f.form_type!==tp) return false;
+    if(im==='0' && f.imported_at) return false;
+    if(im==='1' && !f.imported_at) return false;
+    if(q){
+      var name = (f.response&&(f.response.name||f.response.applicantNameEn))||'';
+      var s = name + (f.form_type||'') + (f.case_id||'');
+      if(!s.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+
+  setTxt('formCount', items.length+'件');
+  var tbody = document.getElementById('formBody');
+  if(!items.length){ tbody.innerHTML='<tr><td colspan="5" class="empty">該当なし</td></tr>'; return; }
+  tbody.innerHTML = items.map(function(f){
+    var name = (f.response&&(f.response.name||f.response.applicantNameEn||f.response.companyName))||'—';
+    return '<tr>'
+      +'<td class="td-name">'+esc(name)+'</td>'
+      +'<td><span class="st-badge st-blue">'+esc(FORM_TYPE_LABEL[f.form_type]||f.form_type||'—')+'</span></td>'
+      +'<td style="font-size:12px;">'+fmtDateTime(f.submitted_at)+'</td>'
+      +'<td>'+(f.imported_at
+          ?'<span class="st-badge st-green">✓ 取込済</span>'
+          :'<span class="st-badge st-orange">未取込</span>')+'</td>'
+      +'<td style="font-size:11px;color:var(--gray-400);">'+esc(f.case_id||'—')+'</td>'
+      +'</tr>';
+  }).join('');
+}
+
+function formRowHtml(f){
+  var name = (f.response&&(f.response.name||f.response.applicantNameEn||f.response.companyName))||'—';
+  return '<div class="form-row">'
+    +'<div class="form-icon">'+((f.form_type||'').startsWith('company')?'🏢':'👤')+'</div>'
+    +'<div class="form-info">'
+    +'<div class="form-name">'+esc(name)+'</div>'
+    +'<div class="form-sub">'+esc(FORM_TYPE_LABEL[f.form_type]||f.form_type||'—')+'　送信: '+fmtDateTime(f.submitted_at)+'</div>'
+    +'</div>'
+    +'<span class="st-badge st-orange">未取込</span>'
+    +'</div>';
+}
+
+// ── INTAKE ──
+function renderIntake(){
+  var q  = (document.getElementById('intakeSearch').value||'').toLowerCase();
+  var st = document.getElementById('intakeStatus').value;
+
+  var items = DATA.intake.filter(function(d){
+    var isPending = !d.status||d.status==='pending';
+    if(st==='pending' && !isPending) return false;
+    if(st==='done' && isPending) return false;
+    if(q){ var s=(d.agency_name||'')+(d.staff_name||'')+(d.content||''); if(!s.toLowerCase().includes(q)) return false; }
+    return true;
+  });
+
+  setTxt('intakeCount', items.length+'件');
+  var tbody = document.getElementById('intakeBody');
+  if(!items.length){ tbody.innerHTML='<tr><td colspan="5" class="empty">受信データなし</td></tr>'; return; }
+  tbody.innerHTML = items.map(function(d){
+    var isPending = !d.status||d.status==='pending';
+    return '<tr>'
+      +'<td style="font-size:12px;">'+fmtDateTime(d.received_at||d.created_at)+'</td>'
+      +'<td class="td-name">'+esc(d.agency_name||'—')+'</td>'
+      +'<td style="font-size:12px;">'+esc(d.staff_name||d.contact_name||'—')+'</td>'
+      +'<td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(d.content||d.note||'—')+'</td>'
+      +'<td>'+(isPending?'<span class="st-badge st-orange">未処理</span>':'<span class="st-badge st-green">処理済</span>')+'</td>'
+      +'</tr>';
+  }).join('');
+}
+
+// ── USERS ──
+function renderUsers(){
+  if(!DATA.users.length){ loadUsers(); return; }
+  var q  = (document.getElementById('userSearch').value||'').toLowerCase();
+  var tm = document.getElementById('userTeam').value||'';
+
+  var teams = [...new Set(DATA.users.map(function(u){ return u.team; }).filter(Boolean))].sort();
+  popSelect('userTeam', teams, tm);
+
+  var items = DATA.users.filter(function(u){
+    if(tm && u.team!==tm) return false;
+    if(q){ var s=(u.name||u.id||'')+(u.team||''); if(!s.toLowerCase().includes(q)) return false; }
+    return true;
+  });
+
+  setTxt('userCount', items.length+'件');
+  var el = document.getElementById('userList');
+  if(!items.length){ el.innerHTML='<div class="empty">ユーザーなし</div>'; return; }
+  el.innerHTML = items.map(function(u,i){
+    var nm = u.name||u.id||'?';
+    var initials = nm.slice(0,2);
+    var color = TEAM_COLORS[i%TEAM_COLORS.length];
+    return '<div class="user-row">'
+      +'<div class="u-avatar" style="background:'+color+';">'+esc(initials)+'</div>'
+      +'<div>'
+        +'<div class="u-name">'+esc(nm)+'</div>'
+        +'<div class="u-team">'+esc(u.team||'—')+'</div>'
+      +'</div>'
+      +(u.is_admin||u.isAdmin ? '<span class="st-badge st-red" style="margin-left:12px;">管理者</span>' : '')
+      +'</div>';
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════
+function parseDateSafe(s){
+  if(!s) return null;
+  // YYYY-MM-DD or YYYY/MM/DD → 確実にローカル日付として解釈
+  var m = String(s).match(/(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if(!m) return null;
+  return new Date(parseInt(m[1]), parseInt(m[2])-1, parseInt(m[3]));
+}
+function isOverdueUnreported(d){
+  if(d.reported) return false;
+  var dt = parseDateSafe(d.date);
+  if(!dt) return false;
+  var today = new Date(); today.setHours(0,0,0,0);
+  return (today - dt) >= 86400000;
+}
+function daysLeft(d){
+  if(!d) return null;
+  var s = String(d).slice(0,10);
+  var m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  var dt = m ? new Date(parseInt(m[1]),parseInt(m[2])-1,parseInt(m[3])) : new Date(d);
+  if(isNaN(dt)) return null;
+  var now = new Date(); now.setHours(0,0,0,0); dt.setHours(0,0,0,0);
+  return Math.round((dt-now)/86400000);
+}
+function fmtDate(d){
+  if(!d) return '—';
+  var dt = new Date(d); if(isNaN(dt)) return d;
+  return dt.toLocaleDateString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit'});
+}
+function fmtDateTime(d){
+  if(!d) return '—';
+  var dt = new Date(d); if(isNaN(dt)) return d;
+  return dt.toLocaleDateString('ja-JP',{month:'2-digit',day:'2-digit'})+' '+dt.getHours()+':'+(('0'+dt.getMinutes()).slice(-2));
+}
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function setTxt(id,v){ var e=document.getElementById(id); if(e) e.textContent=v; }
+function setBadge(id,v){
+  var e=document.getElementById(id);
+  if(!e) return;
+  e.textContent=v;
+  if(v>0) e.classList.add('show'); else e.classList.remove('show');
+}
+function popSelect(id, opts, cur){
+  var el=document.getElementById(id); if(!el) return;
+  var first=el.options[0]; el.innerHTML=''; el.appendChild(first);
+  opts.forEach(function(o){ var opt=document.createElement('option'); opt.value=o; opt.textContent=o; el.appendChild(opt); });
+  el.value=cur;
+}
+function stBadge(s){
+  if(!s) return '<span class="st-badge st-gray">—</span>';
+  var star = s.startsWith('★');
+  var cls = s.includes('完了')||s.includes('許可')?'st-green':
+            s.includes('審査')||s.includes('申請')?'st-blue':
+            s.includes('作成')||s.includes('確認')?'st-yellow':
+            s.includes('要追')||s.includes('修正')?'st-red':'st-gray';
+  return '<span class="st-badge '+cls+'">'+(star?'★ ':'')+esc(s.replace(/^★/,''))+'</span>';
+}
+function typeBadge(t){
+  if(!t) return '';
+  var cls = t==='認定'?'type-new':t==='更新'?'type-renew':t==='変更'?'type-change':'type-new';
+  return '<span class="type-badge '+cls+'">'+esc(t)+'</span>';
+}
+function showLineModal(staff, type, event){
+  if(event) event.stopPropagation();
+  var targets, subject, detail;
+  if(type==='expire'){
+    targets = DATA.cases.filter(function(c){
+      return (c.app_type==='更新'||c.app_type==='変更') && !c.expire && !isExcluded(c.status) && c.staff===staff;
+    });
+    subject = '在留期限が未入力';
+    detail  = 'ご確認・入力をお願いします。';
+  } else if(type==='drive'){
+    targets = DATA.cases.filter(function(c){
+      return !isExcluded(c.status) && !hasDrive(c.id) && c.expire && c.staff===staff;
+    });
+    subject = 'ドライブURLが未入力';
+    detail  = 'ドライブフォルダURLの入力をお願いします。';
+  } else { // both
+    targets = DATA.cases.filter(function(c){
+      return (c.app_type==='更新'||c.app_type==='変更') && !c.expire && !isExcluded(c.status) && !hasDrive(c.id) && c.staff===staff;
+    });
+    subject = '在留期限・ドライブフォルダURLが両方未入力';
+    detail  = 'ご確認・入力をお願いします。';
+  }
+  var today = new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
+  var lines = [];
+  lines.push('@' + staff);
+  lines.push('');
+  lines.push(staff + ' さん');
+  lines.push('');
+  lines.push('お疲れ様です。');
+  lines.push('以下の案件で' + subject + 'になっています。');
+  lines.push(detail);
+  lines.push('');
+  targets.forEach(function(c, i){
+    lines.push((i+1) + '. ' + (c.name||'—'));
+    if(c.applicant) lines.push('   氏名: ' + c.applicant);
+    lines.push('');
+  });
+  lines.push('よろしくお願いいたします。');
+  lines.push('');
+  lines.push('対応期限：' + today);
+  var typeLabel = type==='expire' ? '在留期限未入力' : type==='drive' ? 'ドライブ未設定' : '在留期限＋ドライブ両方未入力';
+  document.getElementById('lineModalMeta').textContent = staff + ' 担当 ／ ' + typeLabel + ' ' + targets.length + '件（' + today + '）';
+  document.getElementById('lineModalText').value = lines.join('\n');
+  var modal = document.getElementById('lineModal');
+  modal.style.display = 'flex';
+}
+function copyLineText(){
+  var ta = document.getElementById('lineModalText');
+  ta.select();
+  document.execCommand('copy');
+  showToast('✅ コピーしました');
+}
+</script>
+</body></html>
