@@ -500,7 +500,7 @@ tr:hover td { background: var(--blue-light); }
                 <option value="入金済">入金済</option>
               </select>
               <button class="btn btn-secondary" onclick="downloadSalesCSV()" style="white-space:nowrap">📥 CSV</button>
-              <button class="btn btn-secondary" onclick="downloadMFCSV()" style="white-space:nowrap;background:#1e3a5f;color:white">📤 マネフォ</button>
+              <button class="btn btn-secondary" onclick="openMFCsvModal()" style="white-space:nowrap;background:#1e3a5f;color:white">📤 マネフォ</button>
               <button class="btn btn-primary" onclick="openSaleModal()">＋ 売上追加</button>
             </div>
           </div>
@@ -908,6 +908,31 @@ tr:hover td { background: var(--blue-light); }
   </div>
 </div>
 
+<!-- ===== マネフォCSV 日付選択モーダル ===== -->
+<div class="overlay" id="mfCsvOverlay" onclick="closeMFCsvModal(event)">
+  <div class="modal" onclick="event.stopPropagation()" style="width:420px">
+    <div class="modal-title">📤 マネフォCSV出力</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:16px" id="mfCsvNote"></div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">請求日</label>
+        <input class="form-input" type="date" id="mf-invoice-date">
+      </div>
+      <div class="form-group">
+        <label class="form-label">お支払期限</label>
+        <input class="form-input" type="date" id="mf-due-date">
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:16px">
+      ※ 未入力の場合：請求日＝当月末、支払期限＝翌月末
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeMFCsvModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="executeMFCSV()">📥 CSV出力</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== PROMPT MODAL ===== -->
 <div class="overlay" id="promptOverlay" onclick="closePromptModal(event)">
   <div class="modal" onclick="event.stopPropagation()" style="width:560px">
@@ -925,7 +950,7 @@ tr:hover td { background: var(--blue-light); }
 // ============================================================
 // STATE
 // ============================================================
-const VERSION = '2026.03.26-41';
+const VERSION = '2026.03.26-42';
 let GAS_URL = localStorage.getItem('gasUrl') || '';
 
 console.log('%c 売上管理ダッシュボード v' + VERSION + ' ', 'background:#0f2040;color:#fff;font-size:14px;padding:4px 8px;border-radius:4px;font-weight:bold;');
@@ -1511,6 +1536,41 @@ function updateSalesSummary(list) {
   document.getElementById('sum-net').textContent = '¥' + net.toLocaleString();
 }
 
+// 月末日を返す
+function endOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+function toDateStr(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function openMFCsvModal() {
+  const checkedIds = getCheckedIds();
+  const note = document.getElementById('mfCsvNote');
+  note.textContent = checkedIds.length > 0
+    ? `選択中 ${checkedIds.length} 件を出力します`
+    : '現在表示中の全件を出力します（KB・返金行を除く）';
+
+  // デフォルト日付：当月末・翌月末
+  const today = new Date();
+  const monthEnd = endOfMonth(today);
+  const nextMonthEnd = endOfMonth(new Date(today.getFullYear(), today.getMonth() + 1, 1));
+  document.getElementById('mf-invoice-date').value = toDateStr(monthEnd);
+  document.getElementById('mf-due-date').value = toDateStr(nextMonthEnd);
+
+  document.getElementById('mfCsvOverlay').classList.add('open');
+}
+
+function closeMFCsvModal(e) {
+  if (!e || e.target === document.getElementById('mfCsvOverlay'))
+    document.getElementById('mfCsvOverlay').classList.remove('open');
+}
+
+function executeMFCSV() {
+  document.getElementById('mfCsvOverlay').classList.remove('open');
+  downloadMFCSV();
+}
+
 function downloadMFCSV() {
   // チェックされた行を優先、なければ現在表示中の全件
   const checkedIds = getCheckedIds();
@@ -1531,6 +1591,13 @@ function downloadMFCSV() {
   }
 
   if (!targets.length) { toast('出力対象がありません', 'error'); return; }
+
+  // 請求日・支払期限（モーダルから取得、未入力なら当月末・翌月末）
+  const today = new Date();
+  const invoiceDateVal = document.getElementById('mf-invoice-date')?.value;
+  const dueDateVal     = document.getElementById('mf-due-date')?.value;
+  const invoiceDate = (invoiceDateVal || toDateStr(endOfMonth(today))).replace(/-/g, '/');
+  const dueDate     = (dueDateVal     || toDateStr(endOfMonth(new Date(today.getFullYear(), today.getMonth() + 1, 1)))).replace(/-/g, '/');
 
   const headers = [
     'csv_type(変更不可)','行形式','取引先名称','件名','請求日','お支払期限','請求書番号',
@@ -1561,7 +1628,7 @@ function downloadMFCSV() {
     const tax   = Math.round(subtotal * taxRate);
     const total = subtotal + tax;
     const stamp = Number(d['収入印紙代']||0) * Number(d['収入印紙枚数']||0);
-    const date  = fmtDate(d['決定日']).replace(/-/g, '/');
+    const sellDate = fmtDate(d['決定日']).replace(/-/g, '/');
     const invStatus = d['請求書ステータス'] === '入金済' ? '入金済み' :
                       d['請求書ステータス'] === '発行済' ? '請求済み' : '未処理';
 
@@ -1570,8 +1637,8 @@ function downloadMFCSV() {
       0: '40101', 1: '請求書',
       2: d['得意先名']||'',
       3: d['品目']||'',
-      4: date, 5: date, 6: '',
-      7: date,
+      4: invoiceDate, 5: dueDate, 6: '',
+      7: sellDate,
       8: d['備考']||'',
       10: subtotal + stamp,
       11: tax,
