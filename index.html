@@ -81,10 +81,9 @@ html,body{height:100%;margin:0;padding:0;}body{font-family:-apple-system,BlinkMa
 
 /* ===== TABLE ===== */
 .table-section{padding:0 24px 24px;flex:1;overflow-y:auto;}
-.table-wrap{background:white;border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--gray-200);overflow:hidden;}
+.table-wrap{background:white;border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--gray-200);}
 table{width:100%;border-collapse:collapse;}
-thead{position:sticky;top:0;z-index:10;}
-thead th{padding:6px 10px;font-size:11px;color:var(--gray-400);font-weight:700;text-align:left;border-bottom:1px solid var(--gray-200);background:#fafafa;white-space:nowrap;}
+thead th{padding:6px 10px;font-size:11px;color:var(--gray-400);font-weight:700;text-align:left;border-bottom:1px solid var(--gray-200);background:#fafafa;white-space:nowrap;position:sticky;top:0;z-index:10;}
 tbody tr{border-bottom:1px solid var(--gray-200);cursor:pointer;transition:.1s;}
 tbody tr:hover{background:var(--blue-light);}
 tbody tr:last-child{border-bottom:none;}
@@ -10625,11 +10624,23 @@ function autoSaveInfo(key, value) {
   c[key] = value;
   _markCaseChanged(c.id);
   logEdit(c.id, '案件', key, oldVal, value);
-  // undoスタックに積む
+  // undoスタックに積む（caseIdをクロージャで保持してcurrentCaseに依存しない）
   (function(_cid, _key, _old, _new){
     _pushUndo({
       label: (_key==='status'?'ステータス変更 → '+_new : _key+' 変更'),
-      undo: function(){ autoSaveInfo(_key, _old); }
+      undo: function(){
+        var _c = cData.find(function(x){return x.id===_cid;});
+        if(!_c) return;
+        _c[_key] = _old;
+        var _COL_MAP2 = {name:'name',staff:'staff',team:'team',org:'org',company:'company',appType:'app_type',residenceStatus:'residence_status',expire:'expire',tokureiDate:'tokurei_date',receiptNo:'receipt_no',receiptDate:'receipt_date',status:'status',docCreateDate:'doc_create_date',applicantField:'applicant_field',jobCategory:'job_category',empSetIdx:'emp_set_idx',applicationDeadline:'application_deadline'};
+        var _col = _COL_MAP2[_key] || _key;
+        var _val = _old || null;
+        if(DB_READY) _sb.from('cases').update({[_col]:_val, updated_at:new Date().toISOString()}).eq('id',_cid).then(function(){});
+        // 現在開いている案件なら表示も更新
+        if(currentCase && currentCase.id===_cid){ currentCase[_key]=_old; showTab('info'); }
+        applyFilters();
+        showToast('↩ ' + _key + ' を元に戻しました');
+      }
     });
   })(c.id, key, oldVal, value);
   // 在留期限変更時 → 特例日を自動計算（未入力の場合のみ）
@@ -15990,8 +16001,9 @@ var _ES_ALIAS = {
 var _undoStack = [];
 var _undoMaxSize = 20;
 
+var _undoInProgress = false;
 function _pushUndo(action) {
-  // action: { label, undo: function }
+  if (_undoInProgress) return; // undo実行中は積まない
   _undoStack.push(action);
   if (_undoStack.length > _undoMaxSize) _undoStack.shift();
   _showUndoToast(action.label);
@@ -16014,7 +16026,8 @@ function doUndo() {
   if (!action) { showToast('元に戻す履歴がありません'); return; }
   var existing = document.getElementById('_undoToast');
   if (existing) existing.remove();
-  action.undo();
+  _undoInProgress = true;
+  try { action.undo(); } finally { setTimeout(function(){ _undoInProgress = false; }, 500); }
   showToast('↩ 「' + action.label + '」を元に戻しました');
 }
 
@@ -18697,15 +18710,13 @@ function setViewMode(mode) {
   var btnList = document.getElementById('viewModeList');
   var btnKanban = document.getElementById('viewModeKanban');
   if (mode === 'kanban') {
-    if(tableEl) tableEl.style.display = '';
-    var tb = document.getElementById('caseTable'); if(tb) tb.style.display = 'none';
+    if(tableEl) tableEl.style.display = 'none';
     if(kanbanEl) kanbanEl.style.display = 'block';
     if(btnList){ btnList.style.background='none'; btnList.style.color='#64748b'; }
     if(btnKanban){ btnKanban.style.background='#2563eb'; btnKanban.style.color='white'; }
     applyFilters();
   } else {
     if(tableEl) tableEl.style.display = '';
-    var tb2 = document.getElementById('caseTable'); if(tb2) tb2.style.display = '';
     if(kanbanEl) kanbanEl.style.display = 'none';
     if(btnList){ btnList.style.background='#2563eb'; btnList.style.color='white'; }
     if(btnKanban){ btnKanban.style.background='none'; btnKanban.style.color='#64748b'; }
@@ -18736,9 +18747,8 @@ function renderKanban() {
     if (!items || !items.length) return;
     found = true;
     h += '<div class="kanban-group" data-status="' + esc(s) + '" style="margin-bottom:10px;">';
-    h += '<div style="font-size:11px;font-weight:800;color:white;padding:5px 12px;background:var(--navy);color:white;border-radius:6px;margin-bottom:4px;padding:4px 12px;display:flex;align-items:center;justify-content:center;gap:12px;position:sticky;top:32px;z-index:5;">';
-    h += '<span>▼▼ ' + esc(s) + ' ▼▼</span><span style="font-size:10px;font-weight:500;color:rgba(255,255,255,0.7);">' + items.length + '件</span></div>';
-    h += '<table style="width:100%;border-collapse:collapse;">';
+    h += '<table style="width:100%;border-collapse:collapse;margin-bottom:4px;">';
+    h += '<thead><tr><th colspan="14" style="background:var(--navy);color:white;padding:5px 12px;text-align:center;position:sticky;top:0;z-index:5;font-size:11px;font-weight:800;">' + esc(s) + ' ' + items.length + '件</th></tr></thead>';
     items.forEach(function(c) {
       var rowHtml = buildCaseRow(c, today, false);
       // draggable属性とdragイベント用data属性を追加
