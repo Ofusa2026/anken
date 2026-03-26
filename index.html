@@ -17919,7 +17919,9 @@ function saveCaseNote(caseId) {
   var ta = document.getElementById('caseNote_' + caseId);
   if (!ta) return;
   if (!caseNotes[caseId]) caseNotes[caseId] = { text:'', confirm:false, assignee:'', reply:'', replied:false };
+  var _oldNote = (caseNotes[caseId]||{}).text||'';
   caseNotes[caseId].text = ta.value;
+  (function(_cid,_old,_new){ if(_old!==_new) _pushUndo({label:'質問メモ変更',undo:function(){var el=document.getElementById('caseNote_'+_cid);if(el){el.value=_old;caseNotes[_cid].text=_old;_persistOneNote(_cid);}}}); })( caseId,_oldNote,ta.value);
   clearTimeout(_saveCaseNoteTimer[caseId]);
   _saveCaseNoteTimer[caseId] = setTimeout(function() {
     _skipCaseNotesRealtime = true;
@@ -18337,7 +18339,9 @@ function setCasePriority(caseId, newPriority) {
     }
   }
 
+  var _oldPri = c.priority;
   c.priority = newPriority;
+  _pushUndo({label:'優先順位変更',undo:function(){setCasePriority(caseId,_oldPri);}});
   persistCasesToDB([c]);
 
   // テーブル再描画（ソートが優先順位なら全体、それ以外は行だけ更新）
@@ -18518,7 +18522,8 @@ function toggleShinsa(el){
     if(!shinsaData[id].date) shinsaData[id].date=new Date().toISOString().slice(0,10);
     // ステータスも審査完了に変更
     var c=cData.find(function(x){return x.id===id;});
-    if(c){c.status='審査完了'; if(DB_READY)_sb.from('cases').update({status:'審査完了', updated_at: new Date().toISOString()}).eq('id',id).then(function(){});persist();}
+    if(c){var _oldSt=c.status; c.status='審査完了'; if(DB_READY)_sb.from('cases').update({status:'審査完了', updated_at: new Date().toISOString()}).eq('id',id).then(function(){});persist();
+    _pushUndo({label:'審査完了にセット',undo:function(){var el=document.querySelector('.shinsa-cb[data-id="'+id+'"]');if(el){el.checked=false;toggleShinsa(el);}}});}
     // 全タスクを完了(3)にする
     for(var i=0;i<TASK_NAMES.length;i++){
       var key=id+'_'+i;
@@ -19789,9 +19794,11 @@ function removeOtherAgency(cid, agkey) {
 function setOtherAgencyFuyo(cid, agkey, fuyo) {
   var c = cData.find(function(x){ return x.id===cid; });
   if(!c||!c.otherAgencies) return;
+  var _oldFuyo = !!c.otherAgencies[agkey+'_fuyo'];
   c.otherAgencies[agkey+'_fuyo'] = fuyo;
   if(fuyo) delete c.otherAgencies[agkey+'_status'];
   saveOtherAgencies(cid, c.otherAgencies);
+  _pushUndo({label:'不要フラグ変更',undo:function(){setOtherAgencyFuyo(cid,agkey,_oldFuyo);}});
   showTab('agencies');
 }
 
@@ -19811,8 +19818,10 @@ function setOtherAgencyStatus(el) {
   var c = cData.find(function(x){ return x.id===cid; });
   if(!c) return;
   if(!c.otherAgencies) c.otherAgencies = {};
+  var _oldSt = c.otherAgencies[agkey+'_status']||'';
   c.otherAgencies[agkey+'_status'] = status;
   saveOtherAgencies(cid, c.otherAgencies);
+  _pushUndo({label:'他機関ステータス変更',undo:function(){c.otherAgencies[agkey+'_status']=_oldSt;saveOtherAgencies(cid,c.otherAgencies);showTab('agencies');}});
   showTab('agencies');
 }
 
@@ -26881,6 +26890,8 @@ function saveMadoguchiNew() {
 }
 
 function autoSaveInfoFor(c, key, value) {
+  var _oldAif = c[key] !== undefined ? c[key] : '';
+  _pushUndo({label:key+' 変更',undo:function(){autoSaveInfoFor(c,key,_oldAif);}});
   if (!c || !DB_READY) return;
   var col = ({
     madoguchiDate: 'madoguchi_date',
