@@ -1030,7 +1030,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             <th style="width:42px;text-align:center;font-size:9px;color:#6b7280;cursor:pointer;" title="優先順位順にソート" onclick="var el=document.getElementById('fSort');if(el){el.value='priority';applyFilters();}">優先 ▲</th>
             <th style="width:32px;"><input type="checkbox" id="groupSelectAll" onchange="toggleGroupSelectAll(this)" style="width:15px;height:15px;cursor:pointer;accent-color:#2563eb;" title="グループ化する案件を選択"></th>
             <th class="sortable-th" onclick="colSort('main','name')">案件名/申請者 <span id="si-main-name"></span></th><th class="sortable-th" onclick="colSort('main','org')" style="max-width:100px;">企業/支援機関 <span id="si-main-org"></span></th>
-            <th class="sortable-th" onclick="colSort('main','appType')" style="width:50px;">種別 <span id="si-main-appType"></span></th><th class="sortable-th" onclick="colSort('main','team')" style="width:49px;">担当 <span id="si-main-team"></span></th><th class="sortable-th" onclick="colSort('main','status')" style="width:80px;">状態 <span id="si-main-status"></span></th><th class="sortable-th" onclick="colSort('main','expire')" style="width:85px;">在留期限<br>特例日 <span id="si-main-expire"></span></th><th class="sortable-th" onclick="colSort('main','tempReturn')">帰国予定 <span id="si-main-tempReturn"></span></th><th class="sortable-th" onclick="colSort('main','applicationDeadline')" style="width:70px;">申請期限 <span id="si-main-applicationDeadline"></span></th><th class="sortable-th" onclick="colSort('main','receiptDate')" style="min-width:70px;">受付番号<br><span style="font-size:9px;font-weight:400;color:#94a3b8;">申請日</span> <span id="si-main-receiptDate"></span></th><th style="min-width:150px;font-size:10px;color:#6b7280;">進捗状況</th>
+            <th class="sortable-th" onclick="colSort('main','appType')" style="width:50px;">種別 <span id="si-main-appType"></span></th><th class="sortable-th" onclick="colSort('main','team')" style="width:49px;">担当 <span id="si-main-team"></span></th><th class="sortable-th" onclick="colSort('main','status')" style="width:80px;">状態 <span id="si-main-status"></span></th><th class="sortable-th" onclick="colSort('main','expire')" style="width:85px;">在留期限<br>特例日 <span id="si-main-expire"></span></th><th class="sortable-th" onclick="colSort('main','tempReturn')">帰国予定 <span id="si-main-tempReturn"></span></th><th class="sortable-th" onclick="colSort('main','applicationDeadline')" style="width:70px;">申請期限 <span id="si-main-applicationDeadline"></span></th><th class="sortable-th" onclick="colSort('main','receiptDate')" style="min-width:70px;">受付番号<br><span style="font-size:9px;font-weight:400;color:#94a3b8;">申請日</span> <span id="si-main-receiptDate"></span></th><th style="width:60px;font-size:10px;color:#6b7280;">希望在留</th><th style="width:80px;font-size:10px;color:#6b7280;">他機関申請</th><th style="min-width:150px;font-size:10px;color:#6b7280;">進捗状況</th>
           </tr>
         </thead>
         <tbody id="caseTable"></tbody>
@@ -18205,6 +18205,26 @@ function buildCaseRow(c, today, inGroup) {
   h += (c.receiptNo?'<span style="color:var(--blue);font-weight:700;">'+c.receiptNo+'</span>':'<span style="color:var(--gray-300);">—</span>');
   if(c.receiptDate) h += '<div style="font-size:9px;color:#64748b;margin-top:1px;">'+c.receiptDate+'</div>';
   h += '</td>';
+  // 希望在留資格
+  var _desiredSt = (personData[c.id]||{}).desiredStatus || c.residenceStatus || '';
+  h += '<td style="'+cs+'font-size:10px;vertical-align:middle;">';
+  if(_desiredSt) h += '<span style="font-size:9px;color:#6366f1;font-weight:700;">'+esc(_desiredSt)+'</span>';
+  h += '</td>';
+  // 他機関申請
+  var _otherAg2 = c.otherAgencies && typeof c.otherAgencies==='object' ? c.otherAgencies : {};
+  var _agKeys2 = ['kokkoSho','jaim','kyogikai','suisensho'];
+  var _agLabels2 = {kokkoSho:'国交省',jaim:'JAIM',kyogikai:'協議会',suisensho:'推薦票'};
+  var _agActive2 = _agKeys2.filter(function(k){ return _otherAg2[k] && !_otherAg2[k+'_fuyo']; });
+  h += '<td style="'+cs+'vertical-align:middle;">';
+  if(_agActive2.length>0){
+    _agActive2.forEach(function(k){
+      var _aSt2 = _otherAg2[k+'_status']||'';
+      var _aCol2 = _aSt2==='完了'?'#16a34a':_aSt2==='申請中'?'#2563eb':_aSt2.indexOf('補正')>=0?'#ef4444':'#6b7280';
+      h += '<div style="font-size:9px;font-weight:800;color:'+_aCol2+';line-height:1.6;">🏛'+esc(_agLabels2[k])+'</div>';
+      if(_aSt2) h += '<div style="font-size:8px;color:'+_aCol2+';margin-bottom:2px;">'+esc(_aSt2)+'</div>';
+    });
+  }
+  h += '</td>';
   // 進捗状況メモ
   var _pm = (caseNotes[c.id] || {}).progressMemo || '';
   h += '<td style="'+cs+'min-width:150px;max-width:220px;vertical-align:top;padding:6px 8px;">';
@@ -18761,7 +18781,7 @@ function applyFilters(resetPage) {
       ? {col: colSortMap[colSt.col], dir: colSt.dir}
       : null;
     sbFetchCases({
-      page: currentPage, pageSize: PAGE_SIZE,
+      page: (_viewMode==='kanban'?1:currentPage), pageSize: (_viewMode==='kanban'?9999:PAGE_SIZE),
       team: team, appType: type, status: status, staff: staff, org: org, search: q, sort: effectiveSort,
       colSort: dbColSort,
       caseIds: window._pendingFilterCaseIds || null
@@ -18776,7 +18796,12 @@ function applyFilters(resetPage) {
       _pruneHassoBadges();
       if(_hassoMode) cases = cases.filter(function(c){ return !!HASSO_BADGES[c.id]; });
       window._filteredCases = cases;
-      if(_viewMode === 'kanban'){ renderKanban(); return; }
+      if(_viewMode === 'kanban'){
+        renderKanban();
+        var pb=document.getElementById('paginationBar'); if(pb) pb.style.display='none';
+        return;
+      }
+      var pb=document.getElementById('paginationBar'); if(pb) pb.style.display='';
       renderTable(cases);
       renderPagination(total, currentPage, PAGE_SIZE);
     });
