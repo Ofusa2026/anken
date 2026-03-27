@@ -942,7 +942,7 @@ tr:hover td { background: var(--blue-light); }
 // ============================================================
 // STATE
 // ============================================================
-const VERSION = '2026.03.27-70';
+const VERSION = '2026.03.27-71';
 
 console.log('%c 売上管理ダッシュボード v' + VERSION + ' ', 'background:#0f2040;color:#fff;font-size:14px;padding:4px 8px;border-radius:4px;font-weight:bold;');
 console.log('%c Supabase直接接続モード ', 'background:#10b981;color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;');
@@ -1239,8 +1239,19 @@ async function loadAll() {
 
     // マスタをmastersオブジェクトに格納
     masters.services = sbMasters.services || [];
-    masters.clients = sbMasters.clients || [];
     masters.staff = sbMasters.staff || [];
+
+    // 売上履歴の得意先名もclients候補に追加（OFUSAに未登録でも検索できるよう）
+    const existingNames = new Set((sbMasters.clients || []).map(c => c['会社名']));
+    const historyClients = [];
+    (salesData || []).forEach(s => {
+      const name = s.client_name || '';
+      if (name && name !== '#N/A' && !existingNames.has(name)) {
+        existingNames.add(name);
+        historyClients.push({ '会社名': name, '_source': 'history' });
+      }
+    });
+    masters.clients = [...(sbMasters.clients || []), ...historyClients];
 
     const badge = document.getElementById('sbSyncBadge');
     if (badge) {
