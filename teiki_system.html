@@ -343,6 +343,9 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="nav-item" data-panel="doccheck" onclick="switchPanel('doccheck',this)">
       <span class="nav-icon">📋</span> 書類チェック
     </div>
+    <div class="nav-item" data-panel="mail" onclick="switchPanel('mail',this)">
+      <span class="nav-icon">✉️</span> 案内文
+    </div>
     <div class="nav-item" data-panel="settings" onclick="switchPanel('settings',this)">
       <span class="nav-icon">⚙️</span> 設定
     </div>
@@ -474,7 +477,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
           <table>
             <thead><tr>
               <th style="width:36px">#</th><th>所属機関名</th><th>ステータス</th>
-              <th>電子届出</th><th>一定の基準</th><th>登録支援機関</th><th>大房書類</th><th>企業書類</th><th>操作</th>
+              <th>担当者</th><th>電子届出</th><th>一定の基準</th><th>大房書類</th><th>企業書類</th><th>操作</th>
             </tr></thead>
             <tbody id="co-table-body">
               <tr><td colspan="9"><div class="empty-state"><div class="spinner"></div></div></td></tr>
@@ -579,6 +582,54 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
       </div>
     </div>
 
+
+    <!-- 案内文テンプレート -->
+    <div id="panel-mail" class="panel">
+      <div style="max-width:720px;display:flex;flex-direction:column;gap:16px">
+        <div class="table-wrapper">
+          <div class="table-header"><span class="table-title">✉️ 企業向け案内文</span></div>
+          <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
+
+            <div class="form-grid">
+              <div class="field-group">
+                <label class="field-label">企業名</label>
+                <input type="text" class="input" id="mail-co-name" placeholder="〇〇株式会社"
+                  oninput="renderMailPreview()">
+              </div>
+              <div class="field-group">
+                <label class="field-label">担当者名</label>
+                <input type="text" class="input" id="mail-contact-name" placeholder="山田 太郎"
+                  oninput="renderMailPreview()">
+              </div>
+              <div class="field-group">
+                <label class="field-label">期限</label>
+                <input type="text" class="input" id="mail-deadline" placeholder="令和7年5月15日（木）"
+                  oninput="renderMailPreview()">
+              </div>
+              <div class="field-group">
+                <label class="field-label">パターン</label>
+                <select class="input" id="mail-pattern" onchange="renderMailPreview()">
+                  <option value="A">A｜基準該当①〜⑤（書類最少）</option>
+                  <option value="B">B｜⑥継続実績（決算書が必要）</option>
+                  <option value="C">C｜基準非該当（書類多・早めに）</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:8px;align-items:center">
+              <button class="btn btn-primary" onclick="copyMailText()">📋 本文をコピー</button>
+              <span id="mail-copy-toast" style="font-size:12px;color:var(--green);display:none">✅ コピーしました</span>
+            </div>
+
+            <div style="font-size:11px;color:var(--text3)">
+              件名：<span id="mail-subject-preview" style="font-weight:600;color:var(--text)"></span>
+            </div>
+            <textarea id="mail-body-preview" class="input" style="height:480px;font-size:12px;line-height:1.8;font-family:inherit;resize:vertical;white-space:pre-wrap" readonly></textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 設定 -->
     <div id="panel-settings" class="panel">
       <div style="max-width:560px;display:flex;flex-direction:column;gap:16px">
@@ -588,6 +639,13 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
             <div class="field-group">
               <label class="field-label">GAS WebアプリURL</label>
               <input type="text" class="input" id="setting-gas-url" placeholder="https://script.google.com/macros/s/...">
+            </div>
+            <div class="field-group">
+              <label class="field-label">Anthropic API Key <span style="font-size:10px;color:var(--text3);font-weight:400">（賃金台帳PDF取込に使用）</span></label>
+              <input type="password" class="input" id="setting-anthropic-key" placeholder="sk-ant-...">
+              <div style="font-size:11px;color:var(--text3);margin-top:4px">
+                🔒 このブラウザのlocalStorageにのみ保存されます。外部には送信されません。
+              </div>
             </div>
             <div class="form-grid">
               <div class="field-group">
@@ -635,6 +693,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
         <button class="tab-btn active" onclick="switchModalTab('tab-co-basic',this)">基本情報</button>
         <button class="tab-btn" onclick="switchModalTab('tab-co-kijun',this)">一定の基準</button>
         <button class="tab-btn" onclick="switchModalTab('tab-co-support',this)">支援機関・役員</button>
+        <button class="tab-btn" onclick="switchModalTab('tab-co-mail',this);renderCoMailPreview()">✉️ 案内文</button>
       </div>
 
       <div id="tab-co-basic">
@@ -657,6 +716,8 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
               <option>未着手</option><option>進行中</option><option>書類収集中</option><option>確認待ち</option><option>完了</option>
             </select>
           </div>
+          <div class="field-group"><label class="field-label">企業担当者名</label><input type="text" class="input" id="co-contact-name" placeholder="山田 太郎"></div>
+          <div class="field-group"><label class="field-label">企業担当者メール</label><input type="text" class="input" id="co-contact-email" placeholder="yamada@example.com"></div>
           <div class="field-group col-span2"><label class="field-label">備考</label><input type="text" class="input" id="co-note"></div>
         </div>
       </div>
@@ -737,6 +798,40 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
           </div>
         </div>
       </div>
+      <div id="tab-co-mail" style="display:none">
+        <div style="display:flex;flex-direction:column;gap:12px;padding:4px 0">
+          <div class="form-grid">
+            <div class="field-group">
+              <label class="field-label">担当者名</label>
+              <input type="text" class="input" id="co-mail-contact" placeholder="山田 太郎"
+                oninput="renderCoMailPreview()">
+            </div>
+            <div class="field-group">
+              <label class="field-label">期限</label>
+              <input type="text" class="input" id="co-mail-deadline" placeholder="令和7年5月15日（木）"
+                oninput="renderCoMailPreview()">
+            </div>
+            <div class="field-group col-span2">
+              <label class="field-label">パターン</label>
+              <select class="input" id="co-mail-pattern" onchange="renderCoMailPreview()">
+                <option value="A">A｜基準該当①〜⑤（書類最少）</option>
+                <option value="B">B｜⑥継続実績（決算書が必要）</option>
+                <option value="C">C｜基準非該当（書類多・早めに）</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-primary btn-sm" onclick="copyCoMailText()">📋 本文をコピー</button>
+            <span id="co-mail-copy-toast" style="font-size:12px;color:var(--green);display:none">✅ コピーしました</span>
+          </div>
+          <div style="font-size:11px;color:var(--text3)">
+            件名：<span id="co-mail-subject-preview" style="font-weight:600;color:var(--text)"></span>
+          </div>
+          <textarea id="co-mail-body-preview" class="input"
+            style="height:340px;font-size:12px;line-height:1.8;font-family:inherit;resize:vertical;white-space:pre-wrap"
+            readonly></textarea>
+        </div>
+      </div>
     </div>
     <div class="modal-foot">
       <button class="btn btn-secondary" onclick="closeModal('modal-company-add')">キャンセル</button>
@@ -780,6 +875,40 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
           <select class="input" id="fg-status"><option>在職</option><option>退職</option><option>休職</option></select>
         </div>
         <div class="field-group col-span3"><label class="field-label">備考</label><input type="text" class="input" id="fg-memo"></div>
+      </div>
+      <div id="tab-co-mail" style="display:none">
+        <div style="display:flex;flex-direction:column;gap:12px;padding:4px 0">
+          <div class="form-grid">
+            <div class="field-group">
+              <label class="field-label">担当者名</label>
+              <input type="text" class="input" id="co-mail-contact" placeholder="山田 太郎"
+                oninput="renderCoMailPreview()">
+            </div>
+            <div class="field-group">
+              <label class="field-label">期限</label>
+              <input type="text" class="input" id="co-mail-deadline" placeholder="令和7年5月15日（木）"
+                oninput="renderCoMailPreview()">
+            </div>
+            <div class="field-group col-span2">
+              <label class="field-label">パターン</label>
+              <select class="input" id="co-mail-pattern" onchange="renderCoMailPreview()">
+                <option value="A">A｜基準該当①〜⑤（書類最少）</option>
+                <option value="B">B｜⑥継続実績（決算書が必要）</option>
+                <option value="C">C｜基準非該当（書類多・早めに）</option>
+              </select>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn btn-primary btn-sm" onclick="copyCoMailText()">📋 本文をコピー</button>
+            <span id="co-mail-copy-toast" style="font-size:12px;color:var(--green);display:none">✅ コピーしました</span>
+          </div>
+          <div style="font-size:11px;color:var(--text3)">
+            件名：<span id="co-mail-subject-preview" style="font-weight:600;color:var(--text)"></span>
+          </div>
+          <textarea id="co-mail-body-preview" class="input"
+            style="height:340px;font-size:12px;line-height:1.8;font-family:inherit;resize:vertical;white-space:pre-wrap"
+            readonly></textarea>
+        </div>
       </div>
     </div>
     <div class="modal-foot">
@@ -859,6 +988,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
 
 <script>
 var GAS_URL = localStorage.getItem('gas_url') || '';
+var ANTHROPIC_KEY = localStorage.getItem('anthropic_key') || '';
 var FISCAL_YEAR = localStorage.getItem('fiscal_year') || '2025';
 var ORG_NAME = localStorage.getItem('org_name') || '株式会社ＫＭＴ';
 var companies = [], foreigners = [], salaryData = [];
@@ -876,14 +1006,17 @@ function loadSettings() {
   document.getElementById('setting-gas-url').value = GAS_URL;
   document.getElementById('setting-year').value = FISCAL_YEAR;
   document.getElementById('setting-org-name').value = ORG_NAME;
+  document.getElementById('setting-anthropic-key').value = ANTHROPIC_KEY;
 }
 function saveSettings() {
   GAS_URL = document.getElementById('setting-gas-url').value.trim();
   FISCAL_YEAR = document.getElementById('setting-year').value.trim();
   ORG_NAME = document.getElementById('setting-org-name').value.trim();
+  ANTHROPIC_KEY = document.getElementById('setting-anthropic-key').value.trim();
   localStorage.setItem('gas_url', GAS_URL);
   localStorage.setItem('fiscal_year', FISCAL_YEAR);
   localStorage.setItem('org_name', ORG_NAME);
+  localStorage.setItem('anthropic_key', ANTHROPIC_KEY);
   showToast('設定を保存しました','success');
 }
 async function testConnection() {
@@ -911,10 +1044,12 @@ async function gasPost(data) {
 async function loadAllData() {
   if (!GAS_URL) return;
   try {
-    var [cos, fgs, reports] = await Promise.all([
-      gasGet({action:'getCompanies'}), gasGet({action:'getForeigners'}), gasGet({action:'getReports', year:FISCAL_YEAR})
+    var [cos, fgs, reports, monthly] = await Promise.all([
+      gasGet({action:'getCompanies'}), gasGet({action:'getForeigners'}),
+      gasGet({action:'getReports', year:FISCAL_YEAR}), gasGet({action:'getMonthly'})
     ]);
     companies = cos || []; foreigners = fgs || [];
+    if (monthly && monthly.length) salaryData = monthly;
     var rm = {}; (reports||[]).forEach(r => rm[r.companyName]=r);
     companies.forEach(function(co) {
       var r = rm[co.name] || {};
@@ -932,12 +1067,20 @@ async function loadAllData() {
   } catch(e) { setApiStatus(false); showToast('取得失敗: '+e.message,'error'); loadLocalCache(); }
 }
 function loadLocalCache() {
-  var c = localStorage.getItem('teiki_companies'), f = localStorage.getItem('teiki_foreigners');
-  if (c) companies = JSON.parse(c); if (f) foreigners = JSON.parse(f);
+  var c = localStorage.getItem('teiki_companies');
+  var f = localStorage.getItem('teiki_foreigners');
+  var s = localStorage.getItem('teiki_salary');
+  if (c) companies = JSON.parse(c);
+  if (f) foreigners = JSON.parse(f);
+  if (s) salaryData = JSON.parse(s);
   renderAll();
 }
 function saveLocalCache() {
-  try { localStorage.setItem('teiki_companies', JSON.stringify(companies)); localStorage.setItem('teiki_foreigners', JSON.stringify(foreigners)); } catch(e){}
+  try {
+    localStorage.setItem('teiki_companies', JSON.stringify(companies));
+    localStorage.setItem('teiki_foreigners', JSON.stringify(foreigners));
+    localStorage.setItem('teiki_salary', JSON.stringify(salaryData));
+  } catch(e){}
 }
 function renderAll() { updateBadges(); renderDashStats(); renderDashTable(); renderCompanyTable(); renderForeignerTable(); renderSalaryCoList(); renderCalcCoList(); renderDocCoList(); updateFgCompanyDatalist(); }
 function refreshData() { document.getElementById('refresh-icon').className='spinner'; loadAllData().then(()=>document.getElementById('refresh-icon').textContent='🔄'); }
@@ -1059,7 +1202,13 @@ function renderSalaryInput() {
   var html='<div class="table-wrapper"><div class="table-header"><span class="table-title">給与データ入力 — '+esc(co.name)+'</span><span class="table-count">'+fgs.length+'名</span></div><div style="padding:16px">';
   if (!fgs.length) html+='<div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">在職中の外国人がいません</div></div>';
   else {
-    html+='<div class="alert alert-info" style="margin-bottom:14px">ℹ️ 給与明細を見ながら年間の月平均値を整数で入力してください。除外：雇用開始月・終了月（途中の月）　含む：休業月</div>';
+    html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">'+
+      '<div class="alert alert-info" style="margin-bottom:0;flex:1">ℹ️ 給与明細を見ながら年間の月平均値を整数で入力してください。除外：雇用開始月・終了月（途中の月）　含む：休業月</div>'+
+      '<label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap">'+
+        '📄 賃金台帳PDF取込'+
+        '<input type="file" accept=".pdf" multiple style="display:none" onchange="importSalaryPDF(event,''+esc(co.name)+'')">'+
+      '</label>'+
+      '</div>';
     fgs.forEach(function(f){
       var sal=salaryData.find(s=>s.companyName===co.name&&s.nameEn===f.nameEn)||{};
       html+='<div style="border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:12px;background:var(--bg2)">'+
@@ -1202,7 +1351,7 @@ function closeModal(id){
   if(id==='modal-company-add'){editingCompanyId=null;resetCompanyForm();}
 }
 function resetCompanyForm(){
-  ['co-name','co-corp-no','co-zip','co-pref','co-address','co-tel','co-rep-name','co-rep-title','co-industry','co-note'].forEach(id=>{var e=document.getElementById(id);if(e)e.value='';});
+  ['co-name','co-corp-no','co-zip','co-pref','co-address','co-tel','co-rep-name','co-rep-title','co-industry','co-contact-name','co-contact-email','co-note'].forEach(id=>{var e=document.getElementById(id);if(e)e.value='';}); 
   document.getElementById('co-fiscal-year').value=FISCAL_YEAR;
   document.getElementById('co-status').value='未着手';
   document.getElementById('co-support-type').value='全部委託(KMT)';
@@ -1224,7 +1373,7 @@ function editCompany(name){
   var co=companies.find(c=>c.name===name); if(!co) return;
   editingCompanyId=co.name;
   document.getElementById('co-modal-title').textContent='所属機関 編集';
-  ['name:co-name','corpNo:co-corp-no','zip:co-zip','pref:co-pref','address:co-address','tel:co-tel','repName:co-rep-name','repTitle:co-rep-title','industry:co-industry','note:co-note'].forEach(function(p){
+  ['name:co-name','corpNo:co-corp-no','zip:co-zip','pref:co-pref','address:co-address','tel:co-tel','repName:co-rep-name','repTitle:co-rep-title','industry:co-industry','contactName:co-contact-name','contactEmail:co-contact-email','note:co-note'].forEach(function(p){
     var [k,id]=p.split(':'); var el=document.getElementById(id); if(el) el.value=co[k]||'';
   });
   document.getElementById('co-fiscal-year').value=co.fiscalYear||FISCAL_YEAR;
@@ -1244,6 +1393,18 @@ function editCompany(name){
   document.getElementById('co-other-support-check').checked=hasOtherSupport;
   document.getElementById('support-other-wrap').style.display=hasOtherSupport?'block':'none';
   (co.has_non_exec_officer==='✓'?document.getElementById('non-exec-yes'):document.getElementById('non-exec-no')).checked=true;
+  // 案内文タブ：kijun_resultからパターンを自動設定
+  var kr = co.kijun_result || calcKijunResult(co);
+  var autoPattern = 'C'; // デフォルトは非該当
+  if (kr && kr !== '非該当') {
+    // ⑥継続実績かどうか
+    autoPattern = (co.kijun_3_type === '⑥継続実績') ? 'B' : 'A';
+  }
+  var patEl = document.getElementById('co-mail-pattern');
+  if (patEl) patEl.value = autoPattern;
+  // 担当者名を企業担当者から自動セット
+  var contactEl = document.getElementById('co-mail-contact');
+  if (contactEl && co.contactName) contactEl.value = co.contactName;
   openModal('modal-company-add');
 }
 async function saveCompany(){
@@ -1256,7 +1417,8 @@ async function saveCompany(){
   data.kijun_result=calcKijunResultFromData(data);
   var local=Object.assign({name,corpNo:document.getElementById('co-corp-no').value,zip:document.getElementById('co-zip').value,pref:document.getElementById('co-pref').value,
     address:document.getElementById('co-address').value,tel:document.getElementById('co-tel').value,repName:document.getElementById('co-rep-name').value,
-    repTitle:document.getElementById('co-rep-title').value,industry:document.getElementById('co-industry').value},data);
+    repTitle:document.getElementById('co-rep-title').value,industry:document.getElementById('co-industry').value,
+    contactName:document.getElementById('co-contact-name').value,contactEmail:document.getElementById('co-contact-email').value},data);
   var idx=companies.findIndex(c=>c.name===name);
   if(idx>=0) companies[idx]=Object.assign(companies[idx],local); else companies.push(local);
   saveLocalCache(); renderAll();
@@ -1386,11 +1548,11 @@ function switchPanel(id,el){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   var p=document.getElementById('panel-'+id); if(p) p.classList.add('active');
   if(el) el.classList.add('active');
-  var t={dashboard:'ダッシュボード',companies:'所属機関一覧',foreigners:'外国人マスタ',salary:'給与データ入力',calc:'自動計算・確認',doccheck:'書類チェック',settings:'設定'};
+  var t={dashboard:'ダッシュボード',companies:'所属機関一覧',foreigners:'外国人マスタ',salary:'給与データ入力',calc:'自動計算・確認',doccheck:'書類チェック',mail:'案内文',settings:'設定'};
   document.getElementById('topbar-title').textContent=t[id]||id;
 }
 function switchModalTab(tabId,btn){
-  ['tab-co-basic','tab-co-kijun','tab-co-support'].forEach(function(t){var el=document.getElementById(t);if(el)el.style.display=t===tabId?'block':'none';});
+  ['tab-co-basic','tab-co-kijun','tab-co-support','tab-co-mail'].forEach(function(t){var el=document.getElementById(t);if(el)el.style.display=t===tabId?'block':'none';});
   document.querySelectorAll('.tab-bar .tab-btn').forEach(b=>b.classList.remove('active'));
   if(btn) btn.classList.add('active');
 }
@@ -1469,6 +1631,281 @@ function showCompanyForeigners(name) {
   document.getElementById('fg-link-modal-title').textContent = name + ' の外国人一覧';
   openModal('modal-fg-link');
 }
+
+// ===== 賃金台帳PDF取り込み =====
+// PDF.jsでテキスト抽出 → 正規表現でパース（年間集計表形式）
+// 対応形式: 給与奉行・マネーフォワード等の年間賃金台帳（月ごとに列が並ぶ形式）
+// APIキーがあればClaudeOCRにフォールバック（任意の形式に対応）
+
+async function importSalaryPDF(event, coName) {
+  var files = Array.from(event.target.files);
+  if (!files.length) return;
+  event.target.value = '';
+  var total = files.length, applied = 0, errors = [];
+
+  // PDF.js 動的ロード
+  if (!window.pdfjsLib) {
+    showToast('PDF.jsを読み込み中...', 'info');
+    await new Promise(function(res, rej) {
+      var s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      s.onload = function() {
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        res();
+      };
+      s.onerror = rej;
+      document.head.appendChild(s);
+    });
+  }
+
+  for (var i = 0; i < files.length; i++) {
+    var file = files[i];
+    showToast('(' + (i+1) + '/' + total + ') ' + file.name + ' を解析中...', 'info');
+    try {
+      // PDFからテキスト抽出
+      var ab = await file.arrayBuffer();
+      var pdf = await pdfjsLib.getDocument({data: ab}).promise;
+      var allText = '';
+      for (var p = 1; p <= pdf.numPages; p++) {
+        var page = await pdf.getPage(p);
+        var tc = await page.getTextContent();
+        // 各テキストアイテムを座標順に並べてレイアウトを保持
+        var items = tc.items.sort(function(a, b) {
+          var dy = Math.round(b.transform[5]/5)*5 - Math.round(a.transform[5]/5)*5;
+          return dy !== 0 ? dy : a.transform[4] - b.transform[4];
+        });
+        var lineMap = {};
+        items.forEach(function(item) {
+          var y = Math.round(item.transform[5] / 3) * 3;
+          if (!lineMap[y]) lineMap[y] = [];
+          lineMap[y].push({x: item.transform[4], str: item.str});
+        });
+        Object.keys(lineMap).sort(function(a,b){return b-a;}).forEach(function(y) {
+          var parts = lineMap[y].sort(function(a,b){return a.x-b.x;}).map(function(i){return i.str;});
+          allText += parts.join('  ') + '\n';
+        });
+      }
+
+      // テキストパース
+      var result = parseSalaryText(allText);
+
+      // APIキーがあり、かつパースが不十分な場合はClaude OCRにフォールバック
+      if (ANTHROPIC_KEY && (!result || !result.data.totalPay)) {
+        showToast('テキスト抽出不十分 → Claude OCRで再試行...', 'info');
+        var base64 = await new Promise(function(resolve, reject) {
+          var reader = new FileReader();
+          reader.onload = function(e) { resolve(e.target.result.split(',')[1]); };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        result = await extractSalaryWithClaude(base64);
+      }
+
+      if (!result || !result.nameEn) { errors.push(file.name + ': 氏名を取得できませんでした'); continue; }
+
+      // 外国人マスタとマッチング
+      var fg = matchForeigner(result.nameEn, coName);
+      if (!fg) { errors.push(result.nameEn + ': 外国人マスタに一致なし（' + coName + '）'); continue; }
+
+      var entry = Object.assign({companyName: coName, nameEn: fg.nameEn, yearMonth: '年間'}, result.data);
+      var idx = salaryData.findIndex(function(s){ return s.companyName===coName && s.nameEn===fg.nameEn; });
+      if (idx >= 0) salaryData[idx] = Object.assign(salaryData[idx], entry);
+      else salaryData.push(entry);
+
+      // GASに自動保存（no-corsのため失敗しても続行）
+      if (GAS_URL) {
+        try {
+          await gasPost(Object.assign({action:'upsertMonthly'}, entry));
+        } catch(e2) {}
+      }
+      applied++;
+
+    } catch(e) { errors.push(file.name + ': ' + e.message); }
+  }
+
+  // localStorageにも保存
+  saveLocalCache();
+  renderSalaryInput();
+  if (applied > 0) showToast(applied + '名分を取り込み・保存しました ✅', 'success');
+  errors.forEach(function(e, i){ setTimeout(function(){ showToast(e, 'warn'); }, (i+1)*1800); });
+}
+
+function matchForeigner(nameEn, coName) {
+  var name = (nameEn||'').toUpperCase().trim();
+  // 完全一致（同会社内）
+  var fg = foreigners.find(function(f) {
+    return f.companyName === coName && (f.nameEn||'').toUpperCase().trim() === name;
+  });
+  if (fg) return fg;
+  // 姓のみ一致（同会社内）
+  var nameParts = name.split(/\s+/);
+  fg = foreigners.find(function(f) {
+    if (f.companyName !== coName) return false;
+    var fParts = (f.nameEn||'').toUpperCase().trim().split(/\s+/);
+    return nameParts.some(function(p){ return p.length > 2 && fParts.includes(p); });
+  });
+  return fg || null;
+}
+
+function parseSalaryText(text) {
+  // 氏名抽出
+  var nm = text.match(/氏名[：:\s]+([A-Z][A-Z\s]+?)(?:\s{2,}|性別|$)/m);
+  if (!nm) return null;
+  var nameEn = nm[1].trim().replace(/\s+/g,' ');
+
+  // ラベル行から数値リストを抽出して月平均を計算
+  function rowVals(label) {
+    var idx = text.indexOf(label);
+    if (idx < 0) return [];
+    // ラベルから改行までの数値を取得
+    var segment = text.slice(idx + label.length, idx + label.length + 500).split('\n')[0];
+    var nums = segment.match(/[\d,]+\.?\d*/g) || [];
+    var vals = nums.map(function(n){ return parseFloat(n.replace(/,/g,'')); }).filter(function(v){ return v > 0; });
+    // 最後が合計値（前の値の1.5倍超）なら除外
+    if (vals.length >= 2 && vals[vals.length-1] > vals[vals.length-2] * 1.5) vals.pop();
+    return vals;
+  }
+  function monthAvg(label, isInt) {
+    var vals = rowVals(label);
+    if (!vals.length) return null;
+    var a = vals.reduce(function(s,v){return s+v;},0) / vals.length;
+    return isInt ? Math.round(a) : Math.round(a*10)/10;
+  }
+
+  var ot1 = monthAvg('残業手当(支給)', true) || 0;
+  var ot2 = monthAvg('深夜残業手当(支給)', true) || 0;
+  var data = {
+    workDays:       monthAvg('出勤日数（平日）', false),
+    scheduledHours: monthAvg('所定時間（平日）', false),
+    overtimeHours:  monthAvg('法定外時間（平日）', false),
+    totalPay:       monthAvg('支給合計', true),
+    overtimePay:    (ot1+ot2) || null,
+    deductions:     monthAvg('控除合計', true),
+    bonus:          0,
+  };
+  // nullを除去
+  Object.keys(data).forEach(function(k){ if (data[k] === null) delete data[k]; });
+
+  return {nameEn: nameEn, data: data};
+}
+
+// Claude OCRフォールバック（APIキーがある場合のみ）
+async function extractSalaryWithClaude(base64) {
+  if (!ANTHROPIC_KEY) return null;
+  var prompt = [
+    '以下は賃金台帳PDFです。下記項目をJSONのみで返してください（説明不要）。',
+    '月平均は空欄・0の月を除いた合計÷月数で計算。数値はカンマ・単位なし。',
+    '{"nameEn":"","months":0,"workDays":0,"scheduledHours":0,"overtimeHours":0,',
+    '"totalPay":0,"overtimePay":0,"deductions":0,"bonus":0}'
+  ].join('\n');
+  var resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_KEY,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514', max_tokens: 500,
+      messages: [{role:'user', content:[
+        {type:'document', source:{type:'base64', media_type:'application/pdf', data:base64}},
+        {type:'text', text:prompt}
+      ]}]
+    })
+  });
+  var json = await resp.json();
+  var text = (json.content||[]).map(function(b){return b.text||'';}).join('');
+  var m = text.match(/\{[\s\S]+\}/);
+  if (!m) return null;
+  var p = JSON.parse(m[0]);
+  return {
+    nameEn: p.nameEn || '',
+    data: {
+      workDays: p.workDays||null, scheduledHours: p.scheduledHours||null,
+      overtimeHours: p.overtimeHours||null, totalPay: p.totalPay||null,
+      overtimePay: p.overtimePay||null, deductions: p.deductions||null,
+      bonus: p.bonus||0
+    }
+  };
+}
+
+
+// ===== 案内文テンプレート =====
+var MAIL_TEMPLATES = {
+  A: {
+    subject: '【大房行政書士法人】特定技能外国人 定期届出のご案内',
+    body: function(co, contact, deadline) {
+      return co + '\n' + contact + ' 様\n\nいつもお世話になっております。\n大房行政書士法人の阪本でございます。\n\n特定技能外国人の定期届出の時期が参りましたので、ご案内いたします。\n\n━━━━━━━━━━━━━━━━━━━\n【今回ご用意いただくもの】\n━━━━━━━━━━━━━━━━━━━\n\n以下の2点をお送りください。\n\n▶【１】在籍している特定技能外国人の賃金台帳のコピー\n　　　　（令和7年4月〜令和8年3月分・全員分）\n\n▶【２】同じ仕事をしている日本人従業員の賃金台帳のコピー\n　　　　（同期間分）\n　　　　※ 氏名・生年月日の部分を黒く塗りつぶしてからお送りください。\n　　　　※ やり方がわからない場合は、該当箇所を紙で隠して写真撮影でも構いません。\n　　　　※ 以前の届出で比較対象にしていた方が退職された場合は、\n　　　　　 別の日本人従業員のものでも問題ありません。\n\n━━━━━━━━━━━━━━━━━━━\n【送付方法・期限】\n━━━━━━━━━━━━━━━━━━━\n\n・スキャンまたは写真撮影してメールに添付してください。\n・送付先：k.sakamoto@gyosei-cambo.com\n・期　限：' + deadline + 'まで\n\nご不明な点は代表・大房までお気軽にお電話ください。\nTEL：070-4200-4733\n\n引き続きよろしくお願いいたします。\n\n━━━━━━━━━━━━━━━━━━━\n大房行政書士法人\n担当：阪本\nMail：k.sakamoto@gyosei-cambo.com\n━━━━━━━━━━━━━━━━━━━';
+    }
+  },
+  B: {
+    subject: '【大房行政書士法人】特定技能外国人 定期届出のご案内',
+    body: function(co, contact, deadline) {
+      return co + '\n' + contact + ' 様\n\nいつもお世話になっております。\n大房行政書士法人の阪本でございます。\n\n特定技能外国人の定期届出の時期が参りましたので、ご案内いたします。\n\n━━━━━━━━━━━━━━━━━━━\n【今回ご用意いただくもの】\n━━━━━━━━━━━━━━━━━━━\n\n以下の3点をお送りください。\n\n▶【１】在籍している特定技能外国人の賃金台帳のコピー\n　　　　（令和7年4月〜令和8年3月分・全員分）\n\n▶【２】同じ仕事をしている日本人従業員の賃金台帳のコピー\n　　　　（同期間分）\n　　　　※ 氏名・生年月日の部分を黒く塗りつぶしてからお送りください。\n　　　　※ やり方がわからない場合は、該当箇所を紙で隠して写真撮影でも構いません。\n\n▶【３】直近3期分の決算書のコピー\n　　　　（または下記の数字をご連絡ください）\n　　　　・売上高\n　　　　・経常損益（利益または損失）\n　　　　・純損益（利益または損失）\n　　　　・純資産（プラスかマイナスかも教えてください）\n\n━━━━━━━━━━━━━━━━━━━\n【1点だけご確認ください】\n━━━━━━━━━━━━━━━━━━━\n\n直近の決算で「純資産がマイナス（債務超過）」になっていませんか？\nマイナスの場合は別途対応が必要になりますので、お早めにご連絡ください。\n\n━━━━━━━━━━━━━━━━━━━\n【送付方法・期限】\n━━━━━━━━━━━━━━━━━━━\n\n・スキャンまたは写真撮影してメールに添付してください。\n・送付先：k.sakamoto@gyosei-cambo.com\n・期　限：' + deadline + 'まで\n\nご不明な点は代表・大房までお気軽にお電話ください。\nTEL：070-4200-4733\n\n引き続きよろしくお願いいたします。\n\n━━━━━━━━━━━━━━━━━━━\n大房行政書士法人\n担当：阪本\nMail：k.sakamoto@gyosei-cambo.com\n━━━━━━━━━━━━━━━━━━━';
+    }
+  },
+  C: {
+    subject: '【大房行政書士法人】特定技能外国人 定期届出のご案内（重要）',
+    body: function(co, contact, deadline) {
+      return co + '\n' + contact + ' 様\n\nいつもお世話になっております。\n大房行政書士法人の阪本でございます。\n\n特定技能外国人の定期届出の時期が参りましたので、ご案内いたします。\n今回はご準備いただく書類が少し多くなりますが、一つひとつ確認しながら\n進めますのでご安心ください。\n\n━━━━━━━━━━━━━━━━━━━\n【今回ご用意いただくもの】\n━━━━━━━━━━━━━━━━━━━\n\n▶【１】在籍している特定技能外国人の賃金台帳のコピー\n　　　　（令和7年4月〜令和8年3月分・全員分）\n\n▶【２】同じ仕事をしている日本人従業員の賃金台帳のコピー\n　　　　（同期間分）\n　　　　※ 氏名・生年月日の部分を黒く塗りつぶしてからお送りください。\n　　　　※ やり方がわからない場合は、該当箇所を紙で隠して写真撮影でも構いません。\n\n▶【３】役員の氏名と役職（全員分・ふりがなもあると助かります）\n　　　　例）代表取締役　〇〇 〇〇（ふりがな）\n　　　　　　取締役　　　〇〇 〇〇（ふりがな）\n\n▶【４】直近3期分の決算書のコピー\n　　　　（または下記の数字をご連絡ください）\n　　　　・売上高\n　　　　・経常損益（利益または損失）\n　　　　・純損益（利益または損失）\n　　　　・純資産（プラスかマイナスかも教えてください）\n\n▶【５】過去1年間の従業員の離職状況\n　　　　・特定技能外国人と同じ仕事をしていた日本人で退職した方の人数\n　　　　　（本人都合・会社都合に分けてお教えください）\n　　　　・外国人従業員で行方不明になった方の有無\n\n━━━━━━━━━━━━━━━━━━━\n【送付方法・期限】\n━━━━━━━━━━━━━━━━━━━\n\n・スキャンまたは写真撮影してメールに添付してください。\n・送付先：k.sakamoto@gyosei-cambo.com\n・期　限：' + deadline + 'まで\n\n※ 今回は書類の種類が多いため、早めのご準備をお願いいたします。\n　 ご不明な点は代表・大房までお気軽にお電話ください。\n　 TEL：070-4200-4733\n\n引き続きよろしくお願いいたします。\n\n━━━━━━━━━━━━━━━━━━━\n大房行政書士法人\n担当：阪本\nMail：k.sakamoto@gyosei-cambo.com\n━━━━━━━━━━━━━━━━━━━';
+    }
+  }
+};
+
+function renderMailPreview() {
+  var co       = document.getElementById('mail-co-name').value       || '〇〇株式会社';
+  var contact  = document.getElementById('mail-contact-name').value  || '〇〇';
+  var deadline = document.getElementById('mail-deadline').value       || '〇〇年〇月〇〇日（〇）';
+  var pattern  = document.getElementById('mail-pattern').value;
+  var tmpl     = MAIL_TEMPLATES[pattern];
+  document.getElementById('mail-subject-preview').textContent = tmpl.subject;
+  document.getElementById('mail-body-preview').value = tmpl.body(co, contact, deadline);
+}
+
+function copyMailText() {
+  var subject = document.getElementById('mail-subject-preview').textContent;
+  var body    = document.getElementById('mail-body-preview').value;
+  var full    = '件名：' + subject + '\n\n' + body;
+  navigator.clipboard.writeText(full).then(function() {
+    var el = document.getElementById('mail-copy-toast');
+    el.style.display = 'inline';
+    setTimeout(function(){ el.style.display = 'none'; }, 2500);
+  });
+}
+
+// 案内文パネルを開いたとき自動でプレビュー生成
+var _origSwitchPanel = switchPanel;
+switchPanel = function(id, el) {
+  _origSwitchPanel(id, el);
+  if (id === 'mail') renderMailPreview();
+};
+
+
+// ===== 企業モーダル内 案内文タブ =====
+function renderCoMailPreview() {
+  var coEl = document.getElementById('co-name');
+  var co       = (coEl ? coEl.value.trim() : '') || '〇〇株式会社';
+  var contact  = document.getElementById('co-mail-contact').value.trim()  || '〇〇';
+  var deadline = document.getElementById('co-mail-deadline').value.trim() || '〇〇年〇月〇〇日（〇）';
+  var pattern  = document.getElementById('co-mail-pattern').value;
+  var tmpl     = MAIL_TEMPLATES[pattern];
+  if (!tmpl) return;
+  document.getElementById('co-mail-subject-preview').textContent = tmpl.subject;
+  document.getElementById('co-mail-body-preview').value = tmpl.body(co, contact, deadline);
+}
+
+function copyCoMailText() {
+  var subject = document.getElementById('co-mail-subject-preview').textContent;
+  var body    = document.getElementById('co-mail-body-preview').value;
+  navigator.clipboard.writeText('件名：' + subject + '\n\n' + body).then(function() {
+    var el = document.getElementById('co-mail-copy-toast');
+    el.style.display = 'inline';
+    setTimeout(function(){ el.style.display = 'none'; }, 2500);
+  });
+}
+
 </script>
 </body>
 </html>
