@@ -18787,14 +18787,18 @@ function renderKanban() {
   var statusGroups = {};
   STATUS_LIST.forEach(function(s){ statusGroups[s] = []; });
   data.forEach(function(c){
-    if (!statusGroups[c.status]) statusGroups[c.status] = [];
-    statusGroups[c.status].push(c);
+    var st = c.status || '未着手';
+    if (!statusGroups[st]) statusGroups[st] = []; // STATUS_LISTにないステータスも表示
+    statusGroups[st].push(c);
   });
 
   var today = new Date(); today.setHours(0,0,0,0);
   var h = '';
   var found = false;
-  STATUS_LIST.forEach(function(s) {
+  // STATUS_LIST順 + それ以外のステータス
+  var allStatuses = STATUS_LIST.slice();
+  Object.keys(statusGroups).forEach(function(s){ if(allStatuses.indexOf(s)<0) allStatuses.push(s); });
+  allStatuses.forEach(function(s) {
     var items = statusGroups[s];
     if (!items || !items.length) return;
     found = true;
@@ -27106,7 +27110,9 @@ function renderMadoguchiScreen() {
 function openGmail() {
   // 取込中なら状態を復元して表示
   if(bgImport.running || bgImport.logs.length) {
-    MAILS = savedMails.filter(function(m){return !!({'審査完了':1,'受付番号':1,'認定証明書':1})[m.badge];});
+    var _movedIdsOpen={};
+    try{var _mcO=JSON.parse(localStorage.getItem('ofusa_movedMailIds')||'{}');Object.keys(_mcO).forEach(function(k){_movedIdsOpen[k]=1;});}catch(e){}
+    MAILS = savedMails.filter(function(m){return !!({'審査完了':1,'受付番号':1,'認定証明書':1})[m.badge] && !_movedIdsOpen[m.id];});
     renderMails();
     switchPanel('gmailScreen', 'nav-gmail');
     restoreImportUI();
@@ -32083,7 +32089,12 @@ function loadAllFromSupabase() {
             }catch(e){}
           }
           if(s.key==='saved_mails') {
-            try{var sm=typeof s.value==='string'?JSON.parse(s.value):s.value;if(sm&&Array.isArray(sm)){var _kb3={'審査完了':1,'受付番号':1,'認定証明書':1};savedMails=sm.filter(function(m){return !!_kb3[m.badge];});localStorage.setItem('ofusa_savedMails',JSON.stringify(sm));}}catch(e){}
+            try{var sm=typeof s.value==='string'?JSON.parse(s.value):s.value;if(sm&&Array.isArray(sm)){
+              var _kb3={'審査完了':1,'受付番号':1,'認定証明書':1};
+              var _movedDB={};try{var _mcDB=JSON.parse(localStorage.getItem('ofusa_movedMailIds')||'{}');Object.keys(_mcDB).forEach(function(k){_movedDB[k]=1;});}catch(e){}
+              savedMails=sm.filter(function(m){return !!_kb3[m.badge] && !_movedDB[m.id];});
+              localStorage.setItem('ofusa_savedMails',JSON.stringify(savedMails));
+            }}catch(e){}
           }
           // shinsa_list/cert_list/receipt_list は専用テーブルから読み込むためsettingsからは不要
           if(s.key==='edit_history') {
