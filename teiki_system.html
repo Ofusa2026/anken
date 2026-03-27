@@ -440,7 +440,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
         <div style="max-height:420px;overflow-y:auto">
           <table>
             <thead><tr>
-              <th>所属機関名</th><th>ステータス</th><th>一定の基準</th>
+              <th>所属機関名</th><th>ステータス</th><th>一定の基準</th><th>不足</th>
               <th>登録支援機関</th><th>書類進捗</th><th>操作</th>
             </tr></thead>
             <tbody id="dash-table-body">
@@ -477,7 +477,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
           <table>
             <thead><tr>
               <th style="width:36px">#</th><th>所属機関名</th><th>ステータス</th>
-              <th>担当者</th><th>電子届出</th><th>一定の基準</th><th>大房書類</th><th>企業書類</th><th>操作</th>
+              <th>担当者</th><th>電子届出</th><th>一定の基準</th><th>不足情報</th><th>大房書類</th><th>企業書類</th><th>操作</th>
             </tr></thead>
             <tbody id="co-table-body">
               <tr><td colspan="9"><div class="empty-state"><div class="spinner"></div></div></td></tr>
@@ -1181,7 +1181,9 @@ function renderDashTable() {
   document.getElementById('dash-table-body').innerHTML=list.map(function(co){
     var kr=co.kijun_result||calcKijunResult(co);
     var d=countDocsDone(co,'ofusa'), t=7, pct=Math.round(d/t*100);
-    return '<tr><td style="font-weight:600">'+esc(co.name)+'</td><td>'+statusBadge(co.status)+'</td><td>'+kijunBadge(kr)+'</td>'+
+    var mc=missingCount(co);
+    var mcHtml=mc===0?'<span style="color:var(--green);font-size:12px">✅</span>':'<span style="color:var(--red);font-weight:700;font-size:12px">'+mc+'件</span>';
+    return '<tr><td style="font-weight:600">'+esc(co.name)+'</td><td>'+statusBadge(co.status)+'</td><td>'+kijunBadge(kr)+'</td><td>'+mcHtml+'</td>'+
       '<td style="font-size:11px;color:var(--text2)">'+esc(co.support_org_type||'—')+'</td>'+
       '<td style="min-width:120px"><div class="progress-bar"><div class="progress-fill" style="width:'+pct+'%"></div></div><span style="font-size:10px;color:var(--text3)">'+d+'/'+t+'</span></td>'+
       '<td style="white-space:nowrap"><button class="btn btn-secondary btn-sm" onclick="openDocCheck(\''+esc(co.name)+'\')">書類確認</button> <button class="btn btn-danger btn-sm" onclick="confirmDeleteCompany(\''+esc(co.name)+'\')">削除</button></td></tr>';
@@ -1191,7 +1193,7 @@ function renderCompanyTable() {
   var q=(document.getElementById('co-search').value||'').toLowerCase();
   var sf=document.getElementById('co-status-filter').value;
   var list=companies.filter(c=>(!sf||c.status===sf)&&(!q||(c.name||'').toLowerCase().includes(q)));
-  if (!list.length) { document.getElementById('co-table-body').innerHTML='<tr><td colspan="9"><div class="empty-state"><div class="empty-icon">🏭</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
+  if (!list.length) { document.getElementById('co-table-body').innerHTML='<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">🏭</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
   document.getElementById('co-table-body').innerHTML=list.map(function(co,i){
     var kr=co.kijun_result||calcKijunResult(co);
     var k2 = co.kijun_2==='✓' ? '<span class="badge badge-green">✓ 電子</span>' :
@@ -1204,6 +1206,7 @@ function renderCompanyTable() {
       '<td style="font-size:11px;color:var(--text2)">'+esc(co.contactName||'—')+'</td>'+
       '<td>'+k2+'</td>'+
       '<td>'+kijunBadge(kr)+'</td>'+
+      '<td style="max-width:200px">'+missingBadgesHtml(co)+'</td>'+
       '<td>'+docProgressHtml(countDocsDone(co,'ofusa'),7)+'</td>'+
       '<td>'+docProgressHtml(countDocsDone(co,'ext'),8)+'</td>'+
       '<td style="white-space:nowrap" onclick="event.stopPropagation()">'+
@@ -1600,6 +1603,55 @@ function fmtDate(s){
   return s;
 }
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+// ===== 不足情報チェック =====
+function getMissingItems(co) {
+  var missing = [];
+  var kr = co.kijun_result || calcKijunResult(co);
+  var isC = kr === '非該当' || !kr;
+
+  // 全企業共通
+  if (!co.kijun_result && !co.kijun_3_type) missing.push({key:'kijun',  label:'一定の基準', level:'warn'});
+  if (co.kijun_2 !== '✓' && co.kijun_2 !== '✗') missing.push({key:'kijun2', label:'電子届出可否', level:'warn'});
+  // 電子届出企業のみログイン・パスワードをチェック（郵送企業はスキップ）
+  if (co.kijun_2 === '✓') {
+    if (!co.loginId1) missing.push({key:'login', label:'ログインID', level:'error'});
+    if (!co.password) missing.push({key:'pw',    label:'パスワード', level:'error'});
+  }
+
+  // 給与データ（外国人がいる企業のみ）
+  var hasFg = foreigners.some(function(f){ return f.companyName === co.name && f.status === '在職'; });
+  if (hasFg) {
+    var hasSal = salaryData.some(function(s){ return s.companyName === co.name && s.totalPay; });
+    if (!hasSal) missing.push({key:'salary', label:'給与データ', level:'warn'});
+    if (!co.doc_kyuyo || (co.doc_kyuyo !== '確認OK' && co.doc_kyuyo !== '受領済'))
+      missing.push({key:'kyuyo', label:'賃金台帳(本人)', level:'warn'});
+    var jpDoc = co.doc_shoyo || co.doc_juminzei; // 比較日本人は任意フィールドで代用
+    // 比較日本人フラグは doc_kyuyo2 で管理（将来追加）
+  }
+
+  // Cパターン追加
+  if (isC && hasFg) {
+    if (!co.doc_touki || co.doc_touki === '')  missing.push({key:'touki',  label:'登記事項証明書', level:'warn'});
+    if (!co.doc_nouzei || co.doc_nouzei === '') missing.push({key:'nouzei', label:'納税証明書', level:'warn'});
+  }
+
+  return missing;
+}
+
+function missingBadgesHtml(co) {
+  var items = getMissingItems(co);
+  if (!items.length) return '<span style="font-size:11px;color:var(--green)">✅</span>';
+  return items.map(function(item){
+    var color = item.level === 'error' ? 'var(--red)' : 'var(--amber)';
+    return '<span style="display:inline-block;font-size:10px;padding:1px 5px;border-radius:3px;background:'+color+'20;color:'+color+';border:1px solid '+color+'40;white-space:nowrap;margin:1px">'+item.label+'</span>';
+  }).join('');
+}
+
+function missingCount(co) {
+  return getMissingItems(co).length;
+}
+
 function statusBadge(s){var m={'未着手':'badge-gray','進行中':'badge-blue','書類収集中':'badge-amber','確認待ち':'badge-purple','完了':'badge-green'};return '<span class="badge '+(m[s]||'badge-gray')+'">'+esc(s||'未着手')+'</span>';}
 function kijunBadge(kr){
   if(kr==='①〜⑤該当'||kr==='⑥該当') return '<span class="badge badge-green">✓ 基準該当</span>';
