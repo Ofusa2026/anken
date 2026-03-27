@@ -750,10 +750,11 @@ tr:hover td { background: var(--blue-light); }
       </div>
     </div>
     <div class="form-row">
-      <div class="form-group full">
+      <div class="form-group full" style="position:relative">
         <label class="form-label">得意先名（請求先）</label>
-        <input class="form-input" id="s-client" placeholder="例: 株式会社JAM" list="clientList" oninput="onClientInput()">
-        <datalist id="clientList"></datalist>
+        <input class="form-input" id="s-client" placeholder="例: 株式会社JAM" autocomplete="off"
+          oninput="onClientInput()" onfocus="showClientDropdown()" onblur="hideClientDropdown()">
+        <div id="clientDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);max-height:200px;overflow-y:auto;z-index:9999;margin-top:2px"></div>
       </div>
     </div>
     <div class="form-row">
@@ -2306,9 +2307,7 @@ function openSaleModal(sale) {
   document.getElementById('saleModalTitle').textContent = isEdit ? '💰 売上編集' : '💰 売上追加';
   document.getElementById('saleEditId').value = sale?.['ID'] || '';
 
-  // datalistを生成
-  const cl = document.getElementById('clientList');
-  if (cl) cl.innerHTML = masters.clients.map(c => `<option value="${c['会社名']}">`).join('');
+  // supportListのみ残す（登録支援機関フィールド用）
   const sl = document.getElementById('supportList');
   if (sl) sl.innerHTML = masters.clients.map(c => `<option value="${c['会社名']}">`).join('');
 
@@ -2388,30 +2387,74 @@ function editSale(id) {
   if (s) openSaleModal(s);
 }
 
-function onClientInput() {
-  const clientName = document.getElementById('s-client').value.trim();
-  if (!clientName) return;
+function showClientDropdown() {
+  const q = document.getElementById('s-client').value.trim();
+  renderClientDropdown(q);
+}
 
-  // mastersから該当取引先を検索
+function hideClientDropdown() {
+  // blurより先にclickが発火するよう少し遅らせる
+  setTimeout(() => {
+    const dd = document.getElementById('clientDropdown');
+    if (dd) dd.style.display = 'none';
+  }, 200);
+}
+
+function renderClientDropdown(q) {
+  const dd = document.getElementById('clientDropdown');
+  if (!dd) return;
+
+  const all = masters.clients || [];
+  const ql = q.toLowerCase();
+  const filtered = ql
+    ? all.filter(c => (c['会社名'] || '').toLowerCase().includes(ql))
+    : all;
+
+  if (!filtered.length) { dd.style.display = 'none'; return; }
+
+  dd.innerHTML = filtered.slice(0, 50).map(c => {
+    const name = c['会社名'] || '';
+    const highlighted = name.replace(new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'gi'),
+      m => `<span style="color:var(--accent);font-weight:700">${m}</span>`);
+    return `<div style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid #f1f5f9"
+      onmousedown="selectClient('${name.replace(/'/g,"\\'")}')">
+      ${highlighted}
+    </div>`;
+  }).join('');
+  dd.style.display = '';
+}
+
+function selectClient(name) {
+  const input = document.getElementById('s-client');
+  if (input) input.value = name;
+  const dd = document.getElementById('clientDropdown');
+  if (dd) dd.style.display = 'none';
+  applyClientAutoFill(name);
+}
+
+function onClientInput() {
+  const q = document.getElementById('s-client').value.trim();
+  renderClientDropdown(q);
+  // 完全一致なら登録支援機関を自動入力
+  applyClientAutoFill(q);
+}
+
+function applyClientAutoFill(clientName) {
   const client = masters.clients.find(c => c['会社名'] === clientName);
   if (!client) return;
 
   const supportField = document.getElementById('s-support');
   const badge = document.getElementById('supportAutoBadge');
 
-  // support_orgs（登録支援機関）の場合：請求先＝登録支援機関なので同じ名前をセット
   if (client['_source'] === 'support_orgs') {
     supportField.value = clientName;
     badge.style.display = '';
     badge.title = '登録支援機関が請求先です';
-  }
-  // companies（所属機関）の場合：support_org_nameが紐づく登録支援機関
-  else if (client['登録支援機関名']) {
+  } else if (client['登録支援機関名']) {
     supportField.value = client['登録支援機関名'];
     badge.style.display = '';
     badge.title = 'OFUSAから自動取得';
   } else {
-    // 支援機関情報なし
     badge.style.display = 'none';
   }
 }
