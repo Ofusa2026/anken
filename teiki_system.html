@@ -1120,9 +1120,10 @@ async function loadAllData() {
     companies.forEach(function(co) {
       var r = rm[co.name] || {};
       // 書類ステータス・届出管理データはreportsから取得
-      ['status','kijun_1','kijun_3_type','kijun_6a','kijun_6b','kijun_result','support_org_type','support_org_other','has_non_exec_officer',
+      ['status','kijun_1','kijun_2','kijun_3_type','kijun_6a','kijun_6b','kijun_exp','kijun_result','support_org_type','support_org_other','has_non_exec_officer',
        'doc_36_main','doc_36_bessi1','doc_36_bessi2','doc_517or516','doc_129','doc_1111','doc_123',
-       'doc_touki','doc_juumin','doc_rodo','doc_shakai','doc_nouzei','doc_juminzei','doc_kyuyo','doc_shoyo'].forEach(k => { co[k] = r[k]||co[k]||''; });
+       'doc_touki','doc_juumin','doc_rodo','doc_shakai','doc_nouzei','doc_juminzei','doc_kyuyo','doc_shoyo',
+       'loginId1','loginId2','password','pwUpdated','loginStatus'].forEach(k => { co[k] = r[k]||co[k]||''; });
       // kijun_2は所属機関マスタ（co）を優先、なければreportsから
       co.kijun_2 = co.kijun_2 || r.kijun_2 || '';
       co.kijun_2_method = co.kijun_2_method || r.kijun_2_method || '';
@@ -1310,6 +1311,7 @@ async function saveSalary(nameEn,coName) {
   keys.forEach(function(k){ var el=document.getElementById('sal_'+k+'_'+nameEn.replace(/\s/g,'_')); if(el) data[k]=el.value||''; });
   var idx=salaryData.findIndex(s=>s.companyName===coName&&s.nameEn===nameEn);
   if(idx>=0) salaryData[idx]=Object.assign(salaryData[idx],data); else salaryData.push(data);
+  saveLocalCache();
   if(GAS_URL) { try { await gasPost(data); } catch(e){} }
   showToast(nameEn+' の給与データを保存しました','success');
 }
@@ -1485,6 +1487,8 @@ async function saveCompany(){
     kijun_1:kijun1?'✓':'✗',kijun_2:kijun2?'✓':'✗',kijun_3_type:(document.querySelector('input[name=kijun3]:checked')||{value:'なし'}).value,
     kijun_6a:document.getElementById('kijun6a').checked?'✓':'✗',kijun_6b:document.getElementById('kijun6b').checked?'✓':'✗',
     kijun_exp:document.getElementById('kijun-exp-check')&&document.getElementById('kijun-exp-check').classList.contains('checked')?'✓':'✗',
+    loginId1:document.getElementById('co-login-id1').value,loginId2:document.getElementById('co-login-id2').value,
+    password:document.getElementById('co-password').value,pwUpdated:document.getElementById('co-pw-updated').value,
     support_org_type:document.getElementById('co-support-type').value,support_org_other:document.getElementById('co-support-other').value,
     has_non_exec_officer:document.getElementById('non-exec-yes').checked?'✓':'✗',note:document.getElementById('co-note').value};
   data.kijun_result=calcKijunResultFromData(data);
@@ -1493,11 +1497,15 @@ async function saveCompany(){
     repTitle:document.getElementById('co-rep-title').value,industry:document.getElementById('co-industry').value,
     contactName:document.getElementById('co-contact-name').value,contactEmail:document.getElementById('co-contact-email').value,
     loginId1:document.getElementById('co-login-id1').value,loginId2:document.getElementById('co-login-id2').value,
-    password:document.getElementById('co-password').value,pwUpdated:document.getElementById('co-pw-updated').value},data);
+    password:document.getElementById('co-password').value,pwUpdated:document.getElementById('co-pw-updated').value,
+    kijun_1:kijun1?'✓':'✗',kijun_2:kijun2?'✓':'✗',
+    kijun_3_type:(document.querySelector('input[name=kijun3]:checked')||{value:'なし'}).value,
+    kijun_6a:document.getElementById('kijun6a').checked?'✓':'✗',
+    kijun_6b:document.getElementById('kijun6b').checked?'✓':'✗'},data);
   var idx=companies.findIndex(c=>c.name===name);
   if(idx>=0) companies[idx]=Object.assign(companies[idx],local); else companies.push(local);
   saveLocalCache(); renderAll();
-  if(GAS_URL){document.getElementById('co-save-spinner').style.display='inline-block';try{await gasPost(data);await gasPost({action:'importCompanies',rows:[local]});}catch(e){}document.getElementById('co-save-spinner').style.display='none';}
+  if(GAS_URL){document.getElementById('co-save-spinner').style.display='inline-block';try{await gasPost(data);await gasPost({action:'upsertCompany',row:local});}catch(e){console.error('GAS保存エラー',e);}document.getElementById('co-save-spinner').style.display='none';}
   closeModal('modal-company-add'); showToast(name+' を保存しました','success');
 }
 function updateFgCompanyDatalist(){document.getElementById('fg-company-list').innerHTML=companies.map(c=>'<option value="'+esc(c.name)+'">').join('');}
@@ -1548,7 +1556,7 @@ async function executeImport(){
   var newRows=importRows.filter(r=>!companies.find(c=>c.name===r.name));
   newRows.forEach(r=>companies.push(r));
   saveLocalCache(); renderAll();
-  if(GAS_URL&&newRows.length){try{await gasPost({action:'importCompanies',rows:newRows});}catch(e){}}
+  if(GAS_URL&&newRows.length){try{for(var _i=0;_i<newRows.length;_i++){await gasPost({action:'upsertCompany',row:newRows[_i]});}}catch(e){}}
   closeModal('modal-import'); showToast(newRows.length+'社をインポートしました','success');
   btn.disabled=false; btn.textContent='インポート実行';
 }
@@ -1568,7 +1576,7 @@ async function executeFgImport(){
   var newRows=fgImportRows.filter(r=>!foreigners.find(f=>f.nameEn===r.nameEn&&f.companyName===r.companyName));
   newRows.forEach(r=>foreigners.push(r));
   saveLocalCache(); updateBadges(); renderForeignerTable(); updateFgCompanyDatalist();
-  if(GAS_URL&&newRows.length){try{await gasPost({action:'importForeigners',rows:newRows});}catch(e){}}
+  if(GAS_URL&&fgImportRows.length){try{await gasPost({action:'importForeigners',rows:fgImportRows});}catch(e){}}
   closeModal('modal-fg-import'); showToast(newRows.length+'名をインポートしました','success');
   btn.disabled=false; btn.textContent='インポート実行';
 }
@@ -1716,11 +1724,7 @@ function confirmDeleteCompany(name) {
   saveLocalCache();
   renderAll();
   showToast(name+' を削除しました','success');
-  // GASにも通知（no-corsのため成功確認は不可）
-  if(GAS_URL) {
-    fetch(GAS_URL, {method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain'},
-      body: JSON.stringify({action:'deleteCompany', companyName: name})});
-  }
+  if(GAS_URL){try{gasPost({action:'deleteCompany',companyName:name});}catch(e){}}
 }
 
 // ===== 所属機関↔外国人 紐付け表示 =====
@@ -1849,7 +1853,6 @@ async function importSalaryPDF(event, coName) {
       if (idx >= 0) salaryData[idx] = Object.assign(salaryData[idx], entry);
       else salaryData.push(entry);
 
-      // GASに自動保存（no-corsのため失敗しても続行）
       if (GAS_URL) {
         try {
           await gasPost(Object.assign({action:'upsertMonthly'}, entry));
@@ -2082,8 +2085,10 @@ async function importCsvCompanies(event) {
       var chunkSize = 50;
       for (var i = 0; i < rows.length; i += chunkSize) {
         var chunk = rows.slice(i, i + chunkSize);
-        var action = i === 0 ? 'importCompanies' : 'appendCompanies';
-        await gasPost({action: action, rows: chunk, clearFirst: i === 0});
+        // 50件ずつupsertCompanyで送信
+        for (var j = 0; j < chunk.length; j++) {
+          await gasPost({action: 'upsertCompany', row: chunk[j]});
+        }
       }
       statusEl.textContent = '✅ ' + rows.length + '社をインポートしました';
       statusEl.style.color = 'var(--green)';
