@@ -16971,28 +16971,40 @@ function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zip
       var fileList = Object.keys(zip.files);
       var sheetFiles = fileList.filter(function(f){ return /xl\/worksheets\/sheet\d+\.xml/.test(f); });
 
-      function replacePH(xml) {
+      function _escXml(v){ return String(v||'').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'').replace(/[\r\n\t]/g,' ').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+      function _cleanOnly(v){ return String(v||'').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'').replace(/[\r\n\t]/g,' '); }
+      function replacePH(text, noEscape) {
+        var esc = noEscape ? _cleanOnly : _escXml;
         // PLACEHOLDER_MAP（日本語キー）の置換
         Object.keys(PLACEHOLDER_MAP).forEach(function(phKey) {
           var val = rv(PLACEHOLDER_MAP[phKey]);
-          var escaped = String(val||'').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'').replace(/[\r\n\t]/g,' ').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          var escaped = esc(val);
           ['{{'+phKey+'}}','{{ '+phKey+'}}','{{'+phKey+' }}','{{ '+phKey+' }}'].forEach(function(ph){
-            xml = xml.split(ph).join(escaped);
+            text = text.split(ph).join(escaped);
           });
         });
         // 直接変数（{{es.xxx}} {{co.xxx}} {{p.xxx}} {{applicantName}} 等）の置換
-        xml = xml.replace(/\{\{([^}]+)\}\}/g, function(match, field) {
+        text = text.replace(/\{\{([^}]+)\}\}/g, function(match, field) {
           var val = rv(field.trim());
-          return String(val||'').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'').replace(/[\r\n\t]/g,' ').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          return esc(val);
         });
-        return xml;
+        return text;
       }
 
       var tasks = [];
-      // sharedStrings.xmlの置換
+      // sharedStrings.xmlの置換（<t>タグ内のテキストのみ置換）
       if (zip.file('xl/sharedStrings.xml')) {
         tasks.push(zip.file('xl/sharedStrings.xml').async('string').then(function(xml){
-          zip.file('xl/sharedStrings.xml', replacePH(xml));
+          // <t>...</t>内のテキストのみプレースホルダー置換（XML構造は触らない）
+          xml = xml.replace(/(<t(?:[^>]*)>)([\s\S]*?)(<\/t>)/g, function(m, open, text, close){
+            // XMLデコード→置換→XMLエンコード
+            var decoded = text.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'");
+            var replaced = replacePH(decoded, true);
+            // 再エスケープ
+            replaced = replaced.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            return open + replaced + close;
+          });
+          zip.file('xl/sharedStrings.xml', xml);
         }));
       }
       // 全シートXMLの置換
@@ -17280,7 +17292,7 @@ function checkMappingFields(caseId, empSetIdx, mappingArr, onComplete) {
     if(field.indexOf('co.officer')===0){var _om3=field.match(/^co\.officer(\d+)(Name|Kana|Title)$/);if(_om3){var _oi3=parseInt(_om3[1],10)-1;var _officerCount3=(co.officers&&co.officers.length)||0;if(_oi3>=_officerCount3)return 'SKIP';var _ok3={Name:'name',Kana:'kana',Title:'title'}[_om3[2]];var _oo3=(co.officers&&co.officers[_oi3])||{};return _oo3[_ok3]||'';}}
     // co.prevSales/Ordinary/Net/Asset エイリアス
     var _coAlias3={'prevSales1':'salesY1','prevSales2':'salesY2','prevSales3':'salesY3','prevOrdinary1':'ordinaryPLY1','prevOrdinary2':'ordinaryPLY2','prevOrdinary3':'ordinaryPLY3','prevNet1':'netPLY1','prevNet2':'netPLY2','prevNet3':'netPLY3','prevAsset1':'netAssetsY1','prevAsset2':'netAssetsY2','prevAsset3':'netAssetsY3'};
-    if(field.indexOf('co.')===0){var _coK3=field.substring(3);if(_coAlias3[_coK3])return co[_coAlias3[_coK3]]||'';return co[_coK3]||'';}
+    if(field.indexOf('co.')===0){var _coK3=field.substring(3);if(_coAlias3[_coK3])return co[_coAlias3[_coK3]]||'';if(_coK3==='supportOrgName')return co.supportOrgName||c.org||'';if(_coK3==='supportOrgNumber'){var _sonn4=co.supportOrgName||c.org||'';var _soObj4=supportOrgs.find(function(x){return x.name===_sonn4;})||{};return co.supportOrgNumber||_soObj4.regNo||'';}return co[_coK3]||'';}
     if(field.indexOf('es.')===0){
       var k=field.substring(3);
       k=(_ES_ALIAS&&_ES_ALIAS[k])||k;
