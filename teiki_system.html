@@ -666,10 +666,52 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
           </div>
         </div>
         <div class="table-wrapper">
-          <div class="table-header"><span class="table-title">📥 データ管理</span></div>
-          <div style="padding:18px;display:flex;flex-direction:column;gap:10px">
-            <div class="alert alert-warn">⚠️ OFUSAからCSVエクスポートした所属機関データをインポートします（新規追加のみ）。</div>
-            <button class="btn btn-secondary" onclick="openImportModal()">📥 所属機関マスタをOFUSAからインポート</button>
+          <div class="table-header"><span class="table-title">📥 CSVデータ流し込み</span></div>
+          <div style="padding:18px;display:flex;flex-direction:column;gap:16px">
+
+            <!-- 所属機関マスタ -->
+            <div style="border:1px solid var(--border);border-radius:var(--r);padding:14px;background:var(--bg2)">
+              <div style="font-size:13px;font-weight:700;margin-bottom:6px">🏭 所属機関マスタ（全件置換）</div>
+              <div style="font-size:11px;color:var(--text3);margin-bottom:10px">所属機関マスタCSVをインポートします。既存データは全件クリアされます。</div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <label class="btn btn-secondary btn-sm" style="cursor:pointer">
+                  📂 CSVを選択
+                  <input type="file" accept=".csv" style="display:none" onchange="importCsvCompanies(event)">
+                </label>
+                <span id="csv-co-status" style="font-size:12px;color:var(--text3)">未選択</span>
+              </div>
+            </div>
+
+            <!-- 外国人マスタ -->
+            <div style="border:1px solid var(--border);border-radius:var(--r);padding:14px;background:var(--bg2)">
+              <div style="font-size:13px;font-weight:700;margin-bottom:6px">👤 外国人マスタ（全件置換）</div>
+              <div style="font-size:11px;color:var(--text3);margin-bottom:10px">外国人マスタCSVをインポートします。既存データは全件クリアされます。</div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <label class="btn btn-secondary btn-sm" style="cursor:pointer">
+                  📂 CSVを選択
+                  <input type="file" accept=".csv" style="display:none" onchange="importCsvForeigners(event)">
+                </label>
+                <span id="csv-fg-status" style="font-size:12px;color:var(--text3)">未選択</span>
+              </div>
+            </div>
+
+            <!-- 差分：ID・パスワード -->
+            <div style="border:1px solid var(--border);border-radius:var(--r);padding:14px;background:var(--bg2)">
+              <div style="font-size:13px;font-weight:700;margin-bottom:6px">🔐 電子届出ログイン情報（差分更新）</div>
+              <div style="font-size:11px;color:var(--text3);margin-bottom:10px">
+                「届け出方法_差分インポート用.csv」を選択してください。<br>
+                企業名でマッチしてID・パスワードだけ追記・上書きします。既存データは消えません。
+              </div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <label class="btn btn-secondary btn-sm" style="cursor:pointer">
+                  📂 CSVを選択
+                  <input type="file" accept=".csv" style="display:none" onchange="importCsvLogin(event)">
+                </label>
+                <span id="csv-login-status" style="font-size:12px;color:var(--text3)">未選択</span>
+              </div>
+            </div>
+
+            <div id="csv-import-result"></div>
           </div>
         </div>
       </div>
@@ -1944,6 +1986,136 @@ function copyCoMailText() {
     el.style.display = 'inline';
     setTimeout(function(){ el.style.display = 'none'; }, 2500);
   });
+}
+
+
+// ===== CSV流し込み =====
+function parseCsv(text) {
+  var lines = text.split(/\r?\n/);
+  if (!lines.length) return [];
+  // BOM除去
+  var header = lines[0].replace(/^\uFEFF/, '').split(',').map(function(h){ return h.trim().replace(/^"|"$/g,''); });
+  var rows = [];
+  for (var i = 1; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line) continue;
+    // 簡易CSV parse（ダブルクォート対応）
+    var vals = [], cur = '', inQ = false;
+    for (var c = 0; c < line.length; c++) {
+      if (line[c] === '"') { inQ = !inQ; }
+      else if (line[c] === ',' && !inQ) { vals.push(cur); cur = ''; }
+      else { cur += line[c]; }
+    }
+    vals.push(cur);
+    var obj = {};
+    header.forEach(function(h, idx){ obj[h] = vals[idx] !== undefined ? vals[idx].trim() : ''; });
+    rows.push(obj);
+  }
+  return rows;
+}
+
+async function importCsvCompanies(event) {
+  var file = event.target.files[0]; if (!file) return;
+  var statusEl = document.getElementById('csv-co-status');
+  statusEl.textContent = '読み込み中...'; statusEl.style.color='var(--text3)';
+  var text = await file.text();
+  var rows = parseCsv(text);
+  if (!rows.length) { statusEl.textContent='データなし'; return; }
+
+  // スプレッドシートに送信
+  if (GAS_URL) {
+    statusEl.textContent = 'スプレッドシートに書き込み中...';
+    try {
+      // 100件ずつ分割して送信
+      var chunkSize = 50;
+      for (var i = 0; i < rows.length; i += chunkSize) {
+        var chunk = rows.slice(i, i + chunkSize);
+        var action = i === 0 ? 'importCompanies' : 'appendCompanies';
+        await gasPost({action: action, rows: chunk, clearFirst: i === 0});
+      }
+      statusEl.textContent = '✅ ' + rows.length + '社をインポートしました';
+      statusEl.style.color = 'var(--green)';
+    } catch(e) {
+      statusEl.textContent = '❌ エラー: ' + e.message;
+      statusEl.style.color = 'var(--red)';
+    }
+  }
+
+  // ローカルにも反映
+  companies = rows.map(function(r){ return Object.assign({status:r.status||'未着手'}, r, {name:r.name||r['企業名']||''}); });
+  saveLocalCache(); renderAll();
+  if (!GAS_URL) { statusEl.textContent = '✅ ' + rows.length + '社（ローカルのみ）'; statusEl.style.color='var(--green)'; }
+  event.target.value = '';
+}
+
+async function importCsvForeigners(event) {
+  var file = event.target.files[0]; if (!file) return;
+  var statusEl = document.getElementById('csv-fg-status');
+  statusEl.textContent = '読み込み中...'; statusEl.style.color='var(--text3)';
+  var text = await file.text();
+  var rows = parseCsv(text);
+  if (!rows.length) { statusEl.textContent='データなし'; return; }
+
+  if (GAS_URL) {
+    statusEl.textContent = 'スプレッドシートに書き込み中...';
+    try {
+      for (var i = 0; i < rows.length; i += 50) {
+        await gasPost({action: 'importForeigners', rows: rows.slice(i, i+50), clearFirst: i === 0});
+      }
+      statusEl.textContent = '✅ ' + rows.length + '名をインポートしました';
+      statusEl.style.color = 'var(--green)';
+    } catch(e) {
+      statusEl.textContent = '❌ エラー: ' + e.message;
+      statusEl.style.color = 'var(--red)';
+    }
+  }
+
+  foreigners = rows;
+  saveLocalCache(); renderAll();
+  if (!GAS_URL) { statusEl.textContent = '✅ ' + rows.length + '名（ローカルのみ）'; statusEl.style.color='var(--green)'; }
+  event.target.value = '';
+}
+
+async function importCsvLogin(event) {
+  var file = event.target.files[0]; if (!file) return;
+  var statusEl = document.getElementById('csv-login-status');
+  statusEl.textContent = '読み込み中...'; statusEl.style.color='var(--text3)';
+  var text = await file.text();
+  var rows = parseCsv(text);
+  if (!rows.length) { statusEl.textContent='データなし'; return; }
+
+  // 企業名でマッチしてloginフィールドだけ更新
+  var updated = 0, notFound = [];
+  rows.forEach(function(row) {
+    var name = row.name || row['企業名'] || '';
+    var co = companies.find(function(c){
+      return (c.name||'').trim() === name.trim() ||
+             (c.name||'').includes(name) || name.includes(c.name||'');
+    });
+    if (co) {
+      if (row.loginId1)    co.loginId1    = row.loginId1;
+      if (row.loginId2)    co.loginId2    = row.loginId2;
+      if (row.password)    co.password    = row.password;
+      if (row.pwUpdated)   co.pwUpdated   = row.pwUpdated;
+      if (row.loginStatus) co.loginStatus = row.loginStatus;
+      updated++;
+    } else {
+      notFound.push(name);
+    }
+  });
+
+  saveLocalCache();
+
+  // GASにも送信（差分）
+  if (GAS_URL && updated > 0) {
+    try {
+      await gasPost({action: 'upsertLoginData', rows: rows});
+    } catch(e) {}
+  }
+
+  statusEl.textContent = '✅ ' + updated + '社更新' + (notFound.length ? ' / 未マッチ ' + notFound.length + '社' : '');
+  statusEl.style.color = updated > 0 ? 'var(--green)' : 'var(--amber)';
+  event.target.value = '';
 }
 
 </script>
