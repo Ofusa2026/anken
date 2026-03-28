@@ -1087,12 +1087,24 @@ function switchRcTab(tab){
 
 function runReceiptCheckFromText(){
   var raw = document.getElementById('receiptTextInput').value||'';
-  // 受付番号パターン抽出（V/E/U/C/N + 半角スペース + 数字、またはスペースなし）
-  var matches = raw.match(/[A-Z]\s*\d{8}/g)||[];
-  var nos = matches.map(function(s){ return s.replace(/\s/g,''); });
+  // 各行を処理
+  var lines = raw.split(/\r?\n/).map(function(l){ return l.trim(); }).filter(Boolean);
+  var nos = [];
+  lines.forEach(function(line){
+    // パターン1: V 26001400 や E26001400 など（アルファベット1文字+8桁数字）
+    var m = line.match(/[A-Z]\s*(\d{8})/);
+    if(m){ nos.push(m[1]); return; }
+    // パターン2: 8桁の数字だけの行
+    var m2 = line.match(/\b(\d{8})\b/);
+    if(m2){ nos.push(m2[1]); return; }
+  });
   // 重複除去
   nos = nos.filter(function(v,i,a){ return a.indexOf(v)===i; });
   document.getElementById('receiptCheckCount2').textContent = nos.length+'件抽出';
+  if(!nos.length){
+    document.getElementById('receiptCheckResult').innerHTML='<div class="empty">受付番号を抽出できませんでした。各行に「V 26001400」形式で入力してください。</div>';
+    return;
+  }
   runReceiptCheck(nos);
 }
 
@@ -1191,11 +1203,11 @@ function processReceiptFile(file){
 function runReceiptCheck(receiptNos){
   if(!receiptNos.length){ document.getElementById('receiptCheckResult').innerHTML='<div class="empty">受付番号が抽出できませんでした</div>'; return; }
 
-  // casesと照合（スペース除去して比較）
-  var normalize = function(s){ return (s||'').replace(/\s/g,''); };
-  var matched = DATA.cases.filter(function(c){ return c.receipt_no && receiptNos.indexOf(normalize(c.receipt_no))!==-1; });
+  // receipt_noから8桁数字を抽出して比較
+  var extractNo = function(s){ var m=(s||'').match(/(\d{8})/); return m?m[1]:''; };
+  var matched = DATA.cases.filter(function(c){ return c.receipt_no && receiptNos.indexOf(extractNo(c.receipt_no))!==-1; });
   var notYuitsukan = matched.filter(function(c){ return normalizeStatus(c.status)!=='要追完'; });
-  var notFound = receiptNos.filter(function(no){ return !DATA.cases.find(function(c){ return normalize(c.receipt_no)===no; }); });
+  var notFound = receiptNos.filter(function(no){ return !DATA.cases.find(function(c){ return extractNo(c.receipt_no)===no; }); });
 
   var countEl = document.getElementById('receiptCheckCount');
   countEl.textContent = '抽出: '+receiptNos.length+'件 → 一致: '+matched.length+'件 / 要追完でない: '+notYuitsukan.length+'件';
