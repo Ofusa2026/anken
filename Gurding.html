@@ -1090,19 +1090,16 @@ function runReceiptCheckFromText(){
   var lines = raw.split(/\r?\n/).map(function(l){ return l.trim(); }).filter(Boolean);
   var nos = [];
   lines.forEach(function(line){
-    // 全角スペースを半角に変換
-    line = line.replace(/　/g,' ');
-    // パターン: アルファベット1文字 + 任意スペース + 8桁数字
-    var m = line.match(/[A-Za-z]\s*(\d{8})/);
+    line = line.replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(s){ return String.fromCharCode(s.charCodeAt(0)-0xFEE0); });
+    var m = line.match(/[A-Z]\s*(\d{7,9})/);
     if(m){ nos.push(m[1]); return; }
-    // 8桁数字だけ
-    var m2 = line.match(/\b(\d{8})\b/);
-    if(m2){ nos.push(m2[1]); }
+    var m2 = line.match(/\b(\d{7,9})\b/);
+    if(m2){ nos.push(m2[1]); return; }
   });
   nos = nos.filter(function(v,i,a){ return a.indexOf(v)===i; });
   document.getElementById('receiptCheckCount2').textContent = nos.length+'件抽出';
   if(!nos.length){
-    document.getElementById('receiptCheckResult').innerHTML='<div class="empty">受付番号を抽出できませんでした。各行に「V 26001400」形式で入力してください。</div>';
+    document.getElementById('receiptCheckResult').innerHTML='<div class="empty">受付番号を抽出できませんでした。</div>';
     return;
   }
   runReceiptCheck(nos);
@@ -1202,20 +1199,16 @@ function processReceiptFile(file){
 
 function runReceiptCheck(receiptNos){
   if(!receiptNos.length){ document.getElementById('receiptCheckResult').innerHTML='<div class="empty">受付番号が抽出できませんでした</div>'; return; }
-
-  // receipt_noから8桁数字を抽出して比較
-  var extractNo = function(s){ var m=(s||'').match(/(\d{8})/); return m?m[1]:''; };
-  var RECEIPT_EXCLUDE = ['要追完','郵送交付','窓口受取','完了','審査完了'];
+  var extractNo = function(s){ var m=(s||'').replace(/[Ａ-Ｚａ-ｚ０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-0xFEE0);}).match(/(\d{7,9})/); return m?m[1]:''; };
+  var EXCLUDE_FOR_CHECK = ['要追完','郵送交付','窓口受取','完了','審査完了'];
   var matched = DATA.cases.filter(function(c){ return c.receipt_no && receiptNos.indexOf(extractNo(c.receipt_no))!==-1; });
-  var notYuitsukan = matched.filter(function(c){ return RECEIPT_EXCLUDE.indexOf(normalizeStatus(c.status))===-1; });
+  var notExcluded = matched.filter(function(c){ return EXCLUDE_FOR_CHECK.indexOf(normalizeStatus(c.status))===-1; });
   var notFound = receiptNos.filter(function(no){ return !DATA.cases.find(function(c){ return extractNo(c.receipt_no)===no; }); });
-
-  var countEl = document.getElementById('receiptCheckCount');
-  countEl.textContent = '抽出: '+receiptNos.length+'件 → 一致: '+matched.length+'件 / 要追完でない: '+notYuitsukan.length+'件';
-
+  var countEl = document.getElementById('receiptCheckCount2')||document.getElementById('receiptCheckCount');
+  if(countEl) countEl.textContent = '抽出: '+receiptNos.length+'件 → 一致: '+matched.length+'件 / 対応漏れ: '+notExcluded.length+'件';
   var html = '';
   if(notExcluded.length){
-    html += '<div style="font-size:13px;font-weight:800;color:#dc2626;margin-bottom:8px;">⚠️ 対応漏れ案件（'+notYuitsukan.length+'件）</div>';
+    html += '<div style="font-size:13px;font-weight:800;color:#dc2626;margin-bottom:8px;">⚠️ 対応漏れ（'+notExcluded.length+'件）</div>';
     html += '<div class="table-wrap"><table><thead><tr><th>受付番号</th><th>案件名</th><th>氏名</th><th>ステータス</th><th>担当</th><th>チーム</th></tr></thead><tbody>';
     notExcluded.forEach(function(c){
       html += '<tr style="background:#fff5f5;">'
@@ -1229,7 +1222,7 @@ function runReceiptCheck(receiptNos){
     });
     html += '</tbody></table></div>';
   } else if(matched.length){
-    html += '<div style="text-align:center;padding:24px;color:#16a34a;font-size:14px;font-weight:800;">✅ 対応漏れなし（全件 要追完・郵送交付・窓口受取・完了 のいずれか）</div>';
+    html += '<div style="text-align:center;padding:24px;color:#16a34a;font-size:14px;font-weight:800;">✅ 対応漏れなし（全件 要追完・郵送交付・窓口受取・完了）</div>';
   }
   if(notFound.length){
     html += '<div style="font-size:13px;font-weight:800;color:var(--gray-400);margin-top:16px;margin-bottom:8px;">⚪ Supabaseに見つからない受付番号（'+notFound.length+'件）</div>';
@@ -1240,6 +1233,7 @@ function runReceiptCheck(receiptNos){
   }
   document.getElementById('receiptCheckResult').innerHTML = html;
 }
+
 
 function loadReceiptCsv(input){
   var file = input.files[0];
