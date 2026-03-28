@@ -581,7 +581,7 @@ var FORM_TYPE_LABEL = {
 var TEAM_COLORS = ['#2563eb','#16a34a','#ea580c','#7c3aed','#dc2626','#0891b2','#d97706'];
 
 var _sb = null;
-var DATA = { cases:[], shinsaArchive:[], certArchive:[], receiptArchive:[], forms:[], intake:[], users:[], persons:[], taskStatus:[], taskUrgent:[], taskDeadline:[] };
+var DATA = { cases:[], shinsaArchive:[], certArchive:[], receiptArchive:[], forms:[], intake:[], users:[], persons:[], notes:{}, taskStatus:[], taskUrgent:[], taskDeadline:[] };
 var _currentShinsaTable = 'shinsa_archive';
 var _caseNoExpireFilter = false; // 在留期限未入力フィルター状態
 var _caseNoDriveFilter  = false; // ドライブ未設定フィルター状態
@@ -710,7 +710,7 @@ function nav(sec){
 function refreshAll(){
   if(!_sb){ showToast('⚠️ DB未接続'); return; }
   document.getElementById('lastUpdated').textContent = '更新中...';
-  var done = 0; var total = 10;
+  var done = 0; var total = 11;
   function tick(){ done++; if(done>=total){ renderAll(); document.getElementById('lastUpdated').textContent = '最終更新: '+new Date().toLocaleTimeString('ja-JP'); showToast('🔄 データ更新完了'); } }
 
   // cases
@@ -807,6 +807,27 @@ function refreshAll(){
   // task_deadline は doc_tasks に統合済みのためダミーtick
   DATA.taskDeadline = {};
   tick();
+
+  // case_notes (progressMemo取得用)
+  var allNotes = [];
+  function fetchNotesBatch(from){
+    _sb.from('case_notes').select('case_id,note').range(from, from+999).then(function(r){
+      if(!r.error && r.data && r.data.length){
+        allNotes = allNotes.concat(r.data);
+        if(r.data.length===1000){ fetchNotesBatch(from+1000); }
+        else {
+          var map = {};
+          allNotes.forEach(function(n){ var note=n.note; if(typeof note==='string'){try{note=JSON.parse(note);}catch(e){note={};}} map[n.case_id]=note||{}; });
+          DATA.notes = map; tick();
+        }
+      } else {
+        var map = {};
+        allNotes.forEach(function(n){ var note=n.note; if(typeof note==='string'){try{note=JSON.parse(note);}catch(e){note={};}} map[n.case_id]=note||{}; });
+        DATA.notes = map; tick();
+      }
+    }).catch(function(){ DATA.notes={}; tick(); });
+  }
+  fetchNotesBatch(0);
 }
 
 function loadUsers(){
@@ -964,6 +985,21 @@ function renderAlerts(){
   el.innerHTML = items.map(function(c){ return alertRowHtml(c); }).join('');
 }
 
+var PERSON_REQ_FIELDS=['residenceCard','passport','birthdate','nationality','residenceStatus','hireDate','contractStart','contractEnd','salary','address','skillEvalType','jpEvalType','pastEntry','pastCOE','deportation','stayPeriod','totalStayYear','totalStayMonth'];
+function getPersonProgress(caseId){
+  var ex = getPersonExtra(caseId);
+  if(!ex) return null;
+  var filled=0;
+  PERSON_REQ_FIELDS.forEach(function(k){ if(ex[k] && String(ex[k]).trim()) filled++; });
+  var total=PERSON_REQ_FIELDS.length;
+  var pct=Math.round(filled/total*100);
+  return {filled:filled, total:total, pct:pct};
+}
+function getProgressMemo(caseId){
+  var n = DATA.notes[caseId];
+  return (n && n.progressMemo) ? n.progressMemo : '';
+}
+
 function alertRowHtml(c){
   var d = daysLeft(c.expire);
   var dot = d<0?'red':d<=5?'red':'orange';
@@ -972,12 +1008,37 @@ function alertRowHtml(c){
   else if(d===0){ badge='本日期限'; bstyle='background:#fef2f2;color:#dc2626'; }
   else if(d<=5){  badge='残'+d+'日'; bstyle='background:#fef2f2;color:#dc2626'; }
   else{           badge='残'+d+'日'; bstyle='background:#fff7ed;color:#ea580c'; }
+  var prog = '';
+  if(c.task_total>0){
+    var pct = Math.round(c.task_done/c.task_total*100);
+    var barColor = pct===100?'#10b981':pct>=50?'#3b82f6':'#f59e0b';
+    prog = '<div style="display:flex;align-items:center;gap:6px;margin-top:4px;">'
+      +'<span style="font-size:10px;color:var(--gray-400);flex-shrink:0;">タスク</span>'
+      +'<div style="width:60px;height:4px;background:var(--gray-200);border-radius:2px;overflow:hidden;flex-shrink:0;">'
+      +'<div style="width:'+pct+'%;height:100%;background:'+barColor+';border-radius:2px;"></div></div>'
+      +'<span style="font-size:10px;color:var(--gray-400);">'+c.task_done+'/'+c.task_total+'</span>'
+      +'</div>';
+  }
+  var pp = getPersonProgress(c.id);
+  var personProg = '';
+  if(pp){
+    var ppColor = pp.pct===100?'#10b981':pp.pct>=60?'#f59e0b':'#ef4444';
+    personProg = '<div style="display:flex;align-items:center;gap:6px;margin-top:3px;">'
+      +'<span style="font-size:10px;color:var(--gray-400);flex-shrink:0;">基本情報</span>'
+      +'<div style="width:60px;height:4px;background:var(--gray-200);border-radius:2px;overflow:hidden;flex-shrink:0;">'
+      +'<div style="width:'+pp.pct+'%;height:100%;background:'+ppColor+';border-radius:2px;"></div></div>'
+      +'<span style="font-size:10px;color:'+ppColor+';font-weight:700;">'+pp.pct+'%</span>'
+      +'</div>';
+  }
   return '<div class="alert-row">'
     +'<div class="alert-dot '+dot+'"></div>'
     +'<div class="alert-info">'
     +'<div class="alert-name">'+esc(c.name||'—')+'<span style="font-weight:400;color:var(--gray-400);font-size:12px;margin-left:8px;">'+esc(c.org||c.company||'')+'</span></div>'
     +(c.applicant?'<div style="font-size:11px;color:var(--gray-400);margin-top:1px;">'+esc(c.applicant)+'</div>':'')
     +'<div class="alert-meta">'+typeBadge(c.app_type)+'&nbsp;'+stBadge(c.status)+'&nbsp;担当: '+esc(c.staff||'—')+'　チーム: '+esc(c.team||'—')+'</div>'
+    +(getProgressMemo(c.id)?'<div style="font-size:11px;color:#6366f1;margin-top:3px;padding:3px 6px;background:#f5f3ff;border-radius:4px;border-left:3px solid #6366f1;">'+esc(getProgressMemo(c.id))+'</div>':'')
+    +prog
+    +personProg
     +'</div>'
     +'<div class="alert-right">'
     +'<div class="days-badge" style="'+bstyle+'">'+badge+'</div>'
