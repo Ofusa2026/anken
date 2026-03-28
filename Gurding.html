@@ -228,6 +228,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
     <div class="nav-item" onclick="nav('forms')">📝 ヒアリング対応 <span class="nbadge orange" id="bdg-forms">0</span></div>
     <div class="nav-item" onclick="nav('intake')">📥 新規取込 <span class="nbadge blue" id="bdg-intake">0</span></div>
     <div class="sidebar-section">システム</div>
+    <div class="nav-item" onclick="nav('receiptcheck')">🔍 受付番号チェック</div>
     <div class="nav-item" onclick="nav('users')">👥 ユーザー管理</div>
     <div class="nav-item" onclick="nav('settings')">⚙️ 設定</div>
     <div class="sidebar-user">
@@ -547,6 +548,26 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
         </div>
       </div>
 
+      <!-- ══ RECEIPT CHECK ══ -->
+      <div class="section" id="sec-receiptcheck">
+        <div class="filters-section">
+          <div style="font-size:13px;color:var(--gray-400);margin-bottom:12px;">スプレッドシートのスクリーンショットをアップロード → 赤背景行のD列（申請受付番号）を自動抽出 → ステータスが「要追完」でない案件を表示します。</div>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:8px;padding:10px 18px;background:var(--blue);color:white;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;">
+              📸 スクリーンショットを選択
+              <input type="file" id="receiptImgInput" accept="image/*" style="display:none;" onchange="loadReceiptImage(this)">
+            </label>
+            <span id="receiptImgName" style="font-size:12px;color:var(--gray-400);">ファイル未選択</span>
+            <span class="filter-count" id="receiptCheckCount"></span>
+          </div>
+          <div id="receiptImgPreview" style="margin-top:12px;display:none;">
+            <img id="receiptImgEl" style="max-width:100%;max-height:300px;border-radius:8px;border:1px solid var(--gray-200);">
+          </div>
+          <div id="receiptOcrStatus" style="margin-top:8px;font-size:12px;color:var(--gray-400);"></div>
+        </div>
+        <div id="receiptCheckResult" style="margin-top:8px;"></div>
+      </div>
+
       <!-- ══ USERS ══ -->
       <div class="section" id="sec-users">
         <div class="filters-section">
@@ -736,7 +757,7 @@ function loadCfg(){ try{ return JSON.parse(localStorage.getItem(CFG_KEY)||'{}');
 // ═══════════════════════════════════════════════
 // NAVIGATION
 // ═══════════════════════════════════════════════
-var TITLES = { dashboard:'ダッシュボード', alerts:'期限アラート', cases:'案件一覧', tasks:'タスクアラート', shinsa:'審査完了・認定証', forms:'ヒアリングフォーム対応', intake:'新規案件取込', users:'ユーザー管理', settings:'設定' };
+var TITLES = { dashboard:'ダッシュボード', alerts:'期限アラート', cases:'案件一覧', tasks:'タスクアラート', shinsa:'審査完了・認定証', forms:'ヒアリングフォーム対応', intake:'新規案件取込', users:'ユーザー管理', settings:'設定', receiptcheck:'受付番号チェック' };
 function nav(sec){
   document.querySelectorAll('.section').forEach(function(s){ s.classList.remove('active'); });
   document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
@@ -761,7 +782,7 @@ function refreshAll(){
   // cases - 1000件制限回避のため複数バッチで取得
   var allCases = [];
   function fetchCasesBatch(from){
-    _sb.from('cases').select('id,name,applicant,nationality,org,company,app_type,residence_status,team,staff,status,expire,shinsa_date,task_done,task_total,updated_at,memo,tokurei_date,temp_return,applicant_field').range(from, from+999).then(function(r){
+    _sb.from('cases').select('id,name,applicant,nationality,org,company,app_type,residence_status,team,staff,status,expire,shinsa_date,task_done,task_total,updated_at,memo,tokurei_date,temp_return,applicant_field,receipt_no').range(from, from+999).then(function(r){
       if(!r.error && r.data && r.data.length){
         allCases = allCases.concat(r.data);
         if(r.data.length===1000){
@@ -1019,6 +1040,176 @@ function switchAlertTab(tab){
     btn.style.borderColor = active ? (t==='expire'?'#dc2626':t==='tokurei'?'#ea580c':'#2563eb') : 'var(--gray-200)';
     btn.style.color = active ? (t==='expire'?'#dc2626':t==='tokurei'?'#ea580c':'#2563eb') : 'var(--gray-400)';
   });
+}
+
+function loadReceiptImage(input){
+  var file = input.files[0];
+  if(!file) return;
+  document.getElementById('receiptImgName').textContent = file.name;
+  document.getElementById('receiptOcrStatus').textContent = '🔍 画像を読み込み中...';
+  document.getElementById('receiptCheckResult').innerHTML = '';
+  document.getElementById('receiptCheckCount').textContent = '';
+
+  // プレビュー表示
+  var previewDiv = document.getElementById('receiptImgPreview');
+  var previewEl = document.getElementById('receiptImgEl');
+  var objUrl = URL.createObjectURL(file);
+  previewEl.src = objUrl;
+  previewDiv.style.display = '';
+
+  // base64変換
+  var reader = new FileReader();
+  reader.onload = function(e){
+    var base64 = e.target.result.split(',')[1];
+    var mediaType = file.type || 'image/png';
+    document.getElementById('receiptOcrStatus').textContent = '🤖 Claude APIで解析中...';
+
+    fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: { type: 'base64', media_type: mediaType, data: base64 }
+            },
+            {
+              type: 'text',
+              text: 'このスプレッドシートの画像から、背景色が赤い行のD列（申請受付番号）の値をすべて抽出してください。申請受付番号は「V 2XXXXXXX」や「E 2XXXXXXX」「C 2XXXXXXX」などの形式です。赤背景の行のD列の値だけをカンマ区切りで返してください。他の説明は不要です。値が見つからない場合は「なし」と返してください。'
+            }
+          ]
+        }]
+      })
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      var text = (data.content && data.content[0] && data.content[0].text) || '';
+      document.getElementById('receiptOcrStatus').textContent = '✅ 解析完了: ' + text;
+      if(text === 'なし' || !text.trim()){
+        document.getElementById('receiptCheckResult').innerHTML = '<div class="empty">赤背景の行が見つかりませんでした</div>';
+        return;
+      }
+      // カンマ・改行で分割して受付番号リスト作成
+      var nos = text.split(/[,\n、]/).map(function(s){
+        return s.replace(/\s/g,'').trim();
+      }).filter(function(s){ return s && s!=='なし'; });
+      runReceiptCheck(nos);
+    })
+    .catch(function(err){
+      document.getElementById('receiptOcrStatus').textContent = '❌ エラー: ' + err.message;
+    });
+  };
+  reader.readAsDataURL(file);
+}
+
+function runReceiptCheck(receiptNos){
+  if(!receiptNos.length){ document.getElementById('receiptCheckResult').innerHTML='<div class="empty">受付番号が抽出できませんでした</div>'; return; }
+
+  // casesと照合（スペース除去して比較）
+  var normalize = function(s){ return (s||'').replace(/\s/g,''); };
+  var matched = DATA.cases.filter(function(c){ return c.receipt_no && receiptNos.indexOf(normalize(c.receipt_no))!==-1; });
+  var notYuitsukan = matched.filter(function(c){ return normalizeStatus(c.status)!=='要追完'; });
+  var notFound = receiptNos.filter(function(no){ return !DATA.cases.find(function(c){ return normalize(c.receipt_no)===no; }); });
+
+  var countEl = document.getElementById('receiptCheckCount');
+  countEl.textContent = '抽出: '+receiptNos.length+'件 → 一致: '+matched.length+'件 / 要追完でない: '+notYuitsukan.length+'件';
+
+  var html = '';
+  if(notYuitsukan.length){
+    html += '<div style="font-size:13px;font-weight:800;color:#dc2626;margin-bottom:8px;">⚠️ 要追完になっていない案件（'+notYuitsukan.length+'件）</div>';
+    html += '<div class="table-wrap"><table><thead><tr><th>受付番号</th><th>案件名</th><th>氏名</th><th>ステータス</th><th>担当</th><th>チーム</th></tr></thead><tbody>';
+    notYuitsukan.forEach(function(c){
+      html += '<tr style="background:#fff5f5;">'
+        +'<td style="font-size:12px;font-weight:700;">'+esc(c.receipt_no||'—')+'</td>'
+        +'<td style="font-size:12px;">'+esc(c.name||'—')+'</td>'
+        +'<td style="font-size:11px;color:var(--gray-400);">'+esc(c.applicant||'')+'</td>'
+        +'<td>'+stBadge(c.status)+'</td>'
+        +'<td style="font-size:12px;">'+esc(c.staff||'—')+'</td>'
+        +'<td style="font-size:11px;color:var(--gray-400);">'+esc(c.team||'—')+'</td>'
+        +'</tr>';
+    });
+    html += '</tbody></table></div>';
+  } else if(matched.length){
+    html += '<div style="text-align:center;padding:24px;color:#16a34a;font-size:14px;font-weight:800;">✅ 一致した案件はすべて「要追完」です</div>';
+  }
+  if(notFound.length){
+    html += '<div style="font-size:13px;font-weight:800;color:var(--gray-400);margin-top:16px;margin-bottom:8px;">⚪ Supabaseに見つからない受付番号（'+notFound.length+'件）</div>';
+    html += '<div style="font-size:12px;color:var(--gray-400);line-height:1.8;">'+notFound.map(function(n){ return esc(n); }).join('、')+'</div>';
+  }
+  if(!matched.length && !notFound.length){
+    html = '<div class="empty">一致する案件がありませんでした</div>';
+  }
+  document.getElementById('receiptCheckResult').innerHTML = html;
+}
+
+function loadReceiptCsv(input){
+  var file = input.files[0];
+  if(!file) return;
+  document.getElementById('receiptCsvName').textContent = file.name;
+  var reader = new FileReader();
+  reader.onload = function(e){
+    var text = e.target.result;
+    // Shift-JIS対応のため、失敗時はUTF-8として読み直す
+    parseReceiptCsv(text);
+  };
+  reader.onerror = function(){
+    // Shift-JISとして再試行
+    var r2 = new FileReader();
+    r2.onload = function(e2){ parseReceiptCsv(new TextDecoder('shift-jis').decode(e2.target.result)); };
+    r2.readAsArrayBuffer(file);
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+function parseReceiptCsv(text){
+  var lines = text.split(/\r?\n/).filter(function(l){ return l.trim(); });
+  // ヘッダー行をスキップ（1行目）
+  var receiptNos = [];
+  for(var i=1; i<lines.length; i++){
+    var cols = lines[i].split(',');
+    var d = (cols[3]||'').replace(/"/g,'').trim(); // D列（0-indexed: 3）
+    if(d) receiptNos.push(d);
+  }
+  if(!receiptNos.length){ document.getElementById('receiptCheckResult').innerHTML='<div class="empty">D列に受付番号が見つかりませんでした</div>'; return; }
+
+  // casesと照合
+  var matched = DATA.cases.filter(function(c){ return c.receipt_no && receiptNos.indexOf(c.receipt_no)!==-1; });
+  var notYuitsukan = matched.filter(function(c){ return normalizeStatus(c.status)!=='要追完'; });
+  var notFound = receiptNos.filter(function(no){ return !DATA.cases.find(function(c){ return c.receipt_no===no; }); });
+
+  var countEl = document.getElementById('receiptCheckCount');
+  countEl.textContent = 'CSV: '+receiptNos.length+'件 → 一致: '+matched.length+'件 / 要追完でない: '+notYuitsukan.length+'件';
+
+  var html = '';
+  if(notYuitsukan.length){
+    html += '<div style="font-size:13px;font-weight:800;color:#dc2626;margin-bottom:8px;">⚠️ 要追完になっていない案件（'+notYuitsukan.length+'件）</div>';
+    html += '<div class="table-wrap"><table><thead><tr><th>受付番号</th><th>案件名</th><th>氏名</th><th>ステータス</th><th>担当</th><th>チーム</th></tr></thead><tbody>';
+    notYuitsukan.forEach(function(c){
+      html += '<tr style="background:#fff5f5;">'
+        +'<td style="font-size:12px;font-weight:700;">'+esc(c.receipt_no||'—')+'</td>'
+        +'<td style="font-size:12px;">'+esc(c.name||'—')+'</td>'
+        +'<td style="font-size:11px;color:var(--gray-400);">'+esc(c.applicant||'')+'</td>'
+        +'<td>'+stBadge(c.status)+'</td>'
+        +'<td style="font-size:12px;">'+esc(c.staff||'—')+'</td>'
+        +'<td style="font-size:11px;color:var(--gray-400);">'+esc(c.team||'—')+'</td>'
+        +'</tr>';
+    });
+    html += '</tbody></table></div>';
+  } else if(matched.length){
+    html += '<div style="text-align:center;padding:24px;color:#16a34a;font-size:14px;font-weight:800;">✅ 一致した案件はすべて「要追完」です</div>';
+  }
+  if(notFound.length){
+    html += '<div style="font-size:13px;font-weight:800;color:var(--gray-400);margin-top:16px;margin-bottom:8px;">⚪ Supabaseに見つからない受付番号（'+notFound.length+'件）</div>';
+    html += '<div style="font-size:12px;color:var(--gray-400);line-height:1.8;">'+notFound.map(function(n){ return esc(n); }).join('、')+'</div>';
+  }
+  if(!matched.length && !notFound.length){
+    html = '<div class="empty">一致する案件がありませんでした</div>';
+  }
+  document.getElementById('receiptCheckResult').innerHTML = html;
 }
 
 function renderTokureiAlerts(){
