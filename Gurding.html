@@ -551,30 +551,47 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
       <!-- ══ RECEIPT CHECK ══ -->
       <div class="section" id="sec-receiptcheck">
         <div class="filters-section">
-          <div style="font-size:13px;color:var(--gray-400);margin-bottom:16px;">スプレッドシートのスクリーンショットをアップロードまたは貼り付け → 赤背景行のD列（申請受付番号）を自動抽出 → 「要追完」でない案件を表示します。</div>
+          <div style="font-size:13px;color:var(--gray-400);margin-bottom:16px;">スプレッドシートのスクリーンショットをアップロード・貼り付け → 赤背景行のD列（申請受付番号）を自動抽出 → 「要追完」でない案件を表示します。<br>または受付番号を直接テキストエリアに貼り付けて照合できます。</div>
 
-          <!-- 貼り付けエリア -->
-          <div id="receiptPasteArea"
-            tabindex="0"
-            style="border:2.5px dashed var(--gray-300);border-radius:12px;padding:32px;text-align:center;cursor:pointer;background:#fafafa;margin-bottom:16px;transition:border-color .2s,background .2s;outline:none;"
-            onclick="document.getElementById('receiptImgInput').click()"
-            ondragover="event.preventDefault();this.style.borderColor='var(--blue)';this.style.background='#eff6ff';"
-            ondragleave="this.style.borderColor='var(--gray-300)';this.style.background='#fafafa';"
-            ondrop="handleReceiptDrop(event)">
-            <div style="font-size:28px;margin-bottom:8px;">📸</div>
-            <div style="font-size:14px;font-weight:700;color:var(--navy);">ここをクリック・ドラッグ＆ドロップ</div>
-            <div style="font-size:12px;color:var(--gray-400);margin-top:4px;">または <kbd style="background:var(--gray-100);border:1px solid var(--gray-300);border-radius:4px;padding:1px 6px;font-size:11px;">Ctrl+V</kbd> で画像を貼り付け</div>
-            <input type="file" id="receiptImgInput" accept="image/*" style="display:none;" onchange="loadReceiptImage(this)">
+          <!-- タブ切り替え -->
+          <div style="display:flex;gap:8px;margin-bottom:16px;">
+            <button id="rcTab-img" onclick="switchRcTab('img')" style="padding:7px 16px;border-radius:8px;border:2px solid var(--blue);background:var(--blue);color:white;font-weight:700;font-size:12px;cursor:pointer;">📸 画像から抽出</button>
+            <button id="rcTab-text" onclick="switchRcTab('text')" style="padding:7px 16px;border-radius:8px;border:2px solid var(--gray-200);background:white;color:var(--gray-400);font-weight:700;font-size:12px;cursor:pointer;">📝 テキスト入力</button>
           </div>
 
-          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-            <span id="receiptImgName" style="font-size:12px;color:var(--gray-400);">ファイル未選択</span>
-            <span class="filter-count" id="receiptCheckCount"></span>
+          <!-- 画像パネル -->
+          <div id="rcPanel-img">
+            <div id="receiptPasteArea"
+              tabindex="0"
+              style="border:2.5px dashed var(--gray-300);border-radius:12px;padding:32px;text-align:center;cursor:pointer;background:#fafafa;margin-bottom:16px;transition:border-color .2s,background .2s;outline:none;"
+              onclick="document.getElementById('receiptImgInput').click()"
+              ondragover="event.preventDefault();this.style.borderColor='var(--blue)';this.style.background='#eff6ff';"
+              ondragleave="this.style.borderColor='var(--gray-300)';this.style.background='#fafafa';"
+              ondrop="handleReceiptDrop(event)">
+              <div style="font-size:28px;margin-bottom:8px;">📸</div>
+              <div style="font-size:14px;font-weight:700;color:var(--navy);">ここをクリック・ドラッグ＆ドロップ</div>
+              <div style="font-size:12px;color:var(--gray-400);margin-top:4px;">または <kbd style="background:var(--gray-100);border:1px solid var(--gray-300);border-radius:4px;padding:1px 6px;font-size:11px;">Ctrl+V</kbd> で画像を貼り付け</div>
+              <input type="file" id="receiptImgInput" accept="image/*" style="display:none;" onchange="loadReceiptImage(this)">
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <span id="receiptImgName" style="font-size:12px;color:var(--gray-400);">ファイル未選択</span>
+              <span class="filter-count" id="receiptCheckCount"></span>
+            </div>
+            <div id="receiptImgPreview" style="margin-top:12px;display:none;">
+              <img id="receiptImgEl" style="max-width:100%;max-height:300px;border-radius:8px;border:1px solid var(--gray-200);">
+            </div>
+            <div id="receiptOcrStatus" style="margin-top:8px;font-size:12px;color:var(--gray-400);"></div>
           </div>
-          <div id="receiptImgPreview" style="margin-top:12px;display:none;">
-            <img id="receiptImgEl" style="max-width:100%;max-height:300px;border-radius:8px;border:1px solid var(--gray-200);">
+
+          <!-- テキストパネル -->
+          <div id="rcPanel-text" style="display:none;">
+            <div style="font-size:12px;color:var(--gray-400);margin-bottom:6px;">受付番号をカンマ・改行・スペースのいずれかで区切って貼り付けてください</div>
+            <textarea id="receiptTextInput" style="width:100%;height:160px;padding:10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:12px;font-family:monospace;resize:vertical;outline:none;box-sizing:border-box;" placeholder="例：&#10;東オンC V 26005479&#10;東オンV 26009677&#10;V26001400"></textarea>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+              <button onclick="runReceiptCheckFromText()" style="padding:8px 20px;background:var(--blue);color:white;border:none;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">🔍 照合する</button>
+              <span class="filter-count" id="receiptCheckCount2"></span>
+            </div>
           </div>
-          <div id="receiptOcrStatus" style="margin-top:8px;font-size:12px;color:var(--gray-400);"></div>
         </div>
         <div id="receiptCheckResult" style="margin-top:8px;"></div>
       </div>
@@ -1052,6 +1069,31 @@ function switchAlertTab(tab){
     btn.style.borderColor = active ? (t==='expire'?'#dc2626':t==='tokurei'?'#ea580c':'#2563eb') : 'var(--gray-200)';
     btn.style.color = active ? (t==='expire'?'#dc2626':t==='tokurei'?'#ea580c':'#2563eb') : 'var(--gray-400)';
   });
+}
+
+function switchRcTab(tab){
+  document.getElementById('rcPanel-img').style.display  = tab==='img'  ? '' : 'none';
+  document.getElementById('rcPanel-text').style.display = tab==='text' ? '' : 'none';
+  var btnImg  = document.getElementById('rcTab-img');
+  var btnText = document.getElementById('rcTab-text');
+  btnImg.style.background  = tab==='img'  ? 'var(--blue)' : 'white';
+  btnImg.style.color       = tab==='img'  ? 'white' : 'var(--gray-400)';
+  btnImg.style.borderColor = tab==='img'  ? 'var(--blue)' : 'var(--gray-200)';
+  btnText.style.background  = tab==='text' ? 'var(--blue)' : 'white';
+  btnText.style.color       = tab==='text' ? 'white' : 'var(--gray-400)';
+  btnText.style.borderColor = tab==='text' ? 'var(--blue)' : 'var(--gray-200)';
+  document.getElementById('receiptCheckResult').innerHTML='';
+}
+
+function runReceiptCheckFromText(){
+  var raw = document.getElementById('receiptTextInput').value||'';
+  // 受付番号パターン抽出（V/E/U/C/N + 半角スペース + 数字、またはスペースなし）
+  var matches = raw.match(/[A-Z]\s*\d{8}/g)||[];
+  var nos = matches.map(function(s){ return s.replace(/\s/g,''); });
+  // 重複除去
+  nos = nos.filter(function(v,i,a){ return a.indexOf(v)===i; });
+  document.getElementById('receiptCheckCount2').textContent = nos.length+'件抽出';
+  runReceiptCheck(nos);
 }
 
 function handleReceiptDrop(event){
