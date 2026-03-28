@@ -1087,18 +1087,18 @@ function switchRcTab(tab){
 
 function runReceiptCheckFromText(){
   var raw = document.getElementById('receiptTextInput').value||'';
-  // 各行を処理
   var lines = raw.split(/\r?\n/).map(function(l){ return l.trim(); }).filter(Boolean);
   var nos = [];
   lines.forEach(function(line){
-    // パターン1: V 26001400 や E26001400 など（アルファベット1文字+8桁数字）
-    var m = line.match(/[A-Z]\s*(\d{8})/);
+    // 全角スペースを半角に変換
+    line = line.replace(/　/g,' ');
+    // パターン: アルファベット1文字 + 任意スペース + 8桁数字
+    var m = line.match(/[A-Za-z]\s*(\d{8})/);
     if(m){ nos.push(m[1]); return; }
-    // パターン2: 8桁の数字だけの行
+    // 8桁数字だけ
     var m2 = line.match(/\b(\d{8})\b/);
-    if(m2){ nos.push(m2[1]); return; }
+    if(m2){ nos.push(m2[1]); }
   });
-  // 重複除去
   nos = nos.filter(function(v,i,a){ return a.indexOf(v)===i; });
   document.getElementById('receiptCheckCount2').textContent = nos.length+'件抽出';
   if(!nos.length){
@@ -1205,18 +1205,19 @@ function runReceiptCheck(receiptNos){
 
   // receipt_noから8桁数字を抽出して比較
   var extractNo = function(s){ var m=(s||'').match(/(\d{8})/); return m?m[1]:''; };
+  var RECEIPT_EXCLUDE = ['要追完','郵送交付','窓口受取','完了','審査完了'];
   var matched = DATA.cases.filter(function(c){ return c.receipt_no && receiptNos.indexOf(extractNo(c.receipt_no))!==-1; });
-  var notYuitsukan = matched.filter(function(c){ return normalizeStatus(c.status)!=='要追完'; });
+  var notYuitsukan = matched.filter(function(c){ return RECEIPT_EXCLUDE.indexOf(normalizeStatus(c.status))===-1; });
   var notFound = receiptNos.filter(function(no){ return !DATA.cases.find(function(c){ return extractNo(c.receipt_no)===no; }); });
 
   var countEl = document.getElementById('receiptCheckCount');
   countEl.textContent = '抽出: '+receiptNos.length+'件 → 一致: '+matched.length+'件 / 要追完でない: '+notYuitsukan.length+'件';
 
   var html = '';
-  if(notYuitsukan.length){
-    html += '<div style="font-size:13px;font-weight:800;color:#dc2626;margin-bottom:8px;">⚠️ 要追完になっていない案件（'+notYuitsukan.length+'件）</div>';
+  if(notExcluded.length){
+    html += '<div style="font-size:13px;font-weight:800;color:#dc2626;margin-bottom:8px;">⚠️ 対応漏れ案件（'+notYuitsukan.length+'件）</div>';
     html += '<div class="table-wrap"><table><thead><tr><th>受付番号</th><th>案件名</th><th>氏名</th><th>ステータス</th><th>担当</th><th>チーム</th></tr></thead><tbody>';
-    notYuitsukan.forEach(function(c){
+    notExcluded.forEach(function(c){
       html += '<tr style="background:#fff5f5;">'
         +'<td style="font-size:12px;font-weight:700;">'+esc(c.receipt_no||'—')+'</td>'
         +'<td style="font-size:12px;">'+esc(c.name||'—')+'</td>'
@@ -1228,7 +1229,7 @@ function runReceiptCheck(receiptNos){
     });
     html += '</tbody></table></div>';
   } else if(matched.length){
-    html += '<div style="text-align:center;padding:24px;color:#16a34a;font-size:14px;font-weight:800;">✅ 一致した案件はすべて「要追完」です</div>';
+    html += '<div style="text-align:center;padding:24px;color:#16a34a;font-size:14px;font-weight:800;">✅ 対応漏れなし（全件 要追完・郵送交付・窓口受取・完了 のいずれか）</div>';
   }
   if(notFound.length){
     html += '<div style="font-size:13px;font-weight:800;color:var(--gray-400);margin-top:16px;margin-bottom:8px;">⚪ Supabaseに見つからない受付番号（'+notFound.length+'件）</div>';
@@ -1279,10 +1280,10 @@ function parseReceiptCsv(text){
   countEl.textContent = 'CSV: '+receiptNos.length+'件 → 一致: '+matched.length+'件 / 要追完でない: '+notYuitsukan.length+'件';
 
   var html = '';
-  if(notYuitsukan.length){
-    html += '<div style="font-size:13px;font-weight:800;color:#dc2626;margin-bottom:8px;">⚠️ 要追完になっていない案件（'+notYuitsukan.length+'件）</div>';
+  if(notExcluded.length){
+    html += '<div style="font-size:13px;font-weight:800;color:#dc2626;margin-bottom:8px;">⚠️ 対応漏れ案件（'+notYuitsukan.length+'件）</div>';
     html += '<div class="table-wrap"><table><thead><tr><th>受付番号</th><th>案件名</th><th>氏名</th><th>ステータス</th><th>担当</th><th>チーム</th></tr></thead><tbody>';
-    notYuitsukan.forEach(function(c){
+    notExcluded.forEach(function(c){
       html += '<tr style="background:#fff5f5;">'
         +'<td style="font-size:12px;font-weight:700;">'+esc(c.receipt_no||'—')+'</td>'
         +'<td style="font-size:12px;">'+esc(c.name||'—')+'</td>'
@@ -1294,7 +1295,7 @@ function parseReceiptCsv(text){
     });
     html += '</tbody></table></div>';
   } else if(matched.length){
-    html += '<div style="text-align:center;padding:24px;color:#16a34a;font-size:14px;font-weight:800;">✅ 一致した案件はすべて「要追完」です</div>';
+    html += '<div style="text-align:center;padding:24px;color:#16a34a;font-size:14px;font-weight:800;">✅ 対応漏れなし（全件 要追完・郵送交付・窓口受取・完了 のいずれか）</div>';
   }
   if(notFound.length){
     html += '<div style="font-size:13px;font-weight:800;color:var(--gray-400);margin-top:16px;margin-bottom:8px;">⚪ Supabaseに見つからない受付番号（'+notFound.length+'件）</div>';
