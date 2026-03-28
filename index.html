@@ -2401,15 +2401,8 @@ function sbFetchCases(opts, callback) {
     countQuery = countQuery.eq('staff', opts.staff);
     dataQuery = dataQuery.eq('staff', opts.staff);
   }
-  if (opts.field) {
-    if (opts.field === '__empty__') {
-      countQuery = countQuery.or('applicant_field.is.null,applicant_field.eq.');
-      dataQuery = dataQuery.or('applicant_field.is.null,applicant_field.eq.');
-    } else {
-      countQuery = countQuery.ilike('applicant_field', '%'+opts.field+'%');
-      dataQuery = dataQuery.ilike('applicant_field', '%'+opts.field+'%');
-    }
-  }
+  // fieldフィルターはフロント側で処理（雇用条件セット内の分野も考慮するため）
+  // if (opts.field) { ... }
   if (opts.org) {
     countQuery = countQuery.eq('org', opts.org);
     dataQuery = dataQuery.eq('org', opts.org);
@@ -19027,6 +19020,16 @@ function applyFilters(resetPage) {
       // 発送確認モード: バッジ付き案件のみ表示
       _pruneHassoBadges();
       if(_hassoMode) cases = cases.filter(function(c){ return !!HASSO_BADGES[c.id]; });
+      // fieldフィルターをフロント側で適用（雇用条件セット内の分野も考慮）
+      if(opts.field) {
+        cases = cases.filter(function(c){
+          var co2=companies.find(function(x){return x.name===c.company;})||{};
+          var es2=(co2.empSets&&c.empSetIdx!=null)?co2.empSets[parseInt(c.empSetIdx)]||{}:{};
+          var af2=c.applicantField||es2.applicantField||es2.field||'';
+          if(opts.field==='__empty__') return !af2;
+          return af2.indexOf(opts.field)>=0;
+        });
+      }
       window._filteredCases = cases;
       if(_viewMode === 'kanban'){
         renderKanban();
@@ -19046,6 +19049,15 @@ function applyFilters(resetPage) {
              (status === '全ステータス' || c.status === status) &&
              (staff === '全担当者' || c.staff === staff) &&
              (!org || c.org === org) &&
+             (function(){
+               if(!field) return true;
+               // 案件自体のapplicantFieldまたは雇用条件セットから取得
+               var co2=companies.find(function(x){return x.name===c.company;})||{};
+               var es2=(co2.empSets&&c.empSetIdx!=null)?co2.empSets[parseInt(c.empSetIdx)]||{}:{};
+               var af2=c.applicantField||es2.applicantField||es2.field||'';
+               if(field==='__empty__') return !af2;
+               return af2.indexOf(field)>=0;
+             })() &&
              (!q || getDisplayName(c).toLowerCase().includes(q) || c.company.toLowerCase().includes(q) || c.org.toLowerCase().includes(q) || c.name.toLowerCase().includes(q) || (c.receiptNo&&c.receiptNo.toLowerCase().includes(q)) || (c._caseNo&&c._caseNo.toLowerCase().includes(q)) || (c.members&&c.members.some(function(m){return m.name.toLowerCase().includes(q);})));
     });
     if (sort === 'expire-asc') filtered.sort(function(a,b){ return new Date(a.expire) - new Date(b.expire); });
