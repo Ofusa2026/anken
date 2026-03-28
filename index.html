@@ -11012,30 +11012,29 @@ function persistCompanies(coId, silent) {
     if (co) persistCompaniesToDB([co], silent, true);
     return;
   }
-  // デバウンス: 500ms以内の連続呼び出しをまとめて1回だけDB送信（updated_at更新なし）
-  clearTimeout(_persistCompaniesTimer);
-  _persistCompaniesTimer = setTimeout(function(){
-    persistCompaniesToDB(companies, false, false);
-  }, 500);
+  // coIdなし = 一括インポート等 → スキップ（各追加時にcoIdありで呼ぶべき）
+  // 全件送信は初回同期ボタン（pushAllToGAS）でのみ行う
+  console.log('⚠️ persistCompanies: coIdなし呼び出しをスキップ（全件送信を防止）');
 }
 var _persistCaseNotesTimer = null;
-function persistCaseNotes() {
+var _caseNotesDirty = {}; // 変更されたcase_idのみ追跡
+function persistCaseNotes(dirtyId) {
   try { localStorage.setItem('ofusa_caseNotes', JSON.stringify(caseNotes)); } catch(e) {}
+  if(dirtyId) _caseNotesDirty[dirtyId] = true;
   clearTimeout(_persistCaseNotesTimer);
   _persistCaseNotesTimer = setTimeout(function() {
     if(!DB_READY) return;
-    // cDataが読み込み済みの場合のみ外部キー制約に合わせてフィルタ
-    // cDataが空(まだ読み込み中)の場合はスキップせず全件送る
-    var keys = Object.keys(caseNotes);
+    var keys = Object.keys(_caseNotesDirty).length > 0
+      ? Object.keys(_caseNotesDirty)
+      : Object.keys(caseNotes); // 初回同期時のみ全件
     if(cData.length > 0) {
       var validIds = {};
       cData.forEach(function(c){ validIds[c.id] = true; });
-      keys = keys.filter(function(id){ return validIds[id]; });
+      keys = keys.filter(function(id){ return validIds[id] && caseNotes[id]; });
     }
-    var rows = keys.map(function(id){
-      return {case_id:id, note:caseNotes[id]};
-    });
+    var rows = keys.map(function(id){ return {case_id:id, note:caseNotes[id]}; });
     if(!rows.length) return;
+    _caseNotesDirty = {}; // 送信後にリセット
     _sb.from('case_notes').upsert(rows,{onConflict:'case_id'}).then(function(r){
       if(r.error) console.error('❌ [OFUSA] caseNotes sync err:', r.error.message);
       else console.info('✅ [OFUSA] caseNotes synced:', rows.length, '件');
@@ -13487,7 +13486,8 @@ function processFolderBulkImport(rows){
     added++;
   }
 
-  persistCompanies();
+  // 追加された会社をDB保存（全件送信を避ける）
+  companies.slice(-added).forEach(function(co){ if(co && co.id) persistCompanies(co.id); });
   renderCompanyList();
   renderSupportTree();
   var msg=added+'社を新規登録';
@@ -13598,7 +13598,8 @@ function processOrgCompanyBulkImport(rows){
     });
     added++;
   }
-  persistCompanies();
+  // 追加された会社をDB保存（全件送信を避ける）
+  companies.slice(-added).forEach(function(co){ if(co && co.id) persistCompanies(co.id); });
   renderCompanyList();
   renderSupportTree();
   var msg=added+'社を新規登録';
@@ -32689,15 +32690,18 @@ function filterUnimportedCaseForms() {
         'gijinkoku_nintei':'技人国・認定', 'gijinkoku_koushin':'技人国・更新', 'gijinkoku_henkou':'技人国・変更',
         'company':'企業情報', 'person':'人材'
       };
+      // 同じcase_idの最新1件のみ表示（重複排除）
+      var _seenCids = {};
+      var _deduped = res.data.filter(function(r){ if(_seenCids[r.case_id]) return false; _seenCids[r.case_id]=true; return true; });
       var h = '<div style="display:flex;flex-direction:column;gap:8px;">';
-      res.data.forEach(function(r) {
+      _deduped.forEach(function(r) {
         var c = cData.find(function(x){ return x.id === r.case_id; });
         var applicant = c ? (c.applicant || c.name || r.case_id) : r.case_id;
         var company = c ? (c.company || '') : '';
         var typeLabel = ftLabels[r.form_type] || r.form_type;
         var dt = r.submitted_at ? new Date(r.submitted_at) : null;
         var dtStr = dt ? (dt.getMonth()+1)+'/'+dt.getDate()+' '+dt.getHours()+':'+('0'+dt.getMinutes()).slice(-2) : '';
-        h += '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 12px;">';
+        h += '<div data-rid="' + r.id + '" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 12px;">';
         h += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">';
         h += '<span style="font-size:12px;font-weight:800;color:#1e40af;">' + esc(applicant) + '</span>';
         if (company) h += '<span style="font-size:11px;color:#6b7280;">' + esc(company) + '</span>';
@@ -32707,7 +32711,7 @@ function filterUnimportedCaseForms() {
         h += '<div style="display:flex;gap:6px;margin-top:6px;">';
         h += '<button onclick="previewFormResponse(\'' + r.id + '\',\'' + r.form_type + '\')" style="font-size:11px;padding:3px 10px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:5px;cursor:pointer;">👁 プレビュー</button>';
         h += '<button onclick="openFormForEdit(\'' + r.id + '\',\'' + r.form_type + '\',\'' + r.case_id + '\')" style="font-size:11px;padding:3px 10px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:5px;cursor:pointer;font-weight:700;">✏️ 編集</button>';
-        h += '<button onclick="importFormResponse(\'' + r.id + '\',\'' + r.case_id + '\',\'' + r.form_type + '\');document.getElementById(\'caseFormListModal\').remove();" style="font-size:11px;padding:3px 10px;background:#2563eb;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;">取込</button>';
+        h += '<button onclick="importFormResponse(\'' + r.id + '\',\'' + r.case_id + '\',\'' + r.form_type + '\');this.closest(\'div[data-rid]\').remove();" style="font-size:11px;padding:3px 10px;background:#2563eb;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;">取込</button>';
         h += '<button onclick="openCase(\'' + r.case_id + '\');document.getElementById(\'caseFormListModal\').remove();" style="font-size:11px;padding:3px 10px;background:white;color:#374151;border:1px solid #e5e7eb;border-radius:5px;cursor:pointer;">案件を開く →</button>';
         h += '<button onclick="if(confirm(\'このフォーム回答を削除しますか？\')){_sb.from(\'form_responses\').update({deleted_at:new Date().toISOString()}).eq(\'id\',\'' + r.id + '\').then(function(){document.getElementById(\'caseFormListModal\').remove();filterUnimportedCaseForms();});}" style="font-size:11px;padding:3px 10px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:5px;cursor:pointer;font-weight:700;">🗑 削除</button>';
         h += '</div>';
@@ -32718,7 +32722,7 @@ function filterUnimportedCaseForms() {
       var modal = '<div id="caseFormListModal" onclick="if(event.target===this)this.remove()" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;">'
         + '<div style="background:white;border-radius:14px;padding:20px;width:600px;max-width:95vw;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);">'
         + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">'
-        + '<div style="font-size:14px;font-weight:800;color:#0f2040;">📝 未取込フォーム回答 ' + res.data.length + '件</div>'
+        + '<div style="font-size:14px;font-weight:800;color:#0f2040;">📝 未取込フォーム回答 ' + _deduped.length + '件</div>'
         + '<button onclick="document.getElementById(\'caseFormListModal\').remove()" style="font-size:18px;color:#9ca3af;background:none;border:none;cursor:pointer;">✕</button>'
         + '</div>'
         + h
