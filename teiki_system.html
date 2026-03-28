@@ -1078,6 +1078,354 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
 </div>
 
 <script>
+/**
+ * 定期届出（参考様式第3-6号）計算ルールブック
+ * 出典：出入国在留管理庁「特定技能外国人の受入れ・活動・支援実施状況に係る届出（定期届出）作成要領」
+ * 公表日：2026年1月26日 / 最終確認：2026年3月
+ * =====================================================================
+ * このファイルはUI側・DB側・チェック機能の共通ルール定義です。
+ * 計算・バリデーションはすべてここを参照してください。
+ * 独自の判断で計算しないこと。
+ * =====================================================================
+ */
+
+const TEIKI_RULES = {
+
+  // ============================================================
+  // 1. 届出対象期間
+  // ============================================================
+  period: {
+    description: '毎年4月1日〜翌年3月31日の1年間分を翌年5月31日までに提出',
+    fiscalYearStart: { month: 4, day: 1 },
+    fiscalYearEnd:   { month: 3, day: 31 },
+    submitDeadline:  { month: 5, day: 31 },
+  },
+
+  // ============================================================
+  // 2. 報告対象者のカウントルール
+  // ============================================================
+  targetPersonRules: {
+    // 対象者の定義
+    include: [
+      '届出対象期間（4/1〜3/31）に1日でも在籍していた特定技能外国人は全員対象',
+      '途中退職者・途中入社者も含む',
+      '届出対象期間中に退職→再入社した場合は1人としてカウント（脱退一時金みなし退職も同様）',
+    ],
+    exclude: [
+      '特定活動（特定自動車運送業準備等）は対象外',
+      '技能実習は対象外',
+    ],
+    // 在籍開始日の定義
+    startDate: '雇用契約開始日（入社日）ではなく、「特定技能」の在留資格で上陸許可を受けた日または在留資格変更許可を受けた日',
+    startDateNote: '例：在留資格許可日が2026年3月20日、入社日が2026年4月1日→届出対象期間に勤務していなくても報告対象',
+    // 1号→2号移行の扱い
+    statusChange: {
+      rule: '届出対象期間中に1号→2号に変更した場合は「2号」として計上（1号の人数には含めない）',
+      laborDataRule: '1号期間と2号期間のデータはそれぞれの欄に分けて集計する',
+      midMonthRule: '月の途中で1号→2号に移行した場合、その月は含めず翌月以降の状況を2号欄に記載',
+    },
+  },
+
+  // ============================================================
+  // 3. 労働条件（月平均値）の計算ルール
+  // ============================================================
+  laborDataRules: {
+    // 【共通】計算対象月の決定
+    monthInclusionRules: {
+      INCLUDE: '休業日（短時間休業も含む）があった月 → 含める',
+      EXCLUDE_START: '月の途中で特定技能雇用契約を開始した月（受入れ開始月）→ 除外',
+      EXCLUDE_END:   '月の途中で特定技能雇用契約を終了した月（受入れ終了月）→ 除外',
+      EXCLUDE_STATUS_CHANGE: '月の途中で1号→2号に移行した月 → その月は両欄から除外',
+      note: '「月の途中」とは1日〜末日の間で開始または終了した場合。1日開始・末日終了は「途中」に該当しない',
+    },
+
+    // 【丸め処理】全項目共通
+    rounding: '小数点第1位を四捨五入して整数で記載（昇給率のみ小数点第1位まで）',
+
+    // 各項目の定義
+    items: {
+      workDays: {
+        label: '（１）実労働日数',
+        unit: '日/月（月平均）',
+        definition: '特定技能外国人が実際に労働した日数の月平均',
+        include: ['短時間でも1時間でも働いた日', '休日労働を行った日'],
+        exclude: ['有給休暇取得日（実際に働いていない場合）', '完全休業日'],
+        rounding: '整数（小数点第1位四捨五入）',
+        required: true,
+      },
+      scheduledHours: {
+        label: '（２）所定内実労働時間数',
+        unit: '時間/月（月平均）',
+        definition: '実労働時間数から超過実労働時間数を差し引いた時間数の月平均',
+        include: ['短時間休業で就労を行った時間数'],
+        exclude: ['休業日'],
+        rounding: '整数（小数点第1位四捨五入）',
+        required: true,
+      },
+      overtimeHours: {
+        label: '（３）超過実労働時間数',
+        unit: '時間/月（月平均）',
+        definition: '早出・残業・休日労働等の時間数の月平均',
+        note: '割増分（0.25倍部分）だけでなく1.25倍の全額を含める',
+        rounding: '整数（小数点第1位四捨五入）',
+        required: true,
+      },
+      totalPay: {
+        label: '（４）きまって支給する現金給与額',
+        unit: '円/月（月平均）',
+        definition: '超過労働給与額を含む現金給与の月平均',
+        include: [
+          '基本給',
+          '超過労働手当（時間外・深夜・休日・宿日直手当等）',
+          '通勤手当',
+          '精皆勤手当',
+          '家族手当',
+          'その他きまって支給される手当',
+        ],
+        exclude: ['賞与・期末手当等特別給与（別項目⑤で報告）'],
+        note: '月中に雇用契約を開始または終了してその月の給与が1か月分に満たない場合は除外して平均を算出',
+        rounding: '整数（小数点第1位四捨五入）',
+        required: true,
+      },
+      overtimePay: {
+        label: '①うち超過労働給与額',
+        unit: '円/月（月平均）',
+        definition: '時間外手当・深夜手当・休日手当・宿日直手当等の合計の月平均',
+        rounding: '整数（小数点第1位四捨五入）',
+        required: true,
+      },
+      commuteAllowance: {
+        label: '②うち通勤手当',
+        unit: '円/月（月平均）',
+        definition: '通勤手当の月平均',
+        note: '様式の手当名を勝手に変えないこと。該当しない手当は④の合計に含める',
+        rounding: '整数（小数点第1位四捨五入）',
+        required: true,
+      },
+      attendanceAllowance: {
+        label: '③うち精皆勤手当',
+        unit: '円/月（月平均）',
+        definition: '精皆勤手当の月平均',
+        rounding: '整数（小数点第1位四捨五入）',
+        required: true,
+      },
+      familyAllowance: {
+        label: '④うち家族手当',
+        unit: '円/月（月平均）',
+        definition: '家族手当の月平均',
+        rounding: '整数（小数点第1位四捨五入）',
+        required: true,
+      },
+      bonus: {
+        label: '（５）賞与・期末手当等特別給与額',
+        unit: '円（届出対象期間1年間の合計÷対象人数の平均額）',
+        definition: '対象期間中に支払われた賞与等の合計額を対象人数で割った平均額',
+        note: '月平均ではなく1年間の平均額',
+        rounding: '整数（小数点第1位四捨五入）',
+        required: true,
+      },
+      deductFood: {
+        label: '（６）控除額①食費',
+        unit: '円/月（月平均）',
+        rounding: '整数（小数点第1位四捨五入）',
+        required: true,
+      },
+      deductHousing: {
+        label: '（６）控除額②居住費（水道・光熱費含む）',
+        unit: '円/月（月平均）',
+        rounding: '整数（小数点第1位四捨五入）',
+        required: true,
+      },
+      deductTax: {
+        label: '（６）控除額③税・社会保険料',
+        unit: '円/月（月平均）',
+        rounding: '整数（小数点第1位四捨五入）',
+        required: true,
+      },
+      deductOther: {
+        label: '（６）控除額④その他',
+        unit: '円/月（月平均）',
+        rounding: '整数（小数点第1位四捨五入）',
+        required: true,
+      },
+      raiseRate: {
+        label: '（７）昇給率',
+        unit: '%（小数点第1位まで）',
+        definition: '同一企業・同一在留資格で2年以上継続在籍している外国人がいる場合のみ記載必須',
+        // 記載が必要な条件
+        requiredCondition: '同一の特定技能所属機関で、同一の在留資格（1号または2号）で2年以上継続して在籍している外国人が1人でもいる場合',
+        // 昇給がない場合
+        noRaiseValue: '0%（「100%」は「給与が2倍になった」という意味になるため絶対に使わない）',
+        // 計算式（作成要領参照）
+        calcNote: '計算式は出入国在留管理庁「定期届出作成要領」の昇給率算出方法に従うこと',
+        rounding: '小数点第2位を四捨五入して小数点第1位まで（例：2.7%）',
+        // 転職者の扱い
+        transferNote: '前の企業での在籍期間はカウントしない。同一企業での継続在籍期間で判断',
+        // 1号→2号変更者の扱い
+        statusChangeNote: '1号→2号に変更した場合、1号期間と2号期間は別カウント',
+        required: false, // 上記条件を満たす場合のみ必須
+        requiredIf: 'contractStart 2年以上',
+      },
+    },
+  },
+
+  // ============================================================
+  // 4. チェックリスト（よくある間違い）
+  // ============================================================
+  checkList: [
+    {
+      id: 'check_person_count',
+      title: '人数の重複チェック',
+      rule: '1号から2号へ変更した人を1号の人数にも計上していないか',
+      errorMessage: '1号→2号変更者は「2号」のみに計上すること（1号には含めない）',
+    },
+    {
+      id: 'check_overtime_pay',
+      title: '時間外手当の計算方法',
+      rule: '残業代について割増分（0.25倍部分）しか記載していないケースに注意',
+      errorMessage: '超過労働給与額は1.25倍の全額を含めること',
+    },
+    {
+      id: 'check_allowance_name',
+      title: '手当名の書き換え禁止',
+      rule: '様式に定められた手当名（通勤手当等）を勝手に書き換えていないか',
+      errorMessage: '手当名は変更しないこと。様式に該当しない手当は④現金給与総額の合計に含める',
+    },
+    {
+      id: 'check_raise_rate',
+      title: '昇給率の記載方法',
+      rule: '昇給がない場合に「100%」と書いていないか',
+      errorMessage: '昇給がない場合は「0%」と記載。「100%」は給与が2倍になった意味になる',
+    },
+    {
+      id: 'check_support_org_sign',
+      title: '登録支援機関の署名',
+      rule: '登録支援機関に委託しているのに署名が入った別紙が添付されているか',
+      errorMessage: '電子届出の場合はスキャンデータを添付すること',
+    },
+    {
+      id: 'check_exclude_month',
+      title: '計算対象月の除外',
+      rule: '月の途中で受入れ開始または終了した月を除外しているか',
+      errorMessage: '受入れ開始月・終了月（月の途中の場合）は平均値の計算から除外すること',
+    },
+    {
+      id: 'check_include_leave_month',
+      title: '休業月の取り扱い',
+      rule: '休業日があった月を除外していないか',
+      errorMessage: '休業日（短時間休業も含む）があった月は計算に含めること',
+    },
+    {
+      id: 'check_2year_raise',
+      title: '昇給率の記載要否判断',
+      rule: '同一企業・同一在留資格2年以上継続在籍者がいるのに昇給率を未記載にしていないか',
+      errorMessage: '上記条件を満たす外国人がいる場合、昇給率の記載は必須',
+    },
+  ],
+
+  // ============================================================
+  // 5. フィールドバリデーションルール
+  // ============================================================
+  validationRules: {
+    // 全項目：整数かどうか（昇給率を除く）
+    isInteger: ['workDays', 'scheduledHours', 'overtimeHours', 'totalPay',
+                'overtimePay', 'commuteAllowance', 'attendanceAllowance',
+                'familyAllowance', 'bonus', 'deductFood', 'deductHousing',
+                'deductTax', 'deductOther'],
+    // 昇給率：小数点1位まで
+    isDecimal1: ['raiseRate'],
+    // 必須チェック（在職者がいる企業）
+    requiredIfActive: ['workDays', 'scheduledHours', 'overtimeHours', 'totalPay',
+                       'overtimePay', 'commuteAllowance', 'attendanceAllowance',
+                       'familyAllowance', 'bonus', 'deductFood', 'deductHousing',
+                       'deductTax', 'deductOther'],
+    // 論理チェック
+    logicChecks: [
+      {
+        id: 'total_pay_breakdown',
+        rule: 'overtimePay + commuteAllowance + attendanceAllowance + familyAllowance <= totalPay',
+        errorMessage: '内訳の合計が現金給与総額を超えています',
+      },
+      {
+        id: 'raise_rate_range',
+        rule: 'raiseRate >= 0 && raiseRate <= 100',
+        errorMessage: '昇給率は0〜100%の範囲で入力してください（昇給なし=0%）',
+      },
+      {
+        id: 'raise_rate_not_100_for_no_raise',
+        rule: '昇給なしの場合はraiseRate === 0（100は不可）',
+        errorMessage: '昇給がない場合は0%と記載してください。100%は「給与が2倍」を意味します',
+      },
+    ],
+  },
+
+  // ============================================================
+  // 6. スプレッドシートDBのフィールド定義
+  // ============================================================
+  dbFields: {
+    // 月次労働データシート（外国人ごと・年間）
+    monthlyData: {
+      sheetName: '月次労働データ',
+      key: ['companyName', 'nameEn', 'yearMonth'],
+      fields: {
+        companyName:          { type: 'string', required: true },
+        nameEn:               { type: 'string', required: true },
+        yearMonth:            { type: 'string', value: '年間', note: '月平均値として保存' },
+        workDays:             { type: 'number', note: '月平均・整数' },
+        scheduledHours:       { type: 'number', note: '月平均・整数' },
+        overtimeHours:        { type: 'number', note: '月平均・整数' },
+        totalPay:             { type: 'number', note: '月平均・整数' },
+        overtimePay:          { type: 'number', note: '月平均・整数' },
+        commuteAllowance:     { type: 'number', note: '月平均・整数' },
+        attendanceAllowance:  { type: 'number', note: '月平均・整数' },
+        familyAllowance:      { type: 'number', note: '月平均・整数' },
+        bonus:                { type: 'number', note: '年間合計÷人数の平均額・整数' },
+        raiseRate:            { type: 'number', note: '小数点1位まで。条件該当者のみ' },
+        deductFood:           { type: 'number', note: '月平均・整数' },
+        deductHousing:        { type: 'number', note: '月平均・整数' },
+        deductTax:            { type: 'number', note: '月平均・整数' },
+        deductOther:          { type: 'number', note: '月平均・整数' },
+      },
+    },
+    // 所属機関マスタシート（企業ごと）
+    companyData: {
+      sheetName: '所属機関マスタ',
+      additionalFields: {
+        industry:      { type: 'string', note: '特定産業分野（15分野から選択）' },
+        supportJokyo:  { type: 'string', values: ['全部委託', '自社支援'], note: '支援の実施状況' },
+      },
+    },
+  },
+
+  // ============================================================
+  // 7. 特定産業分野の一覧（2026年3月時点）
+  // ============================================================
+  industrialFields: [
+    '介護', 'ビルクリーニング', '素形材・産業機械・電気電子情報関連製造業',
+    '建設', '造船・舶用工業', '自動車整備', '航空', '宿泊',
+    '農業', '漁業', '飲食料品製造業', '外食業', '林業', '木材産業', '繊維',
+  ],
+
+  // ============================================================
+  // 8. 参照資料
+  // ============================================================
+  references: [
+    {
+      title: '特定技能外国人の受入れ・活動・支援実施状況に係る届出（定期届出）作成要領',
+      publisher: '出入国在留管理庁',
+      date: '2026年1月26日公表',
+      url: 'https://www.moj.go.jp/isa/applications/ssw/nyuukokukanri10_00002.html',
+    },
+    {
+      title: '特定技能制度 定期届出書の記載方法と留意点',
+      publisher: '出入国在留管理庁',
+    },
+  ],
+};
+
+// Node.js / GAS 両対応でエクスポート
+// ルールブック埋め込み完了
+
 var GAS_URL = localStorage.getItem('gas_url') || '';
 var ANTHROPIC_KEY = localStorage.getItem('anthropic_key') || '';
 var FISCAL_YEAR = localStorage.getItem('fiscal_year') || '2025';
@@ -1146,7 +1494,18 @@ async function loadAllData() {
       gasGet({action:'getReports', year:FISCAL_YEAR}), gasGet({action:'getMonthly'})
     ]);
     companies = cos || []; foreigners = fgs || [];
-    if (monthly && monthly.length) salaryData = monthly;
+    // GASからのmonthlyデータを既存のlocalと完全マージ（スプシ側を優先）
+    if (monthly && monthly.length) {
+      salaryData = monthly.map(function(m){
+        var existing = salaryData.find(function(s){ return s.companyName===m.companyName&&s.nameEn===m.nameEn; }) || {};
+        return Object.assign({}, existing, m);
+      });
+      // localにあってGASにない分も追加
+      salaryData.forEach(function(s){
+        var inGas = monthly.find(function(m){ return m.companyName===s.companyName&&m.nameEn===s.nameEn; });
+        if(!inGas) salaryData.push(s);
+      });
+    }
     var rm = {}; (reports||[]).forEach(r => rm[r.companyName]=r);
     companies.forEach(function(co) {
       var r = rm[co.name] || {};
@@ -1297,57 +1656,185 @@ function renderDocCoList() {
 function selectSalaryCompany(name) {
   selectedCompany=companies.find(c=>c.name===name); renderSalaryCoList(); renderSalaryInput();
 }
+// ===== 給与データ月次入力 =====
+var SAL_MONTHS_PREV  = ['2025-04','2025-05','2025-06','2025-07','2025-08','2025-09','2025-10','2025-11','2025-12','2026-01','2026-02','2026-03'];
+var SAL_MONTHS_PREV2 = ['2024-04','2024-05','2024-06','2024-07','2024-08','2024-09','2024-10','2024-11','2024-12','2025-01','2025-02','2025-03'];
+var SAL_MONTH_LABELS = ['4月','5月','6月','7月','8月','9月','10月','11月','12月','1月','2月','3月'];
+var SAL_FIELDS = [
+  {key:'totalPay',            label:'現金給与総額',     unit:'円',  int:true},
+  {key:'overtimePay',         label:'うち超過労働給与', unit:'円',  int:true},
+  {key:'commuteAllowance',    label:'うち通勤手当',     unit:'円',  int:true},
+  {key:'attendanceAllowance', label:'うち精皆勤手当',   unit:'円',  int:true},
+  {key:'familyAllowance',     label:'うち家族手当',     unit:'円',  int:true},
+  {key:'workDays',            label:'実労働日数',       unit:'日',  int:false},
+  {key:'scheduledHours',      label:'所定内実労働時間', unit:'時間',int:false},
+  {key:'overtimeHours',       label:'超過実労働時間',   unit:'時間',int:false},
+  {key:'deductFood',          label:'控除①食費',        unit:'円',  int:true},
+  {key:'deductHousing',       label:'控除②居住費',      unit:'円',  int:true},
+  {key:'deductTax',           label:'控除③税・社保',    unit:'円',  int:true},
+  {key:'deductOther',         label:'控除④その他',       unit:'円',  int:true},
+];
+var salYearTab = 'prev';
+
 function renderSalaryInput() {
   if (!selectedCompany) return;
-  var fgs=foreigners.filter(f=>f.companyName===selectedCompany.name&&f.status==='在職'), co=selectedCompany;
+  var fgs=foreigners.filter(function(f){return f.companyName===selectedCompany.name&&f.status==='在職';}), co=selectedCompany;
   var html='<div class="table-wrapper"><div class="table-header"><span class="table-title">給与データ入力 — '+esc(co.name)+'</span><span class="table-count">'+fgs.length+'名</span></div><div style="padding:16px">';
-  if (!fgs.length) html+='<div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">在職中の外国人がいません</div></div>';
+  if (!fgs.length) { html+='<div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">在職中の外国人がいません</div></div>'; }
   else {
-    html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">'+
-      '<div class="alert alert-info" style="margin-bottom:0;flex:1">ℹ️ 以下はすべて <b>月平均値</b> を整数で入力。除外：雇用開始月・終了月（途中の月）　含む：休業月</div>'+
-      '<label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap">'+
-        '📄 賃金台帳PDF取込'+
-        '<input type="file" accept=".pdf" multiple style="display:none" onchange="importSalaryPDF(event,\''+esc(co.name)+'\')">'+
-      '</label>'+
-      '</div>';
+    html+='<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">'+
+      '<button class="btn btn-sm '+(salYearTab==='prev'?'btn-primary':'btn-secondary')+'" onclick="salYearTab=&quot;prev&quot;;renderSalaryInput()">▶ 前年度（令和7年4月〜令和8年3月）</button>'+
+      '<button class="btn btn-sm '+(salYearTab==='prev2'?'btn-primary':'btn-secondary')+'" onclick="salYearTab=&quot;prev2&quot;;renderSalaryInput()">▶ 前々年度（令和6年4月〜令和7年3月）</button>'+
+      '<label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin-left:auto">📄 賃金台帳PDF取込<input type="file" accept=".pdf" multiple style="display:none" onchange="importSalaryPDF(event,''+esc(co.name)+'')"></label>'+
+    '</div>';
+    html+='<div class="alert alert-info" style="margin-bottom:12px">ℹ️ 各月の実績値を入力（<b>支給日ベース</b>）。除外：受入開始月・終了月（月途中の場合）　含む：休業月。<b>月平均は自動計算</b>。</div>';
+
+    var months = salYearTab==='prev' ? SAL_MONTHS_PREV : SAL_MONTHS_PREV2;
+
     fgs.forEach(function(f){
-      var sal=salaryData.find(s=>s.companyName===co.name&&s.nameEn===f.nameEn)||{};
-      html+='<div style="border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:12px;background:var(--bg2)">'+
-        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">'+
+      var fid = f.nameEn.replace(/\s/g,'_');
+      var requires2yr = false;
+      if(f.contractStart){
+        var diff=(new Date()-new Date(f.contractStart))/(1000*60*60*24*365.25);
+        requires2yr = diff >= 2;
+      }
+
+      html+='<div style="border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:16px;background:var(--bg2)">'+
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">'+
         '<span style="font-size:14px;font-weight:700">'+esc(f.nameEn)+'</span>'+
         '<span class="badge badge-blue">'+esc(f.residenceStatus)+'</span>'+
-        '<span style="font-size:11px;color:var(--text3)">'+esc(f.nationality)+' / 開始: '+esc(f.contractStart||'—')+'</span></div>'+
-        '<div class="form-grid cols4">'+
-        '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;grid-column:1/-1;margin-top:4px">■ 労働時間</div>'+
-        salInput('実労働日数','workDays',sal.workDays,f.nameEn,'日')+
-        salInput('所定内実労働時間','scheduledHours',sal.scheduledHours,f.nameEn,'時間')+
-        salInput('超過実労働時間','overtimeHours',sal.overtimeHours,f.nameEn,'時間')+
-        '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;grid-column:1/-1;margin-top:8px">■ 支給額（月平均）</div>'+
-        salInput('現金給与総額','totalPay',sal.totalPay,f.nameEn,'円')+
-        salInput('うち超過労働給与','overtimePay',sal.overtimePay,f.nameEn,'円')+
-        salInput('うち通勤手当','commuteAllowance',sal.commuteAllowance,f.nameEn,'円')+
-        salInput('うち精皆勤手当','attendanceAllowance',sal.attendanceAllowance,f.nameEn,'円')+
-        salInput('うち家族手当','familyAllowance',sal.familyAllowance,f.nameEn,'円')+
-        salInput('賞与等（年間合計）','bonus',sal.bonus,f.nameEn,'円')+
-        salInput('昇給率','raiseRate',sal.raiseRate,f.nameEn,'%')+
-        '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;grid-column:1/-1;margin-top:8px">■ 控除額内訳（月平均）</div>'+
-        salInput('控除①食費','deductFood',sal.deductFood,f.nameEn,'円')+
-        salInput('控除②居住費','deductHousing',sal.deductHousing,f.nameEn,'円')+
-        salInput('控除③税・社会保険料','deductTax',sal.deductTax,f.nameEn,'円')+
-        salInput('控除④その他','deductOther',sal.deductOther,f.nameEn,'円')+
-        '</div><div style="margin-top:10px;display:flex;justify-content:flex-end">'+
-        '<button class="btn btn-primary btn-sm" onclick="saveSalary(\''+esc(f.nameEn)+'\',\''+esc(co.name)+'\')">この人のデータを保存</button></div></div>';
+        '<span style="font-size:11px;color:var(--text3)">'+esc(f.nationality)+' / 開始: '+esc(f.contractStart||'—')+'</span>'+
+        (requires2yr?'<span style="background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px">✱ 昇給率必須（2年以上在籍）</span>':'')+
+        '</div>';
+
+      html+='<div style="overflow-x:auto;margin-bottom:8px"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:860px">'+
+        '<thead><tr style="background:var(--bg3)">'+
+        '<th style="padding:5px 8px;text-align:left;white-space:nowrap;min-width:130px;position:sticky;left:0;background:var(--bg3);z-index:2">項目</th>'+
+        months.map(function(ym,i){ return '<th style="padding:5px 3px;text-align:center;min-width:58px">'+SAL_MONTH_LABELS[i]+'</th>'; }).join('')+
+        '<th style="padding:5px 8px;text-align:center;min-width:65px;background:var(--blue);color:#fff">月平均</th>'+
+        '</tr></thead><tbody>';
+
+      SAL_FIELDS.forEach(function(field,fi){
+        var rowSals = months.map(function(ym){ return salaryData.find(function(s){ return s.companyName===co.name&&s.nameEn===f.nameEn&&s.yearMonth===ym; })||{}; });
+        var vals = rowSals.map(function(s){ var v=s[field.key]; return (v!==''&&v!==undefined&&v!==null)?parseFloat(v):null; });
+        var filled = vals.filter(function(v){return v!==null&&v!==0;});
+        var avg = filled.length ? filled.reduce(function(a,b){return a+b;},0)/filled.length : null;
+        if(avg!==null) avg = field.int ? Math.round(avg) : Math.round(avg*10)/10;
+        var bgRow = fi>=8 ? 'background:rgba(0,0,0,.02)' : '';
+
+        html+='<tr style="border-top:1px solid var(--border);'+bgRow+'">'+
+          '<td style="padding:3px 8px;white-space:nowrap;font-weight:500;position:sticky;left:0;background:'+(fi>=8?'var(--bg3)':'var(--bg2)')+';z-index:1">'+esc(field.label)+' <span style="color:var(--text3);font-weight:400">'+field.unit+'</span></td>'+
+          months.map(function(ym,i){
+            var cid='sm_'+field.key+'_'+fid+'_'+ym.replace('-','');
+            var v=rowSals[i][field.key];
+            return '<td style="padding:2px 2px;text-align:center">'+
+              '<input type="number" step="'+(field.int?'1':'0.1')+'" class="input" '+
+              'style="width:54px;padding:2px 3px;font-size:11px;text-align:right" '+
+              'id="'+cid+'" value="'+(v!==undefined&&v!==null&&v!==''?v:'')+'" '+
+              'onchange="salMonthChanged(''+co.name.replace(/'/g,"\'")+'',' +
+              '''+f.nameEn.replace(/'/g,"\'")+'',''+ym+'',''+field.key+'',this.value)">'+
+              '</td>';
+          }).join('')+
+          '<td style="padding:3px 8px;text-align:right;font-weight:700;background:rgba(37,99,235,.08);font-size:12px">'+(avg!==null?avg.toLocaleString():'—')+'</td>'+
+          '</tr>';
+      });
+
+      // 賞与行
+      var bonusSals=months.map(function(ym){ return salaryData.find(function(s){ return s.companyName===co.name&&s.nameEn===f.nameEn&&s.yearMonth===ym; })||{}; });
+      var bonusTotal=bonusSals.reduce(function(a,s){ return a+(parseFloat(s.bonus)||0); },0);
+      html+='<tr style="border-top:2px solid var(--border);background:var(--bg3)">'+
+        '<td style="padding:3px 8px;white-space:nowrap;font-weight:500;position:sticky;left:0;background:var(--bg3);z-index:1">賞与 <span style="color:var(--text3);font-weight:400">円（支給月のみ）</span></td>'+
+        months.map(function(ym,i){
+          var cid='sm_bonus_'+fid+'_'+ym.replace('-','');
+          var v=bonusSals[i].bonus;
+          return '<td style="padding:2px 2px;text-align:center">'+
+            '<input type="number" step="1" class="input" style="width:54px;padding:2px 3px;font-size:11px;text-align:right" '+
+            'id="'+cid+'" value="'+(v||'')+'" '+
+            'onchange="salMonthChanged(''+co.name.replace(/'/g,"\'")+'',''+f.nameEn.replace(/'/g,"\'")+'',''+ym+'','bonus',this.value)">'+
+            '</td>';
+        }).join('')+
+        '<td style="padding:3px 8px;text-align:right;font-weight:700;background:rgba(37,99,235,.08);font-size:12px">'+(bonusTotal?bonusTotal.toLocaleString()+'円（年計）':'—')+'</td>'+
+        '</tr>';
+
+      html+='</tbody></table></div>';
+      html+='<div style="display:flex;gap:8px;justify-content:flex-end">'+
+        '<button class="btn btn-primary btn-sm" onclick="saveAllSalaryMonths(''+esc(f.nameEn)+'',''+esc(co.name)+'')">この年度を一括保存</button>'+
+        '<button class="btn btn-danger btn-sm" onclick="deleteAllSalaryMonths(''+esc(f.nameEn)+'',''+esc(co.name)+'')">この年度を削除</button>'+
+        '</div></div>';
     });
   }
   html+='</div></div>';
   document.getElementById('sal-input-area').innerHTML=html;
 }
+
+function salMonthChanged(coName,nameEn,ym,field,val){
+  var idx=salaryData.findIndex(function(s){return s.companyName===coName&&s.nameEn===nameEn&&s.yearMonth===ym;});
+  if(idx>=0){salaryData[idx][field]=val;}
+  else{var r={companyName:coName,nameEn:nameEn,yearMonth:ym,action:'upsertMonthly'};r[field]=val;salaryData.push(r);}
+}
+
+async function saveAllSalaryMonths(nameEn,coName){
+  var months=salYearTab==='prev'?SAL_MONTHS_PREV:SAL_MONTHS_PREV2;
+  saveLocalCache();
+  if(GAS_URL){
+    for(var i=0;i<months.length;i++){
+      var ym=months[i];
+      var rec=salaryData.find(function(s){return s.companyName===coName&&s.nameEn===nameEn&&s.yearMonth===ym;});
+      if(rec){try{await gasPost(Object.assign({action:'upsertMonthly'},rec));}catch(e){}}
+    }
+  }
+  showToast(nameEn+' の給与データを保存しました（'+months.length+'ヶ月）','success');
+}
+
+async function deleteAllSalaryMonths(nameEn,coName){
+  var months=salYearTab==='prev'?SAL_MONTHS_PREV:SAL_MONTHS_PREV2;
+  var label=salYearTab==='prev'?'前年度':'前々年度';
+  if(!confirm(nameEn+' の'+label+'データを削除しますか？')) return;
+  salaryData=salaryData.filter(function(s){return !(s.companyName===coName&&s.nameEn===nameEn&&months.indexOf(s.yearMonth)>=0);});
+  saveLocalCache();
+  if(GAS_URL){try{await gasPost({action:'deleteSalaryYear',companyName:coName,nameEn:nameEn,months:months});}catch(e){}}
+  renderSalaryInput();
+  showToast(nameEn+' の'+label+'データを削除しました','success');
+}
+
 function salInput(label,key,val,nameEn,unit) {
   var id='sal_'+key+'_'+nameEn.replace(/\s/g,'_');
   return '<div class="field-group"><label class="field-label">'+label+'（'+unit+'）</label><input type="number" class="input" id="'+id+'" value="'+(val||'')+'" placeholder="0"></div>';
 }
+async function deleteSalary(nameEn, coName) {
+  if (!confirm(nameEn + ' の給与データを削除しますか？')) return;
+  salaryData = salaryData.filter(function(s){ return !(s.companyName===coName && s.nameEn===nameEn); });
+  saveLocalCache();
+  if (GAS_URL) {
+    try { await gasPost({action:'deleteSalary', companyName:coName, nameEn:nameEn}); } catch(e){}
+  }
+  renderSalaryInput();
+  showToast(nameEn + ' の給与データを削除しました', 'success');
+}
 async function saveSalary(nameEn,coName) {
+  // ルールブックに基づくバリデーション
   var keys=['workDays','scheduledHours','overtimeHours','totalPay','overtimePay','commuteAllowance','attendanceAllowance','familyAllowance','bonus','raiseRate','deductFood','deductHousing','deductTax','deductOther','deductions'];
+  // 整数チェック（昇給率以外）
+  var intKeys=TEIKI_RULES.validationRules.isInteger;
+  for(var ik=0;ik<intKeys.length;ik++){
+    var el=document.getElementById('sal_'+intKeys[ik]+'_'+nameEn.replace(/\s/g,'_'));
+    if(el&&el.value!==''){
+      var v=parseFloat(el.value);
+      if(!Number.isInteger(v)){ showToast(TEIKI_RULES.laborDataRules.items[intKeys[ik]].label+'は整数で入力してください','warn'); return; }
+    }
+  }
+  // 昇給率チェック
+  var rrEl=document.getElementById('sal_raiseRate_'+nameEn.replace(/\s/g,'_'));
+  if(rrEl&&rrEl.value!==''){
+    var rr=parseFloat(rrEl.value);
+    if(isNaN(rr)||rr<0||rr>100){showToast('昇給率は0〜100%の範囲で入力してください','warn');return;}
+    if(rr===100){showToast('⚠️ 昇給率100%は「給与が2倍」を意味します。昇給なしの場合は0%と入力してください','warn');return;}
+  }
+  // 内訳合計チェック
+  var getVal=function(k){var e=document.getElementById('sal_'+k+'_'+nameEn.replace(/\s/g,'_'));return e?parseFloat(e.value)||0:0;};
+  var breakdown=getVal('overtimePay')+getVal('commuteAllowance')+getVal('attendanceAllowance')+getVal('familyAllowance');
+  var total=getVal('totalPay');
+  if(total>0&&breakdown>total){showToast('内訳の合計（'+breakdown.toLocaleString()+'円）が現金給与総額（'+total.toLocaleString()+'円）を超えています','warn');return;}
   var data={action:'upsertMonthly',companyName:coName,nameEn:nameEn,yearMonth:'年間'};
   keys.forEach(function(k){ var el=document.getElementById('sal_'+k+'_'+nameEn.replace(/\s/g,'_')); if(el) data[k]=el.value||''; });
   var idx=salaryData.findIndex(s=>s.companyName===coName&&s.nameEn===nameEn);
@@ -1389,6 +1876,19 @@ function selectCalcCompany(name) {
       calcField('③税・社会保険料',Math.round(av(sals.map(s=>parseFloat(s.deductTax)||0))).toLocaleString(),'円')+
       calcField('④その他',Math.round(av(sals.map(s=>parseFloat(s.deductOther)||0))).toLocaleString(),'円')+
       '</div>';
+  }
+  // ルールブックに基づくチェック
+  html+='<div class="section-divider"></div><div class="section-head"><span class="section-title">📋 記載チェック（ルールブック準拠）</span></div>';
+  var checkResults = runTeikiChecks(name, fgs, sals);
+  if(checkResults.errors.length===0 && checkResults.warnings.length===0){
+    html+='<div class="alert alert-success">✅ チェック項目に問題ありません</div>';
+  }else{
+    checkResults.errors.forEach(function(e){
+      html+='<div class="alert alert-warn" style="border-left:3px solid var(--red)">🔴 '+esc(e)+'</div>';
+    });
+    checkResults.warnings.forEach(function(w){
+      html+='<div class="alert alert-warn">⚠️ '+esc(w)+'</div>';
+    });
   }
   html+='<div class="section-divider"></div><div class="section-head"><span class="section-title">一定の基準判定</span></div>'+kijunBadge(kr)+'</div></div>';
   document.getElementById('calc-result-area').innerHTML=html;
@@ -1737,6 +2237,70 @@ function toggleKijunExp(){
   var active=el.classList.contains('checked');
   el.className='kijun-check'+(active?'':' checked');
 }
+
+// ===== ルールブックに基づくチェック関数 =====
+function runTeikiChecks(coName, fgs, sals) {
+  var errors = [], warnings = [];
+  if(!sals||!sals.length){ warnings.push('給与データが未入力です'); return {errors,warnings}; }
+
+  sals.forEach(function(sal){
+    var label = sal.nameEn;
+    var fg = fgs.find(function(f){return f.nameEn===sal.nameEn;})||{};
+
+    // 整数チェック
+    TEIKI_RULES.validationRules.isInteger.forEach(function(key){
+      var v = parseFloat(sal[key]);
+      if(sal[key]!==''&&sal[key]!==undefined&&!Number.isInteger(v)){
+        errors.push(label+': '+key+' は整数で記載が必要です（小数点第1位を四捨五入）');
+      }
+    });
+
+    // 内訳合計チェック
+    var breakdown = (parseFloat(sal.overtimePay)||0)+(parseFloat(sal.commuteAllowance)||0)
+                   +(parseFloat(sal.attendanceAllowance)||0)+(parseFloat(sal.familyAllowance)||0);
+    var total = parseFloat(sal.totalPay)||0;
+    if(total>0 && breakdown>total){
+      errors.push(label+': 内訳合計（'+breakdown.toLocaleString()+'円）が現金給与総額（'+total.toLocaleString()+'円）を超えています');
+    }
+
+    // 昇給率チェック
+    var rr = parseFloat(sal.raiseRate);
+    if(sal.raiseRate!==''&&sal.raiseRate!==undefined){
+      if(rr===100){
+        errors.push(label+': 昇給率100%は「給与が2倍」を意味します。昇給なしは0%と記載してください');
+      }
+      if(rr<0||rr>100){
+        errors.push(label+': 昇給率は0〜100%の範囲で記載してください');
+      }
+    }
+
+    // 2年以上在籍で昇給率未入力チェック
+    if(fg.contractStart){
+      var diff=(new Date()-new Date(fg.contractStart))/(1000*60*60*24*365.25);
+      if(diff>=2 && (sal.raiseRate===''||sal.raiseRate===undefined||sal.raiseRate===null)){
+        errors.push(label+': 同一企業・同一在留資格で2年以上継続在籍しているため昇給率の記載が必要です（昇給なしは0%）');
+      }
+    }
+
+    // 必須項目未入力チェック
+    TEIKI_RULES.validationRules.requiredIfActive.forEach(function(key){
+      if(key==='deductions') return; // deductionsは内訳で管理
+      if(sal[key]===''||sal[key]===undefined||sal[key]===null){
+        warnings.push(label+': '+( TEIKI_RULES.laborDataRules.items[key]?TEIKI_RULES.laborDataRules.items[key].label:key )+' が未入力です');
+      }
+    });
+  });
+
+  // 1号→2号重複チェック
+  var status1 = fgs.filter(function(f){return f.residenceStatus==='特定技能1号';});
+  var status2 = fgs.filter(function(f){return f.residenceStatus==='特定技能2号';});
+  if(status1.length>0 && status2.length>0){
+    warnings.push('1号と2号が混在しています。1号→2号に変更した人は2号のみに計上し、人数を重複計上しないよう確認してください');
+  }
+
+  return {errors, warnings};
+}
+
 function toggleSupportOther(){document.getElementById('support-other-wrap').style.display=document.getElementById('co-other-support-check').checked?'block':'none';}
 function switchPanel(id,el){
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
@@ -1966,14 +2530,40 @@ function parseSalaryText(text) {
 
   var ot1 = monthAvg('残業手当(支給)', true) || 0;
   var ot2 = monthAvg('深夜残業手当(支給)', true) || 0;
+  var ot3 = monthAvg('深夜残業手当(支給)', true) || 0;
+  // 通勤手当（課税・非課税両方試みる）
+  var commute1 = monthAvg('通勤手当/課税(支給)', true) || 0;
+  var commute2 = monthAvg('通勤手当/非課(支給)', true) || 0;
+  var commuteTotal = commute1 + commute2;
+  // 家族手当
+  var familyAmt = monthAvg('家族手当(支給)', true) || 0;
+  // 精皆勤手当
+  var attendAmt = monthAvg('精皆勤手当(支給)', true) || monthAvg('皆勤手当(支給)', true) || 0;
+  // 控除内訳
+  var deductFood = monthAvg('食費控除(控除)', true) || monthAvg('食費(控除)', true) || 0;
+  var deductHousing = monthAvg('家賃控除(控除)', true) || monthAvg('居住費(控除)', true) || 0;
+  var socialInsurance = monthAvg('社会保険料合計', true) || 0;
+  var incomeTax = monthAvg('所得税(控除)', true) || 0;
+  var residentTax = monthAvg('住民税(控除)', true) || 0;
+  var deductTaxAmt = socialInsurance + incomeTax + residentTax;
+  var deductOtherAmt = (monthAvg('控除合計', true)||0) - deductFood - deductHousing - deductTaxAmt;
+  if (deductOtherAmt < 0) deductOtherAmt = 0;
+
   var data = {
-    workDays:       monthAvg('出勤日数（平日）', false),
-    scheduledHours: monthAvg('所定時間（平日）', false),
-    overtimeHours:  monthAvg('法定外時間（平日）', false),
-    totalPay:       monthAvg('支給合計', true),
-    overtimePay:    (ot1+ot2) || null,
-    deductions:     monthAvg('控除合計', true),
-    bonus:          0,
+    workDays:            monthAvg('出勤日数（平日）', false),
+    scheduledHours:      monthAvg('所定時間（平日）', false),
+    overtimeHours:       monthAvg('法定外時間（平日）', false),
+    totalPay:            monthAvg('支給合計', true),
+    overtimePay:         (ot1+ot2) || null,
+    commuteAllowance:    commuteTotal || null,
+    attendanceAllowance: attendAmt || null,
+    familyAllowance:     familyAmt || null,
+    deductions:          monthAvg('控除合計', true),
+    deductFood:          deductFood || null,
+    deductHousing:       deductHousing || null,
+    deductTax:           deductTaxAmt || null,
+    deductOther:         deductOtherAmt || null,
+    bonus:               0,
   };
   // nullを除去
   Object.keys(data).forEach(function(k){ if (data[k] === null) delete data[k]; });
@@ -1986,9 +2576,10 @@ async function extractSalaryWithClaude(base64) {
   if (!ANTHROPIC_KEY) return null;
   var prompt = [
     '以下は賃金台帳PDFです。下記項目をJSONのみで返してください（説明不要）。',
-    '月平均は空欄・0の月を除いた合計÷月数で計算。数値はカンマ・単位なし。',
-    '{"nameEn":"","months":0,"workDays":0,"scheduledHours":0,"overtimeHours":0,',
-    '"totalPay":0,"overtimePay":0,"deductions":0,"bonus":0}'
+    '月平均は空欄・0の月を除いた合計÷月数で計算（開始月・終了月が途中の場合は除外）。数値はカンマ・単位なし・整数。',
+    '{"nameEn":"","workDays":0,"scheduledHours":0,"overtimeHours":0,',
+    '"totalPay":0,"overtimePay":0,"commuteAllowance":0,"attendanceAllowance":0,"familyAllowance":0,',
+    '"bonus":0,"deductFood":0,"deductHousing":0,"deductTax":0,"deductOther":0}'
   ].join('\n');
   var resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -2016,7 +2607,12 @@ async function extractSalaryWithClaude(base64) {
     data: {
       workDays: p.workDays||null, scheduledHours: p.scheduledHours||null,
       overtimeHours: p.overtimeHours||null, totalPay: p.totalPay||null,
-      overtimePay: p.overtimePay||null, deductions: p.deductions||null,
+      overtimePay: p.overtimePay||null,
+      commuteAllowance: p.commuteAllowance||null,
+      attendanceAllowance: p.attendanceAllowance||null,
+      familyAllowance: p.familyAllowance||null,
+      deductFood: p.deductFood||null, deductHousing: p.deductHousing||null,
+      deductTax: p.deductTax||null, deductOther: p.deductOther||null,
       bonus: p.bonus||0
     }
   };
@@ -2027,20 +2623,20 @@ async function extractSalaryWithClaude(base64) {
 var MAIL_TEMPLATES = {
   A: {
     subject: '【大房行政書士法人】特定技能外国人 定期届出のご案内',
-    body: function(co, contact, deadline) {
-      return co + '\n' + contact + ' 様\n\nいつもお世話になっております。\n大房行政書士法人の阪本でございます。\n\n特定技能外国人の定期届出の時期が参りましたので、ご案内いたします。\n\n━━━━━━━━━━━━━━━━━━━\n【今回ご用意いただくもの】\n━━━━━━━━━━━━━━━━━━━\n\n以下の2点をお送りください。\n\n▶【１】在籍している特定技能外国人の賃金台帳のコピー\n　　　　（令和7年4月〜令和8年3月分・全員分）\n\n▶【２】同じ仕事をしている日本人従業員の賃金台帳のコピー\n　　　　（同期間分）\n　　　　※ 氏名・生年月日の部分を黒く塗りつぶしてからお送りください。\n　　　　※ やり方がわからない場合は、該当箇所を紙で隠して写真撮影でも構いません。\n　　　　※ 以前の届出で比較対象にしていた方が退職された場合は、\n　　　　　 別の日本人従業員のものでも問題ありません。\n\n━━━━━━━━━━━━━━━━━━━\n【送付方法・期限】\n━━━━━━━━━━━━━━━━━━━\n\n・スキャンまたは写真撮影してメールに添付してください。\n・送付先：k.sakamoto@gyosei-cambo.com\n・期　限：' + deadline + 'まで\n\nご不明な点は代表・大房までお気軽にお電話ください。\nTEL：070-4200-4733\n\n引き続きよろしくお願いいたします。\n\n━━━━━━━━━━━━━━━━━━━\n大房行政書士法人\n担当：阪本\nMail：k.sakamoto@gyosei-cambo.com\n━━━━━━━━━━━━━━━━━━━';
+    body: function(co, contact, deadline, needs2yr) {
+      return co + '\n' + contact + ' 様\n\nいつもお世話になっております。\n大房行政書士法人の阪本でございます。\n\n特定技能外国人の定期届出の時期が参りましたので、ご案内いたします。\n\n━━━━━━━━━━━━━━━━━━━\n【今回ご用意いただくもの】\n━━━━━━━━━━━━━━━━━━━\n\n以下の2点をお送りください。\n\n▶【１】在籍している特定技能外国人の賃金台帳のコピー\n　　　　（令和7年4月〜令和8年3月分・全員分）\n　　　　※ 令和6年4月〜令和7年3月分もあわせてお送りください。\n　　　　　 （前々年度分が手元にない場合は、ある分だけで構いません）\n\n▶【２】同じ仕事をしている日本人従業員の賃金台帳のコピー\n　　　　（同期間分）\n　　　　※ 氏名・生年月日の部分を黒く塗りつぶしてからお送りください。\n　　　　※ やり方がわからない場合は、該当箇所を紙で隠して写真撮影でも構いません。\n　　　　※ 以前の届出で比較対象にしていた方が退職された場合は、\n　　　　　 別の日本人従業員のものでも問題ありません。\n\n━━━━━━━━━━━━━━━━━━━\n【送付方法・期限】\n━━━━━━━━━━━━━━━━━━━\n\n・スキャンまたは写真撮影してメールに添付してください。\n・送付先：k.sakamoto@gyosei-cambo.com\n・期　限：' + deadline + 'まで\n\nご不明な点は代表・大房までお気軽にお電話ください。\nTEL：070-4200-4733\n\n引き続きよろしくお願いいたします。\n\n━━━━━━━━━━━━━━━━━━━\n大房行政書士法人\n担当：阪本\nMail：k.sakamoto@gyosei-cambo.com\n━━━━━━━━━━━━━━━━━━━';
     }
   },
   B: {
     subject: '【大房行政書士法人】特定技能外国人 定期届出のご案内',
-    body: function(co, contact, deadline) {
-      return co + '\n' + contact + ' 様\n\nいつもお世話になっております。\n大房行政書士法人の阪本でございます。\n\n特定技能外国人の定期届出の時期が参りましたので、ご案内いたします。\n\n━━━━━━━━━━━━━━━━━━━\n【今回ご用意いただくもの】\n━━━━━━━━━━━━━━━━━━━\n\n以下の3点をお送りください。\n\n▶【１】在籍している特定技能外国人の賃金台帳のコピー\n　　　　（令和7年4月〜令和8年3月分・全員分）\n\n▶【２】同じ仕事をしている日本人従業員の賃金台帳のコピー\n　　　　（同期間分）\n　　　　※ 氏名・生年月日の部分を黒く塗りつぶしてからお送りください。\n　　　　※ やり方がわからない場合は、該当箇所を紙で隠して写真撮影でも構いません。\n\n▶【３】直近3期分の決算書のコピー\n　　　　（または下記の数字をご連絡ください）\n　　　　・売上高\n　　　　・経常損益（利益または損失）\n　　　　・純損益（利益または損失）\n　　　　・純資産（プラスかマイナスかも教えてください）\n\n━━━━━━━━━━━━━━━━━━━\n【1点だけご確認ください】\n━━━━━━━━━━━━━━━━━━━\n\n直近の決算で「純資産がマイナス（債務超過）」になっていませんか？\nマイナスの場合は別途対応が必要になりますので、お早めにご連絡ください。\n\n━━━━━━━━━━━━━━━━━━━\n【送付方法・期限】\n━━━━━━━━━━━━━━━━━━━\n\n・スキャンまたは写真撮影してメールに添付してください。\n・送付先：k.sakamoto@gyosei-cambo.com\n・期　限：' + deadline + 'まで\n\nご不明な点は代表・大房までお気軽にお電話ください。\nTEL：070-4200-4733\n\n引き続きよろしくお願いいたします。\n\n━━━━━━━━━━━━━━━━━━━\n大房行政書士法人\n担当：阪本\nMail：k.sakamoto@gyosei-cambo.com\n━━━━━━━━━━━━━━━━━━━';
+    body: function(co, contact, deadline, needs2yr) {
+      return co + '\n' + contact + ' 様\n\nいつもお世話になっております。\n大房行政書士法人の阪本でございます。\n\n特定技能外国人の定期届出の時期が参りましたので、ご案内いたします。\n\n━━━━━━━━━━━━━━━━━━━\n【今回ご用意いただくもの】\n━━━━━━━━━━━━━━━━━━━\n\n以下の3点をお送りください。\n\n▶【１】在籍している特定技能外国人の賃金台帳のコピー\n　　　　（令和7年4月〜令和8年3月分・全員分）\n　　　　※ 令和6年4月〜令和7年3月分もあわせてお送りください。\n　　　　　 （前々年度分が手元にない場合は、ある分だけで構いません）\n\n▶【２】同じ仕事をしている日本人従業員の賃金台帳のコピー\n　　　　（同期間分）\n　　　　※ 氏名・生年月日の部分を黒く塗りつぶしてからお送りください。\n　　　　※ やり方がわからない場合は、該当箇所を紙で隠して写真撮影でも構いません。\n\n▶【３】直近3期分の決算書のコピー\n　　　　（または下記の数字をご連絡ください）\n　　　　・売上高\n　　　　・経常損益（利益または損失）\n　　　　・純損益（利益または損失）\n　　　　・純資産（プラスかマイナスかも教えてください）\n\n━━━━━━━━━━━━━━━━━━━\n【1点だけご確認ください】\n━━━━━━━━━━━━━━━━━━━\n\n直近の決算で「純資産がマイナス（債務超過）」になっていませんか？\nマイナスの場合は別途対応が必要になりますので、お早めにご連絡ください。\n\n━━━━━━━━━━━━━━━━━━━\n【送付方法・期限】\n━━━━━━━━━━━━━━━━━━━\n\n・スキャンまたは写真撮影してメールに添付してください。\n・送付先：k.sakamoto@gyosei-cambo.com\n・期　限：' + deadline + 'まで\n\nご不明な点は代表・大房までお気軽にお電話ください。\nTEL：070-4200-4733\n\n引き続きよろしくお願いいたします。\n\n━━━━━━━━━━━━━━━━━━━\n大房行政書士法人\n担当：阪本\nMail：k.sakamoto@gyosei-cambo.com\n━━━━━━━━━━━━━━━━━━━';
     }
   },
   C: {
     subject: '【大房行政書士法人】特定技能外国人 定期届出のご案内（重要）',
-    body: function(co, contact, deadline) {
-      return co + '\n' + contact + ' 様\n\nいつもお世話になっております。\n大房行政書士法人の阪本でございます。\n\n特定技能外国人の定期届出の時期が参りましたので、ご案内いたします。\n今回はご準備いただく書類が少し多くなりますが、一つひとつ確認しながら\n進めますのでご安心ください。\n\n━━━━━━━━━━━━━━━━━━━\n【今回ご用意いただくもの】\n━━━━━━━━━━━━━━━━━━━\n\n▶【１】在籍している特定技能外国人の賃金台帳のコピー\n　　　　（令和7年4月〜令和8年3月分・全員分）\n\n▶【２】同じ仕事をしている日本人従業員の賃金台帳のコピー\n　　　　（同期間分）\n　　　　※ 氏名・生年月日の部分を黒く塗りつぶしてからお送りください。\n　　　　※ やり方がわからない場合は、該当箇所を紙で隠して写真撮影でも構いません。\n\n▶【３】役員の氏名と役職（全員分・ふりがなもあると助かります）\n　　　　例）代表取締役　〇〇 〇〇（ふりがな）\n　　　　　　取締役　　　〇〇 〇〇（ふりがな）\n\n▶【４】直近3期分の決算書のコピー\n　　　　（または下記の数字をご連絡ください）\n　　　　・売上高\n　　　　・経常損益（利益または損失）\n　　　　・純損益（利益または損失）\n　　　　・純資産（プラスかマイナスかも教えてください）\n\n▶【５】過去1年間の従業員の離職状況\n　　　　・特定技能外国人と同じ仕事をしていた日本人で退職した方の人数\n　　　　　（本人都合・会社都合に分けてお教えください）\n　　　　・外国人従業員で行方不明になった方の有無\n\n━━━━━━━━━━━━━━━━━━━\n【送付方法・期限】\n━━━━━━━━━━━━━━━━━━━\n\n・スキャンまたは写真撮影してメールに添付してください。\n・送付先：k.sakamoto@gyosei-cambo.com\n・期　限：' + deadline + 'まで\n\n※ 今回は書類の種類が多いため、早めのご準備をお願いいたします。\n　 ご不明な点は代表・大房までお気軽にお電話ください。\n　 TEL：070-4200-4733\n\n引き続きよろしくお願いいたします。\n\n━━━━━━━━━━━━━━━━━━━\n大房行政書士法人\n担当：阪本\nMail：k.sakamoto@gyosei-cambo.com\n━━━━━━━━━━━━━━━━━━━';
+    body: function(co, contact, deadline, needs2yr) {
+      return co + '\n' + contact + ' 様\n\nいつもお世話になっております。\n大房行政書士法人の阪本でございます。\n\n特定技能外国人の定期届出の時期が参りましたので、ご案内いたします。\n今回はご準備いただく書類が少し多くなりますが、一つひとつ確認しながら\n進めますのでご安心ください。\n\n━━━━━━━━━━━━━━━━━━━\n【今回ご用意いただくもの】\n━━━━━━━━━━━━━━━━━━━\n\n▶【１】在籍している特定技能外国人の賃金台帳のコピー\n　　　　（令和7年4月〜令和8年3月分・全員分）\n　　　　※ 令和6年4月〜令和7年3月分もあわせてお送りください。\n　　　　　 （前々年度分が手元にない場合は、ある分だけで構いません）\n\n▶【２】同じ仕事をしている日本人従業員の賃金台帳のコピー\n　　　　（同期間分）\n　　　　※ 氏名・生年月日の部分を黒く塗りつぶしてからお送りください。\n　　　　※ やり方がわからない場合は、該当箇所を紙で隠して写真撮影でも構いません。\n\n▶【３】役員の氏名と役職（全員分・ふりがなもあると助かります）\n　　　　例）代表取締役　〇〇 〇〇（ふりがな）\n　　　　　　取締役　　　〇〇 〇〇（ふりがな）\n\n▶【４】直近3期分の決算書のコピー\n　　　　（または下記の数字をご連絡ください）\n　　　　・売上高\n　　　　・経常損益（利益または損失）\n　　　　・純損益（利益または損失）\n　　　　・純資産（プラスかマイナスかも教えてください）\n\n▶【５】過去1年間の従業員の離職状況\n　　　　・特定技能外国人と同じ仕事をしていた日本人で退職した方の人数\n　　　　　（本人都合・会社都合に分けてお教えください）\n　　　　・外国人従業員で行方不明になった方の有無\n\n━━━━━━━━━━━━━━━━━━━\n【送付方法・期限】\n━━━━━━━━━━━━━━━━━━━\n\n・スキャンまたは写真撮影してメールに添付してください。\n・送付先：k.sakamoto@gyosei-cambo.com\n・期　限：' + deadline + 'まで\n\n※ 今回は書類の種類が多いため、早めのご準備をお願いいたします。\n　 ご不明な点は代表・大房までお気軽にお電話ください。\n　 TEL：070-4200-4733\n\n引き続きよろしくお願いいたします。\n\n━━━━━━━━━━━━━━━━━━━\n大房行政書士法人\n担当：阪本\nMail：k.sakamoto@gyosei-cambo.com\n━━━━━━━━━━━━━━━━━━━';
     }
   }
 };
@@ -2052,7 +2648,12 @@ function renderMailPreview() {
   var pattern  = document.getElementById('mail-pattern').value;
   var tmpl     = MAIL_TEMPLATES[pattern];
   document.getElementById('mail-subject-preview').textContent = tmpl.subject;
-  document.getElementById('mail-body-preview').value = tmpl.body(co, contact, deadline);
+  var needs2yr_mail = foreigners.filter(function(f){
+    if(f.companyName !== co) return false;
+    if(!f.contractStart) return false;
+    return (new Date()-new Date(f.contractStart))/(1000*60*60*24*365.25) >= 2;
+  }).length > 0;
+  document.getElementById('mail-body-preview').value = tmpl.body(co, contact, deadline, needs2yr_mail);
 }
 
 function copyMailText() {
@@ -2082,7 +2683,12 @@ function renderCoMailPreview() {
   var tmpl     = MAIL_TEMPLATES[pattern];
   if (!tmpl) return;
   document.getElementById('co-mail-subject-preview').textContent = tmpl.subject;
-  document.getElementById('co-mail-body-preview').value = tmpl.body(co, contact, deadline);
+  var needs2yr_co = foreigners.filter(function(f){
+    if(f.companyName !== co) return false;
+    if(!f.contractStart) return false;
+    return (new Date()-new Date(f.contractStart))/(1000*60*60*24*365.25) >= 2;
+  }).length > 0;
+  document.getElementById('co-mail-body-preview').value = tmpl.body(co, contact, deadline, needs2yr_co);
 }
 
 function copyCoMailText() {
