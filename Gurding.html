@@ -648,6 +648,19 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
             </div>
           </div>
         </div>
+        <!-- チーム・担当フィルター（照合後に表示） -->
+        <div id="coeFilterBar" style="display:none;margin-top:12px;">
+          <div class="filters" style="margin-bottom:0;">
+            <input class="search-input" id="coeFilterSearch" placeholder="🔍 案件名・氏名で検索..." oninput="renderCoeResult()" style="min-width:200px;flex:1;">
+            <select class="filter-select" id="coeFilterTeam" onchange="renderCoeResult()">
+              <option value="">全チーム</option>
+            </select>
+            <select class="filter-select" id="coeFilterStaff" onchange="renderCoeResult()">
+              <option value="">全担当</option>
+            </select>
+            <span class="filter-count" id="coeFilterCount">—件</span>
+          </div>
+        </div>
         <div id="coeCheckResult" style="margin-top:8px;"></div>
       </div>
       <div class="section" id="sec-users">
@@ -1210,52 +1223,101 @@ function runCoeCheckFromText(){
 }
 
 function extractReceiptNos(raw){
-  var lines = raw.split(/[\r\n,、]/).map(function(l){ return l.replace(/　/g,' ').trim(); }).filter(Boolean);
+  var lines = raw.split(/[\r\n]/).map(function(l){
+    return l.replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(c){ return String.fromCharCode(c.charCodeAt(0)-0xFEE0); })
+            .replace(/　/g,' ').trim();
+  }).filter(Boolean);
   var nos = [];
   lines.forEach(function(line){
-    var m = line.match(/[A-Za-z]\s*(\d{8})/);
-    if(m){ nos.push(m[1]); return; }
-    var m2 = line.match(/\b(\d{8})\b/);
+    // アルファベット1文字+スペース+8桁数字（例：「東オンC V26005479」→「CV26005479」）
+    var m = line.match(/([A-Z])\s*(\d{7,9})/i);
+    if(m){ nos.push((m[1]+m[2]).toUpperCase()); return; }
+    // 8桁数字のみ
+    var m2 = line.match(/\b(\d{7,9})\b/);
     if(m2){ nos.push(m2[1]); }
   });
   return nos.filter(function(v,i,a){ return a.indexOf(v)===i; });
 }
 
+function normalizeReceiptNo(s){
+  if(!s) return '';
+  return (s||'').replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(c){ return String.fromCharCode(c.charCodeAt(0)-0xFEE0); })
+    .replace(/\s/g,'').toUpperCase()
+    .replace(/.*([A-Z]\d{7,9})$/, '$1'); // 末尾の「文字+数字」部分だけ取る
+}
+
+var _coeNotDone  = [];
+var _coeNotFound = [];
+
 function runCoeCheck(receiptNos){
   var resultEl = document.getElementById('coeCheckResult');
-  var countEl  = document.getElementById(_coeType==='coe'?'coeCheckCount':'coeCheckCount2');
-  if(!receiptNos.length){ resultEl.innerHTML='<div class="empty">受付番号が抽出できませんでした</div>'; return; }
+  if(!receiptNos.length){ resultEl.innerHTML='<div class="empty">受付番号が抽出できませんでした</div>'; document.getElementById('coeFilterBar').style.display='none'; return; }
 
-  var extractNo = function(s){ var m=(s||'').match(/(\d{8})/); return m?m[1]:''; };
-  var matched = DATA.cases.filter(function(c){ return c.receipt_no && receiptNos.indexOf(extractNo(c.receipt_no))!==-1; });
-  // 完了以外を抽出
-  var notDone = matched.filter(function(c){ return normalizeStatus(c.status)!=='完了' && normalizeStatus(c.status)!=='審査完了'; });
-  var notFound = receiptNos.filter(function(no){ return !DATA.cases.find(function(c){ return extractNo(c.receipt_no)===no; }); });
+  var matched = DATA.cases.filter(function(c){ return c.receipt_no && receiptNos.indexOf(normalizeReceiptNo(c.receipt_no))!==-1; });
+  _coeNotDone  = matched.filter(function(c){ return normalizeStatus(c.status)!=='完了' && normalizeStatus(c.status)!=='審査完了'; });
+  _coeNotFound = receiptNos.filter(function(no){ return !DATA.cases.find(function(c){ return normalizeReceiptNo(c.receipt_no)===no; }); });
+
+  // フィルターバーを表示してセレクトを初期化
+  var filterBar = document.getElementById('coeFilterBar');
+  filterBar.style.display = _coeNotDone.length ? '' : 'none';
+  if(_coeNotDone.length){
+    var teams  = [...new Set(_coeNotDone.map(function(c){ return c.team;  }).filter(Boolean))].sort();
+    var staffs = [...new Set(_coeNotDone.map(function(c){ return c.staff; }).filter(Boolean))].sort();
+    popSelect('coeFilterTeam',  teams,  '');
+    popSelect('coeFilterStaff', staffs, '');
+    document.getElementById('coeFilterSearch').value = '';
+  }
+
+  renderCoeResult();
+}
+
+function renderCoeResult(){
+  var resultEl = document.getElementById('coeCheckResult');
+  var q     = (document.getElementById('coeFilterSearch') ? document.getElementById('coeFilterSearch').value||'' : '').toLowerCase();
+  var team  = document.getElementById('coeFilterTeam')  ? document.getElementById('coeFilterTeam').value||''  : '';
+  var staff = document.getElementById('coeFilterStaff') ? document.getElementById('coeFilterStaff').value||'' : '';
+
+  var items = _coeNotDone.filter(function(c){
+    if(team  && c.team!==team)   return false;
+    if(staff && c.staff!==staff) return false;
+    if(q){ var s=(c.name||'')+(c.applicant||''); if(!s.toLowerCase().includes(q)) return false; }
+    return true;
+  });
+
+  setTxt('coeFilterCount', items.length+'件');
 
   var label = _coeType==='coe' ? 'COE' : '審査完了';
   var html = '';
-  if(notDone.length){
-    html += '<div style="font-size:13px;font-weight:800;color:#dc2626;margin-bottom:8px;">⚠️ '+label+'対応漏れ（完了になっていない）案件（'+notDone.length+'件）</div>';
-    html += '<div class="table-wrap"><table><thead><tr><th>受付番号</th><th>案件名</th><th>氏名</th><th>ステータス</th><th>担当</th><th>チーム</th></tr></thead><tbody>';
-    notDone.forEach(function(c){
-      html += '<tr style="background:#fff5f5;">'
-        +'<td style="font-size:12px;font-weight:700;">'+esc(c.receipt_no||'—')+'</td>'
-        +'<td style="font-size:12px;">'+esc(c.name||'—')+'</td>'
-        +'<td style="font-size:11px;color:var(--gray-400);">'+esc(c.applicant||'')+'</td>'
-        +'<td>'+stBadge(c.status)+'</td>'
-        +'<td style="font-size:12px;">'+esc(c.staff||'—')+'</td>'
-        +'<td style="font-size:11px;color:var(--gray-400);">'+esc(c.team||'—')+'</td>'
-        +'</tr>';
-    });
-    html += '</tbody></table></div>';
-  } else if(matched.length){
-    html += '<div style="text-align:center;padding:24px;color:#16a34a;font-size:14px;font-weight:800;">✅ 一致した案件はすべて対応済みです</div>';
+  if(_coeNotDone.length===0 && _coeNotFound.length===0){
+    html='<div class="empty">一致する案件がありませんでした</div>';
+  } else {
+    if(_coeNotDone.length){
+      var totalLabel = items.length===_coeNotDone.length ? _coeNotDone.length+'件' : items.length+'件（全'+_coeNotDone.length+'件中）';
+      html += '<div style="font-size:13px;font-weight:800;color:#dc2626;margin-bottom:8px;">⚠️ '+label+'対応漏れ（完了になっていない）案件（'+totalLabel+'）</div>';
+      if(items.length){
+        html += '<div class="table-wrap"><table><thead><tr><th>受付番号</th><th>案件名</th><th>氏名</th><th>ステータス</th><th>担当</th><th>チーム</th></tr></thead><tbody>';
+        items.forEach(function(c){
+          html += '<tr style="background:#fff5f5;">'
+            +'<td style="font-size:12px;font-weight:700;">'+esc(c.receipt_no||'—')+'</td>'
+            +'<td style="font-size:12px;">'+esc(c.name||'—')+'</td>'
+            +'<td style="font-size:11px;color:var(--gray-400);">'+esc(c.applicant||'')+'</td>'
+            +'<td>'+stBadge(c.status)+'</td>'
+            +'<td style="font-size:12px;">'+esc(c.staff||'—')+'</td>'
+            +'<td style="font-size:11px;color:var(--gray-400);">'+esc(c.team||'—')+'</td>'
+            +'</tr>';
+        });
+        html += '</tbody></table></div>';
+      } else {
+        html += '<div style="text-align:center;padding:24px;color:var(--gray-400);font-size:13px;">絞り込み結果なし</div>';
+      }
+    } else {
+      html += '<div style="text-align:center;padding:24px;color:#16a34a;font-size:14px;font-weight:800;">✅ 一致した案件はすべて対応済みです</div>';
+    }
+    if(_coeNotFound.length){
+      html += '<div style="font-size:13px;font-weight:800;color:var(--gray-400);margin-top:16px;margin-bottom:8px;">⚪ Supabaseに見つからない受付番号（'+_coeNotFound.length+'件）</div>';
+      html += '<div style="font-size:12px;color:var(--gray-400);line-height:1.8;">'+_coeNotFound.map(function(n){ return esc(n); }).join('、')+'</div>';
+    }
   }
-  if(notFound.length){
-    html += '<div style="font-size:13px;font-weight:800;color:var(--gray-400);margin-top:16px;margin-bottom:8px;">⚪ Supabaseに見つからない受付番号（'+notFound.length+'件）</div>';
-    html += '<div style="font-size:12px;color:var(--gray-400);line-height:1.8;">'+notFound.map(function(n){ return esc(n); }).join('、')+'</div>';
-  }
-  if(!matched.length && !notFound.length){ html='<div class="empty">一致する案件がありませんでした</div>'; }
   resultEl.innerHTML = html;
 }
 
@@ -1292,16 +1354,7 @@ function switchRcTab(tab){
 
 function runReceiptCheckFromText(){
   var raw = document.getElementById('receiptTextInput').value||'';
-  var lines = raw.split(/\r?\n/).map(function(l){ return l.trim(); }).filter(Boolean);
-  var nos = [];
-  lines.forEach(function(line){
-    line = line.replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(s){ return String.fromCharCode(s.charCodeAt(0)-0xFEE0); });
-    var m = line.match(/[A-Z]\s*(\d{7,9})/);
-    if(m){ nos.push(m[1]); return; }
-    var m2 = line.match(/\b(\d{7,9})\b/);
-    if(m2){ nos.push(m2[1]); return; }
-  });
-  nos = nos.filter(function(v,i,a){ return a.indexOf(v)===i; });
+  var nos = extractReceiptNos(raw);
   document.getElementById('receiptCheckCount2').textContent = nos.length+'件抽出';
   if(!nos.length){
     document.getElementById('receiptCheckResult').innerHTML='<div class="empty">受付番号を抽出できませんでした。</div>';
@@ -1404,11 +1457,10 @@ function processReceiptFile(file){
 
 function runReceiptCheck(receiptNos){
   if(!receiptNos.length){ document.getElementById('receiptCheckResult').innerHTML='<div class="empty">受付番号が抽出できませんでした</div>'; return; }
-  var extractNo = function(s){ var m=(s||'').replace(/[Ａ-Ｚａ-ｚ０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-0xFEE0);}).match(/(\d{7,9})/); return m?m[1]:''; };
   var EXCLUDE_FOR_CHECK = ['要追完','郵送交付','窓口受取','完了','審査完了'];
-  var matched = DATA.cases.filter(function(c){ return c.receipt_no && receiptNos.indexOf(extractNo(c.receipt_no))!==-1; });
+  var matched = DATA.cases.filter(function(c){ return c.receipt_no && receiptNos.indexOf(normalizeReceiptNo(c.receipt_no))!==-1; });
   var notExcluded = matched.filter(function(c){ return EXCLUDE_FOR_CHECK.indexOf(normalizeStatus(c.status))===-1; });
-  var notFound = receiptNos.filter(function(no){ return !DATA.cases.find(function(c){ return extractNo(c.receipt_no)===no; }); });
+  var notFound = receiptNos.filter(function(no){ return !DATA.cases.find(function(c){ return normalizeReceiptNo(c.receipt_no)===no; }); });
   var countEl = document.getElementById('receiptCheckCount2')||document.getElementById('receiptCheckCount');
   if(countEl) countEl.textContent = '抽出: '+receiptNos.length+'件 → 一致: '+matched.length+'件 / 対応漏れ: '+notExcluded.length+'件';
   var html = '';
