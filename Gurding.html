@@ -229,6 +229,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
     <div class="nav-item" onclick="nav('intake')">📥 新規取込 <span class="nbadge blue" id="bdg-intake">0</span></div>
     <div class="sidebar-section">システム</div>
     <div class="nav-item" onclick="nav('receiptcheck')">🔍 要追完対応漏れチェック</div>
+    <div class="nav-item" onclick="nav('coecheck')">🔍 COE・審査完了対応漏れチェック</div>
     <div class="nav-item" onclick="nav('users')">👥 ユーザー管理</div>
     <div class="nav-item" onclick="nav('settings')">⚙️ 設定</div>
     <div class="sidebar-user">
@@ -596,7 +597,59 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
         <div id="receiptCheckResult" style="margin-top:8px;"></div>
       </div>
 
-      <!-- ══ USERS ══ -->
+      <!-- ══ COE CHECK ══ -->
+      <div class="section" id="sec-coecheck">
+        <div class="filters-section">
+          <div style="font-size:13px;color:var(--gray-400);margin-bottom:16px;">スプレッドシートのD列（申請受付番号）を貼り付け → 一致する案件のステータスが「完了」でないものを抽出します。</div>
+
+          <!-- COE / 審査完了 選択 -->
+          <div style="display:flex;gap:8px;margin-bottom:16px;">
+            <button id="coeTypeBtn-coe" onclick="switchCoeType('coe')" style="padding:8px 20px;border-radius:8px;border:2px solid var(--blue);background:var(--blue);color:white;font-weight:700;font-size:13px;cursor:pointer;">📋 COE（認定証明書）</button>
+            <button id="coeTypeBtn-shinsa" onclick="switchCoeType('shinsa')" style="padding:8px 20px;border-radius:8px;border:2px solid var(--gray-200);background:white;color:var(--gray-400);font-weight:700;font-size:13px;cursor:pointer;">✅ 審査完了</button>
+          </div>
+
+          <!-- タブ切り替え -->
+          <div style="display:flex;gap:8px;margin-bottom:16px;">
+            <button id="coeRcTab-img" onclick="switchCoeRcTab('img')" style="padding:7px 16px;border-radius:8px;border:2px solid var(--blue);background:var(--blue);color:white;font-weight:700;font-size:12px;cursor:pointer;">📸 画像から抽出</button>
+            <button id="coeRcTab-text" onclick="switchCoeRcTab('text')" style="padding:7px 16px;border-radius:8px;border:2px solid var(--gray-200);background:white;color:var(--gray-400);font-weight:700;font-size:12px;cursor:pointer;">📝 テキスト入力</button>
+          </div>
+
+          <!-- 画像パネル -->
+          <div id="coeRcPanel-img">
+            <div id="coePasteArea"
+              tabindex="0"
+              style="border:2.5px dashed var(--gray-300);border-radius:12px;padding:32px;text-align:center;cursor:pointer;background:#fafafa;margin-bottom:16px;transition:border-color .2s,background .2s;outline:none;"
+              onclick="document.getElementById('coeImgInput').click()"
+              ondragover="event.preventDefault();this.style.borderColor='var(--blue)';this.style.background='#eff6ff';"
+              ondragleave="this.style.borderColor='var(--gray-300)';this.style.background='#fafafa';"
+              ondrop="handleCoeDrop(event)">
+              <div style="font-size:28px;margin-bottom:8px;">📸</div>
+              <div style="font-size:14px;font-weight:700;color:var(--navy);">ここをクリック・ドラッグ＆ドロップ</div>
+              <div style="font-size:12px;color:var(--gray-400);margin-top:4px;">または <kbd style="background:var(--gray-100);border:1px solid var(--gray-300);border-radius:4px;padding:1px 6px;font-size:11px;">Ctrl+V</kbd> で画像を貼り付け</div>
+              <input type="file" id="coeImgInput" accept="image/*" style="display:none;" onchange="loadCoeImage(this)">
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span id="coeImgName" style="font-size:12px;color:var(--gray-400);">ファイル未選択</span>
+              <span class="filter-count" id="coeCheckCount"></span>
+            </div>
+            <div id="coeImgPreview" style="margin-top:12px;display:none;">
+              <img id="coeImgEl" style="max-width:100%;max-height:300px;border-radius:8px;border:1px solid var(--gray-200);">
+            </div>
+            <div id="coeOcrStatus" style="margin-top:8px;font-size:12px;color:var(--gray-400);"></div>
+          </div>
+
+          <!-- テキストパネル -->
+          <div id="coeRcPanel-text" style="display:none;">
+            <div style="font-size:12px;color:var(--gray-400);margin-bottom:6px;">受付番号を1行ずつ貼り付けてください</div>
+            <textarea id="coeTextInput" style="width:100%;height:160px;padding:10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:12px;font-family:monospace;resize:vertical;outline:none;box-sizing:border-box;" placeholder="例：&#10;東オンC V 26005479&#10;東オンE V26009677"></textarea>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+              <button onclick="runCoeCheckFromText()" style="padding:8px 20px;background:var(--blue);color:white;border:none;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;">🔍 照合する</button>
+              <span class="filter-count" id="coeCheckCount2"></span>
+            </div>
+          </div>
+        </div>
+        <div id="coeCheckResult" style="margin-top:8px;"></div>
+      </div>
       <div class="section" id="sec-users">
         <div class="filters-section">
           <div class="filters">
@@ -761,6 +814,7 @@ function initApp(){
     _sb = lib.createClient(SUPABASE_URL, SUPABASE_KEY);
   }
   initReceiptPaste();
+  initCoePaste();
   document.getElementById('settUrl').value = SUPABASE_URL;
   document.getElementById('settKey').value = SUPABASE_KEY;
   document.getElementById('connStatus').textContent = '接続中 ●';
@@ -786,7 +840,7 @@ function loadCfg(){ try{ return JSON.parse(localStorage.getItem(CFG_KEY)||'{}');
 // ═══════════════════════════════════════════════
 // NAVIGATION
 // ═══════════════════════════════════════════════
-var TITLES = { dashboard:'ダッシュボード', alerts:'期限アラート', cases:'案件一覧', tasks:'タスクアラート', shinsa:'審査完了・認定証', forms:'ヒアリングフォーム対応', intake:'新規案件取込', users:'ユーザー管理', settings:'設定', receiptcheck:'要追完対応漏れチェック' };
+var TITLES = { dashboard:'ダッシュボード', alerts:'期限アラート', cases:'案件一覧', tasks:'タスクアラート', shinsa:'審査完了・認定証', forms:'ヒアリングフォーム対応', intake:'新規案件取込', users:'ユーザー管理', settings:'設定', receiptcheck:'要追完対応漏れチェック', coecheck:'COE・審査完了対応漏れチェック' };
 function nav(sec){
   document.querySelectorAll('.section').forEach(function(s){ s.classList.remove('active'); });
   document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
@@ -1068,6 +1122,157 @@ function switchAlertTab(tab){
     btn.style.background = active ? (t==='expire'?'#fef2f2':t==='tokurei'?'#fff7ed':'#eff6ff') : 'white';
     btn.style.borderColor = active ? (t==='expire'?'#dc2626':t==='tokurei'?'#ea580c':'#2563eb') : 'var(--gray-200)';
     btn.style.color = active ? (t==='expire'?'#dc2626':t==='tokurei'?'#ea580c':'#2563eb') : 'var(--gray-400)';
+  });
+}
+
+var _coeType = 'coe'; // 'coe' or 'shinsa'
+
+function switchCoeType(type){
+  _coeType = type;
+  ['coe','shinsa'].forEach(function(t){
+    var btn = document.getElementById('coeTypeBtn-'+t);
+    var active = t===type;
+    btn.style.background  = active ? 'var(--blue)' : 'white';
+    btn.style.color       = active ? 'white' : 'var(--gray-400)';
+    btn.style.borderColor = active ? 'var(--blue)' : 'var(--gray-200)';
+  });
+  document.getElementById('coeCheckResult').innerHTML='';
+}
+
+function switchCoeRcTab(tab){
+  document.getElementById('coeRcPanel-img').style.display  = tab==='img'  ? '' : 'none';
+  document.getElementById('coeRcPanel-text').style.display = tab==='text' ? '' : 'none';
+  var btnImg  = document.getElementById('coeRcTab-img');
+  var btnText = document.getElementById('coeRcTab-text');
+  btnImg.style.background  = tab==='img'  ? 'var(--blue)' : 'white';
+  btnImg.style.color       = tab==='img'  ? 'white' : 'var(--gray-400)';
+  btnImg.style.borderColor = tab==='img'  ? 'var(--blue)' : 'var(--gray-200)';
+  btnText.style.background  = tab==='text' ? 'var(--blue)' : 'white';
+  btnText.style.color       = tab==='text' ? 'white' : 'var(--gray-400)';
+  btnText.style.borderColor = tab==='text' ? 'var(--blue)' : 'var(--gray-200)';
+  document.getElementById('coeCheckResult').innerHTML='';
+}
+
+function handleCoeDrop(event){
+  event.preventDefault();
+  var area = document.getElementById('coePasteArea');
+  area.style.borderColor='var(--gray-300)'; area.style.background='#fafafa';
+  var file = event.dataTransfer.files[0];
+  if(file && file.type.startsWith('image/')){ processCoeFile(file); }
+}
+
+function loadCoeImage(input){
+  var file = input.files[0];
+  if(file) processCoeFile(file);
+}
+
+function processCoeFile(file){
+  if(!file) return;
+  document.getElementById('coeImgName').textContent = file.name;
+  document.getElementById('coeOcrStatus').textContent = '🤖 Claude APIで解析中...';
+  document.getElementById('coeCheckResult').innerHTML = '';
+  var previewDiv = document.getElementById('coeImgPreview');
+  var previewEl  = document.getElementById('coeImgEl');
+  previewEl.src = URL.createObjectURL(file);
+  previewDiv.style.display = '';
+  var reader = new FileReader();
+  reader.onload = function(e){
+    var base64 = e.target.result.split(',')[1];
+    var mediaType = file.type || 'image/png';
+    fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        model:'claude-sonnet-4-20250514', max_tokens:1000,
+        messages:[{ role:'user', content:[
+          { type:'image', source:{ type:'base64', media_type:mediaType, data:base64 }},
+          { type:'text', text:'このスプレッドシートの画像から、背景色が赤い行のD列（申請受付番号）の値をすべて抽出してください。申請受付番号は「V 2XXXXXXX」「E 2XXXXXXX」などの形式です。赤背景の行のD列の値だけをカンマ区切りで返してください。他の説明は不要です。' }
+        ]}]
+      })
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      var text = (data.content && data.content[0] && data.content[0].text)||'';
+      document.getElementById('coeOcrStatus').textContent = '✅ 解析完了: '+text;
+      var nos = extractReceiptNos(text);
+      document.getElementById('coeCheckCount').textContent = nos.length+'件抽出';
+      runCoeCheck(nos);
+    })
+    .catch(function(err){ document.getElementById('coeOcrStatus').textContent='❌ エラー: '+err.message; });
+  };
+  reader.readAsDataURL(file);
+}
+
+function runCoeCheckFromText(){
+  var raw = document.getElementById('coeTextInput').value||'';
+  var nos = extractReceiptNos(raw);
+  document.getElementById('coeCheckCount2').textContent = nos.length+'件抽出';
+  runCoeCheck(nos);
+}
+
+function extractReceiptNos(raw){
+  var lines = raw.split(/[\r\n,、]/).map(function(l){ return l.replace(/　/g,' ').trim(); }).filter(Boolean);
+  var nos = [];
+  lines.forEach(function(line){
+    var m = line.match(/[A-Za-z]\s*(\d{8})/);
+    if(m){ nos.push(m[1]); return; }
+    var m2 = line.match(/\b(\d{8})\b/);
+    if(m2){ nos.push(m2[1]); }
+  });
+  return nos.filter(function(v,i,a){ return a.indexOf(v)===i; });
+}
+
+function runCoeCheck(receiptNos){
+  var resultEl = document.getElementById('coeCheckResult');
+  var countEl  = document.getElementById(_coeType==='coe'?'coeCheckCount':'coeCheckCount2');
+  if(!receiptNos.length){ resultEl.innerHTML='<div class="empty">受付番号が抽出できませんでした</div>'; return; }
+
+  var extractNo = function(s){ var m=(s||'').match(/(\d{8})/); return m?m[1]:''; };
+  var matched = DATA.cases.filter(function(c){ return c.receipt_no && receiptNos.indexOf(extractNo(c.receipt_no))!==-1; });
+  // 完了以外を抽出
+  var notDone = matched.filter(function(c){ return normalizeStatus(c.status)!=='完了' && normalizeStatus(c.status)!=='審査完了'; });
+  var notFound = receiptNos.filter(function(no){ return !DATA.cases.find(function(c){ return extractNo(c.receipt_no)===no; }); });
+
+  var label = _coeType==='coe' ? 'COE' : '審査完了';
+  var html = '';
+  if(notDone.length){
+    html += '<div style="font-size:13px;font-weight:800;color:#dc2626;margin-bottom:8px;">⚠️ '+label+'対応漏れ（完了になっていない）案件（'+notDone.length+'件）</div>';
+    html += '<div class="table-wrap"><table><thead><tr><th>受付番号</th><th>案件名</th><th>氏名</th><th>ステータス</th><th>担当</th><th>チーム</th></tr></thead><tbody>';
+    notDone.forEach(function(c){
+      html += '<tr style="background:#fff5f5;">'
+        +'<td style="font-size:12px;font-weight:700;">'+esc(c.receipt_no||'—')+'</td>'
+        +'<td style="font-size:12px;">'+esc(c.name||'—')+'</td>'
+        +'<td style="font-size:11px;color:var(--gray-400);">'+esc(c.applicant||'')+'</td>'
+        +'<td>'+stBadge(c.status)+'</td>'
+        +'<td style="font-size:12px;">'+esc(c.staff||'—')+'</td>'
+        +'<td style="font-size:11px;color:var(--gray-400);">'+esc(c.team||'—')+'</td>'
+        +'</tr>';
+    });
+    html += '</tbody></table></div>';
+  } else if(matched.length){
+    html += '<div style="text-align:center;padding:24px;color:#16a34a;font-size:14px;font-weight:800;">✅ 一致した案件はすべて対応済みです</div>';
+  }
+  if(notFound.length){
+    html += '<div style="font-size:13px;font-weight:800;color:var(--gray-400);margin-top:16px;margin-bottom:8px;">⚪ Supabaseに見つからない受付番号（'+notFound.length+'件）</div>';
+    html += '<div style="font-size:12px;color:var(--gray-400);line-height:1.8;">'+notFound.map(function(n){ return esc(n); }).join('、')+'</div>';
+  }
+  if(!matched.length && !notFound.length){ html='<div class="empty">一致する案件がありませんでした</div>'; }
+  resultEl.innerHTML = html;
+}
+
+// COEチェックページのCtrl+Vペースト対応
+function initCoePaste(){
+  document.addEventListener('paste', function(e){
+    if(document.getElementById('sec-coecheck') && document.getElementById('sec-coecheck').classList.contains('active')){
+      var items = e.clipboardData && e.clipboardData.items;
+      if(!items) return;
+      for(var i=0;i<items.length;i++){
+        if(items[i].type.startsWith('image/')){
+          var file = items[i].getAsFile();
+          if(file) processCoeFile(file);
+          break;
+        }
+      }
+    }
   });
 }
 
