@@ -871,7 +871,7 @@ function nav(sec){
 function refreshAll(){
   if(!_sb){ showToast('⚠️ DB未接続'); return; }
   document.getElementById('lastUpdated').textContent = '更新中...';
-  var done = 0; var total = 11;
+  var done = 0; var total = 12;
   function tick(){ done++; if(done>=total){ renderAll(); document.getElementById('lastUpdated').textContent = '最終更新: '+new Date().toLocaleTimeString('ja-JP'); showToast('🔄 データ更新完了'); } }
 
   // cases
@@ -989,6 +989,12 @@ function refreshAll(){
     }).catch(function(){ DATA.notes={}; tick(); });
   }
   fetchNotesBatch(0);
+
+  // users（担当フィルター用マスター）
+  _sb.from('users').select('id,name,team').then(function(r){
+    if(!r.error) DATA.users = r.data||[];
+    tick();
+  }).catch(function(){ tick(); });
 }
 
 function loadUsers(){
@@ -1261,8 +1267,14 @@ function runCoeCheck(receiptNos){
   var filterBar = document.getElementById('coeFilterBar');
   filterBar.style.display = _coeNotDone.length ? '' : 'none';
   if(_coeNotDone.length){
+    // チームは結果から生成
     var teams  = [...new Set(_coeNotDone.map(function(c){ return c.team;  }).filter(Boolean))].sort();
-    var staffs = [...new Set(_coeNotDone.map(function(c){ return c.staff; }).filter(Boolean))].sort();
+    // 担当はusersマスターと照合して正規ユーザーのみ
+    var validNames = DATA.users.map(function(u){ return (u.name||'').trim(); }).filter(Boolean);
+    var staffsInResult = [...new Set(_coeNotDone.map(function(c){ return (c.staff||'').trim(); }).filter(Boolean))];
+    var staffs = staffsInResult.filter(function(s){
+      return validNames.length === 0 || validNames.indexOf(s) !== -1;
+    }).sort();
     popSelect('coeFilterTeam',  teams,  '');
     popSelect('coeFilterStaff', staffs, '');
     document.getElementById('coeFilterSearch').value = '';
