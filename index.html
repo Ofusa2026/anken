@@ -212,6 +212,9 @@ tbody td{padding:5px 10px;font-size:12px;vertical-align:middle;}
   tbody td:empty{display:none;}
   /* チェックボックス列を非表示 */
   tbody td:first-child{display:none;}
+  /* スマホ：案件カード最適化 - JS側でmobile-only/pc-only制御 */
+  .mobile-only{display:block !important;}
+  .pc-only{display:none !important;}
   
   /* メールボックス モバイル対応 */
   #mbList > div{flex-direction:column !important;padding:10px 14px !important;}
@@ -2244,6 +2247,7 @@ function initSupabase() {
       console.log('✅ Supabase 接続完了');
       _loadHassoBadges();
       setTimeout(loadTplTextsFromDB, 2000); // テキストテンプレートをDBから読み込み
+      _loadMovedMailIds(); // 移動済みメールIDをDBから読み込み
       _loadMovedMailIds(); // 移動済みメールIDをDBから読み込み
     } else if (_initRetryCount < _initMaxRetry) {
       _initRetryCount++;
@@ -5052,6 +5056,22 @@ function _loadMovedMailIds(cb){
         var remote = JSON.parse(res.data.value);
         var local = JSON.parse(localStorage.getItem('ofusa_movedMailIds')||'{}');
         // マージ（remoteとlocalの両方を保持）
+        Object.assign(local, remote);
+        localStorage.setItem('ofusa_movedMailIds', JSON.stringify(local));
+        console.log('📥 movedMailIds loaded from DB:', Object.keys(remote).length);
+      }catch(e){}
+    }
+    if(cb) cb();
+  });
+}
+
+function _loadMovedMailIds(cb){
+  if(!DB_READY){ if(cb) cb(); return; }
+  _sb.from('settings').select('value').eq('key','moved_mail_ids').single().then(function(res){
+    if(!res.error && res.data && res.data.value){
+      try{
+        var remote = JSON.parse(res.data.value);
+        var local = JSON.parse(localStorage.getItem('ofusa_movedMailIds')||'{}');
         Object.assign(local, remote);
         localStorage.setItem('ofusa_movedMailIds', JSON.stringify(local));
         console.log('📥 movedMailIds loaded from DB:', Object.keys(remote).length);
@@ -17010,15 +17030,12 @@ function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zip
       }
 
       var tasks = [];
-      // sharedStrings.xmlの置換（<t>タグ内のテキストのみ置換）
+      // sharedStrings.xmlの置換
       if (zip.file('xl/sharedStrings.xml')) {
         tasks.push(zip.file('xl/sharedStrings.xml').async('string').then(function(xml){
-          // <t>...</t>内のテキストのみプレースホルダー置換（XML構造は触らない）
           xml = xml.replace(/(<t(?:[^>]*)>)([\s\S]*?)(<\/t>)/g, function(m, open, text, close){
-            // XMLデコード→置換→XMLエンコード
             var decoded = text.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'");
             var replaced = replacePH(decoded, true);
-            // 再エスケープ
             replaced = replaced.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
             return open + replaced + close;
           });
@@ -17028,9 +17045,7 @@ function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zip
       // 全シートXMLの置換
       sheetFiles.forEach(function(sf){
         tasks.push(zip.file(sf).async('string').then(function(xml){
-          // 数式セルでプレースホルダーが<v>に入っている場合、<f>タグを削除して通常値セルに変換
           xml = xml.replace(/<c([^>]*)><f>[^<]*<\/f><v>(\{\{[^}]+\}\}[^<]*)<\/v><\/c>/g, function(m, attrs, val){
-            // t="str"属性を確保して文字列セルとして扱う
             var newAttrs = attrs.indexOf('t=') >= 0 ? attrs : attrs + ' t="str"';
             return '<c' + newAttrs + '><v>' + val + '</v></c>';
           });
@@ -17121,7 +17136,6 @@ function processTemplateBytes(bytes, ci, c, mappingArr, rv, PLACEHOLDER_MAP, zip
       // デバッグ: xmlにso.関連変数があるか確認
       xml = fixSplitPlaceholders(xml, PLACEHOLDER_MAP, rv);
 
-      // UTF-8で明示的にエンコード（Windows環境でのUTF-16化を防ぐ）
       var _xmlBytes = new TextEncoder().encode(xml);
       zip.file('word/document.xml', _xmlBytes);
       return zip.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
@@ -18138,11 +18152,42 @@ var currentTab = 'info';
 // ===== TABLE =====
 function renderTable(data) {
   var today = new Date(); today.setHours(0,0,0,0);
+  var isMobile = window.innerWidth <= 768;
   var COLS = 14;
   var h = '';
   if (!data.length) {
     h = '<tr><td colspan="'+COLS+'" style="text-align:center;padding:30px;color:var(--gray-400);">該当する案件がありません</td></tr>';
     document.getElementById('caseTable').innerHTML = h;
+    renderAlerts(); return;
+  }
+  // スマホ用シンプルカード表示
+  if(isMobile){
+    var _stCol={'未着手':'#64748b','★ヒアリングフォーム送付':'#7c3aed','ヒアリングフォーム回答待ち(送付済)':'#94a3b8','1-6作成':'#2563eb','★1-6企業送付':'#7c3aed','1-6企業確認待ち(送付済)':'#94a3b8','1-6修正':'#ea580c','★1-6修正送付':'#7c3aed','サイン書類作成':'#2563eb','★サイン書類送付':'#7c3aed','サイン書類返送待ち(送付済)':'#94a3b8','★企業押印送付':'#7c3aed','企業押印返送待ち(送付済)':'#94a3b8','スキャン書類作成':'#2563eb','★申請':'#16a34a','申請済(番号待)':'#059669','審査中':'#d97706','★要追完':'#ea580c','郵送交付':'#0369a1','窓口受取':'#0369a1','完了':'#16a34a','審査完了':'#16a34a'};
+    var _fieldShort={'外食業':'外食','外食':'外食','介護':'介護','建設':'建設','飲食料品製造':'飲食','農業':'農業','漁業':'漁業','宿泊':'宿泊','ビルクリーニング':'ビル','自動車整備':'自動車','航空':'航空','造船':'造船','素形材・産業機械・電気電子':'製造','林業':'林業','木材産業':'木材'};
+    var mh = '';
+    data.forEach(function(c){
+      var stColor = _stCol[c.status]||'#64748b';
+      var af = c.applicantField||'';
+      var afShort = _fieldShort[af]||'';
+      var appType = c.appType||'';
+      var typeColor = appType==='認定'?'#7c3aed':appType==='更新'?'#2563eb':appType==='変更'?'#ea580c':'#64748b';
+      mh += '<tr onclick="openCase(''+c.id+'',event)" style="cursor:pointer;">';
+      mh += '<td style="padding:10px 12px !important;">';
+      // 上部：案件名
+      mh += '<div style="font-size:13px;font-weight:700;color:#1e293b;margin-bottom:4px;line-height:1.4;">'+( c.name||c.applicant||'')+'</div>';
+      // 中部：申請者名・会社名
+      mh += '<div style="font-size:11px;color:#64748b;margin-bottom:6px;">'+(c.applicant||'')+(c.company?' · '+c.company:'')+'</div>';
+      // 下部：ステータス・種別・分野
+      mh += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">';
+      mh += '<span style="font-size:11px;font-weight:700;color:'+stColor+';">●</span>';
+      mh += '<span style="font-size:11px;font-weight:600;color:'+stColor+';">'+(c.status||'未着手')+'</span>';
+      if(appType) mh += '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#f1f5f9;color:'+typeColor+';font-weight:600;">'+appType+'</span>';
+      if(afShort) mh += '<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#f1f5f9;color:#6b7280;">'+afShort+'</span>';
+      if(c.staff) mh += '<span style="font-size:10px;color:#9ca3af;margin-left:auto;">'+c.staff+'</span>';
+      mh += '</div>';
+      mh += '</td></tr>';
+    });
+    document.getElementById('caseTable').innerHTML = mh;
     renderAlerts(); return;
   }
   var caseToGroup = {};
@@ -18300,8 +18345,7 @@ function buildCaseRow(c, today, inGroup) {
     var stBor=_stBor[c.status]||'#e2e8f0';
     h += '<span style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:12px;border:1px solid;display:inline-block;background:'+stBg+';color:'+stCol+';border-color:'+stBor+';">'+( c.status||'未着手')+'</span>';
   }
-  // 分野バッジ（省略表現）
-  var _fieldShort={'外食業':'外食','外食':'外食','介護':'介護','建設':'建設','飲食料品製造':'飲食','農業':'農業','漁業':'漁業','宿泊':'宿泊','ビルクリーニング':'ﾋﾞﾙ','自動車整備':'自動車','航空':'航空','造船':'造船','素形材・産業機械・電気電子':'製造','林業':'林業','木材産業':'木材'};
+  var _fieldShort={'外食業':'外食','外食':'外食','介護':'介護','建設':'建設','飲食料品製造':'飲食','農業':'農業','漁業':'漁業','宿泊':'宿泊','ビルクリーニング':'ビル','自動車整備':'自動車','航空':'航空','造船':'造船','素形材・産業機械・電気電子':'製造','林業':'林業','木材産業':'木材'};
   var _af = c.applicantField||'';
   var _afShort = _fieldShort[_af] || (_af ? _af.slice(0,3) : '');
   if(_afShort) h += '<br><span style="font-size:9px;color:#6b7280;background:#f1f5f9;padding:1px 5px;border-radius:8px;display:inline-block;margin-top:2px;">'+_afShort+'</span>';
@@ -18832,14 +18876,13 @@ function renderKanban() {
   STATUS_LIST.forEach(function(s){ statusGroups[s] = []; });
   data.forEach(function(c){
     var st = c.status || '未着手';
-    if (!statusGroups[st]) statusGroups[st] = []; // STATUS_LISTにないステータスも表示
+    if (!statusGroups[st]) statusGroups[st] = [];
     statusGroups[st].push(c);
   });
 
   var today = new Date(); today.setHours(0,0,0,0);
   var h = '';
   var found = false;
-  // STATUS_LIST順 + それ以外のステータス
   var allStatuses = STATUS_LIST.slice();
   Object.keys(statusGroups).forEach(function(s){ if(allStatuses.indexOf(s)<0) allStatuses.push(s); });
   allStatuses.forEach(function(s) {
@@ -32091,6 +32134,16 @@ function loadAllFromSupabase() {
               }
             } catch(e) {}
           }
+          if(s.key==='aiCheckRules') {
+            try {
+              var dbACR = typeof s.value === 'string' ? JSON.parse(s.value) : s.value;
+              if(dbACR && Array.isArray(dbACR) && dbACR.length > 0) {
+                aiCheckRules = dbACR;
+                try{localStorage.setItem('ofusa_aiCheckRules',JSON.stringify(aiCheckRules));}catch(e){}
+                console.log('📦 aiCheckRules restored from DB ('+aiCheckRules.length+' rules)');
+              }
+            } catch(e) {}
+          }
           if(s.key==='docTextRules') {
             try {
               var dbDTR = typeof s.value === 'string' ? JSON.parse(s.value) : s.value;
@@ -33447,10 +33500,8 @@ function tsuikanSetDone(id, done){
   m._doneDate=done?new Date().toISOString().slice(0,10):'';
   persistTsuikanMails();
   renderTsuikanMails();
-  // 対応済みにした時にGASで既読にする
   if(done){
     try{gasGmailPost('markRead',{id:m.id}).catch(function(){});}catch(e){}
-    // movedMailIdsにも追加（再取得時に除外）
     try{
       var _mc=JSON.parse(localStorage.getItem('ofusa_movedMailIds')||'{}');
       _mc[m.id]={t:Date.now()};
