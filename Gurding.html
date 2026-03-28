@@ -383,6 +383,10 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
               <option value="更新">更新</option>
               <option value="変更">変更</option>
             </select>
+            <select class="filter-select" id="caseField" onchange="renderCases()" style="min-width:120px;">
+              <option value="">全分野</option>
+              <option value="__empty__">分野未入力</option>
+            </select>
             <button id="caseNoExpireTab" class="btn btn-outline" onclick="toggleNoExpireFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">⚠️ 在留期限未入力 <span id="noExpireTabCount" style="background:#dc2626;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
             <button id="caseNoDriveTab" class="btn btn-outline" onclick="toggleNoDriveFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">📁 ドライブ未設定 <span id="noDriveTabCount" style="background:#dc2626;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
             <button id="caseBothTab" class="btn btn-outline" onclick="toggleBothFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">⚠️📁 在留期限＋ドライブURL未入力 <span id="bothTabCount" style="background:#7c3aed;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
@@ -713,7 +717,7 @@ function refreshAll(){
   // cases - 1000件制限回避のため複数バッチで取得
   var allCases = [];
   function fetchCasesBatch(from){
-    _sb.from('cases').select('id,name,applicant,nationality,org,company,app_type,residence_status,team,staff,status,expire,shinsa_date,task_done,task_total,updated_at,memo,tokurei_date,temp_return').range(from, from+999).then(function(r){
+    _sb.from('cases').select('id,name,applicant,nationality,org,company,app_type,residence_status,team,staff,status,expire,shinsa_date,task_done,task_total,updated_at,memo,tokurei_date,temp_return,applicant_field').range(from, from+999).then(function(r){
       if(!r.error && r.data && r.data.length){
         allCases = allCases.concat(r.data);
         if(r.data.length===1000){
@@ -1084,10 +1088,12 @@ function renderCases(){
   var sf   = document.getElementById('caseStaff').value||'';
   var tm   = document.getElementById('caseTeam').value||'';
   var tp   = document.getElementById('caseType').value||'';
+  var fd   = document.getElementById('caseField').value||'';
 
   var statuses = [...new Set(DATA.cases.map(function(c){return c.status;}).filter(Boolean))];
   var staffs   = [...new Set(DATA.cases.map(function(c){return c.staff;}).filter(Boolean))].sort();
   var teams    = [...new Set(DATA.cases.map(function(c){return c.team;}).filter(Boolean))].sort();
+  var fields   = [...new Set(DATA.cases.map(function(c){return c.applicant_field;}).filter(Boolean))].sort();
   popSelect('caseStatus', statuses, st);
   // 担当未入力オプションを保持
   var staffEl = document.getElementById('caseStaff');
@@ -1097,6 +1103,13 @@ function renderCases(){
     staffEl.value = sf;
   }
   popSelect('caseTeam',   teams,    tm);
+  // 分野セレクト更新（分野未入力オプション保持）
+  var fieldEl = document.getElementById('caseField');
+  if(fieldEl){
+    fieldEl.innerHTML = '<option value="">全分野</option><option value="__empty__">分野未入力</option>';
+    fields.forEach(function(f){ var o=document.createElement('option'); o.value=f; o.textContent=f; fieldEl.appendChild(o); });
+    fieldEl.value = fd;
+  }
 
   // ANDインジケーター
   var andEl = document.getElementById('andIndicator');
@@ -1108,6 +1121,8 @@ function renderCases(){
     if(sf && sf!=='__empty__' && c.staff!==sf) return false;
     if(tm && c.team!==tm)   return false;
     if(tp && c.app_type!==tp) return false;
+    if(fd==='__empty__' && c.applicant_field) return false;
+    if(fd && fd!=='__empty__' && c.applicant_field!==fd) return false;
     if(_caseNoExpireFilter){
       if(c.app_type!=='更新' && c.app_type!=='変更') return false;
       if(c.expire) return false;
