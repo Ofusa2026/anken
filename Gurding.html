@@ -1263,9 +1263,13 @@ function extractReceiptNos(raw, mode){
 function normalizeReceiptNo(s){
   if(!s) return '';
   return (s||'').replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(c){ return String.fromCharCode(c.charCodeAt(0)-0xFEE0); })
-    .replace(/認/g,'')
     .replace(/\s/g,'').toUpperCase()
     .replace(/.*([A-Z]\d{7,9})$/, '$1');
+}
+// DB上の受付番号が「認」を含むか（=COE案件）
+function isCoeReceiptNo(s){
+  if(!s) return false;
+  return /認/.test(s) || /認/.test((s||'').replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(c){ return String.fromCharCode(c.charCodeAt(0)-0xFEE0); }));
 }
 
 var _coeNotDone  = [];
@@ -1275,9 +1279,15 @@ function runCoeCheck(receiptNos){
   var resultEl = document.getElementById('coeCheckResult');
   if(!receiptNos.length){ resultEl.innerHTML='<div class="empty">受付番号が抽出できませんでした</div>'; document.getElementById('coeFilterBar').style.display='none'; return; }
 
-  var matched = DATA.cases.filter(function(c){ return c.receipt_no && receiptNos.indexOf(normalizeReceiptNo(c.receipt_no))!==-1; });
+  var matched = DATA.cases.filter(function(c){
+    if(!c.receipt_no) return false;
+    // COEモード: DBに「認」含む番号のみ対象 / 審査完了モード: 「認」含まない番号のみ対象
+    if(_coeType==='coe'    && !isCoeReceiptNo(c.receipt_no)) return false;
+    if(_coeType==='shinsa' &&  isCoeReceiptNo(c.receipt_no)) return false;
+    return receiptNos.indexOf(normalizeReceiptNo(c.receipt_no))!==-1;
+  });
   _coeNotDone  = matched.filter(function(c){ return normalizeStatus(c.status)!=='完了' && normalizeStatus(c.status)!=='審査完了'; });
-  _coeNotFound = receiptNos.filter(function(no){ return !DATA.cases.find(function(c){ return normalizeReceiptNo(c.receipt_no)===no; }); });
+  _coeNotFound = receiptNos.filter(function(no){ return !matched.find(function(c){ return normalizeReceiptNo(c.receipt_no)===no; }); });
 
   // フィルターバーを表示してセレクトを初期化
   var filterBar = document.getElementById('coeFilterBar');
