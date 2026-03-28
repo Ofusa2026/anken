@@ -1141,6 +1141,14 @@ function renderCases(){
     return true;
   });
 
+  // 特例期限フィルター時：超過分を先頭に（超過日数昇順）、残りは残日数昇順
+  if(_caseTokureiFilter){
+    items.sort(function(a,b){
+      var da = daysLeft(getTokureiDate(a)); if(da===null) da=999;
+      var db = daysLeft(getTokureiDate(b)); if(db===null) db=999;
+      return da - db;
+    });
+  }
   setTxt('caseCount', items.length+'件');
   var tbody = document.getElementById('caseBody');
   if(!items.length){ tbody.innerHTML='<tr><td colspan="11" class="empty">該当案件なし</td></tr>'; return; }
@@ -1161,17 +1169,20 @@ function renderCases(){
     var expireCell = isNoExpireAlert
       ? '<span class="st-badge st-red" style="border:1.5px solid #dc2626;">⚠️ 未入力</span>'
       : '<span class="st-badge '+expCls+'">'+fmtDate(c.expire)+'</span>';
+    var isTokureiOverdue = td!==null && td<0 && ['審査中','申請済(番号待)','郵送交付','窓口受取','要追完'].indexOf(tokSt)!==-1;
     var tokureiCell = getTokureiDate(c)
-      ? '<span class="st-badge '+(isTokureiAlert?'st-red':'st-gray')+'">'+fmtDate(getTokureiDate(c))+(isTokureiAlert?' (残'+td+'日)':'')+'</span>'
+      ? isTokureiOverdue
+        ? '<span class="st-badge st-red" style="border:2px solid #dc2626;font-weight:800;">🚨 超過'+(Math.abs(td))+'日 '+fmtDate(getTokureiDate(c))+'</span>'
+        : isTokureiAlert
+          ? '<span class="st-badge st-red">⚠️ '+fmtDate(getTokureiDate(c))+' (残'+td+'日)</span>'
+          : '<span class="st-badge st-gray">'+fmtDate(getTokureiDate(c))+'</span>'
       : '<span style="color:var(--gray-400);font-size:11px;">—</span>';
-    var tempReturnCell = trDate
-      ? '<span class="st-badge '+(isTempReturnAlert?'st-blue':'st-gray')+'">'+fmtDate(trDate)+(isTempReturnAlert?' (残'+rd+'日)':'')+'</span>'
-      : '<span style="color:var(--gray-400);font-size:11px;">—</span>';
-    var rowStyle = isNoExpireAlert   ? ' style="background:#fff5f5;"'
-                 : isBothAlert       ? ' style="background:#fdf4ff;"'
-                 : isTokureiAlert    ? ' style="background:#fef2f2;"'
-                 : isTempReturnAlert ? ' style="background:#eff6ff;"'
-                 : isNoDriveAlert    ? ' style="background:#fffbeb;"'
+    var rowStyle = isTokureiOverdue    ? ' style="background:#fef2f2;border-left:4px solid #dc2626;"'
+                 : isNoExpireAlert     ? ' style="background:#fff5f5;"'
+                 : isBothAlert         ? ' style="background:#fdf4ff;"'
+                 : isTokureiAlert      ? ' style="background:#fff7ed;"'
+                 : isTempReturnAlert   ? ' style="background:#eff6ff;"'
+                 : isNoDriveAlert      ? ' style="background:#fffbeb;"'
                  : '';
     var isOnlyDriveAlert = isNoDriveAlert; // ドライブのみ未設定（在留期限あり）
     var lineBtn = isBothAlert
