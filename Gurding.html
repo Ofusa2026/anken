@@ -432,8 +432,6 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
             <button id="caseNoExpireTab" class="btn btn-outline" onclick="toggleNoExpireFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">⚠️ 在留期限未入力 <span id="noExpireTabCount" style="background:#dc2626;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
             <button id="caseNoDriveTab" class="btn btn-outline" onclick="toggleNoDriveFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">📁 ドライブ未設定 <span id="noDriveTabCount" style="background:#dc2626;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
             <button id="caseBothTab" class="btn btn-outline" onclick="toggleBothFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">⚠️📁 在留期限＋ドライブURL未入力 <span id="bothTabCount" style="background:#7c3aed;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
-            <button id="caseTokureiTab" class="btn btn-outline" onclick="toggleTokureiFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">⏰ 特例期限14日以内 <span id="tokureiTabCount" style="background:#dc2626;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
-            <button id="caseTempReturnTab" class="btn btn-outline" onclick="toggleTempReturnFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">✈️ 一時帰国10日以内 <span id="tempReturnTabCount" style="background:#2563eb;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
             <span class="filter-count" id="caseCount">—件</span>
           </div>
         </div>
@@ -656,7 +654,11 @@ function getPersonExtra(caseId){
   var ex=p.extra; if(typeof ex==='string'){try{ex=JSON.parse(ex);}catch(e){ex={};}} return ex;
 }
 function getTempReturn(c){
-  return c.temp_return || (getPersonExtra(c.id).tempReturn) || '';
+  // persons.temp_return（専用カラム）を優先、次にcases.temp_return、最後にextra
+  var p = DATA.persons.find(function(p){ return p.case_id===c.id; });
+  if(p && p.temp_return) return p.temp_return;
+  if(c.temp_return) return c.temp_return;
+  return (getPersonExtra(c.id).tempReturn) || '';
 }
 function hasDrive(caseId){
   var p = DATA.persons.find(function(p){ return p.case_id===caseId; });
@@ -780,7 +782,7 @@ function refreshAll(){
   // persons - バッチ取得
   var allPersons = [];
   function fetchPersonsBatch(from){
-    _sb.from('persons').select('case_id,extra').range(from, from+999).then(function(r){
+    _sb.from('persons').select('case_id,extra,temp_return').range(from, from+999).then(function(r){
       if(!r.error && r.data && r.data.length){
         allPersons = allPersons.concat(r.data);
         if(r.data.length===1000){
@@ -1237,12 +1239,12 @@ function toggleTempReturnFilter(){
   renderCases();
 }
 function navCasesTokureiAlert(){
-  nav('cases');
-  if(!_caseTokureiFilter) toggleTokureiFilter();
+  nav('alerts');
+  switchAlertTab('tokurei');
 }
 function navCasesTempReturn(){
-  nav('cases');
-  if(!_caseTempReturnFilter) toggleTempReturnFilter();
+  nav('alerts');
+  switchAlertTab('tempreturn');
 }
 function resetFilterBtns(){
   ['caseNoExpireTab','caseNoDriveTab','caseBothTab','caseTokureiTab','caseTempReturnTab'].forEach(function(id){
