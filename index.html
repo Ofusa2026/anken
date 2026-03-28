@@ -10728,6 +10728,30 @@ function autoSaveInfo(key, value) {
       }
     });
   })(c.id, key, oldVal, value);
+  // 雇用条件セット変更時 → applicantFieldを自動同期（雇用条件と案件で一致させる）
+  if (key === 'empSetIdx' && value !== '') {
+    var _syncCo = c.company ? companies.find(function(x){ return x.name === c.company; }) : null;
+    var _syncEs = (_syncCo && _syncCo.empSets) ? _syncCo.empSets[parseInt(value)] : null;
+    if (_syncEs) {
+      var _esField = _syncEs.applicantField || _syncEs.field || '';
+      // 雇用条件セットと案件の分野が違う場合は案件側を更新
+      if (_esField && c.applicantField !== _esField) {
+        var _oldAf = c.applicantField;
+        c.applicantField = _esField;
+        if(DB_READY) _sb.from('cases').update({applicant_field: _esField, updated_at: new Date().toISOString()}).eq('id', c.id).then(function(){});
+        // 表示も更新
+        var _afEl = document.getElementById('ei-applicantField');
+        if(_afEl) _afEl.value = _esField;
+        console.log('📋 applicantField auto-synced:', _oldAf, '→', _esField);
+      } else if (!_esField && c.applicantField) {
+        // 雇用条件に分野がない場合は案件側をクリア
+        c.applicantField = '';
+        if(DB_READY) _sb.from('cases').update({applicant_field: null, updated_at: new Date().toISOString()}).eq('id', c.id).then(function(){});
+        var _afEl2 = document.getElementById('ei-applicantField');
+        if(_afEl2) _afEl2.value = '';
+      }
+    }
+  }
   // 在留期限変更時 → 特例日を自動計算（未入力の場合のみ）
   if (key === 'expire' && value) {
     var auto = addTwoMonths(value);
@@ -18355,7 +18379,13 @@ function buildCaseRow(c, today, inGroup) {
   }
   var _fieldShort={'外食業':'外食','外食':'外食','介護':'介護','建設':'建設','飲食料品製造':'飲食','農業':'農業','漁業':'漁業','宿泊':'宿泊','ビルクリーニング':'ビル','自動車整備':'自動車','航空':'航空','造船':'造船','素形材・産業機械・電気電子':'製造','林業':'林業','木材産業':'木材'};
   var _af = c.applicantField||'';
-  var _afShort = _fieldShort[_af] || (_af ? _af.slice(0,3) : '');
+  // 雇用条件セットの分野と一致しているか確認
+  var _afCo = companies.find(function(x){return x.name===c.company;})||{};
+  var _afEs = (_afCo.empSets&&c.empSetIdx!=null)?_afCo.empSets[parseInt(c.empSetIdx)]||{}:{};
+  var _afFromEs = _afEs.applicantField||_afEs.field||'';
+  // 両者が一致、またはcases側のみ入力されている場合に表示
+  var _afDisplay = (_af && (!_afFromEs || _af === _afFromEs)) ? _af : '';
+  var _afShort = _fieldShort[_afDisplay] || (_afDisplay ? _afDisplay.slice(0,3) : '');
   if(_afShort) h += '<br><span style="font-size:9px;color:#6b7280;background:#f1f5f9;padding:1px 5px;border-radius:8px;display:inline-block;margin-top:2px;">'+_afShort+'</span>';
   h += '</td>';
   // 進捗
