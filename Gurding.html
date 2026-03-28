@@ -360,6 +360,36 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
         <div class="table-section" style="padding-top:0;">
           <div class="table-wrap"><div id="alertList"><div class="loading"><div class="spinner"></div></div></div></div>
         </div>
+
+        <!-- 特例期限セクション -->
+        <div class="filters-section" style="margin-top:24px;">
+          <div style="font-size:14px;font-weight:800;color:var(--navy);padding:0 4px 8px;">⏰ 特例期限 14日以内</div>
+          <div class="filters">
+            <input class="search-input" id="tokureiSearch" placeholder="🔍 氏名・所属機関で検索..." oninput="renderTokureiAlerts()">
+            <select class="filter-select" id="tokureiTeam" onchange="renderTokureiAlerts()">
+              <option value="">全チーム</option>
+            </select>
+            <span class="filter-count" id="tokureiAlertCount">—件</span>
+          </div>
+        </div>
+        <div class="table-section" style="padding-top:0;">
+          <div class="table-wrap"><div id="tokureiAlertList"><div class="loading"><div class="spinner"></div></div></div></div>
+        </div>
+
+        <!-- 一時帰国セクション -->
+        <div class="filters-section" style="margin-top:24px;">
+          <div style="font-size:14px;font-weight:800;color:var(--navy);padding:0 4px 8px;">✈️ 一時帰国 10日以内</div>
+          <div class="filters">
+            <input class="search-input" id="tempReturnSearch" placeholder="🔍 氏名・所属機関で検索..." oninput="renderTempReturnAlerts()">
+            <select class="filter-select" id="tempReturnTeam" onchange="renderTempReturnAlerts()">
+              <option value="">全チーム</option>
+            </select>
+            <span class="filter-count" id="tempReturnAlertCount">—件</span>
+          </div>
+        </div>
+        <div class="table-section" style="padding-top:0;">
+          <div class="table-wrap"><div id="tempReturnAlertList"><div class="loading"><div class="spinner"></div></div></div></div>
+        </div>
       </div>
 
       <!-- ══ CASES ══ -->
@@ -845,6 +875,8 @@ function renderAll(){
   updateBadges();
   renderDashboard();
   renderAlerts();
+  renderTokureiAlerts();
+  renderTempReturnAlerts();
   renderCases();
   renderTasks();
   renderShinsa();
@@ -961,6 +993,84 @@ function renderFormPreview(){
 }
 
 // ── ALERTS ──
+function renderTokureiAlerts(){
+  var q = (document.getElementById('tokureiSearch').value||'').toLowerCase();
+  var team = document.getElementById('tokureiTeam').value||'';
+  var TOKUREI_ST = ['審査中','申請済(番号待)','郵送交付','窓口受取','要追完'];
+  var teams = [...new Set(DATA.cases.map(function(c){ return c.team; }).filter(Boolean))];
+  popSelect('tokureiTeam', teams, team);
+  var items = DATA.cases.filter(function(c){
+    var st=normalizeStatus(c.status);
+    if(TOKUREI_ST.indexOf(st)===-1) return false;
+    var d=daysLeft(getTokureiDate(c));
+    if(d===null||d>14) return false;
+    if(team && c.team!==team) return false;
+    if(q){ var s=(c.name||'')+(c.org||'')+(c.company||''); if(!s.toLowerCase().includes(q)) return false; }
+    return true;
+  }).sort(function(a,b){ return (daysLeft(getTokureiDate(a))??999)-(daysLeft(getTokureiDate(b))??999); });
+  setTxt('tokureiAlertCount', items.length+'件');
+  var el = document.getElementById('tokureiAlertList');
+  if(!items.length){ el.innerHTML='<div class="empty">該当案件なし</div>'; return; }
+  el.innerHTML = items.map(function(c){
+    var td = daysLeft(getTokureiDate(c));
+    var badge, bstyle;
+    if(td<0){    badge='🚨 超過'+Math.abs(td)+'日'; bstyle='background:#fef2f2;color:#dc2626;font-weight:800;'; }
+    else if(td===0){ badge='本日期限'; bstyle='background:#fef2f2;color:#dc2626'; }
+    else if(td<=5){  badge='残'+td+'日'; bstyle='background:#fef2f2;color:#dc2626'; }
+    else{            badge='残'+td+'日'; bstyle='background:#fff7ed;color:#ea580c'; }
+    return '<div class="alert-row"'+(td<0?' style="border-left:4px solid #dc2626;"':'')+'>'
+      +'<div class="alert-dot '+(td<0?'red':td<=5?'red':'orange')+'"></div>'
+      +'<div class="alert-info">'
+      +'<div class="alert-name">'+esc(c.name||'—')+'<span style="font-weight:400;color:var(--gray-400);font-size:12px;margin-left:8px;">'+esc(c.org||c.company||'')+'</span></div>'
+      +(c.applicant?'<div style="font-size:11px;color:var(--gray-400);margin-top:1px;">'+esc(c.applicant)+'</div>':'')
+      +'<div class="alert-meta">'+typeBadge(c.app_type)+'&nbsp;'+stBadge(c.status)+'&nbsp;担当: '+esc(c.staff||'—')+'　チーム: '+esc(c.team||'—')+'</div>'
+      +(getProgressMemo(c.id)?'<div style="font-size:11px;color:#6366f1;margin-top:3px;padding:3px 6px;background:#f5f3ff;border-radius:4px;border-left:3px solid #6366f1;">'+esc(getProgressMemo(c.id))+'</div>':'')
+      +'<div style="display:flex;align-items:center;gap:4px;margin-top:3px;font-size:10px;color:var(--gray-400);">特例期限: '+fmtDate(getTokureiDate(c))+'&nbsp;／&nbsp;在留期限: '+fmtDate(c.expire)+'</div>'
+      +'</div>'
+      +'<div class="alert-right"><div class="days-badge" style="'+bstyle+'">'+badge+'</div></div>'
+      +'</div>';
+  }).join('');
+}
+
+function renderTempReturnAlerts(){
+  var q = (document.getElementById('tempReturnSearch').value||'').toLowerCase();
+  var team = document.getElementById('tempReturnTeam').value||'';
+  var TR_EXCLUDE = ['申請済(番号待)','審査中','要追完','郵送交付','窓口受取','完了','審査完了'];
+  var teams = [...new Set(DATA.cases.map(function(c){ return c.team; }).filter(Boolean))];
+  popSelect('tempReturnTeam', teams, team);
+  var items = DATA.cases.filter(function(c){
+    var st=normalizeStatus(c.status);
+    if(TR_EXCLUDE.indexOf(st)!==-1) return false;
+    var tr=getTempReturn(c);
+    var d=daysLeft(tr);
+    if(d===null||d>10||d<0) return false;
+    if(team && c.team!==team) return false;
+    if(q){ var s=(c.name||'')+(c.org||'')+(c.company||''); if(!s.toLowerCase().includes(q)) return false; }
+    return true;
+  }).sort(function(a,b){ return (daysLeft(getTempReturn(a))??999)-(daysLeft(getTempReturn(b))??999); });
+  setTxt('tempReturnAlertCount', items.length+'件');
+  var el = document.getElementById('tempReturnAlertList');
+  if(!items.length){ el.innerHTML='<div class="empty">該当案件なし</div>'; return; }
+  el.innerHTML = items.map(function(c){
+    var rd = daysLeft(getTempReturn(c));
+    var badge, bstyle;
+    if(rd===0){ badge='本日出発'; bstyle='background:#eff6ff;color:#2563eb'; }
+    else if(rd<=3){ badge='残'+rd+'日'; bstyle='background:#eff6ff;color:#2563eb;font-weight:800;'; }
+    else{           badge='残'+rd+'日'; bstyle='background:#eff6ff;color:#3b82f6'; }
+    return '<div class="alert-row">'
+      +'<div class="alert-dot" style="background:#3b82f6;"></div>'
+      +'<div class="alert-info">'
+      +'<div class="alert-name">'+esc(c.name||'—')+'<span style="font-weight:400;color:var(--gray-400);font-size:12px;margin-left:8px;">'+esc(c.org||c.company||'')+'</span></div>'
+      +(c.applicant?'<div style="font-size:11px;color:var(--gray-400);margin-top:1px;">'+esc(c.applicant)+'</div>':'')
+      +'<div class="alert-meta">'+typeBadge(c.app_type)+'&nbsp;'+stBadge(c.status)+'&nbsp;担当: '+esc(c.staff||'—')+'　チーム: '+esc(c.team||'—')+'</div>'
+      +(getProgressMemo(c.id)?'<div style="font-size:11px;color:#6366f1;margin-top:3px;padding:3px 6px;background:#f5f3ff;border-radius:4px;border-left:3px solid #6366f1;">'+esc(getProgressMemo(c.id))+'</div>':'')
+      +'<div style="font-size:10px;color:var(--gray-400);margin-top:3px;">帰国予定: '+fmtDate(getTempReturn(c))+'</div>'
+      +'</div>'
+      +'<div class="alert-right"><div class="days-badge" style="'+bstyle+'">'+badge+'</div></div>'
+      +'</div>';
+  }).join('');
+}
+
 function renderAlerts(){
   var q = (document.getElementById('alertSearch').value||'').toLowerCase();
   var days = parseInt(document.getElementById('alertDays').value||10);
