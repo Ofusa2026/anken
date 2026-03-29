@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.26</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.29</div>
   </div>
 
   <div class="nav-section">
@@ -1572,7 +1572,7 @@ var kijun1 = false, kijun2 = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.26%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.29%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -3128,6 +3128,14 @@ function parseSalaryText(text) {
 
   var ot1 = getTotal('残業手当(支給)', true) || 0;
   var ot2 = getTotal('深夜残業手当(支給)', true) || 0;
+  var ot3 = getTotal('深夜所定手当(支給)', true) || 0;       // 深夜所定割増
+  var ot4 = getTotal('深夜所定外手当(支給)', true) || 0;
+  var ot5 = getTotal('所定休日手当(支給)', true) || 0;        // 休日手当
+  var ot6 = getTotal('法定休日手当(支給)', true) || 0;
+  var ot7 = getTotal('休日深夜法定外(支給)', true) || 0;
+  var ot8 = getTotal('休日深夜所定手当(支給)', true) || 0;
+  var ot9 = getTotal('休日深夜所定外(支給)', true) || 0;
+  var otTotal = ot1+ot2+ot3+ot4+ot5+ot6+ot7+ot8+ot9;
   var commute1 = getTotal('通勤手当/課税(支給)', true) || 0;
   var commute2 = getTotal('通勤手当/非課(支給)', true) || 0;
   var commuteTotal = commute1 + commute2;
@@ -3143,12 +3151,19 @@ function parseSalaryText(text) {
   var deductOtherAmt = deductTotalAmt - deductFood - deductHousing - deductTaxAmt;
   if (deductOtherAmt < 0) deductOtherAmt = 0;
 
+  var totalHours    = getTotal('総労働時間（平日）', false);
+  var overtimeHrs   = getTotal('法定外時間（平日）', false);
+  // 所定内実労働時間 = 総労働時間（平日）− 法定外時間（平日）
+  var scheduledHrs  = (totalHours !== null && overtimeHrs !== null)
+                      ? Math.round((totalHours - overtimeHrs) * 10) / 10
+                      : getTotal('所定時間（平日）', false); // フォールバック
+
   var data = {
     workDays:            getTotal('出勤日数（平日）', false),
-    scheduledHours:      getTotal('所定時間（平日）', false),
-    overtimeHours:       getTotal('法定外時間（平日）', false),
+    scheduledHours:      scheduledHrs,
+    overtimeHours:       overtimeHrs,
     totalPay:            getTotal('支給合計', true),
-    overtimePay:         (ot1+ot2) || null,
+    overtimePay:         otTotal || null,
     commuteAllowance:    commuteTotal || null,
     attendanceAllowance: attendAmt || null,
     familyAllowance:     familyAmt || null,
@@ -3171,6 +3186,9 @@ async function extractSalaryWithClaude(base64) {
   var prompt = [
     '以下は賃金台帳PDFです。下記項目をJSONのみで返してください（説明不要）。',
     '【重要】各項目は月平均ではなく年間合計（全月の合計値）を返してください。',
+    'scheduledHoursは「所定内実労働時間」= 総労働時間（平日）合計 − 法定外時間（平日）合計 で計算してください。',
+    'overtimeHoursは「法定外時間（平日）」の年間合計。',
+    'overtimePayは「時間外手当・深夜割増手当・休日手当・宿日直手当等の合計」（残業手当+深夜残業手当+深夜所定手当+所定休日手当+法定休日手当等すべての割増手当を合算）。',
     '数値はカンマ・単位なし・整数（workDays/scheduledHours/overtimeHoursは小数第1位まで可）。',
     '{"nameEn":"","workDays":0,"scheduledHours":0,"overtimeHours":0,',
     '"totalPay":0,"overtimePay":0,"commuteAllowance":0,"attendanceAllowance":0,"familyAllowance":0,',
@@ -3234,23 +3252,26 @@ async function generate36(coName) {
     return fg && fg.residenceStatus === '特定技能2号';
   });
 
-  // 月平均を計算（個人月平均の平均）
+  // 月平均を計算（個人月平均の平均）。データなしは空文字
   function calcAvg(sals, key, isInt) {
-    if (!sals.length) return 0;
-    var sum = sals.reduce(function(s, r) {
+    var valid = sals.filter(function(r){ return r[key] !== undefined && r[key] !== '' && r[key] !== null && parseFloat(r[key]) > 0; });
+    if (!valid.length) return '';
+    var sum = valid.reduce(function(s, r) {
       var m = parseInt(r.months) || 12;
       return s + (parseFloat(r[key]) || 0) / m;
     }, 0);
-    var a = sum / sals.length;
-    return isInt ? Math.round(a) : Math.round(a * 10) / 10;
+    var a = sum / valid.length;
+    return isInt ? String(Math.round(a)) : String(Math.round(a * 10) / 10);
   }
   function calcBonus(sals) {
-    if (!sals.length) return 0;
-    return Math.round(sals.reduce(function(s,r){ return s+(parseFloat(r.bonus)||0); },0) / sals.length);
+    var valid = sals.filter(function(r){ return r.bonus !== undefined && r.bonus !== '' && r.bonus !== null && parseFloat(r.bonus) > 0; });
+    if (!valid.length) return '';
+    return String(Math.round(valid.reduce(function(s,r){ return s+(parseFloat(r.bonus)||0); },0) / valid.length));
   }
   function calcRaise(sals) {
-    if (!sals.length) return 0;
-    return (sals.reduce(function(s,r){ return s+(parseFloat(r.raiseRate)||0); },0) / sals.length).toFixed(1);
+    var valid = sals.filter(function(r){ return r.raiseRate !== undefined && r.raiseRate !== '' && r.raiseRate !== null; });
+    if (!valid.length) return '';
+    return String((valid.reduce(function(s,r){ return s+(parseFloat(r.raiseRate)||0); },0) / valid.length).toFixed(1));
   }
 
   var vars = {
