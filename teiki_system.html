@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.25</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.26</div>
   </div>
 
   <div class="nav-section">
@@ -1572,7 +1572,7 @@ var kijun1 = false, kijun2 = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.25%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.26%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -1914,7 +1914,7 @@ function renderSalaryInput() {
         '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">'+
         '<span style="font-size:14px;font-weight:700">'+esc(f.nameEn)+'</span>'+
         '<span class="badge badge-blue">'+esc(f.residenceStatus)+'</span>'+
-        '<span style="font-size:11px;color:var(--text3)">'+esc(f.nationality)+' / 開始: '+esc(f.contractStart||'—')+'</span>'+
+        '<span style="font-size:11px;color:var(--text3)">'+esc(f.nationality)+' / 開始: '+fmtDate(f.contractStart)+'</span>'+
         (requires2yr?'<span style="background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px">✱ 昇給率必須（2年以上在籍）</span>':'')+
         '<label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin-left:auto;font-size:11px">📄 PDF取込'
           +'<input type="file" accept=".pdf" style="display:none" '
@@ -2553,8 +2553,26 @@ function editForeigner(nameEn,coName){
   var f=foreigners.find(x=>x.nameEn===nameEn&&x.companyName===coName); if(!f) return;
   editingForeignerId={nameEn,coName};
   document.getElementById('fg-modal-title').textContent='外国人 編集';
-  ['fg-company:companyName','fg-name-en:nameEn','fg-nationality:nationality','fg-card:residenceCard','fg-birth:birthDate','fg-expiry:residenceExpiry','fg-start:contractStart','fg-end:contractEnd','fg-five-year:fiveYearExpiry','fg-memo:memo'].forEach(function(p){
-    var [id,k]=p.split(':'); var el=document.getElementById(id); if(el) el.value=f[k]||'';
+  // 日付以外のフィールド
+  ['fg-company:companyName','fg-name-en:nameEn','fg-nationality:nationality','fg-card:residenceCard','fg-memo:memo'].forEach(function(p){
+    var parts=p.split(':'); var el=document.getElementById(parts[0]); if(el) el.value=f[parts[1]]||'';
+  });
+  // 日付フィールドはYYYY-MM-DD形式に正規化
+  ['fg-birth:birthDate','fg-expiry:residenceExpiry','fg-start:contractStart','fg-end:contractEnd','fg-five-year:fiveYearExpiry'].forEach(function(p){
+    var parts=p.split(':'); var el=document.getElementById(parts[0]); if(!el) return;
+    var raw=f[parts[1]]||'';
+    if(!raw){ el.value=''; return; }
+    // YYYY-MM-DD形式ならそのまま
+    if(/^\d{4}-\d{2}-\d{2}$/.test(raw)){ el.value=raw; return; }
+    // それ以外（Date文字列等）はDateオブジェクト経由でYYYY-MM-DDに変換
+    try {
+      var d=new Date(raw);
+      if(!isNaN(d.getTime())){
+        var mm=String(d.getMonth()+1).padStart(2,'0');
+        var dd=String(d.getDate()).padStart(2,'0');
+        el.value=d.getFullYear()+'-'+mm+'-'+dd;
+      } else { el.value=raw; }
+    } catch(e){ el.value=raw; }
   });
   document.getElementById('fg-zairyu').value=f.residenceStatus||'特定技能1号';
   document.getElementById('fg-gender').value=f.gender||'男';
