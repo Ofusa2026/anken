@@ -511,11 +511,20 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
             <button class="btn btn-primary btn-sm" onclick="openModal('modal-foreigner-add')">＋ 追加</button>
           </div>
         </div>
-        <div style="overflow-x:auto;max-height:500px">
-          <table>
+        <div style="overflow-x:auto">
+          <table style="white-space:nowrap">
             <thead><tr>
-              <th>所属機関</th><th>氏名（英字）</th><th>国籍</th><th>在留資格</th>
-              <th>在留カードNo.</th><th>生年月日</th><th>在留期限</th><th>雇用開始日</th><th>雇用終了日</th><th>在職</th><th>操作</th>
+              <th style="white-space:nowrap">所属機関</th>
+              <th style="white-space:nowrap">氏名（英字）</th>
+              <th style="white-space:nowrap">国籍</th>
+              <th style="white-space:nowrap">在留資格</th>
+              <th style="white-space:nowrap">在留カードNo.</th>
+              <th style="white-space:nowrap">生年月日</th>
+              <th style="white-space:nowrap">在留期限</th>
+              <th style="white-space:nowrap">雇用開始日</th>
+              <th style="white-space:nowrap">雇用終了日</th>
+              <th style="white-space:nowrap">在職</th>
+              <th style="white-space:nowrap">操作</th>
             </tr></thead>
             <tbody id="fg-table-body">
               <tr><td colspan="9"><div class="empty-state"><div class="spinner"></div></div></td></tr>
@@ -1460,6 +1469,14 @@ function resolveCompanyName(fgCoName) {
 // キャッシュを無効化（データ更新時に呼ぶ）
 function clearCoNameCache() { _coNameCache = null; }
 
+// statusを正規化（isActive/isRetiredのフラグも考慮）
+function normStatus(f) {
+  if (f.status && f.status !== '') return f.status;
+  if (f.isActive && String(f.isActive).trim().match(/[〇○◯]/)) return '在職';
+  if (f.isRetired && String(f.isRetired).trim().match(/[〇○◯]/)) return '退職';
+  return '';
+}
+
 var GAS_URL = localStorage.getItem('gas_url') || '';
 var ANTHROPIC_KEY = localStorage.getItem('anthropic_key') || '';
 var FISCAL_YEAR = localStorage.getItem('fiscal_year') || '2025';
@@ -1471,7 +1488,7 @@ var kijun1 = false, kijun2 = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.4%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -1599,7 +1616,7 @@ function updateBadges() {
   document.getElementById('badge-companies').textContent=companies.length;
   // statusを正規化してカウント（isActive/isRetiredも考慮）
   var activeCount = foreigners.filter(function(f){
-    if(f.status==='在職') return true;
+    if(normStatus(f)==='在職') return true;
     if(f.isActive && String(f.isActive).trim().match(/[〇○◯]/)) return true;
     return false;
   }).length;
@@ -1659,13 +1676,6 @@ function renderCompanyTable() {
 function renderForeignerTable() {
   var q=(document.getElementById('fg-search').value||'').toLowerCase();
   var sf=document.getElementById('fg-status-filter').value, zf=document.getElementById('fg-zairyu-filter').value;
-  // statusを正規化してフィルター
-  function normStatus(f){
-    if(f.status) return f.status;
-    if(f.isActive && String(f.isActive).trim().match(/[〇○◯]/)) return '在職';
-    if(f.isRetired && String(f.isRetired).trim().match(/[〇○◯]/)) return '退職';
-    return '';
-  }
   var list=foreigners.filter(function(f){
     return (!sf||normStatus(f)===sf)&&(!zf||f.residenceStatus===zf)&&(!q||[(f.nameEn||''),(f.companyName||'')].some(function(s){return s.toLowerCase().includes(q);}));
   });
@@ -1676,7 +1686,7 @@ function renderForeignerTable() {
     return '<tr>'+
       '<td style="font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(f.companyName||'—')+'</td>'+
       '<td style="font-weight:600;white-space:nowrap">'+esc(f.nameEn||'—')+'</td>'+
-      '<td style="font-size:11px">'+esc(f.nationality||'—')+'</td>'+
+      '<td style="font-size:11px;white-space:nowrap">'+esc(f.nationality||'—')+'</td>'+
       '<td><span class="badge '+(f.residenceStatus==='特定技能2号'?'badge-purple':f.residenceStatus==='特定活動'?'badge-amber':'badge-blue')+'">'+esc(f.residenceStatus||'—')+'</span></td>'+
       '<td style="font-family:\'DM Mono\',monospace;font-size:11px;white-space:nowrap">'+esc(f.residenceCard||'—')+'</td>'+
       '<td style="font-size:11px;white-space:nowrap">'+fmtDate(f.birthDate)+'</td>'+
@@ -1691,7 +1701,7 @@ function renderSalaryCoList() {
   var q=(document.getElementById('sal-co-search').value||'').toLowerCase();
   var list=companies.filter(c=>!q||(c.name||'').toLowerCase().includes(q));
   document.getElementById('sal-co-list').innerHTML=list.map(function(co){
-    var cnt=foreigners.filter(f=>resolveCompanyName(f.companyName)===co.name&&f.status==='在職').length;
+    var cnt=foreigners.filter(f=>resolveCompanyName(f.companyName)===co.name&&normStatus(f)==='在職').length;
     var active=selectedCompany&&selectedCompany.name===co.name;
     return '<div onclick="selectSalaryCompany(\''+esc(co.name)+'\')" style="padding:8px 10px;border-radius:6px;cursor:pointer;margin-bottom:2px;background:'+(active?'var(--blue-lt)':'transparent')+';border:1px solid '+(active?'#bfdbfe':'transparent')+';transition:.1s">'+
       '<div style="font-size:12px;font-weight:'+(active?'700':'500')+';color:'+(active?'var(--blue)':'var(--text)')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(co.name)+'</div>'+
@@ -1741,7 +1751,7 @@ var salYearTab = 'prev';
 
 function renderSalaryInput() {
   if (!selectedCompany) return;
-  var fgs=foreigners.filter(function(f){return resolveCompanyName(f.companyName)===selectedCompany.name&&f.status==='在職';}), co=selectedCompany;
+  var fgs=foreigners.filter(function(f){return resolveCompanyName(f.companyName)===selectedCompany.name&&normStatus(f)==='在職';}), co=selectedCompany;
   var html='<div class="table-wrapper"><div class="table-header"><span class="table-title">給与データ入力 — '+esc(co.name)+'</span><span class="table-count">'+fgs.length+'名</span></div><div style="padding:16px">';
   if (!fgs.length) { html+='<div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">在職中の外国人がいません</div></div>'; }
   else {
@@ -2256,7 +2266,7 @@ function getMissingItems(co) {
   }
 
   // 給与データ（外国人がいる企業のみ）
-  var hasFg = foreigners.some(function(f){ return resolveCompanyName(f.companyName) === co.name && f.status === '在職'; });
+  var hasFg = foreigners.some(function(f){ return resolveCompanyName(f.companyName) === co.name && normStatus(f) === '在職'; });
   if (hasFg) {
     var hasSal = salaryData.some(function(s){ return resolveCompanyName(s.companyName) === co.name && s.totalPay; });
     if (!hasSal) missing.push({key:'salary', label:'給与データ', level:'warn'});
@@ -2422,8 +2432,8 @@ function confirmDeleteCompany(name) {
 // ===== 所属機関↔外国人 紐付け表示 =====
 function showCompanyForeigners(name) {
   var fgs = foreigners.filter(f => f.companyName === name);
-  var active  = fgs.filter(f => f.status === '在職');
-  var retired = fgs.filter(f => f.status !== '在職');
+  var active  = fgs.filter(f => normStatus(f) === '在職');
+  var retired = fgs.filter(f => normStatus(f) !== '在職');
 
   var html = '<div style="padding:20px">';
   html += '<div style="font-size:16px;font-weight:700;margin-bottom:4px">'+esc(name)+'</div>';
