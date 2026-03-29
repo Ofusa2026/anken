@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.24</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.25</div>
   </div>
 
   <div class="nav-section">
@@ -1572,7 +1572,7 @@ var kijun1 = false, kijun2 = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.24%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.25%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -3296,15 +3296,21 @@ async function generate36(coName) {
 
   var zip = await JSZip.loadAsync(bytes.buffer);
 
+  // 値をXMLエスケープ（sharedStrings.xml用）
+  function xmlEsc(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+  }
+
   // sharedStrings.xml の変数を置換
   var ssFile = zip.file('xl/sharedStrings.xml');
   if (ssFile) {
     var ssXml = await ssFile.async('string');
     Object.keys(vars).forEach(function(k) {
-      // XML特殊文字でエスケープされている場合も考慮
-      var escaped = k.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      ssXml = ssXml.split(k).join(vars[k]);
-      ssXml = ssXml.split(escaped).join(vars[k]);
+      var safeVal = xmlEsc(vars[k]);
+      // プレースホルダがXMLエスケープされている場合も考慮
+      var escapedKey = k.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      ssXml = ssXml.split(k).join(safeVal);
+      ssXml = ssXml.split(escapedKey).join(safeVal);
     });
     zip.file('xl/sharedStrings.xml', ssXml);
   }
@@ -3314,7 +3320,8 @@ async function generate36(coName) {
   if (wsFile) {
     var wsXml = await wsFile.async('string');
     Object.keys(vars).forEach(function(k) {
-      wsXml = wsXml.split(k).join(vars[k]);
+      var safeVal = xmlEsc(vars[k]);
+      wsXml = wsXml.split(k).join(safeVal);
     });
     zip.file('xl/worksheets/sheet1.xml', wsXml);
   }
