@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.10</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.12</div>
   </div>
 
   <div class="nav-section">
@@ -501,7 +501,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
           <table>
             <thead><tr>
               <th style="width:36px">#</th><th>所属機関名</th><th>ステータス</th>
-              <th>担当者</th><th>電子届出</th><th>一定の基準</th><th>不足情報</th><th>大房書類</th><th>企業書類</th><th>操作</th>
+              <th>担当者</th><th>電子届出</th><th>一定の基準</th><th>人材</th><th>不足情報</th><th>大房書類</th><th>企業書類</th><th>操作</th>
             </tr></thead>
             <tbody id="co-table-body">
               <tr><td colspan="9"><div class="empty-state"><div class="spinner"></div></div></td></tr>
@@ -549,6 +549,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
               <th onclick="sortFg('contractStart')" style="white-space:nowrap;cursor:pointer;user-select:none">雇用開始日 <span id="sort-contractStart"></span></th>
               <th onclick="sortFg('contractEnd')" style="white-space:nowrap;cursor:pointer;user-select:none">雇用終了日 <span id="sort-contractEnd"></span></th>
               <th onclick="sortFg('status')" style="white-space:nowrap;cursor:pointer;user-select:none">在職 <span id="sort-status"></span></th>
+              <th style="white-space:nowrap">給与</th>
             </tr></thead>
             <tbody id="fg-table-body">
               <tr><td colspan="9"><div class="empty-state"><div class="spinner"></div></div></td></tr>
@@ -1460,6 +1461,20 @@ const TEIKI_RULES = {
 
 
 
+
+// ===== パネル間ジャンプ =====
+function jumpToForeigner(coName) {
+  // 外国人マスタパネルに切り替えて会社名で検索
+  switchPanel('foreigners', document.querySelector('[data-panel="foreigners"]'));
+  var searchEl = document.getElementById('fg-search');
+  if (searchEl) { searchEl.value = coName; renderForeignerTable(); }
+}
+function jumpToSalary(coName) {
+  // 給与データ入力パネルに切り替えて会社を選択
+  switchPanel('salary', document.querySelector('[data-panel="salary"]'));
+  setTimeout(function(){ selectSalaryCompany(coName); }, 50);
+}
+
 // ===== サイドバー折りたたみ =====
 function toggleSidebar() {
   var sb = document.getElementById('sidebar');
@@ -1554,7 +1569,7 @@ var kijun1 = false, kijun2 = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.10%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.12%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -1717,12 +1732,18 @@ function renderCompanyTable() {
   var q=(document.getElementById('co-search').value||'').toLowerCase();
   var sf=document.getElementById('co-status-filter').value;
   var list=companies.filter(c=>(!sf||c.status===sf)&&(!q||(c.name||'').toLowerCase().includes(q)));
-  if (!list.length) { document.getElementById('co-table-body').innerHTML='<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">🏭</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
+  if (!list.length) { document.getElementById('co-table-body').innerHTML='<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">🏭</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
   document.getElementById('co-table-body').innerHTML=list.map(function(co,i){
     var kr=co.kijun_result||calcKijunResult(co);
     var k2 = co.kijun_2==='✓' ? '<span class="badge badge-green">✓ 電子</span>' :
              co.kijun_2==='✗' ? '<span class="badge badge-red">✗ 郵送</span>' :
              '<span class="badge badge-gray">未設定</span>';
+    // 紐づき人材数
+    var fgAll    = foreigners.filter(function(f){ return resolveCompanyName(f.companyName)===co.name; }).length;
+    var fgActive = foreigners.filter(function(f){ return resolveCompanyName(f.companyName)===co.name && normStatus(f)==='在職'; }).length;
+    var fgBadge  = fgActive > 0
+      ? '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--green);cursor:pointer" onclick="event.stopPropagation();jumpToForeigner(\''+esc(co.name)+'\')">👤 '+fgActive+'名在職</span>'
+      : '<span style="font-size:11px;color:var(--text3)">—</span>';
     return '<tr style="cursor:pointer;transition:.1s" onclick="editCompany(\''+esc(co.name)+'\')" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'\'">'+
       '<td style="color:var(--text3);font-family:\'DM Mono\',monospace;font-size:11px">'+(i+1)+'</td>'+
       '<td style="font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(co.name)+'</td>'+
@@ -1730,6 +1751,7 @@ function renderCompanyTable() {
       '<td style="font-size:11px;color:var(--text2)">'+esc(co.contactName||'—')+'</td>'+
       '<td>'+k2+'</td>'+
       '<td>'+kijunBadge(kr)+'</td>'+
+      '<td>'+fgBadge+'</td>'+
       '<td style="max-width:200px">'+missingBadgesHtml(co)+'</td>'+
       '<td>'+docProgressHtml(countDocsDone(co,'ofusa'),7)+'</td>'+
       '<td>'+docProgressHtml(countDocsDone(co,'ext'),8)+'</td>'+
@@ -1778,6 +1800,9 @@ function renderForeignerTable() {
       '<td style="font-size:10px;white-space:nowrap;color:var(--text3)">'+fmtDate(f.contractStart)+'</td>'+
       '<td style="font-size:10px;white-space:nowrap;color:'+(f.contractEnd?'var(--red)':'var(--text3)')+'">'+fmtDate(f.contractEnd)+'</td>'+
       '<td><span class="badge '+statusBadge+'">'+esc(statusNorm||'—')+'</span></td>'+
+      '<td style="white-space:nowrap" onclick="event.stopPropagation()">'+
+        '<button class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 6px" onclick="jumpToSalary(\''+esc(f.companyName)+'\')">💴</button>'+
+      '</td>'+
       '</tr>';
   }).filter(Boolean).join('');
 }
@@ -1818,18 +1843,20 @@ var SAL_MONTHS_PREV  = ['2025-04','2025-05','2025-06','2025-07','2025-08','2025-
 var SAL_MONTHS_PREV2 = ['2024-04','2024-05','2024-06','2024-07','2024-08','2024-09','2024-10','2024-11','2024-12','2025-01','2025-02','2025-03'];
 var SAL_MONTH_LABELS = ['4月','5月','6月','7月','8月','9月','10月','11月','12月','1月','2月','3月'];
 var SAL_FIELDS = [
-  {key:'totalPay',            label:'現金給与総額',     unit:'円',  int:true},
-  {key:'overtimePay',         label:'うち超過労働給与', unit:'円',  int:true},
-  {key:'commuteAllowance',    label:'うち通勤手当',     unit:'円',  int:true},
-  {key:'attendanceAllowance', label:'うち精皆勤手当',   unit:'円',  int:true},
-  {key:'familyAllowance',     label:'うち家族手当',     unit:'円',  int:true},
-  {key:'workDays',            label:'実労働日数',       unit:'日',  int:false},
-  {key:'scheduledHours',      label:'所定内実労働時間', unit:'時間',int:false},
-  {key:'overtimeHours',       label:'超過実労働時間',   unit:'時間',int:false},
-  {key:'deductFood',          label:'控除①食費',        unit:'円',  int:true},
-  {key:'deductHousing',       label:'控除②居住費',      unit:'円',  int:true},
-  {key:'deductTax',           label:'控除③税・社保',    unit:'円',  int:true},
-  {key:'deductOther',         label:'控除④その他',       unit:'円',  int:true},
+  // isAnnual:true → 年間合計入力・月平均自動計算
+  // isAnnual:false → 月平均で直接入力（÷しない）
+  {key:'totalPay',            label:'現金給与総額',     unit:'円',  int:true,  isAnnual:true},
+  {key:'overtimePay',         label:'うち超過労働給与', unit:'円',  int:true,  isAnnual:true},
+  {key:'commuteAllowance',    label:'うち通勤手当',     unit:'円',  int:true,  isAnnual:true},
+  {key:'attendanceAllowance', label:'うち精皆勤手当',   unit:'円',  int:true,  isAnnual:true},
+  {key:'familyAllowance',     label:'うち家族手当',     unit:'円',  int:true,  isAnnual:true},
+  {key:'workDays',            label:'実労働日数',       unit:'日',  int:false, isAnnual:false},
+  {key:'scheduledHours',      label:'所定内実労働時間', unit:'時間',int:false, isAnnual:false},
+  {key:'overtimeHours',       label:'超過実労働時間',   unit:'時間',int:false, isAnnual:false},
+  {key:'deductFood',          label:'控除①食費',        unit:'円',  int:true,  isAnnual:true},
+  {key:'deductHousing',       label:'控除②居住費',      unit:'円',  int:true,  isAnnual:true},
+  {key:'deductTax',           label:'控除③税・社保',    unit:'円',  int:true,  isAnnual:true},
+  {key:'deductOther',         label:'控除④その他',       unit:'円',  int:true,  isAnnual:true},
 ];
 var salYearTab = 'prev';
 
@@ -1846,7 +1873,6 @@ function renderSalaryInput() {
     html+='<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">'+
       '<button class="btn btn-sm '+(salYearTab==='prev'?'btn-primary':'btn-secondary')+'" onclick="salYearTab=&quot;prev&quot;;renderSalaryInput()">▶ 前年度（令和7年4月〜令和8年3月）</button>'+
       '<button class="btn btn-sm '+(salYearTab==='prev2'?'btn-primary':'btn-secondary')+'" onclick="salYearTab=&quot;prev2&quot;;renderSalaryInput()">▶ 前々年度（令和6年4月〜令和7年3月）</button>'+
-      '<label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin-left:auto">📄 賃金台帳PDF取込<input type="file" accept=".pdf" multiple style="display:none" onchange="importSalaryPDF(event,&quot;'+esc(co.name)+'&quot;)"></label>'+
     '</div>';
 
     var yearLabel = salYearTab==='prev' ? '前年度（令和7年4月〜令和8年3月・12ヶ月）' : '前々年度（令和6年4月〜令和7年3月・12ヶ月）';
@@ -1872,6 +1898,10 @@ function renderSalaryInput() {
         '<span class="badge badge-blue">'+esc(f.residenceStatus)+'</span>'+
         '<span style="font-size:11px;color:var(--text3)">'+esc(f.nationality)+' / 開始: '+esc(f.contractStart||'—')+'</span>'+
         (requires2yr?'<span style="background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px">✱ 昇給率必須（2年以上在籍）</span>':'')+
+        '<label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin-left:auto;font-size:11px">📄 PDF取込'
+          +'<input type="file" accept=".pdf" style="display:none" '
+          +'data-co="'+esc(co.name)+'" data-name="'+esc(f.nameEn)+'" data-year="'+yearKey+'" '
+          +'onchange="importSalaryPDFForPerson(this)"></label>'+
         '</div>'+
 
         // 対象月数
@@ -1888,20 +1918,30 @@ function renderSalaryInput() {
       html+='<table style="width:100%;border-collapse:collapse;font-size:12px">'+
         '<thead><tr style="background:var(--bg3)">'+
         '<th style="padding:7px 10px;text-align:left;width:50%">項目</th>'+
-        '<th style="padding:7px 10px;text-align:right;width:25%">年間合計</th>'+
+        '<th style="padding:7px 10px;text-align:right;width:25%">入力値（年間合計 or 月平均）</th>'+
         '<th style="padding:7px 10px;text-align:right;width:25%;background:rgba(37,99,235,.08);color:var(--blue)">月平均</th>'+
         '</tr></thead><tbody>';
 
       SAL_FIELDS.forEach(function(field, fi){
         var val = rec[field.key] !== undefined ? rec[field.key] : '';
-        var avg = (val !== '' && val !== null && months > 0) ? (field.int ? Math.round(parseFloat(val)/months) : Math.round(parseFloat(val)/months*10)/10) : null;
+        // isAnnual=true: 年間合計÷月数=月平均  isAnnual=false: 月平均を直接入力
+        var avg;
+        if (field.isAnnual) {
+          avg = (val !== '' && val !== null && months > 0) ? (field.int ? Math.round(parseFloat(val)/months) : Math.round(parseFloat(val)/months*10)/10) : null;
+        } else {
+          avg = (val !== '' && val !== null) ? parseFloat(val) : null;
+        }
+        var inputLabel = field.isAnnual ? '年間合計' : '月平均';
         var bgRow = fi >= 8 ? 'background:rgba(0,0,0,.02)' : '';
         html+='<tr style="border-top:1px solid var(--border);'+bgRow+'">'+
-          '<td style="padding:6px 10px;font-weight:500">'+esc(field.label)+' <span style="color:var(--text3);font-weight:400;font-size:11px">'+field.unit+'</span></td>'+
+          '<td style="padding:6px 10px;font-weight:500">'+esc(field.label)+
+            ' <span style="color:var(--text3);font-weight:400;font-size:11px">'+field.unit+'</span>'+
+            '<span style="font-size:9px;color:var(--text3);margin-left:4px;background:var(--bg3);padding:1px 4px;border-radius:3px">'+inputLabel+'</span>'+
+          '</td>'+
           '<td style="padding:4px 10px;text-align:right">'+
             '<input type="number" step="'+(field.int?'1':'0.1')+'" class="input" style="width:120px;text-align:right;padding:4px 6px;font-size:12px" '+
             'id="ann_'+field.key+'_'+fid+'" value="'+(val)+'" placeholder="0" '+
-            'data-co="'+esc(co.name)+'" data-name="'+esc(f.nameEn)+'" data-year="'+yearKey+'" data-field="'+field.key+'" data-fid="'+fid+'" '+
+            'data-co="'+esc(co.name)+'" data-name="'+esc(f.nameEn)+'" data-year="'+yearKey+'" data-field="'+field.key+'" data-fid="'+fid+'" data-isannual="'+(field.isAnnual?'1':'0')+'" '+
             'onchange="salAnnualChange(this)">'+
           '</td>'+
           '<td style="padding:6px 10px;text-align:right;font-weight:700;background:rgba(37,99,235,.08);color:var(--blue)" id="avg_'+field.key+'_'+fid+'">'+
@@ -1972,8 +2012,13 @@ function salAnnualChange(el) {
       var v = salaryData[idx][f2.key];
       var avgEl = document.getElementById('avg_'+f2.key+'_'+fid);
       if (avgEl) {
-        if (v !== undefined && v !== '' && months > 0) {
-          var avg = f2.int ? Math.round(parseFloat(v)/months) : Math.round(parseFloat(v)/months*10)/10;
+        if (v !== undefined && v !== '' && v !== '0') {
+          var avg;
+          if (f2.isAnnual && months > 0) {
+            avg = f2.int ? Math.round(parseFloat(v)/months) : Math.round(parseFloat(v)/months*10)/10;
+          } else {
+            avg = parseFloat(v);
+          }
           avgEl.textContent = avg.toLocaleString();
         } else {
           avgEl.textContent = '—';
@@ -1984,9 +2029,15 @@ function salAnnualChange(el) {
     // 個別フィールドの月平均を更新
     var months = parseInt(salaryData[idx].months) || 12;
     var avgEl = document.getElementById('avg_'+field+'_'+fid);
-    if (avgEl && val !== '' && months > 0) {
-      var fieldDef = SAL_FIELDS.find(function(f2){ return f2.key===field; });
-      var avg = fieldDef && fieldDef.int ? Math.round(parseFloat(val)/months) : Math.round(parseFloat(val)/months*10)/10;
+    var fieldDef = SAL_FIELDS.find(function(f2){ return f2.key===field; });
+    var isAnnual = el.dataset.isannual === '1';
+    if (avgEl && val !== '' && val !== '0') {
+      var avg;
+      if (isAnnual && months > 0) {
+        avg = fieldDef && fieldDef.int ? Math.round(parseFloat(val)/months) : Math.round(parseFloat(val)/months*10)/10;
+      } else {
+        avg = parseFloat(val);
+      }
       avgEl.textContent = avg.toLocaleString();
     } else if (avgEl) {
       avgEl.textContent = '—';
@@ -2652,6 +2703,88 @@ function showCompanyForeigners(name) {
   document.getElementById('fg-link-modal-body').innerHTML = html;
   document.getElementById('fg-link-modal-title').textContent = name + ' の外国人一覧';
   openModal('modal-fg-link');
+}
+
+
+// 個人単位のPDF取込（data属性から人材情報を取得）
+async function importSalaryPDFForPerson(inputEl) {
+  var coName  = inputEl.dataset.co;
+  var nameEn  = inputEl.dataset.name;
+  var yearKey = inputEl.dataset.year;
+  var files   = Array.from(inputEl.files);
+  inputEl.value = '';
+  if (!files.length) return;
+
+  if (!window.pdfjsLib) {
+    showToast('PDF.jsを読み込み中...', 'info');
+    await new Promise(function(res, rej) {
+      var s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      s.onload = function() {
+        pdfjsLib.GlobalWorkerOptions.workerSrc =
+          'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        res();
+      };
+      s.onerror = rej;
+      document.head.appendChild(s);
+    });
+  }
+
+  showToast(nameEn + ' の賃金台帳を解析中...', 'info');
+  try {
+    var file = files[0];
+    var ab = await file.arrayBuffer();
+    var pdf = await pdfjsLib.getDocument({data: ab}).promise;
+    var allText = '';
+    for (var p = 1; p <= pdf.numPages; p++) {
+      var page = await pdf.getPage(p);
+      var tc = await page.getTextContent();
+      var items = tc.items.sort(function(a, b) {
+        var dy = Math.round(b.transform[5]/5)*5 - Math.round(a.transform[5]/5)*5;
+        return dy !== 0 ? dy : a.transform[4] - b.transform[4];
+      });
+      var lineMap = {};
+      items.forEach(function(item) {
+        var y = Math.round(item.transform[5] / 3) * 3;
+        if (!lineMap[y]) lineMap[y] = [];
+        lineMap[y].push({x: item.transform[4], str: item.str});
+      });
+      Object.keys(lineMap).sort(function(a,b){return b-a;}).forEach(function(y) {
+        var parts = lineMap[y].sort(function(a,b){return a.x-b.x;}).map(function(i){return i.str;});
+        allText += parts.join('  ') + '\n';
+      });
+    }
+
+    var result = parseSalaryText(allText);
+
+    // Claude OCRフォールバック
+    if (ANTHROPIC_KEY && (!result || !result.data.totalPay)) {
+      showToast('Claude OCRで再解析中...', 'info');
+      var base64 = await new Promise(function(resolve, reject) {
+        var reader = new FileReader();
+        reader.onload = function(e) { resolve(e.target.result.split(',')[1]); };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      result = await extractSalaryWithClaude(base64);
+    }
+
+    if (!result || !result.data) { showToast('データを取得できませんでした', 'warn'); return; }
+
+    // salaryDataに反映（yearYear形式）
+    var idx = salaryData.findIndex(function(s){
+      return s.companyName===coName && s.nameEn===nameEn && s.yearYear===yearKey;
+    });
+    var entry = Object.assign({companyName: coName, nameEn: nameEn, yearYear: yearKey, months: 12}, result.data);
+    if (idx >= 0) salaryData[idx] = Object.assign(salaryData[idx], entry);
+    else salaryData.push(entry);
+
+    saveLocalCache();
+    renderSalaryInput();
+    showToast(nameEn + ' の給与データを取り込みました ✅', 'success');
+  } catch(e) {
+    showToast('エラー: ' + e.message, 'error');
+  }
 }
 
 // ===== 賃金台帳PDF取り込み =====
