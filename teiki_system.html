@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.13</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.14</div>
   </div>
 
   <div class="nav-section">
@@ -501,7 +501,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
           <table>
             <thead><tr>
               <th style="width:36px">#</th><th>所属機関名</th><th>ステータス</th>
-              <th>担当者</th><th>電子届出</th><th>一定の基準</th><th>人材</th><th>不足情報</th><th>大房書類</th><th>企業書類</th><th>操作</th>
+              <th>担当者</th><th>電子届出</th><th>一定の基準</th><th>人材</th><th>給与</th><th>不足情報</th><th>大房書類</th><th>企業書類</th><th>操作</th>
             </tr></thead>
             <tbody id="co-table-body">
               <tr><td colspan="9"><div class="empty-state"><div class="spinner"></div></div></td></tr>
@@ -1569,7 +1569,7 @@ var kijun1 = false, kijun2 = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.13%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.14%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -1732,7 +1732,7 @@ function renderCompanyTable() {
   var q=(document.getElementById('co-search').value||'').toLowerCase();
   var sf=document.getElementById('co-status-filter').value;
   var list=companies.filter(c=>(!sf||c.status===sf)&&(!q||(c.name||'').toLowerCase().includes(q)));
-  if (!list.length) { document.getElementById('co-table-body').innerHTML='<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">🏭</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
+  if (!list.length) { document.getElementById('co-table-body').innerHTML='<tr><td colspan="12"><div class="empty-state"><div class="empty-icon">🏭</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
   document.getElementById('co-table-body').innerHTML=list.map(function(co,i){
     var kr=co.kijun_result||calcKijunResult(co);
     var k2 = co.kijun_2==='✓' ? '<span class="badge badge-green">✓ 電子</span>' :
@@ -1744,6 +1744,19 @@ function renderCompanyTable() {
     var fgBadge  = fgActive > 0
       ? '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--green);cursor:pointer" onclick="event.stopPropagation();jumpToForeigner(\''+esc(co.name)+'\')">👤 '+fgActive+'名在職</span>'
       : '<span style="font-size:11px;color:var(--text3)">—</span>';
+    // 給与データ完了状況
+    var fgNames = foreigners.filter(function(f){ return resolveCompanyName(f.companyName)===co.name && normStatus(f)==='在職'; }).map(function(f){ return f.nameEn; });
+    var salDone = fgNames.filter(function(n){ return salaryData.some(function(s){ return s.companyName===co.name && s.nameEn===n && s.yearYear==='prev' && (s.totalPay||s.workDays); }); }).length;
+    var salBadge;
+    if (fgNames.length === 0) {
+      salBadge = '<span style="font-size:11px;color:var(--text3)">—</span>';
+    } else if (salDone === fgNames.length) {
+      salBadge = '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--green);cursor:pointer" onclick="event.stopPropagation();jumpToSalary(\''+esc(co.name)+'\')">✅ 完了</span>';
+    } else if (salDone > 0) {
+      salBadge = '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--amber);cursor:pointer" onclick="event.stopPropagation();jumpToSalary(\''+esc(co.name)+'\')">⚠️ '+salDone+'/'+fgNames.length+'名</span>';
+    } else {
+      salBadge = '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--red);cursor:pointer" onclick="event.stopPropagation();jumpToSalary(\''+esc(co.name)+'\')">💴 未入力</span>';
+    }
     return '<tr style="cursor:pointer;transition:.1s" onclick="editCompany(\''+esc(co.name)+'\')" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'\'">'+
       '<td style="color:var(--text3);font-family:\'DM Mono\',monospace;font-size:11px">'+(i+1)+'</td>'+
       '<td style="font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(co.name)+'</td>'+
@@ -1752,6 +1765,7 @@ function renderCompanyTable() {
       '<td>'+k2+'</td>'+
       '<td>'+kijunBadge(kr)+'</td>'+
       '<td>'+fgBadge+'</td>'+
+      '<td>'+salBadge+'</td>'+
       '<td style="max-width:200px">'+missingBadgesHtml(co)+'</td>'+
       '<td>'+docProgressHtml(countDocsDone(co,'ofusa'),7)+'</td>'+
       '<td>'+docProgressHtml(countDocsDone(co,'ext'),8)+'</td>'+
