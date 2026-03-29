@@ -440,6 +440,9 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
               <option value="">全分野</option>
               <option value="__empty__">分野未入力</option>
             </select>
+            <select class="filter-select" id="caseSupportOrg" onchange="renderCases()" style="min-width:160px;">
+              <option value="">全登録支援機関</option>
+            </select>
             <button id="caseNoExpireTab" class="btn btn-outline" onclick="toggleNoExpireFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">⚠️ 在留期限未入力 <span id="noExpireTabCount" style="background:#dc2626;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
             <button id="caseNoDriveTab" class="btn btn-outline" onclick="toggleNoDriveFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">📁 ドライブ未設定 <span id="noDriveTabCount" style="background:#dc2626;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
             <button id="caseBothTab" class="btn btn-outline" onclick="toggleBothFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">⚠️📁 在留期限＋ドライブURL未入力 <span id="bothTabCount" style="background:#7c3aed;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
@@ -458,7 +461,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
           <div class="table-wrap">
             <table>
               <thead><tr>
-                <th>氏名</th><th>所属機関</th><th>種別</th>
+                <th>氏名</th><th>登録支援機関</th><th>種別</th>
                 <th>ステータス</th><th>在留期限</th><th>特例期限</th><th>一時帰国</th>
                 <th>担当</th><th>チーム</th><th>タスク</th><th></th>
               </tr></thead>
@@ -1924,6 +1927,7 @@ function renderCases(){
   var tm   = document.getElementById('caseTeam').value||'';
   var tp   = document.getElementById('caseType').value||'';
   var fd   = document.getElementById('caseField').value||'';
+  var so   = document.getElementById('caseSupportOrg').value||'';
 
   var statuses = [...new Set(DATA.cases.map(function(c){return c.status;}).filter(Boolean))];
   var validNames = DATA.users.map(function(u){ return (u.name||'').trim(); }).filter(Boolean);
@@ -1941,6 +1945,14 @@ function renderCases(){
     staffEl.value = sf;
   }
   popSelect('caseTeam',   teams,    tm);
+  // 登録支援機関セレクト更新
+  var orgs = [...new Set(DATA.cases.map(function(c){ return c.org; }).filter(Boolean))].sort();
+  var orgEl = document.getElementById('caseSupportOrg');
+  if(orgEl){
+    orgEl.innerHTML = '<option value="">全登録支援機関</option>';
+    orgs.forEach(function(o){ var opt=document.createElement('option'); opt.value=o; opt.textContent=o; orgEl.appendChild(opt); });
+    orgEl.value = so;
+  }
   // 分野セレクト更新（分野未入力オプション保持）
   var fieldEl = document.getElementById('caseField');
   if(fieldEl){
@@ -1961,6 +1973,7 @@ function renderCases(){
     if(tp && c.app_type!==tp) return false;
     if(fd==='__empty__' && c.applicant_field) return false;
     if(fd && fd!=='__empty__' && c.applicant_field!==fd) return false;
+    if(so && c.org!==so) return false;
     if(_caseNoExpireFilter){
       if(c.app_type!=='更新' && c.app_type!=='変更') return false;
       if(c.expire) return false;
@@ -2070,9 +2083,7 @@ function renderCases(){
         : isOnlyDriveAlert
           ? '<button onclick="showLineModal(\''+esc(c.staff||'')+'\',\'drive\',event)" style="font-size:11px;padding:4px 8px;background:#d97706;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">📱 LINE通知文</button>'
           : (!c.applicant_field && !isNoFieldExcluded(c.status))
-            ? (_caseNoFieldFilter && (sf || tm))
-              ? '' // 絞り込みあり → バナーで一括通知するので行ボタン非表示
-              : '<button onclick="showLineModal(\''+esc(c.staff||'')+'\',\'nofield\',event)" style="font-size:11px;padding:4px 8px;background:#0891b2;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">📱 分野未入力通知</button>'
+            ? '<button onclick="showLineModal(\''+esc(c.staff||'')+'\',\'nofield\',event)" style="font-size:11px;padding:4px 8px;background:#0891b2;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">📱 分野未入力通知</button>'
             : '';
     return '<tr'+rowStyle+'>'
       +'<td><div class="td-name">'+esc(c.name||'—')+'</div><div class="td-sub">'+esc(c.applicant||'')+'</div></td>'
