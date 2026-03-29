@@ -762,6 +762,8 @@ var _caseTokureiFilter  = false; // 特例期限フィルター状態
 var _caseTempReturnFilter = false; // 一時帰国フィルター状態
 var _caseNoFieldFilter    = false; // 分野未入力フィルター状態
 var EXCLUDE_STATUSES = ['完了','審査完了','申請済(番号待)','審査中','要追完','郵送交付','窓口受取'];
+var NOFIELD_EXCLUDE_STATUSES = ['郵送交付','窓口受取','審査中','許可済 受取方法調整中','完了','審査完了'];
+function isNoFieldExcluded(status){ return NOFIELD_EXCLUDE_STATUSES.indexOf(normalizeStatus(status))!==-1; }
 function normalizeStatus(s){
   return (s||'').replace(/^[★\s]+/,'').trim()
     .replace(/（/g,'(').replace(/）/g,')').replace(/\(番号待ち\)/,'(番号待)');
@@ -1107,7 +1109,7 @@ function updateBadges(){
   setTxt('st-tokurei',    tokureiAlert.length);
   setTxt('st-tempreturn', tempReturnAlert.length);
   // 分野未入力バッジ
-  var noField = DATA.cases.filter(function(c){ return !c.applicant_field && !isExcluded(c.status); });
+  var noField = DATA.cases.filter(function(c){ return !c.applicant_field && !isNoFieldExcluded(c.status); });
   var noFieldTab = document.getElementById('noFieldTabCount');
   if(noFieldTab){ noFieldTab.textContent=noField.length; noFieldTab.style.display=noField.length>0?'inline-block':'none'; }
 
@@ -1987,7 +1989,7 @@ function renderCases(){
     }
     if(_caseNoFieldFilter){
       if(c.applicant_field) return false;
-      if(isExcluded(c.status)) return false;
+      if(isNoFieldExcluded(c.status)) return false;
     }
     if(q){ var s=(c.name||'')+(c.org||'')+(c.company||'')+(c.status||'')+(c.staff||''); if(!s.toLowerCase().includes(q)) return false; }
     return true;
@@ -2064,7 +2066,7 @@ function renderCases(){
         ? '<button onclick="showLineModal(\''+esc(c.staff||'')+'\',\'expire\',event)" style="font-size:11px;padding:4px 8px;background:#06c755;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">📱 LINE通知文</button>'
         : isOnlyDriveAlert
           ? '<button onclick="showLineModal(\''+esc(c.staff||'')+'\',\'drive\',event)" style="font-size:11px;padding:4px 8px;background:#d97706;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">📱 LINE通知文</button>'
-          : (!c.applicant_field && !isExcluded(c.status))
+          : (!c.applicant_field && !isNoFieldExcluded(c.status))
             ? (_caseNoFieldFilter && (sf || tm))
               ? '' // 絞り込みあり → バナーで一括通知するので行ボタン非表示
               : '<button onclick="showLineModal(\''+esc(c.staff||'')+'\',\'nofield\',event)" style="font-size:11px;padding:4px 8px;background:#0891b2;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">📱 分野未入力通知</button>'
@@ -2488,16 +2490,16 @@ function showLineModal(staff, type, event){
     if(staff.startsWith('__team__:')){
       var teamName = staff.slice(9);
       targets = DATA.cases.filter(function(c){
-        return !c.applicant_field && !isExcluded(c.status) && c.team===teamName;
+        return !c.applicant_field && !isNoFieldExcluded(c.status) && c.team===teamName;
       });
       subject = '分野（申請人フィールド）が未入力';
-      detail  = '案件管理システムで分野の入力をお願いします。';
+      detail  = '案件管理システムの所属機関の雇用条件セットから分野の登録をお願いします。';
     } else {
       targets = DATA.cases.filter(function(c){
-        return !c.applicant_field && !isExcluded(c.status) && c.staff===staff;
+        return !c.applicant_field && !isNoFieldExcluded(c.status) && c.staff===staff;
       });
       subject = '分野（申請人フィールド）が未入力';
-      detail  = '案件管理システムで分野の入力をお願いします。';
+      detail  = '案件管理システムの所属機関の雇用条件セットから分野の登録をお願いします。';
     }
   } else { // both
     targets = DATA.cases.filter(function(c){
