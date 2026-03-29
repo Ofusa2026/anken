@@ -515,7 +515,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
           <table>
             <thead><tr>
               <th>所属機関</th><th>氏名（英字）</th><th>国籍</th><th>在留資格</th>
-              <th>在留カードNo.</th><th>生年月日</th><th>在留期限</th><th>雇用開始日</th><th>在職</th><th>操作</th>
+              <th>在留カードNo.</th><th>生年月日</th><th>在留期限</th><th>5年満了日</th><th>在職</th><th>操作</th>
             </tr></thead>
             <tbody id="fg-table-body">
               <tr><td colspan="9"><div class="empty-state"><div class="spinner"></div></div></td></tr>
@@ -1042,7 +1042,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
       <button class="modal-close" onclick="closeModal('modal-fg-import')">✕</button>
     </div>
     <div class="modal-body">
-      <div class="alert alert-info" style="margin-bottom:14px">ℹ️ 必要列：companyName, nameEn, nameKana, gender, nationality, birthDate, zip, pref, city, address, residenceCard, residenceStatus, residenceExpiry, contractStart, contractEnd, status, fiveYearExpiry, applicationStatus, memo</div>
+      <div class="alert alert-info" style="margin-bottom:14px">ℹ️ 必要列：companyName, nameEn, gender, nationality, birthDate, zip, pref, city, address, residenceCard, residenceStatus, residenceExpiry, contractStart, contractEnd, status, fiveYearExpiry, applicationStatus, memo</div>
       <div class="drop-zone" onclick="document.getElementById('fg-file').click()">
         <div class="drop-icon">📄</div>
         <div class="drop-text">CSVファイルをドロップ または クリックして選択</div>
@@ -1654,15 +1654,21 @@ function renderForeignerTable() {
   var list=foreigners.filter(f=>(!sf||f.status===sf)&&(!zf||f.residenceStatus===zf)&&(!q||[(f.nameEn||''),(f.companyName||'')].some(s=>s.toLowerCase().includes(q))));
   if (!list.length) { document.getElementById('fg-table-body').innerHTML='<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
   document.getElementById('fg-table-body').innerHTML=list.map(function(f){
-    return '<tr><td style="font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(f.companyName||'—')+'</td>'+
-      '<td style="font-weight:600">'+esc(f.nameEn||'—')+(f.nameKana?'<br><span style="font-size:10px;color:var(--text3)">'+esc(f.nameKana)+'</span>':'')+'</td>'+
-      '<td>'+esc(f.nationality||'—')+'</td>'+
-      '<td><span class="badge '+(f.residenceStatus==='特定技能2号'?'badge-purple':'badge-blue')+'">'+esc(f.residenceStatus||'—')+'</span></td>'+
-      '<td style="font-family:\'DM Mono\',monospace;font-size:11px">'+esc(f.residenceCard||'—')+'</td>'+
-      '<td style="font-size:11px;color:var(--text2)">'+fmtDate(f.birthDate||'—')+'</td>'+
-      '<td style="font-size:11px;color:var(--text2)">'+fmtDate(f.residenceExpiry||'—')+'</td>'+
-      '<td style="font-size:11px;color:var(--text2)">'+esc(f.contractStart||'—')+'</td>'+
-      '<td><span class="badge '+(f.status==='在職'?'badge-green':'badge-gray')+'">'+esc(f.status||'—')+'</span></td>'+
+    // statusを正規化（〇→在職 など）
+    var statusNorm = f.status;
+    if(f.isActive && String(f.isActive).trim().match(/[〇○◯]/)) statusNorm='在職';
+    else if(f.isRetired && String(f.isRetired).trim().match(/[〇○◯]/)) statusNorm='退職';
+    var statusBadge = statusNorm==='在職'?'badge-green':statusNorm==='退職'?'badge-red':'badge-gray';
+    return '<tr>'+
+      '<td style="font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(f.companyName||'—')+'</td>'+
+      '<td style="font-weight:600;white-space:nowrap">'+esc(f.nameEn||'—')+'</td>'+
+      '<td style="font-size:11px">'+esc(f.nationality||'—')+'</td>'+
+      '<td><span class="badge '+(f.residenceStatus==='特定技能2号'?'badge-purple':f.residenceStatus==='特定活動'?'badge-amber':'badge-blue')+'">'+esc(f.residenceStatus||'—')+'</span></td>'+
+      '<td style="font-family:\'DM Mono\',monospace;font-size:11px;white-space:nowrap">'+esc(f.residenceCard||'—')+'</td>'+
+      '<td style="font-size:11px;white-space:nowrap">'+fmtDate(f.birthDate)+'</td>'+
+      '<td style="font-size:11px;white-space:nowrap">'+fmtDate(f.residenceExpiry)+'</td>'+
+      '<td style="font-size:11px;white-space:nowrap">'+fmtDate(f.fiveYearExpiry)+'</td>'+
+      '<td><span class="badge '+statusBadge+'">'+esc(statusNorm||'—')+'</span></td>'+
       '<td><button class="btn btn-secondary btn-sm" onclick="editForeigner(\''+esc(f.nameEn)+'\',\''+esc(f.companyName)+'\')">編集</button></td></tr>';
   }).join('');
 }
@@ -2205,10 +2211,17 @@ function calcKijunResultRaw(k1,k2,k3,k6a,k6b){
 function calcKijunResult(co){return calcKijunResultRaw(co.kijun_1==='✓',co.kijun_2==='✓',co.kijun_3_type||'なし',co.kijun_6a==='✓',co.kijun_6b==='✓');}
 function calcKijunResultFromData(d){return calcKijunResultRaw(d.kijun_1==='✓',d.kijun_2==='✓',d.kijun_3_type,d.kijun_6a==='✓',d.kijun_6b==='✓');}
 function fmtDate(s){
-  if(!s||s==='—') return '—';
-  var m=String(s).match(/(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if(!s||s==='—'||s===''||s===null||s===undefined) return '—';
+  var str = String(s);
+  // YYYY-MM-DD形式
+  var m = str.match(/(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
   if(m) return m[1]+'年'+parseInt(m[2])+'月'+parseInt(m[3])+'日';
-  return s;
+  // "Mon Dec 10 2001 ..." のようなDate文字列
+  try {
+    var d = new Date(str);
+    if(!isNaN(d.getTime())) return d.getFullYear()+'年'+(d.getMonth()+1)+'月'+d.getDate()+'日';
+  } catch(e){}
+  return str;
 }
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
