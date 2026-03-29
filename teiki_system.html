@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.16</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.20</div>
   </div>
 
   <div class="nav-section">
@@ -1569,7 +1569,7 @@ var kijun1 = false, kijun2 = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.16%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.20%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -2239,24 +2239,92 @@ function selectCalcCompany(name) {
   html+='<div class="section-head"><span class="section-title">労働条件（月平均値）</span></div>';
   if(!sals.length) html+='<div class="alert alert-warn">⚠️ 給与データが未入力です。先に「給与データ入力」タブで入力してください。</div>';
   else {
-    var av=function(a){return a.length?a.reduce((s,v)=>s+v,0)/a.length:0};
-    html+='<div class="form-grid cols4" style="margin-bottom:18px">'+
-      calcField('実労働日数',Math.round(av(sals.map(s=>parseFloat(s.workDays)||0))),'日')+
-      calcField('所定内実労働時間',Math.round(av(sals.map(s=>parseFloat(s.scheduledHours)||0))),'時間')+
-      calcField('超過実労働時間',Math.round(av(sals.map(s=>parseFloat(s.overtimeHours)||0))),'時間')+
-      calcField('現金給与総額',Math.round(av(sals.map(s=>parseFloat(s.totalPay)||0))).toLocaleString(),'円')+
-      calcField('うち超過労働給与',Math.round(av(sals.map(s=>parseFloat(s.overtimePay)||0))).toLocaleString(),'円')+
-      calcField('うち通勤手当',Math.round(av(sals.map(s=>parseFloat(s.commuteAllowance)||0))).toLocaleString(),'円')+
-      calcField('うち精皆勤手当',Math.round(av(sals.map(s=>parseFloat(s.attendanceAllowance)||0))).toLocaleString(),'円')+
-      calcField('うち家族手当',Math.round(av(sals.map(s=>parseFloat(s.familyAllowance)||0))).toLocaleString(),'円')+
-      calcField('賞与等（年間）',Math.round(av(sals.map(s=>parseFloat(s.bonus)||0))).toLocaleString(),'円')+
-      calcField('昇給率',av(sals.map(s=>parseFloat(s.raiseRate)||0)).toFixed(1),'%')+
-      '<div style="font-size:11px;font-weight:700;color:var(--text3);grid-column:1/-1;margin-top:8px">控除内訳</div>'+
-      calcField('①食費',Math.round(av(sals.map(s=>parseFloat(s.deductFood)||0))).toLocaleString(),'円')+
-      calcField('②居住費',Math.round(av(sals.map(s=>parseFloat(s.deductHousing)||0))).toLocaleString(),'円')+
-      calcField('③税・社会保険料',Math.round(av(sals.map(s=>parseFloat(s.deductTax)||0))).toLocaleString(),'円')+
-      calcField('④その他',Math.round(av(sals.map(s=>parseFloat(s.deductOther)||0))).toLocaleString(),'円')+
-      '</div>';
+    var SAL_DISPLAY = [
+      {key:'workDays',            label:'実労働日数',       unit:'日',  int:false},
+      {key:'scheduledHours',      label:'所定内実労働時間', unit:'時間',int:false},
+      {key:'overtimeHours',       label:'超過実労働時間',   unit:'時間',int:false},
+      {key:'totalPay',            label:'現金給与総額',     unit:'円',  int:true},
+      {key:'overtimePay',         label:'うち超過労働給与', unit:'円',  int:true},
+      {key:'commuteAllowance',    label:'うち通勤手当',     unit:'円',  int:true},
+      {key:'attendanceAllowance', label:'うち精皆勤手当',   unit:'円',  int:true},
+      {key:'familyAllowance',     label:'うち家族手当',     unit:'円',  int:true},
+      {key:'bonus',               label:'賞与（年間）',     unit:'円',  int:true, isBonus:true},
+      {key:'raiseRate',           label:'昇給率',           unit:'%',   int:false, isRaise:true},
+      {key:'deductFood',          label:'控除①食費',        unit:'円',  int:true},
+      {key:'deductHousing',       label:'控除②居住費',      unit:'円',  int:true},
+      {key:'deductTax',           label:'控除③税・社保',    unit:'円',  int:true},
+      {key:'deductOther',         label:'控除④その他',      unit:'円',  int:true},
+    ];
+
+    // ── 個人別テーブル ──
+    html += '<div class="section-head" style="margin-bottom:8px"><span class="section-title">個人別（年間合計 → 月平均）</span></div>';
+    html += '<div style="overflow-x:auto;margin-bottom:20px"><table style="width:100%;border-collapse:collapse;font-size:12px">';
+    html += '<thead><tr style="background:var(--bg3)">';
+    html += '<th style="padding:6px 10px;text-align:left;min-width:140px">項目</th>';
+    sals.forEach(function(sal){
+      var m = parseInt(sal.months)||12;
+      html += '<th style="padding:6px 10px;text-align:right;min-width:90px">'+esc(sal.nameEn)+'<br><span style="font-size:10px;color:var(--text3);font-weight:400">年間合計 / '+m+'ヶ月</span></th>';
+    });
+    html += '</tr></thead><tbody>';
+    SAL_DISPLAY.forEach(function(f, fi){
+      var sep = fi === 10; // 控除の前に区切り
+      html += '<tr style="border-top:'+(sep?'2px solid var(--border)':'1px solid var(--border)')+(fi%2===0?';background:var(--bg2)':'')+'\">';
+      html += '<td style="padding:5px 10px;font-weight:500">'+esc(f.label)+'<span style="color:var(--text3);font-size:10px;margin-left:4px">'+f.unit+'</span></td>';
+      sals.forEach(function(sal){
+        var m = parseInt(sal.months)||12;
+        var raw = parseFloat(sal[f.key])||0;
+        var avg;
+        if (f.isBonus || f.isRaise) {
+          avg = raw; // 賞与・昇給率はそのまま
+        } else {
+          avg = f.int ? Math.round(raw/m) : Math.round(raw/m*10)/10;
+        }
+        var dispRaw = f.int ? raw.toLocaleString() : raw;
+        var dispAvg = f.int ? avg.toLocaleString() : avg;
+        html += '<td style="padding:5px 10px;text-align:right">'+
+          '<span style="color:var(--text3);font-size:10px">'+dispRaw+'</span>'+
+          '<br><span style="font-weight:700;color:var(--blue)">'+dispAvg+'</span>'+
+          '</td>';
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+
+    // ── 会社合計（届出記載値）──
+    // 各人の月平均を算出して人数で割る
+    var avgAll = function(key, isInt) {
+      if (!sals.length) return 0;
+      var sum = sals.reduce(function(s,r){
+        var m = parseInt(r.months)||12;
+        var raw = parseFloat(r[key])||0;
+        return s + (raw / m);  // 個人の月平均
+      }, 0);
+      var a = sum / sals.length;
+      return isInt ? Math.round(a) : Math.round(a*10)/10;
+    };
+    var raiseAvg = sals.length ? sals.reduce(function(s,r){ return s+(parseFloat(r.raiseRate)||0); },0)/sals.length : 0;
+    var bonusAvg = sals.length ? Math.round(sals.reduce(function(s,r){ return s+(parseFloat(r.bonus)||0); },0)/sals.length) : 0;
+
+    html += '<div class="section-head" style="margin-bottom:8px"><span class="section-title">📋 届出記載値（個人月平均の平均）</span></div>';
+    html += '<div style="font-size:11px;color:var(--text3);margin-bottom:10px">'+sals.length+'名の月平均を合算 ÷ '+sals.length+'名</div>';
+    html += '<div class="form-grid cols4" style="margin-bottom:18px">';
+    SAL_DISPLAY.forEach(function(f){
+      var val;
+      if (f.isBonus) val = bonusAvg.toLocaleString();
+      else if (f.isRaise) val = raiseAvg.toFixed(1);
+      else val = f.int ? avgAll(f.key, true).toLocaleString() : avgAll(f.key, false);
+      html += calcField(f.label, val, f.unit);
+    });
+    html += '</div>';
+
+    // runTeikiChecks用に月平均換算した合算レコードを1件生成して渡す
+    var mergedSal = {companyName: name, nameEn: '全員平均'};
+    SAL_DISPLAY.forEach(function(f){
+      if (f.isBonus) mergedSal[f.key] = bonusAvg;
+      else if (f.isRaise) mergedSal[f.key] = raiseAvg.toFixed(1);
+      else mergedSal[f.key] = avgAll(f.key, f.int);
+    });
+    sals = [mergedSal];
   }
   // ルールブックに基づくチェック
   html+='<div class="section-divider"></div><div class="section-head"><span class="section-title">📋 記載チェック（ルールブック準拠）</span></div>';
@@ -2842,12 +2910,17 @@ async function importSalaryPDFForPerson(inputEl) {
 
     if (!result || !result.data) { showToast('データを取得できませんでした', 'warn'); return; }
 
-    // salaryDataに反映（yearYear形式）
-    var idx = salaryData.findIndex(function(s){
+    // UIの対象月数入力値を使用（salaryDataに既存値があればそれを優先）
+    var fid = nameEn.replace(/\s/g,'_');
+    var uiMonths = parseInt((document.getElementById('months_'+fid)||{}).value) || 12;
+    var existingIdx = salaryData.findIndex(function(s){
       return s.companyName===coName && s.nameEn===nameEn && s.yearYear===yearKey;
     });
-    var entry = Object.assign({companyName: coName, nameEn: nameEn, yearYear: yearKey, months: 12}, result.data);
-    if (idx >= 0) salaryData[idx] = Object.assign(salaryData[idx], entry);
+    var currentMonths = (existingIdx >= 0 && salaryData[existingIdx].months) ? parseInt(salaryData[existingIdx].months) : uiMonths;
+
+    // salaryDataに反映（yearYear形式）、monthsはUI値を保持
+    var entry = Object.assign({companyName: coName, nameEn: nameEn, yearYear: yearKey, months: currentMonths}, result.data, {months: currentMonths});
+    if (existingIdx >= 0) salaryData[existingIdx] = Object.assign(salaryData[existingIdx], entry);
     else salaryData.push(entry);
 
     saveLocalCache();
@@ -2979,62 +3052,55 @@ function parseSalaryText(text) {
   if (!nm) return null;
   var nameEn = nm[1].trim().replace(/\s+/g,' ');
 
-  // ラベル行から各月の数値リストを抽出
-  function rowVals(label) {
+  // ラベル行から「最後の数値」= 合計欄を取得
+  // 給与奉行・マネーフォワード等の年間台帳は行末に年間合計列が来る
+  function getTotal(label, isInt) {
     var idx = text.indexOf(label);
-    if (idx < 0) return [];
-    var segment = text.slice(idx + label.length, idx + label.length + 500).split('\n')[0];
+    if (idx < 0) return null;
+    var segment = text.slice(idx + label.length, idx + label.length + 600).split('\n')[0];
     var nums = segment.match(/[\d,]+\.?\d*/g) || [];
     var vals = nums.map(function(n){ return parseFloat(n.replace(/,/g,'')); }).filter(function(v){ return v > 0; });
-    // 最後が合計値（前の値の1.5倍超）なら除外
-    if (vals.length >= 2 && vals[vals.length-1] > vals[vals.length-2] * 1.5) vals.pop();
-    return vals;
-  }
-  // 年間合計を返す（0・空月を除いた月数も返す）
-  function annualTotal(label, isInt) {
-    var vals = rowVals(label);
-    if (!vals.length) return {total: null, months: 0};
-    var sum = vals.reduce(function(s,v){return s+v;},0);
-    return {total: isInt ? Math.round(sum) : Math.round(sum*10)/10, months: vals.length};
+    if (!vals.length) return null;
+    // 最後の値が合計（他より大きい）→ そのまま使用
+    // 全部同じ（月平均しか載っていない形式）→ nullを返してClaudeに委ねる
+    var last = vals[vals.length - 1];
+    return isInt ? Math.round(last) : Math.round(last * 10) / 10;
   }
 
-  var ot1 = annualTotal('残業手当(支給)', true).total || 0;
-  var ot2 = annualTotal('深夜残業手当(支給)', true).total || 0;
-  var commute1 = annualTotal('通勤手当/課税(支給)', true).total || 0;
-  var commute2 = annualTotal('通勤手当/非課(支給)', true).total || 0;
+  // 対象月数はUI側で設定されているため、ここでは推測しない
+
+  var ot1 = getTotal('残業手当(支給)', true) || 0;
+  var ot2 = getTotal('深夜残業手当(支給)', true) || 0;
+  var commute1 = getTotal('通勤手当/課税(支給)', true) || 0;
+  var commute2 = getTotal('通勤手当/非課(支給)', true) || 0;
   var commuteTotal = commute1 + commute2;
-  var familyAmt    = annualTotal('家族手当(支給)', true).total || 0;
-  var attendAmt    = (annualTotal('精皆勤手当(支給)', true).total || annualTotal('皆勤手当(支給)', true).total) || 0;
-  var deductFood   = (annualTotal('食費控除(控除)', true).total || annualTotal('食費(控除)', true).total) || 0;
-  var deductHousing= (annualTotal('家賃控除(控除)', true).total || annualTotal('居住費(控除)', true).total) || 0;
-  var socialIns    = annualTotal('社会保険料合計', true).total || 0;
-  var incomeTax    = annualTotal('所得税(控除)', true).total || 0;
-  var residentTax  = annualTotal('住民税(控除)', true).total || 0;
+  var familyAmt    = getTotal('家族手当(支給)', true) || 0;
+  var attendAmt    = getTotal('精皆勤手当(支給)', true) || getTotal('皆勤手当(支給)', true) || 0;
+  var deductFood   = getTotal('食費控除(控除)', true) || getTotal('食費(控除)', true) || 0;
+  var deductHousing= getTotal('家賃控除(控除)', true) || getTotal('居住費(控除)', true) || 0;
+  var socialIns    = getTotal('社会保険料合計', true) || 0;
+  var incomeTax    = getTotal('所得税(控除)', true) || 0;
+  var residentTax  = getTotal('住民税(控除)', true) || 0;
   var deductTaxAmt = socialIns + incomeTax + residentTax;
-  var deductTotalAmt = annualTotal('控除合計', true).total || 0;
+  var deductTotalAmt = getTotal('控除合計', true) || 0;
   var deductOtherAmt = deductTotalAmt - deductFood - deductHousing - deductTaxAmt;
   if (deductOtherAmt < 0) deductOtherAmt = 0;
 
-  // 対象月数を推定（支給合計の月数ベース）
-  var totalPayInfo = annualTotal('支給合計', true);
-  var detectedMonths = totalPayInfo.months || 12;
-
   var data = {
-    workDays:            annualTotal('出勤日数（平日）', false).total,
-    scheduledHours:      annualTotal('所定時間（平日）', false).total,
-    overtimeHours:       annualTotal('法定外時間（平日）', false).total,
-    totalPay:            totalPayInfo.total,
+    workDays:            getTotal('出勤日数（平日）', false),
+    scheduledHours:      getTotal('所定時間（平日）', false),
+    overtimeHours:       getTotal('法定外時間（平日）', false),
+    totalPay:            getTotal('支給合計', true),
     overtimePay:         (ot1+ot2) || null,
     commuteAllowance:    commuteTotal || null,
     attendanceAllowance: attendAmt || null,
     familyAllowance:     familyAmt || null,
-    deductions:          annualTotal('控除合計', true).total,
+    deductions:          getTotal('控除合計', true),
     deductFood:          deductFood || null,
     deductHousing:       deductHousing || null,
     deductTax:           deductTaxAmt || null,
     deductOther:         deductOtherAmt || null,
     bonus:               0,
-    months:              detectedMonths,
   };
   // nullを除去
   Object.keys(data).forEach(function(k){ if (data[k] === null) delete data[k]; });
@@ -3048,9 +3114,8 @@ async function extractSalaryWithClaude(base64) {
   var prompt = [
     '以下は賃金台帳PDFです。下記項目をJSONのみで返してください（説明不要）。',
     '【重要】各項目は月平均ではなく年間合計（全月の合計値）を返してください。',
-    '空欄・0の月は合計に含めず、実際に支給された月数を "months" に返してください。',
     '数値はカンマ・単位なし・整数（workDays/scheduledHours/overtimeHoursは小数第1位まで可）。',
-    '{"nameEn":"","months":12,"workDays":0,"scheduledHours":0,"overtimeHours":0,',
+    '{"nameEn":"","workDays":0,"scheduledHours":0,"overtimeHours":0,',
     '"totalPay":0,"overtimePay":0,"commuteAllowance":0,"attendanceAllowance":0,"familyAllowance":0,',
     '"bonus":0,"deductFood":0,"deductHousing":0,"deductTax":0,"deductOther":0}'
   ].join('\n');
@@ -3078,7 +3143,6 @@ async function extractSalaryWithClaude(base64) {
   return {
     nameEn: p.nameEn || '',
     data: {
-      months: p.months || 12,
       workDays: p.workDays||null, scheduledHours: p.scheduledHours||null,
       overtimeHours: p.overtimeHours||null, totalPay: p.totalPay||null,
       overtimePay: p.overtimePay||null,
