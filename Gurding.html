@@ -443,6 +443,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
             <button id="caseNoExpireTab" class="btn btn-outline" onclick="toggleNoExpireFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">⚠️ 在留期限未入力 <span id="noExpireTabCount" style="background:#dc2626;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
             <button id="caseNoDriveTab" class="btn btn-outline" onclick="toggleNoDriveFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">📁 ドライブ未設定 <span id="noDriveTabCount" style="background:#dc2626;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
             <button id="caseBothTab" class="btn btn-outline" onclick="toggleBothFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">⚠️📁 在留期限＋ドライブURL未入力 <span id="bothTabCount" style="background:#7c3aed;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
+            <button id="caseNoFieldTab" class="btn btn-outline" onclick="toggleNoFieldFilter()" style="font-size:12px;padding:5px 12px;border-radius:6px;white-space:nowrap;">🏷️ 分野未入力 <span id="noFieldTabCount" style="background:#0891b2;color:white;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;display:none;">0</span></button>
             <span class="filter-count" id="caseCount">—件</span>
           </div>
         </div>
@@ -752,6 +753,7 @@ var _caseNoDriveFilter  = false; // ドライブ未設定フィルター状態
 var _caseBothFilter     = false; // 在留期限＋ドライブ両方未入力フィルター状態
 var _caseTokureiFilter  = false; // 特例期限フィルター状態
 var _caseTempReturnFilter = false; // 一時帰国フィルター状態
+var _caseNoFieldFilter    = false; // 分野未入力フィルター状態
 var EXCLUDE_STATUSES = ['完了','審査完了','申請済(番号待)','審査中','要追完','郵送交付','窓口受取'];
 function normalizeStatus(s){
   return (s||'').replace(/^[★\s]+/,'').trim()
@@ -1097,6 +1099,11 @@ function updateBadges(){
   });
   setTxt('st-tokurei',    tokureiAlert.length);
   setTxt('st-tempreturn', tempReturnAlert.length);
+  // 分野未入力バッジ
+  var noField = DATA.cases.filter(function(c){ return !c.applicant_field && !isExcluded(c.status); });
+  var noFieldTab = document.getElementById('noFieldTabCount');
+  if(noFieldTab){ noFieldTab.textContent=noField.length; noFieldTab.style.display=noField.length>0?'inline-block':'none'; }
+
   var tokureiTab = document.getElementById('tokureiTabCount');
   if(tokureiTab){ tokureiTab.textContent=tokureiAlert.length; tokureiTab.style.display=tokureiAlert.length>0?'inline-block':'none'; }
   var tempReturnTab = document.getElementById('tempReturnTabCount');
@@ -1859,7 +1866,7 @@ function navCasesTempReturn(){
   switchAlertTab('tempreturn');
 }
 function resetFilterBtns(){
-  ['caseNoExpireTab','caseNoDriveTab','caseBothTab','caseTokureiTab','caseTempReturnTab'].forEach(function(id){
+  ['caseNoExpireTab','caseNoDriveTab','caseBothTab','caseTokureiTab','caseTempReturnTab','caseNoFieldTab'].forEach(function(id){
     var b=document.getElementById(id); if(b){ b.style.background=''; b.style.borderColor=''; b.style.color=''; }
   });
 }
@@ -1878,6 +1885,27 @@ function toggleBothFilter(){
     btn.style.color = '';
   }
   renderCases();
+}
+
+function toggleNoFieldFilter(){
+  _caseNoFieldFilter = !_caseNoFieldFilter;
+  if(_caseNoFieldFilter){ _caseNoExpireFilter=false; _caseNoDriveFilter=false; _caseBothFilter=false; _caseTokureiFilter=false; _caseTempReturnFilter=false; resetFilterBtns(); }
+  var btn = document.getElementById('caseNoFieldTab');
+  if(_caseNoFieldFilter){
+    btn.style.background  = '#ecfeff';
+    btn.style.borderColor = '#0891b2';
+    btn.style.color       = '#0891b2';
+  } else {
+    btn.style.background  = '';
+    btn.style.borderColor = '';
+    btn.style.color       = '';
+  }
+  renderCases();
+}
+
+function navCasesNoField(){
+  nav('cases');
+  if(!_caseNoFieldFilter) toggleNoFieldFilter();
 }
 
 function renderCases(){
@@ -1950,6 +1978,10 @@ function renderCases(){
       var rd3=daysLeft(getTempReturn(c));
       if(rd3===null||rd3>10||rd3<0) return false;
     }
+    if(_caseNoFieldFilter){
+      if(c.applicant_field) return false;
+      if(isExcluded(c.status)) return false;
+    }
     if(q){ var s=(c.name||'')+(c.org||'')+(c.company||'')+(c.status||'')+(c.staff||''); if(!s.toLowerCase().includes(q)) return false; }
     return true;
   });
@@ -2007,7 +2039,9 @@ function renderCases(){
         ? '<button onclick="showLineModal(\''+esc(c.staff||'')+'\',\'expire\',event)" style="font-size:11px;padding:4px 8px;background:#06c755;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">📱 LINE通知文</button>'
         : isOnlyDriveAlert
           ? '<button onclick="showLineModal(\''+esc(c.staff||'')+'\',\'drive\',event)" style="font-size:11px;padding:4px 8px;background:#d97706;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">📱 LINE通知文</button>'
-          : '';
+          : (!c.applicant_field && !isExcluded(c.status))
+            ? '<button onclick="showLineModal(\''+esc(c.staff||'')+'\',\'nofield\',event)" style="font-size:11px;padding:4px 8px;background:#0891b2;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">📱 分野未入力通知</button>'
+            : '';
     return '<tr'+rowStyle+'>'
       +'<td><div class="td-name">'+esc(c.name||'—')+'</div><div class="td-sub">'+esc(c.applicant||'')+'</div></td>'
       +'<td style="font-size:12px;">'+esc(c.org||c.company||'—')+'</td>'
@@ -2412,6 +2446,12 @@ function showLineModal(staff, type, event){
     });
     subject = 'ドライブURLが未入力';
     detail  = 'ドライブフォルダURLの入力をお願いします。';
+  } else if(type==='nofield'){
+    targets = DATA.cases.filter(function(c){
+      return !c.applicant_field && !isExcluded(c.status) && c.staff===staff;
+    });
+    subject = '分野（申請人フィールド）が未入力';
+    detail  = '案件管理システムで分野の入力をお願いします。';
   } else { // both
     targets = DATA.cases.filter(function(c){
       return (c.app_type==='更新'||c.app_type==='変更') && !c.expire && !isExcluded(c.status) && !hasDrive(c.id) && c.staff===staff;
@@ -2437,7 +2477,7 @@ function showLineModal(staff, type, event){
   lines.push('よろしくお願いいたします。');
   lines.push('');
   lines.push('対応期限：' + today);
-  var typeLabel = type==='expire' ? '在留期限未入力' : type==='drive' ? 'ドライブ未設定' : '在留期限＋ドライブ両方未入力';
+  var typeLabel = type==='expire' ? '在留期限未入力' : type==='drive' ? 'ドライブ未設定' : type==='nofield' ? '分野未入力' : '在留期限＋ドライブ両方未入力';
   document.getElementById('lineModalMeta').textContent = staff + ' 担当 ／ ' + typeLabel + ' ' + targets.length + '件（' + today + '）';
   document.getElementById('lineModalText').value = lines.join('\n');
   var modal = document.getElementById('lineModal');
