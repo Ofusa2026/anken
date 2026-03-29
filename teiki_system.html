@@ -81,6 +81,7 @@ body { font-family:'Noto Sans JP',sans-serif; background:var(--bg); color:var(--
 .logo-badge span { font-size:11px; font-weight:700; color:white; letter-spacing:.04em; }
 .sidebar-title { font-size:14px; font-weight:700; color:var(--text); line-height:1.3; }
 .sidebar-sub { font-size:10px; color:var(--text3); margin-top:2px; }
+.sidebar-ver { font-size:9px; color:var(--text3); margin-top:3px; font-family:'DM Mono',monospace; opacity:.7; }
 
 .nav-section { padding:10px 10px 2px; }
 .nav-section-label { font-size:9px; font-weight:700; color:var(--text3); letter-spacing:.1em; text-transform:uppercase; padding:0 6px; margin-bottom:4px; }
@@ -335,6 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.10</div>
   </div>
 
   <div class="nav-section">
@@ -547,7 +549,6 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
               <th onclick="sortFg('contractStart')" style="white-space:nowrap;cursor:pointer;user-select:none">雇用開始日 <span id="sort-contractStart"></span></th>
               <th onclick="sortFg('contractEnd')" style="white-space:nowrap;cursor:pointer;user-select:none">雇用終了日 <span id="sort-contractEnd"></span></th>
               <th onclick="sortFg('status')" style="white-space:nowrap;cursor:pointer;user-select:none">在職 <span id="sort-status"></span></th>
-              <th style="white-space:nowrap">操作</th>
             </tr></thead>
             <tbody id="fg-table-body">
               <tr><td colspan="9"><div class="empty-state"><div class="spinner"></div></div></td></tr>
@@ -1553,7 +1554,7 @@ var kijun1 = false, kijun2 = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.6%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.10%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -1754,17 +1755,18 @@ function renderForeignerTable() {
   var list=sortedForeigners.filter(function(f){
     return (!sf||normStatus(f)===sf)&&(!zf||f.residenceStatus===zf)&&(!q||[(f.nameEn||''),(f.companyName||'')].some(function(s){return s.toLowerCase().includes(q);}));
   });
-  if (!list.length) { document.getElementById('fg-table-body').innerHTML='<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
+  if (!list.length) { document.getElementById('fg-table-body').innerHTML='<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
   document.getElementById('fg-table-body').innerHTML=list.map(function(f){
     var statusNorm = normStatus(f);
     var statusBadge = statusNorm==='在職'?'badge-green':statusNorm==='退職'?'badge-red':'badge-gray';
-    // 届出対象判定: 雇用開始日が2025-04-01〜2026-03-31の間
+    // 届出対象判定: 雇用開始日が2025-04-01〜2026-03-31の間（空欄は対象とみなす）
     var cs = f.contractStart ? new Date(f.contractStart) : null;
     var TARGET_FROM = new Date('2025-04-01'), TARGET_TO = new Date('2026-03-31');
-    var isTarget = cs && cs >= TARGET_FROM && cs <= TARGET_TO;
+    var isTarget = !cs || (cs >= TARGET_FROM && cs <= TARGET_TO);
     var rowStyle = isTarget ? '' : 'opacity:.4;background:var(--bg3)';
     if (window._fgTargetOnly && !isTarget) return '';
-    return '<tr style="'+rowStyle+'">'+
+    return '<tr style="'+rowStyle+';cursor:pointer" onclick="editForeigner(\''+esc(f.nameEn)+'\',\''+esc(f.companyName)+'\')">'+
+
 
       '<td style="font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(f.companyName||'—')+'</td>'+
       '<td style="font-weight:600;white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis">'+esc(f.nameEn||'—')+'</td>'+
@@ -1773,10 +1775,10 @@ function renderForeignerTable() {
       '<td style="font-family:\'DM Mono\',monospace;font-size:11px;white-space:nowrap">'+esc(f.residenceCard||'—')+'</td>'+
       '<td style="font-size:11px;white-space:nowrap">'+fmtDate(f.birthDate)+'</td>'+
       '<td style="font-size:11px;white-space:nowrap">'+fmtDate(f.residenceExpiry)+'</td>'+
-      '<td style="font-size:11px;white-space:nowrap">'+fmtDate(f.contractStart)+'</td>'+
-      '<td style="font-size:11px;white-space:nowrap;color:'+(f.contractEnd?'var(--red)':'var(--text2)')+'">'+fmtDate(f.contractEnd)+'</td>'+
+      '<td style="font-size:10px;white-space:nowrap;color:var(--text3)">'+fmtDate(f.contractStart)+'</td>'+
+      '<td style="font-size:10px;white-space:nowrap;color:'+(f.contractEnd?'var(--red)':'var(--text3)')+'">'+fmtDate(f.contractEnd)+'</td>'+
       '<td><span class="badge '+statusBadge+'">'+esc(statusNorm||'—')+'</span></td>'+
-      '<td><button class="btn btn-secondary btn-sm" onclick="editForeigner(\''+esc(f.nameEn)+'\',\''+esc(f.companyName)+'\')">編集</button></td></tr>';
+      '</tr>';
   }).filter(Boolean).join('');
 }
 function renderSalaryCoList() {
@@ -1831,22 +1833,29 @@ var SAL_FIELDS = [
 ];
 var salYearTab = 'prev';
 
+// 年間合計入力フォームに変更（月次廃止）
 function renderSalaryInput() {
   if (!selectedCompany) return;
   var fgs=foreigners.filter(function(f){return resolveCompanyName(f.companyName)===selectedCompany.name&&normStatus(f)==='在職';}), co=selectedCompany;
   var html='<div class="table-wrapper"><div class="table-header"><span class="table-title">給与データ入力 — '+esc(co.name)+'</span><span class="table-count">'+fgs.length+'名</span></div><div style="padding:16px">';
-  if (!fgs.length) { html+='<div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">在職中の外国人がいません</div></div>'; }
-  else {
+
+  if (!fgs.length) {
+    html+='<div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">在職中の外国人がいません</div></div>';
+  } else {
+    // 年度タブ + PDF取込
     html+='<div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap">'+
       '<button class="btn btn-sm '+(salYearTab==='prev'?'btn-primary':'btn-secondary')+'" onclick="salYearTab=&quot;prev&quot;;renderSalaryInput()">▶ 前年度（令和7年4月〜令和8年3月）</button>'+
       '<button class="btn btn-sm '+(salYearTab==='prev2'?'btn-primary':'btn-secondary')+'" onclick="salYearTab=&quot;prev2&quot;;renderSalaryInput()">▶ 前々年度（令和6年4月〜令和7年3月）</button>'+
       '<label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin-left:auto">📄 賃金台帳PDF取込<input type="file" accept=".pdf" multiple style="display:none" onchange="importSalaryPDF(event,&quot;'+esc(co.name)+'&quot;)"></label>'+
     '</div>';
-    html+='<div class="alert alert-info" style="margin-bottom:12px">ℹ️ 各月の実績値を入力（<b>支給日ベース</b>）。除外：受入開始月・終了月（月途中の場合）　含む：休業月。<b>月平均は自動計算</b>。</div>';
 
-    var months = salYearTab==='prev' ? SAL_MONTHS_PREV : SAL_MONTHS_PREV2;
+    var yearLabel = salYearTab==='prev' ? '前年度（令和7年4月〜令和8年3月・12ヶ月）' : '前々年度（令和6年4月〜令和7年3月・12ヶ月）';
+    var yearKey   = salYearTab==='prev' ? 'prev' : 'prev2';
+    html+='<div class="alert alert-info" style="margin-bottom:12px">ℹ️ <b>'+yearLabel+'</b>の年間合計値を入力してください（<b>支給日ベース</b>）。月平均は自動計算されます。</div>';
 
     fgs.forEach(function(f){
+      // このfg・この年度の集計データ
+      var rec = salaryData.find(function(s){ return s.companyName===co.name && s.nameEn===f.nameEn && s.yearYear===yearKey; }) || {};
       var fid = f.nameEn.replace(/\s/g,'_');
       var requires2yr = false;
       if(f.contractStart){
@@ -1854,68 +1863,88 @@ function renderSalaryInput() {
         requires2yr = diff >= 2;
       }
 
+      // 対象月数（デフォルト12）
+      var months = parseInt(rec.months) || 12;
+
       html+='<div style="border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:16px;background:var(--bg2)">'+
-        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">'+
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">'+
         '<span style="font-size:14px;font-weight:700">'+esc(f.nameEn)+'</span>'+
         '<span class="badge badge-blue">'+esc(f.residenceStatus)+'</span>'+
         '<span style="font-size:11px;color:var(--text3)">'+esc(f.nationality)+' / 開始: '+esc(f.contractStart||'—')+'</span>'+
         (requires2yr?'<span style="background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px">✱ 昇給率必須（2年以上在籍）</span>':'')+
+        '</div>'+
+
+        // 対象月数
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'+
+        '<label style="font-size:12px;font-weight:600;color:var(--text2)">対象月数</label>'+
+        '<input type="number" min="1" max="12" step="1" class="input" style="width:60px;font-size:12px;padding:4px 6px" '+
+          'id="months_'+fid+'" value="'+months+'" '+
+          'data-co="'+esc(co.name)+'" data-name="'+esc(f.nameEn)+'" data-year="'+yearKey+'" data-field="months" '+
+          'onchange="salAnnualChange(this)">'+
+        '<span style="font-size:11px;color:var(--text3)">ヶ月（受入開始月・終了月が途中の場合は調整）</span>'+
         '</div>';
 
-      html+='<div style="overflow-x:auto;margin-bottom:8px"><table style="width:100%;border-collapse:collapse;font-size:11px;min-width:860px">'+
+      // フィールドテーブル（年間合計 + 月平均）
+      html+='<table style="width:100%;border-collapse:collapse;font-size:12px">'+
         '<thead><tr style="background:var(--bg3)">'+
-        '<th style="padding:5px 8px;text-align:left;white-space:nowrap;min-width:130px;position:sticky;left:0;background:var(--bg3);z-index:2">項目</th>'+
-        months.map(function(ym,i){ return '<th style="padding:5px 3px;text-align:center;min-width:58px">'+SAL_MONTH_LABELS[i]+'</th>'; }).join('')+
-        '<th style="padding:5px 8px;text-align:center;min-width:65px;background:var(--blue);color:#fff">月平均</th>'+
+        '<th style="padding:7px 10px;text-align:left;width:50%">項目</th>'+
+        '<th style="padding:7px 10px;text-align:right;width:25%">年間合計</th>'+
+        '<th style="padding:7px 10px;text-align:right;width:25%;background:rgba(37,99,235,.08);color:var(--blue)">月平均</th>'+
         '</tr></thead><tbody>';
 
-      SAL_FIELDS.forEach(function(field,fi){
-        var rowSals = months.map(function(ym){ return salaryData.find(function(s){ return s.companyName===co.name&&s.nameEn===f.nameEn&&s.yearMonth===ym; })||{}; });
-        var vals = rowSals.map(function(s){ var v=s[field.key]; return (v!==''&&v!==undefined&&v!==null)?parseFloat(v):null; });
-        var filled = vals.filter(function(v){return v!==null&&v!==0;});
-        var avg = filled.length ? filled.reduce(function(a,b){return a+b;},0)/filled.length : null;
-        if(avg!==null) avg = field.int ? Math.round(avg) : Math.round(avg*10)/10;
-        var bgRow = fi>=8 ? 'background:rgba(0,0,0,.02)' : '';
-
+      SAL_FIELDS.forEach(function(field, fi){
+        var val = rec[field.key] !== undefined ? rec[field.key] : '';
+        var avg = (val !== '' && val !== null && months > 0) ? (field.int ? Math.round(parseFloat(val)/months) : Math.round(parseFloat(val)/months*10)/10) : null;
+        var bgRow = fi >= 8 ? 'background:rgba(0,0,0,.02)' : '';
         html+='<tr style="border-top:1px solid var(--border);'+bgRow+'">'+
-          '<td style="padding:3px 8px;white-space:nowrap;font-weight:500;position:sticky;left:0;background:'+(fi>=8?'var(--bg3)':'var(--bg2)')+';z-index:1">'+esc(field.label)+' <span style="color:var(--text3);font-weight:400">'+field.unit+'</span></td>'+
-          months.map(function(ym,i){
-            var cid='sm_'+field.key+'_'+fid+'_'+ym.replace('-','');
-            var v=rowSals[i][field.key];
-            return '<td style="padding:2px 2px;text-align:center">'+
-              '<input type="number" step="'+(field.int?'1':'0.1')+'" class="input" '+
-              'style="width:54px;padding:2px 3px;font-size:11px;text-align:right" '+
-              'id="'+cid+'" value="'+(v!==undefined&&v!==null&&v!==''?v:'')+'" '+
-              'data-co="'+esc(co.name)+'" data-name="'+esc(f.nameEn)+'" data-ym="'+ym+'" data-field="'+field.key+'" '+
-              'onchange="salCellChange(this)">'+
-              '</td>';
-          }).join('')+
-          '<td style="padding:3px 8px;text-align:right;font-weight:700;background:rgba(37,99,235,.08);font-size:12px">'+(avg!==null?avg.toLocaleString():'—')+'</td>'+
+          '<td style="padding:6px 10px;font-weight:500">'+esc(field.label)+' <span style="color:var(--text3);font-weight:400;font-size:11px">'+field.unit+'</span></td>'+
+          '<td style="padding:4px 10px;text-align:right">'+
+            '<input type="number" step="'+(field.int?'1':'0.1')+'" class="input" style="width:120px;text-align:right;padding:4px 6px;font-size:12px" '+
+            'id="ann_'+field.key+'_'+fid+'" value="'+(val)+'" placeholder="0" '+
+            'data-co="'+esc(co.name)+'" data-name="'+esc(f.nameEn)+'" data-year="'+yearKey+'" data-field="'+field.key+'" data-fid="'+fid+'" '+
+            'onchange="salAnnualChange(this)">'+
+          '</td>'+
+          '<td style="padding:6px 10px;text-align:right;font-weight:700;background:rgba(37,99,235,.08);color:var(--blue)" id="avg_'+field.key+'_'+fid+'">'+
+            (avg !== null ? avg.toLocaleString() : '—')+
+          '</td>'+
           '</tr>';
       });
 
-      // 賞与行
-      var bonusSals=months.map(function(ym){ return salaryData.find(function(s){ return s.companyName===co.name&&s.nameEn===f.nameEn&&s.yearMonth===ym; })||{}; });
-      var bonusTotal=bonusSals.reduce(function(a,s){ return a+(parseFloat(s.bonus)||0); },0);
+      // 賞与（年間合計のみ）
+      var bonusVal = rec.bonus !== undefined ? rec.bonus : '';
       html+='<tr style="border-top:2px solid var(--border);background:var(--bg3)">'+
-        '<td style="padding:3px 8px;white-space:nowrap;font-weight:500;position:sticky;left:0;background:var(--bg3);z-index:1">賞与 <span style="color:var(--text3);font-weight:400">円（支給月のみ）</span></td>'+
-        months.map(function(ym,i){
-          var cid='sm_bonus_'+fid+'_'+ym.replace('-','');
-          var v=bonusSals[i].bonus;
-          return '<td style="padding:2px 2px;text-align:center">'+
-            '<input type="number" step="1" class="input" style="width:54px;padding:2px 3px;font-size:11px;text-align:right" '+
-            'id="'+cid+'" value="'+(v||'')+'" '+
-            'data-co="'+esc(co.name)+'" data-name="'+esc(f.nameEn)+'" data-ym="'+ym+'" data-field="bonus" '+
-            'onchange="salCellChange(this)">'+
-            '</td>';
-        }).join('')+
-        '<td style="padding:3px 8px;text-align:right;font-weight:700;background:rgba(37,99,235,.08);font-size:12px">'+(bonusTotal?bonusTotal.toLocaleString()+'円（年計）':'—')+'</td>'+
+        '<td style="padding:6px 10px;font-weight:500">賞与 <span style="color:var(--text3);font-weight:400;font-size:11px">円（年間合計）</span></td>'+
+        '<td style="padding:4px 10px;text-align:right">'+
+          '<input type="number" step="1" class="input" style="width:120px;text-align:right;padding:4px 6px;font-size:12px" '+
+          'id="ann_bonus_'+fid+'" value="'+bonusVal+'" placeholder="0" '+
+          'data-co="'+esc(co.name)+'" data-name="'+esc(f.nameEn)+'" data-year="'+yearKey+'" data-field="bonus" data-fid="'+fid+'" '+
+          'onchange="salAnnualChange(this)">'+
+        '</td>'+
+        '<td style="padding:6px 10px;text-align:right;font-weight:700;background:rgba(37,99,235,.08)" id="avg_bonus_'+fid+'">'+
+          (bonusVal ? parseInt(bonusVal).toLocaleString()+'円' : '—')+
+        '</td>'+
         '</tr>';
 
-      html+='</tbody></table></div>';
-      html+='<div style="display:flex;gap:8px;justify-content:flex-end">'+
-        '<button class="btn btn-primary btn-sm" data-name="'+esc(f.nameEn)+'" data-co="'+esc(co.name)+'" onclick="saveAllSalaryMonths(this.dataset.name,this.dataset.co)">この年度を一括保存</button>'+
-        '<button class="btn btn-danger btn-sm" data-name="'+esc(f.nameEn)+'" data-co="'+esc(co.name)+'" onclick="deleteAllSalaryMonths(this.dataset.name,this.dataset.co)">この年度を削除</button>'+
+      // 昇給率（requires2yr時のみ）
+      if (requires2yr) {
+        var raiseVal = rec.raiseRate !== undefined ? rec.raiseRate : '';
+        html+='<tr style="border-top:1px solid var(--border)">'+
+          '<td style="padding:6px 10px;font-weight:500;color:var(--red)">昇給率 <span style="color:var(--text3);font-weight:400;font-size:11px">%（2年以上在籍）</span></td>'+
+          '<td colspan="2" style="padding:4px 10px;text-align:right">'+
+            '<input type="number" step="0.01" class="input" style="width:120px;text-align:right;padding:4px 6px;font-size:12px" '+
+            'id="ann_raiseRate_'+fid+'" value="'+raiseVal+'" placeholder="0.00" '+
+            'data-co="'+esc(co.name)+'" data-name="'+esc(f.nameEn)+'" data-year="'+yearKey+'" data-field="raiseRate" data-fid="'+fid+'" '+
+            'onchange="salAnnualChange(this)">'+
+            '<span style="font-size:11px;color:var(--text3);margin-left:4px">%</span>'+
+          '</td>'+
+          '</tr>';
+      }
+
+      html+='</tbody></table>';
+
+      html+='<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">'+
+        '<button class="btn btn-primary btn-sm" data-name="'+esc(f.nameEn)+'" data-co="'+esc(co.name)+'" data-year="'+yearKey+'" onclick="saveAnnualSalary(this.dataset.name,this.dataset.co,this.dataset.year)">💾 保存</button>'+
+        '<button class="btn btn-danger btn-sm" data-name="'+esc(f.nameEn)+'" data-co="'+esc(co.name)+'" data-year="'+yearKey+'" onclick="deleteAnnualSalary(this.dataset.name,this.dataset.co,this.dataset.year)">削除</button>'+
         '</div></div>';
     });
   }
@@ -1923,7 +1952,76 @@ function renderSalaryInput() {
   document.getElementById('sal-input-area').innerHTML=html;
 }
 
-// data属性からパラメータを取得してsalaryDataを更新
+// 年間合計値の変更 → 月平均をリアルタイム更新
+function salAnnualChange(el) {
+  var coName=el.dataset.co, nameEn=el.dataset.name, yearKey=el.dataset.year, field=el.dataset.field, val=el.value, fid=el.dataset.fid;
+
+  // salaryDataに反映
+  var idx = salaryData.findIndex(function(s){ return s.companyName===coName && s.nameEn===nameEn && s.yearYear===yearKey; });
+  if (idx < 0) {
+    salaryData.push({companyName:coName, nameEn:nameEn, yearYear:yearKey, months:12});
+    idx = salaryData.length - 1;
+  }
+  salaryData[idx][field] = val;
+
+  // 月平均をリアルタイム更新
+  if (field === 'months') {
+    // 全フィールドの月平均を再計算
+    var months = parseInt(val) || 12;
+    SAL_FIELDS.forEach(function(f2){
+      var v = salaryData[idx][f2.key];
+      var avgEl = document.getElementById('avg_'+f2.key+'_'+fid);
+      if (avgEl) {
+        if (v !== undefined && v !== '' && months > 0) {
+          var avg = f2.int ? Math.round(parseFloat(v)/months) : Math.round(parseFloat(v)/months*10)/10;
+          avgEl.textContent = avg.toLocaleString();
+        } else {
+          avgEl.textContent = '—';
+        }
+      }
+    });
+  } else if (field !== 'raiseRate' && field !== 'bonus') {
+    // 個別フィールドの月平均を更新
+    var months = parseInt(salaryData[idx].months) || 12;
+    var avgEl = document.getElementById('avg_'+field+'_'+fid);
+    if (avgEl && val !== '' && months > 0) {
+      var fieldDef = SAL_FIELDS.find(function(f2){ return f2.key===field; });
+      var avg = fieldDef && fieldDef.int ? Math.round(parseFloat(val)/months) : Math.round(parseFloat(val)/months*10)/10;
+      avgEl.textContent = avg.toLocaleString();
+    } else if (avgEl) {
+      avgEl.textContent = '—';
+    }
+  } else if (field === 'bonus') {
+    var avgEl = document.getElementById('avg_bonus_'+fid);
+    if (avgEl) avgEl.textContent = val ? parseInt(val).toLocaleString()+'円' : '—';
+  }
+}
+
+async function saveAnnualSalary(nameEn, coName, yearKey) {
+  var idx = salaryData.findIndex(function(s){ return s.companyName===coName && s.nameEn===nameEn && s.yearYear===yearKey; });
+  if (idx < 0) { showToast('入力データがありません', 'warn'); return; }
+  saveLocalCache();
+  if (GAS_URL) {
+    try {
+      await gasPost(Object.assign({action:'upsertMonthly'}, salaryData[idx], {yearMonth: yearKey}));
+      showToast(nameEn+' の給与データを保存しました', 'success');
+    } catch(e) { showToast('保存エラー: '+e.message, 'error'); }
+  } else {
+    showToast(nameEn+' の給与データを保存しました（ローカル）', 'success');
+  }
+}
+
+async function deleteAnnualSalary(nameEn, coName, yearKey) {
+  if (!confirm(nameEn+' の給与データを削除しますか？')) return;
+  salaryData = salaryData.filter(function(s){ return !(s.companyName===coName && s.nameEn===nameEn && s.yearYear===yearKey); });
+  saveLocalCache();
+  if (GAS_URL) {
+    try { await gasPost({action:'deleteSalary', companyName:coName, nameEn:nameEn}); } catch(e){}
+  }
+  renderSalaryInput();
+  showToast(nameEn+' の給与データを削除しました', 'success');
+}
+
 function salCellChange(el) {
   var coName=el.dataset.co, nameEn=el.dataset.name, ym=el.dataset.ym, field=el.dataset.field, val=el.value;
   salMonthChanged(coName,nameEn,ym,field,val);
@@ -2632,8 +2730,8 @@ async function importSalaryPDF(event, coName) {
       var fg = matchForeigner(result.nameEn, coName);
       if (!fg) { errors.push(result.nameEn + ': 外国人マスタに一致なし（' + coName + '）'); continue; }
 
-      var entry = Object.assign({companyName: coName, nameEn: fg.nameEn, yearMonth: '年間'}, result.data);
-      var idx = salaryData.findIndex(function(s){ return s.companyName===coName && s.nameEn===fg.nameEn; });
+      var entry = Object.assign({companyName: coName, nameEn: fg.nameEn, yearYear: salYearTab, months: 12}, result.data);
+      var idx = salaryData.findIndex(function(s){ return s.companyName===coName && s.nameEn===fg.nameEn && s.yearYear===salYearTab; });
       if (idx >= 0) salaryData[idx] = Object.assign(salaryData[idx], entry);
       else salaryData.push(entry);
 
