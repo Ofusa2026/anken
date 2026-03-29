@@ -47,7 +47,28 @@ body { font-family:'Noto Sans JP',sans-serif; background:var(--bg); color:var(--
   width:220px; flex-shrink:0; background:var(--bg2);
   border-right:1px solid var(--border);
   display:flex; flex-direction:column; overflow-y:auto;
+  transition:width .2s ease; position:relative;
 }
+#sidebar.collapsed { width:48px; overflow:hidden; }
+#sidebar.collapsed .sidebar-title,
+#sidebar.collapsed .sidebar-sub,
+#sidebar.collapsed .nav-section-label,
+#sidebar.collapsed .nav-badge,
+#sidebar.collapsed .sidebar-footer,
+#sidebar.collapsed .gas-status { display:none; }
+#sidebar.collapsed .nav-item { padding:9px 12px; justify-content:center; gap:0; }
+#sidebar.collapsed .nav-icon { font-size:16px; }
+#sidebar.collapsed .sidebar-logo { padding:12px 8px; }
+#sidebar.collapsed .logo-badge { margin-bottom:0; }
+.sidebar-toggle {
+  position:absolute; top:12px; right:-12px; z-index:10;
+  width:22px; height:22px; border-radius:50%;
+  background:var(--bg2); border:1px solid var(--border);
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer; font-size:10px; color:var(--text3);
+  transition:.15s; box-shadow:0 1px 3px rgba(0,0,0,.1);
+}
+.sidebar-toggle:hover { background:var(--blue); color:#fff; border-color:var(--blue); }
 .sidebar-logo {
   padding:18px 16px 14px;
   border-bottom:1px solid var(--border);
@@ -309,6 +330,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
 
 <!-- SIDEBAR -->
 <div id="sidebar">
+  <div class="sidebar-toggle" onclick="toggleSidebar()" title="メニューを折りたたむ">◀</div>
   <div class="sidebar-logo">
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
@@ -508,22 +530,23 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
               <option value="特定技能2号">2号</option>
             </select>
             <button class="btn btn-secondary btn-sm" onclick="openForeignerImport()">📥 CSV取込</button>
+            <button class="btn btn-sm" id="btn-target-only" onclick="toggleTargetOnly()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text2)">📅 対象者のみ</button>
             <button class="btn btn-primary btn-sm" onclick="openModal('modal-foreigner-add')">＋ 追加</button>
           </div>
         </div>
         <div style="overflow-x:auto">
           <table style="white-space:nowrap">
             <thead><tr>
-              <th style="white-space:nowrap">所属機関</th>
-              <th style="white-space:nowrap">氏名（英字）</th>
-              <th style="white-space:nowrap">国籍</th>
-              <th style="white-space:nowrap">在留資格</th>
+              <th onclick="sortFg('companyName')" style="white-space:nowrap;cursor:pointer;user-select:none">所属機関 <span id="sort-companyName"></span></th>
+              <th onclick="sortFg('nameEn')" style="white-space:nowrap;cursor:pointer;user-select:none;max-width:120px">氏名（英字）<span id="sort-nameEn"></span></th>
+              <th onclick="sortFg('nationality')" style="white-space:nowrap;cursor:pointer;user-select:none">国籍 <span id="sort-nationality"></span></th>
+              <th onclick="sortFg('residenceStatus')" style="white-space:nowrap;cursor:pointer;user-select:none">在留資格 <span id="sort-residenceStatus"></span></th>
               <th style="white-space:nowrap">在留カードNo.</th>
-              <th style="white-space:nowrap">生年月日</th>
-              <th style="white-space:nowrap">在留期限</th>
-              <th style="white-space:nowrap">雇用開始日</th>
-              <th style="white-space:nowrap">雇用終了日</th>
-              <th style="white-space:nowrap">在職</th>
+              <th onclick="sortFg('birthDate')" style="white-space:nowrap;cursor:pointer;user-select:none">生年月日 <span id="sort-birthDate"></span></th>
+              <th onclick="sortFg('residenceExpiry')" style="white-space:nowrap;cursor:pointer;user-select:none">在留期限 <span id="sort-residenceExpiry"></span></th>
+              <th onclick="sortFg('contractStart')" style="white-space:nowrap;cursor:pointer;user-select:none">雇用開始日 <span id="sort-contractStart"></span></th>
+              <th onclick="sortFg('contractEnd')" style="white-space:nowrap;cursor:pointer;user-select:none">雇用終了日 <span id="sort-contractEnd"></span></th>
+              <th onclick="sortFg('status')" style="white-space:nowrap;cursor:pointer;user-select:none">在職 <span id="sort-status"></span></th>
               <th style="white-space:nowrap">操作</th>
             </tr></thead>
             <tbody id="fg-table-body">
@@ -1435,6 +1458,44 @@ const TEIKI_RULES = {
 // ルールブック埋め込み完了
 
 
+
+// ===== サイドバー折りたたみ =====
+function toggleSidebar() {
+  var sb = document.getElementById('sidebar');
+  var btn = sb.querySelector('.sidebar-toggle');
+  sb.classList.toggle('collapsed');
+  btn.textContent = sb.classList.contains('collapsed') ? '▶' : '◀';
+}
+
+// ===== 外国人テーブル ソート =====
+var _fgSortKey = null, _fgSortAsc = true;
+function sortFg(key) {
+  if (_fgSortKey === key) { _fgSortAsc = !_fgSortAsc; }
+  else { _fgSortKey = key; _fgSortAsc = true; }
+  // ソートアイコン更新
+  document.querySelectorAll('[id^="sort-"]').forEach(function(el){ el.textContent = ''; });
+  var el = document.getElementById('sort-'+key);
+  if (el) el.textContent = _fgSortAsc ? ' ▲' : ' ▼';
+  renderForeignerTable();
+}
+
+// ===== 対象者のみ表示モード =====
+var _fgTargetOnly = false;
+function toggleTargetOnly() {
+  _fgTargetOnly = !_fgTargetOnly;
+  var btn = document.getElementById('btn-target-only');
+  if (_fgTargetOnly) {
+    btn.style.background = 'var(--blue)';
+    btn.style.color = '#fff';
+    btn.style.borderColor = 'var(--blue)';
+  } else {
+    btn.style.background = 'var(--bg3)';
+    btn.style.color = 'var(--text2)';
+    btn.style.borderColor = 'var(--border)';
+  }
+  renderForeignerTable();
+}
+
 // ===== 会社名正規化・マッチング =====
 function normalizeCoName(s) {
   return (s||'').replace(/株式会社|有限会社|\(株\)|\(有\)|Co\.?,?\s*Ltd\.?|LLC|（[^）]*）|[ 　\s]+/gi,'').toLowerCase();
@@ -1492,7 +1553,7 @@ var kijun1 = false, kijun2 = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.5%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.6%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -1680,18 +1741,35 @@ function renderCompanyTable() {
 function renderForeignerTable() {
   var q=(document.getElementById('fg-search').value||'').toLowerCase();
   var sf=document.getElementById('fg-status-filter').value, zf=document.getElementById('fg-zairyu-filter').value;
-  var list=foreigners.filter(function(f){
+  // ソート適用
+  var sortedForeigners = foreigners.slice();
+  if (_fgSortKey) {
+    sortedForeigners.sort(function(a, b) {
+      var av = a[_fgSortKey] || '', bv = b[_fgSortKey] || '';
+      if (_fgSortKey === 'status') { av = normStatus(a); bv = normStatus(b); }
+      var cmp = String(av).localeCompare(String(bv), 'ja');
+      return _fgSortAsc ? cmp : -cmp;
+    });
+  }
+  var list=sortedForeigners.filter(function(f){
     return (!sf||normStatus(f)===sf)&&(!zf||f.residenceStatus===zf)&&(!q||[(f.nameEn||''),(f.companyName||'')].some(function(s){return s.toLowerCase().includes(q);}));
   });
   if (!list.length) { document.getElementById('fg-table-body').innerHTML='<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
   document.getElementById('fg-table-body').innerHTML=list.map(function(f){
     var statusNorm = normStatus(f);
     var statusBadge = statusNorm==='在職'?'badge-green':statusNorm==='退職'?'badge-red':'badge-gray';
-    return '<tr>'+
+    // 届出対象判定: 雇用開始日が2025-04-01〜2026-03-31の間
+    var cs = f.contractStart ? new Date(f.contractStart) : null;
+    var TARGET_FROM = new Date('2025-04-01'), TARGET_TO = new Date('2026-03-31');
+    var isTarget = cs && cs >= TARGET_FROM && cs <= TARGET_TO;
+    var rowStyle = isTarget ? '' : 'opacity:.4;background:var(--bg3)';
+    if (window._fgTargetOnly && !isTarget) return '';
+    return '<tr style="'+rowStyle+'">'+
+
       '<td style="font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(f.companyName||'—')+'</td>'+
-      '<td style="font-weight:600;white-space:nowrap">'+esc(f.nameEn||'—')+'</td>'+
+      '<td style="font-weight:600;white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis">'+esc(f.nameEn||'—')+'</td>'+
       '<td style="font-size:11px;white-space:nowrap">'+esc(f.nationality||'—')+'</td>'+
-      '<td><span class="badge '+(f.residenceStatus==='特定技能2号'?'badge-purple':f.residenceStatus==='特定活動'?'badge-amber':'badge-blue')+'">'+esc(f.residenceStatus||'—')+'</span></td>'+
+      '<td style="max-width:90px"><span class="badge '+(f.residenceStatus==='特定技能2号'?'badge-purple':f.residenceStatus==='特定活動'?'badge-amber':'badge-blue')+'">'+esc(f.residenceStatus||'—')+'</span></td>'+
       '<td style="font-family:\'DM Mono\',monospace;font-size:11px;white-space:nowrap">'+esc(f.residenceCard||'—')+'</td>'+
       '<td style="font-size:11px;white-space:nowrap">'+fmtDate(f.birthDate)+'</td>'+
       '<td style="font-size:11px;white-space:nowrap">'+fmtDate(f.residenceExpiry)+'</td>'+
@@ -1699,7 +1777,7 @@ function renderForeignerTable() {
       '<td style="font-size:11px;white-space:nowrap;color:'+(f.contractEnd?'var(--red)':'var(--text2)')+'">'+fmtDate(f.contractEnd)+'</td>'+
       '<td><span class="badge '+statusBadge+'">'+esc(statusNorm||'—')+'</span></td>'+
       '<td><button class="btn btn-secondary btn-sm" onclick="editForeigner(\''+esc(f.nameEn)+'\',\''+esc(f.companyName)+'\')">編集</button></td></tr>';
-  }).join('');
+  }).filter(Boolean).join('');
 }
 function renderSalaryCoList() {
   var q=(document.getElementById('sal-co-search').value||'').toLowerCase();
