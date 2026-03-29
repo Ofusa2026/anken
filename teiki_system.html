@@ -1426,6 +1426,41 @@ const TEIKI_RULES = {
 // Node.js / GAS 両対応でエクスポート
 // ルールブック埋め込み完了
 
+
+// ===== 会社名正規化・マッチング =====
+function normalizeCoName(s) {
+  return (s||'').replace(/株式会社|有限会社|\(株\)|\(有\)|Co\.?,?\s*Ltd\.?|LLC|（[^）]*）|[ 　\s]+/gi,'').toLowerCase();
+}
+// 外国人のcompanyNameを所属機関マスタの正式名称に解決する
+var _coNameCache = null;
+function resolveCompanyName(fgCoName) {
+  if (!fgCoName) return fgCoName;
+  // 完全一致
+  if (companies.find(function(c){ return c.name === fgCoName; })) return fgCoName;
+  // キャッシュ
+  if (!_coNameCache) {
+    _coNameCache = {};
+    companies.forEach(function(c){ _coNameCache[normalizeCoName(c.name)] = c.name; });
+  }
+  var fn = normalizeCoName(fgCoName);
+  if (fn.length < 3) return fgCoName;
+  // 正規化後の完全一致
+  if (_coNameCache[fn]) return _coNameCache[fn];
+  // 部分一致（前方一致優先）
+  var best = null, bestLen = 0;
+  Object.keys(_coNameCache).forEach(function(cn) {
+    if (cn.length < 3) return;
+    var shorter = fn.length < cn.length ? fn : cn;
+    var longer  = fn.length < cn.length ? cn : fn;
+    if (longer.includes(shorter) && shorter.length > bestLen) {
+      best = _coNameCache[cn]; bestLen = shorter.length;
+    }
+  });
+  return best || fgCoName;
+}
+// キャッシュを無効化（データ更新時に呼ぶ）
+function clearCoNameCache() { _coNameCache = null; }
+
 var GAS_URL = localStorage.getItem('gas_url') || '';
 var ANTHROPIC_KEY = localStorage.getItem('anthropic_key') || '';
 var FISCAL_YEAR = localStorage.getItem('fiscal_year') || '2025';
@@ -1519,8 +1554,16 @@ async function loadAllData() {
       co.kijun_2_method = co.kijun_2_method || r.kijun_2_method || '';
       co.status = co.status||'未着手';
     });
+    // 会社名の表記ゆれを自動修正
+    clearCoNameCache();
+    var fixCount = 0;
+    foreigners.forEach(function(f) {
+      var resolved = resolveCompanyName(f.companyName);
+      if (resolved !== f.companyName) { f.companyName = resolved; fixCount++; }
+    });
+    if (fixCount > 0) { saveLocalCache(); }
     setApiStatus(true); renderAll();
-    showToast('データ取得完了（'+companies.length+'社・'+foreigners.length+'名）','success');
+    showToast('データ取得完了（'+companies.length+'社・'+foreigners.length+'名）'+(fixCount?'　会社名表記ゆれ'+fixCount+'件を自動修正':''),'success');
   } catch(e) { setApiStatus(false); showToast('取得失敗: '+e.message,'error'); loadLocalCache(); }
 }
 function loadLocalCache() {
@@ -1628,7 +1671,7 @@ function renderSalaryCoList() {
   var q=(document.getElementById('sal-co-search').value||'').toLowerCase();
   var list=companies.filter(c=>!q||(c.name||'').toLowerCase().includes(q));
   document.getElementById('sal-co-list').innerHTML=list.map(function(co){
-    var cnt=foreigners.filter(f=>f.companyName===co.name&&f.status==='在職').length;
+    var cnt=foreigners.filter(f=>resolveCompanyName(f.companyName)===co.name&&f.status==='在職').length;
     var active=selectedCompany&&selectedCompany.name===co.name;
     return '<div onclick="selectSalaryCompany(\''+esc(co.name)+'\')" style="padding:8px 10px;border-radius:6px;cursor:pointer;margin-bottom:2px;background:'+(active?'var(--blue-lt)':'transparent')+';border:1px solid '+(active?'#bfdbfe':'transparent')+';transition:.1s">'+
       '<div style="font-size:12px;font-weight:'+(active?'700':'500')+';color:'+(active?'var(--blue)':'var(--text)')+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(co.name)+'</div>'+
@@ -1678,7 +1721,7 @@ var salYearTab = 'prev';
 
 function renderSalaryInput() {
   if (!selectedCompany) return;
-  var fgs=foreigners.filter(function(f){return f.companyName===selectedCompany.name&&f.status==='在職';}), co=selectedCompany;
+  var fgs=foreigners.filter(function(f){return resolveCompanyName(f.companyName)===selectedCompany.name&&f.status==='在職';}), co=selectedCompany;
   var html='<div class="table-wrapper"><div class="table-header"><span class="table-title">給与データ入力 — '+esc(co.name)+'</span><span class="table-count">'+fgs.length+'名</span></div><div style="padding:16px">';
   if (!fgs.length) { html+='<div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">在職中の外国人がいません</div></div>'; }
   else {
@@ -1851,7 +1894,7 @@ async function saveSalary(nameEn,coName) {
 }
 function selectCalcCompany(name) {
   var co=companies.find(c=>c.name===name); if(!co) return;
-  var fgs=foreigners.filter(f=>f.companyName===name);
+  var fgs=foreigners.filter(f=>resolveCompanyName(f.companyName)===name);
   var count1=fgs.filter(f=>f.residenceStatus==='特定技能1号').length;
   var count2=fgs.filter(f=>f.residenceStatus==='特定技能2号').length;
   var sals=salaryData.filter(s=>s.companyName===name);
@@ -2186,9 +2229,9 @@ function getMissingItems(co) {
   }
 
   // 給与データ（外国人がいる企業のみ）
-  var hasFg = foreigners.some(function(f){ return f.companyName === co.name && f.status === '在職'; });
+  var hasFg = foreigners.some(function(f){ return resolveCompanyName(f.companyName) === co.name && f.status === '在職'; });
   if (hasFg) {
-    var hasSal = salaryData.some(function(s){ return s.companyName === co.name && s.totalPay; });
+    var hasSal = salaryData.some(function(s){ return resolveCompanyName(s.companyName) === co.name && s.totalPay; });
     if (!hasSal) missing.push({key:'salary', label:'給与データ', level:'warn'});
     if (!co.doc_kyuyo || (co.doc_kyuyo !== '確認OK' && co.doc_kyuyo !== '受領済'))
       missing.push({key:'kyuyo', label:'賃金台帳(本人)', level:'warn'});
