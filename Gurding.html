@@ -447,6 +447,13 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
             <span class="filter-count" id="caseCount">—件</span>
           </div>
         </div>
+        <!-- 分野未入力 一括通知バナー -->
+        <div id="noFieldBulkBanner" style="display:none;padding:0 24px 12px;">
+          <div style="background:#ecfeff;border:2px solid #0891b2;border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <span style="font-size:13px;font-weight:700;color:#0891b2;" id="noFieldBulkLabel">🏷️ 分野未入力</span>
+            <button id="noFieldBulkBtn" onclick="showNoFieldBulkModal()" style="background:#0891b2;color:white;border:none;border-radius:8px;padding:7px 16px;font-size:13px;font-weight:700;cursor:pointer;">📱 一括通知文を生成</button>
+          </div>
+        </div>
         <div class="table-section" style="padding-top:0;">
           <div class="table-wrap">
             <table>
@@ -1995,6 +2002,24 @@ function renderCases(){
     });
   }
   setTxt('caseCount', items.length+'件');
+
+  // ── 分野未入力 一括通知バナー制御 ──
+  var banner = document.getElementById('noFieldBulkBanner');
+  if(banner){
+    if(_caseNoFieldFilter && (sf || tm)){
+      // 絞り込みあり → バナー表示
+      var labelEl = document.getElementById('noFieldBulkLabel');
+      if(sf && sf!=='__empty__'){
+        labelEl.textContent = '🏷️ 担当「' + sf + '」の分野未入力 ' + items.length + '件';
+      } else if(tm){
+        labelEl.textContent = '🏷️ チーム「' + tm + '」の分野未入力 ' + items.length + '件';
+      }
+      banner.style.display = '';
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+
   var tbody = document.getElementById('caseBody');
   if(!items.length){ tbody.innerHTML='<tr><td colspan="11" class="empty">該当案件なし</td></tr>'; return; }
   tbody.innerHTML = items.map(function(c){
@@ -2040,7 +2065,9 @@ function renderCases(){
         : isOnlyDriveAlert
           ? '<button onclick="showLineModal(\''+esc(c.staff||'')+'\',\'drive\',event)" style="font-size:11px;padding:4px 8px;background:#d97706;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">📱 LINE通知文</button>'
           : (!c.applicant_field && !isExcluded(c.status))
-            ? '<button onclick="showLineModal(\''+esc(c.staff||'')+'\',\'nofield\',event)" style="font-size:11px;padding:4px 8px;background:#0891b2;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">📱 分野未入力通知</button>'
+            ? (_caseNoFieldFilter && (sf || tm))
+              ? '' // 絞り込みあり → バナーで一括通知するので行ボタン非表示
+              : '<button onclick="showLineModal(\''+esc(c.staff||'')+'\',\'nofield\',event)" style="font-size:11px;padding:4px 8px;background:#0891b2;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">📱 分野未入力通知</button>'
             : '';
     return '<tr'+rowStyle+'>'
       +'<td><div class="td-name">'+esc(c.name||'—')+'</div><div class="td-sub">'+esc(c.applicant||'')+'</div></td>'
@@ -2431,6 +2458,16 @@ function typeBadge(t){
   var cls = t==='認定'?'type-new':t==='更新'?'type-renew':t==='変更'?'type-change':'type-new';
   return '<span class="type-badge '+cls+'">'+esc(t)+'</span>';
 }
+function showNoFieldBulkModal(){
+  var sf = document.getElementById('caseStaff').value||'';
+  var tm = document.getElementById('caseTeam').value||'';
+  if(sf && sf!=='__empty__'){
+    showLineModal(sf, 'nofield', null);
+  } else if(tm){
+    showLineModal('__team__:'+tm, 'nofield', null);
+  }
+}
+
 function showLineModal(staff, type, event){
   if(event) event.stopPropagation();
   var targets, subject, detail;
@@ -2447,11 +2484,21 @@ function showLineModal(staff, type, event){
     subject = 'ドライブURLが未入力';
     detail  = 'ドライブフォルダURLの入力をお願いします。';
   } else if(type==='nofield'){
-    targets = DATA.cases.filter(function(c){
-      return !c.applicant_field && !isExcluded(c.status) && c.staff===staff;
-    });
-    subject = '分野（申請人フィールド）が未入力';
-    detail  = '案件管理システムで分野の入力をお願いします。';
+    // staffは担当名 or '__team__:チーム名' の形式
+    if(staff.startsWith('__team__:')){
+      var teamName = staff.slice(9);
+      targets = DATA.cases.filter(function(c){
+        return !c.applicant_field && !isExcluded(c.status) && c.team===teamName;
+      });
+      subject = '分野（申請人フィールド）が未入力';
+      detail  = '案件管理システムで分野の入力をお願いします。';
+    } else {
+      targets = DATA.cases.filter(function(c){
+        return !c.applicant_field && !isExcluded(c.status) && c.staff===staff;
+      });
+      subject = '分野（申請人フィールド）が未入力';
+      detail  = '案件管理システムで分野の入力をお願いします。';
+    }
   } else { // both
     targets = DATA.cases.filter(function(c){
       return (c.app_type==='更新'||c.app_type==='変更') && !c.expire && !isExcluded(c.status) && !hasDrive(c.id) && c.staff===staff;
@@ -2461,9 +2508,11 @@ function showLineModal(staff, type, event){
   }
   var today = new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
   var lines = [];
-  lines.push('@' + staff);
+  var notifyTarget = (type==='nofield' && staff.startsWith('__team__:')) ? staff.slice(9)+'チーム' : staff;
+  var atTarget = (type==='nofield' && staff.startsWith('__team__:')) ? staff.slice(9)+' チーム' : notifyTarget;
+  lines.push('@' + atTarget);
   lines.push('');
-  lines.push(staff + ' さん');
+  lines.push(atTarget + 'の皆さん');
   lines.push('');
   lines.push('お疲れ様です。');
   lines.push('以下の案件で' + subject + 'になっています。');
@@ -2472,13 +2521,17 @@ function showLineModal(staff, type, event){
   targets.forEach(function(c, i){
     lines.push((i+1) + '. ' + (c.name||'—'));
     if(c.applicant) lines.push('   氏名: ' + c.applicant);
+    // チーム宛ての場合は担当者名も表示
+    if(type==='nofield' && staff.startsWith('__team__:') && c.staff) lines.push('   担当: ' + c.staff);
     lines.push('');
   });
   lines.push('よろしくお願いいたします。');
   lines.push('');
   lines.push('対応期限：' + today);
   var typeLabel = type==='expire' ? '在留期限未入力' : type==='drive' ? 'ドライブ未設定' : type==='nofield' ? '分野未入力' : '在留期限＋ドライブ両方未入力';
-  document.getElementById('lineModalMeta').textContent = staff + ' 担当 ／ ' + typeLabel + ' ' + targets.length + '件（' + today + '）';
+  // チーム宛ての場合はモーダルメタ情報を調整
+  var metaStaff = (type==='nofield' && staff.startsWith('__team__:')) ? 'チーム: '+staff.slice(9) : staff;
+  document.getElementById('lineModalMeta').textContent = metaStaff + ' 担当 ／ ' + typeLabel + ' ' + targets.length + '件（' + today + '）';
   document.getElementById('lineModalText').value = lines.join('\n');
   var modal = document.getElementById('lineModal');
   modal.style.display = 'flex';
