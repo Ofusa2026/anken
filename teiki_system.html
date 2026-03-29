@@ -515,7 +515,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
           <table>
             <thead><tr>
               <th>所属機関</th><th>氏名（英字）</th><th>国籍</th><th>在留資格</th>
-              <th>在留カードNo.</th><th>生年月日</th><th>在留期限</th><th>5年満了日</th><th>在職</th><th>操作</th>
+              <th>在留カードNo.</th><th>生年月日</th><th>在留期限</th><th>雇用開始日</th><th>雇用終了日</th><th>在職</th><th>操作</th>
             </tr></thead>
             <tbody id="fg-table-body">
               <tr><td colspan="9"><div class="empty-state"><div class="spinner"></div></div></td></tr>
@@ -1471,6 +1471,7 @@ var kijun1 = false, kijun2 = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
+  console.log('%c定期届出管理システム v2026.03.29%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -1562,6 +1563,7 @@ async function loadAllData() {
     });
     if (fixCount > 0) { saveLocalCache(); }
     setApiStatus(true); renderAll();
+    console.log('✅ データ取得完了 companies:'+companies.length+' foreigners:'+foreigners.length+' salary:'+salaryData.length);
     showToast('データ取得完了（'+companies.length+'社・'+foreigners.length+'名）'+(fixCount?'　会社名表記ゆれ'+fixCount+'件を自動修正':''),'success');
   } catch(e) { setApiStatus(false); showToast('取得失敗: '+e.message,'error'); loadLocalCache(); }
 }
@@ -1595,7 +1597,13 @@ function calcDeadline() {
 }
 function updateBadges() {
   document.getElementById('badge-companies').textContent=companies.length;
-  document.getElementById('badge-foreigners').textContent=foreigners.filter(f=>f.status==='在職').length;
+  // statusを正規化してカウント（isActive/isRetiredも考慮）
+  var activeCount = foreigners.filter(function(f){
+    if(f.status==='在職') return true;
+    if(f.isActive && String(f.isActive).trim().match(/[〇○◯]/)) return true;
+    return false;
+  }).length;
+  document.getElementById('badge-foreigners').textContent = activeCount;
 }
 function renderDashStats() {
   var t=companies.length, d=companies.filter(c=>c.status==='完了').length;
@@ -1651,13 +1659,19 @@ function renderCompanyTable() {
 function renderForeignerTable() {
   var q=(document.getElementById('fg-search').value||'').toLowerCase();
   var sf=document.getElementById('fg-status-filter').value, zf=document.getElementById('fg-zairyu-filter').value;
-  var list=foreigners.filter(f=>(!sf||f.status===sf)&&(!zf||f.residenceStatus===zf)&&(!q||[(f.nameEn||''),(f.companyName||'')].some(s=>s.toLowerCase().includes(q))));
-  if (!list.length) { document.getElementById('fg-table-body').innerHTML='<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
+  // statusを正規化してフィルター
+  function normStatus(f){
+    if(f.status) return f.status;
+    if(f.isActive && String(f.isActive).trim().match(/[〇○◯]/)) return '在職';
+    if(f.isRetired && String(f.isRetired).trim().match(/[〇○◯]/)) return '退職';
+    return '';
+  }
+  var list=foreigners.filter(function(f){
+    return (!sf||normStatus(f)===sf)&&(!zf||f.residenceStatus===zf)&&(!q||[(f.nameEn||''),(f.companyName||'')].some(function(s){return s.toLowerCase().includes(q);}));
+  });
+  if (!list.length) { document.getElementById('fg-table-body').innerHTML='<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
   document.getElementById('fg-table-body').innerHTML=list.map(function(f){
-    // statusを正規化（〇→在職 など）
-    var statusNorm = f.status;
-    if(f.isActive && String(f.isActive).trim().match(/[〇○◯]/)) statusNorm='在職';
-    else if(f.isRetired && String(f.isRetired).trim().match(/[〇○◯]/)) statusNorm='退職';
+    var statusNorm = normStatus(f);
     var statusBadge = statusNorm==='在職'?'badge-green':statusNorm==='退職'?'badge-red':'badge-gray';
     return '<tr>'+
       '<td style="font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(f.companyName||'—')+'</td>'+
@@ -1667,7 +1681,8 @@ function renderForeignerTable() {
       '<td style="font-family:\'DM Mono\',monospace;font-size:11px;white-space:nowrap">'+esc(f.residenceCard||'—')+'</td>'+
       '<td style="font-size:11px;white-space:nowrap">'+fmtDate(f.birthDate)+'</td>'+
       '<td style="font-size:11px;white-space:nowrap">'+fmtDate(f.residenceExpiry)+'</td>'+
-      '<td style="font-size:11px;white-space:nowrap">'+fmtDate(f.fiveYearExpiry)+'</td>'+
+      '<td style="font-size:11px;white-space:nowrap">'+fmtDate(f.contractStart)+'</td>'+
+      '<td style="font-size:11px;white-space:nowrap;color:'+(f.contractEnd?'var(--red)':'var(--text2)')+'">'+fmtDate(f.contractEnd)+'</td>'+
       '<td><span class="badge '+statusBadge+'">'+esc(statusNorm||'—')+'</span></td>'+
       '<td><button class="btn btn-secondary btn-sm" onclick="editForeigner(\''+esc(f.nameEn)+'\',\''+esc(f.companyName)+'\')">編集</button></td></tr>';
   }).join('');
