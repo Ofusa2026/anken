@@ -1193,6 +1193,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <button onclick="listSelectAll('rec')" style="font-size:11px;padding:3px 10px;background:white;border:1px solid #93c5fd;border-radius:6px;cursor:pointer;">☑全選択</button>
       <button onclick="listDeselectAll('rec')" style="font-size:11px;padding:3px 10px;background:white;border:1px solid #e2e8f0;border-radius:6px;cursor:pointer;">☐全解除</button>
       <span id="recSelCount" style="font-size:11px;color:#2563eb;font-weight:600;">0件</span>
+      <button onclick="listBulkReported('rec',true)" style="font-size:11px;padding:3px 10px;background:#d1fae5;color:#059669;border:1px solid #6ee7b7;border-radius:6px;cursor:pointer;font-weight:600;">✅ 一括対応済み</button>
+      <button onclick="listBulkReported('rec',false)" style="font-size:11px;padding:3px 10px;background:#fef9c3;color:#92400e;border:1px solid #fde68a;border-radius:6px;cursor:pointer;font-weight:600;">⏳ 一括未対応</button>
       <button onclick="listBulkDelete('rec')" style="font-size:11px;padding:3px 10px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;cursor:pointer;font-weight:600;">🗑 一括削除</button>
     </div>
   </div>
@@ -1229,6 +1231,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <button onclick="listSelectAll('shinsa')" style="font-size:11px;padding:3px 10px;background:white;border:1px solid #86efac;border-radius:6px;cursor:pointer;">☑全選択</button>
       <button onclick="listDeselectAll('shinsa')" style="font-size:11px;padding:3px 10px;background:white;border:1px solid #e2e8f0;border-radius:6px;cursor:pointer;">☐全解除</button>
       <span id="shinsaSelCount" style="font-size:11px;color:#16a34a;font-weight:600;">0件</span>
+      <button onclick="listBulkReported('shinsa',true)" style="font-size:11px;padding:3px 10px;background:#d1fae5;color:#059669;border:1px solid #6ee7b7;border-radius:6px;cursor:pointer;font-weight:600;">✅ 一括対応済み</button>
+      <button onclick="listBulkReported('shinsa',false)" style="font-size:11px;padding:3px 10px;background:#fef9c3;color:#92400e;border:1px solid #fde68a;border-radius:6px;cursor:pointer;font-weight:600;">⏳ 一括未対応</button>
       <button onclick="listBulkDelete('shinsa')" style="font-size:11px;padding:3px 10px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;cursor:pointer;font-weight:600;">🗑 一括削除</button>
     </div>
   </div>
@@ -1265,6 +1269,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <button onclick="listSelectAll('cert')" style="font-size:11px;padding:3px 10px;background:white;border:1px solid #fcd34d;border-radius:6px;cursor:pointer;">☑全選択</button>
       <button onclick="listDeselectAll('cert')" style="font-size:11px;padding:3px 10px;background:white;border:1px solid #e2e8f0;border-radius:6px;cursor:pointer;">☐全解除</button>
       <span id="certSelCount" style="font-size:11px;color:#d97706;font-weight:600;">0件</span>
+      <button onclick="listBulkReported('cert',true)" style="font-size:11px;padding:3px 10px;background:#d1fae5;color:#059669;border:1px solid #6ee7b7;border-radius:6px;cursor:pointer;font-weight:600;">✅ 一括対応済み</button>
+      <button onclick="listBulkReported('cert',false)" style="font-size:11px;padding:3px 10px;background:#fef9c3;color:#92400e;border:1px solid #fde68a;border-radius:6px;cursor:pointer;font-weight:600;">⏳ 一括未対応</button>
       <button onclick="listBulkDelete('cert')" style="font-size:11px;padding:3px 10px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;cursor:pointer;font-weight:600;">🗑 一括削除</button>
     </div>
   </div>
@@ -26086,6 +26092,21 @@ function updateListSelBar(type){
   if(bar) bar.style.display=n>0?'block':'none';
   if(cnt) cnt.textContent=n+'件選択中';
 }
+function listBulkReported(type, flag){
+  var cfg=getListConfig(type);
+  var ids=Object.keys(cfg.sel);
+  if(!ids.length){alert('項目を選択してください');return;}
+  cfg.data.forEach(function(d){
+    if(cfg.sel[d.id]){
+      d.reported=flag;
+      d.reportedAt=flag?new Date().toISOString():null;
+      cfg.persist(d.id);
+    }
+  });
+  cfg.sel={};
+  cfg.render();
+  showToast((flag?'✅ '+ids.length+'件を対応済みにしました':'⏳ '+ids.length+'件を未対応にしました'));
+}
 function listBulkDelete(type){
   var cfg=getListConfig(type);
   var n=Object.keys(cfg.sel).length;
@@ -26704,15 +26725,22 @@ function renderCertList(){
   var fOrg=((document.getElementById('certFilterOrg')||{}).value||'');
   var data=certListData.filter(function(d){
     if(q && (d.name||'').toLowerCase().indexOf(q)===-1&&(d.caseNo||'').toLowerCase().indexOf(q)===-1&&(d.org||'').toLowerCase().indexOf(q)===-1) return false;
+    // caseId未紐づけは除外
+    if(!d.caseId) return false;
     var _lc=_getLinkedCase(d);
+    // caseIdはあるが案件が見つからない場合も除外
+    if(!_lc) return false;
     if(fStaff||fOrg){
       var staff=_lc?(_lc.staff||''):'';
       var org=_lc?(_lc.org||''):(d.org||'');
       if(fStaff && staff!==fStaff) return false;
       if(fOrg && org.indexOf(fOrg)===-1) return false;
     }
-    // caseId紐づき済みで、かつ案件のreceiptNo（申請受付番号）が空のものは除外
-    if(_lc && !(_lc.receiptNo||'').trim()) return false;
+    // 案件のreceiptNo（申請受付番号）が空のものは除外
+    if(!(_lc.receiptNo||'').trim()) return false;
+    // ステータスが完了・審査完了のものは除外
+    var _st = (_lc.status||'');
+    if(_st === '完了' || _st === '審査完了') return false;
     return true;
   }).sort(function(a,b){
     if(sort==='date') return (b.date||'').localeCompare(a.date||'');
