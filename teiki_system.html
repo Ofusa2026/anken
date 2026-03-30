@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.31</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.33</div>
   </div>
 
   <div class="nav-section">
@@ -1571,7 +1571,7 @@ var kijun1 = false, kijun2 = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.31%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.33%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -1797,10 +1797,14 @@ function renderForeignerTable() {
   document.getElementById('fg-table-body').innerHTML=list.map(function(f){
     var statusNorm = normStatus(f);
     var statusBadge = statusNorm==='在職'?'badge-green':statusNorm==='退職'?'badge-red':'badge-gray';
-    // 届出対象判定: 雇用開始日が2025-04-01〜2026-03-31の間（空欄は対象とみなす）
-    var cs = f.contractStart ? new Date(f.contractStart) : null;
+    // 届出対象判定: 対象期間（2025/04/01〜2026/03/31）に1日でも在籍していた人
+    // ・雇用開始日が期間終了日以前 かつ 雇用終了日が期間開始日以降（または在職中）
     var TARGET_FROM = new Date('2025-04-01'), TARGET_TO = new Date('2026-03-31');
-    var isTarget = !cs || (cs >= TARGET_FROM && cs <= TARGET_TO);
+    var cs = f.contractStart ? new Date(normDate(f.contractStart)) : null;
+    var ce = f.contractEnd   ? new Date(normDate(f.contractEnd))   : null;
+    var startOk = !cs || cs <= TARGET_TO;   // 開始日が期間終了以前（または未記入）
+    var endOk   = !ce || ce >= TARGET_FROM; // 終了日が期間開始以降（または在職中）
+    var isTarget = startOk && endOk;
     var rowStyle = isTarget ? '' : 'opacity:.4;background:var(--bg3)';
     if (window._fgTargetOnly && !isTarget) return '';
     return '<tr style="'+rowStyle+';cursor:pointer" onclick="editForeigner(\''+esc(f.nameEn)+'\',\''+esc(f.companyName)+'\')">'+
@@ -2552,8 +2556,11 @@ function editForeigner(nameEn,coName){
   var f=foreigners.find(x=>x.nameEn===nameEn&&x.companyName===coName); if(!f) return;
   editingForeignerId={nameEn,coName};
   document.getElementById('fg-modal-title').textContent='外国人 編集';
+  var DATE_FIELDS=['birthDate','residenceExpiry','contractStart','contractEnd','fiveYearExpiry'];
   ['fg-company:companyName','fg-name-en:nameEn','fg-nationality:nationality','fg-card:residenceCard','fg-birth:birthDate','fg-expiry:residenceExpiry','fg-start:contractStart','fg-end:contractEnd','fg-five-year:fiveYearExpiry','fg-memo:memo'].forEach(function(p){
-    var [id,k]=p.split(':'); var el=document.getElementById(id); if(el) el.value=f[k]||'';
+    var [id,k]=p.split(':'); var el=document.getElementById(id); if(!el) return;
+    if(DATE_FIELDS.indexOf(k)>=0) el.value=fmtDate(f[k])||'';
+    else el.value=f[k]||'';
   });
   document.getElementById('fg-zairyu').value=f.residenceStatus||'特定技能1号';
   document.getElementById('fg-gender').value=f.gender||'男';
@@ -2566,9 +2573,9 @@ async function saveForeigner(){
   var data={action:'upsertForeigner',companyName:coName,nameEn,
     nationality:document.getElementById('fg-nationality').value,residenceStatus:document.getElementById('fg-zairyu').value,
     gender:document.getElementById('fg-gender').value,residenceCard:document.getElementById('fg-card').value,
-    birthDate:document.getElementById('fg-birth').value,residenceExpiry:document.getElementById('fg-expiry').value,
-    contractStart:document.getElementById('fg-start').value,
-    contractEnd:document.getElementById('fg-end').value,fiveYearExpiry:document.getElementById('fg-five-year').value,
+    birthDate:normDate(document.getElementById('fg-birth').value),residenceExpiry:normDate(document.getElementById('fg-expiry').value),
+    contractStart:normDate(document.getElementById('fg-start').value),
+    contractEnd:normDate(document.getElementById('fg-end').value),fiveYearExpiry:normDate(document.getElementById('fg-five-year').value),
     status:document.getElementById('fg-status').value,
     memo:document.getElementById('fg-memo').value};
   var idx=foreigners.findIndex(f=>f.nameEn===nameEn&&f.companyName===coName);
@@ -2643,6 +2650,20 @@ function calcKijunResultRaw(k1,k2,k3,k6a,k6b){
 }
 function calcKijunResult(co){return calcKijunResultRaw(co.kijun_1==='✓',co.kijun_2==='✓',co.kijun_3_type||'なし',co.kijun_6a==='✓',co.kijun_6b==='✓');}
 function calcKijunResultFromData(d){return calcKijunResultRaw(d.kijun_1==='✓',d.kijun_2==='✓',d.kijun_3_type,d.kijun_6a==='✓',d.kijun_6b==='✓');}
+// 「2020年1月1日」「2020/1/1」「Mon May 02 2022...」→「2020/01/01」に正規化
+function normDate(s){
+  if(!s||s===''||s===null||s===undefined) return '';
+  var str=String(s).trim();
+  // 「YYYY年M月D日」形式
+  var m=str.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
+  if(m) return m[1]+'/'+('0'+m[2]).slice(-2)+'/'+('0'+m[3]).slice(-2);
+  // 「YYYY/MM/DD」「YYYY-MM-DD」形式
+  var m2=str.match(/(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if(m2) return m2[1]+'/'+('0'+m2[2]).slice(-2)+'/'+('0'+m2[3]).slice(-2);
+  // 「Mon May 02 2022...」Date文字列
+  try{var d=new Date(str);if(!isNaN(d.getTime()))return d.getFullYear()+'/'+('0'+(d.getMonth()+1)).slice(-2)+'/'+('0'+d.getDate()).slice(-2);}catch(e){}
+  return str;
+}
 function fmtDate(s){
   if(!s||s==='—'||s===''||s===null||s===undefined) return '—';
   var str = String(s);
