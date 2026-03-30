@@ -26457,7 +26457,14 @@ function renderListItems(type, data, borderColor){
     }
     h+='<span style="font-weight:700;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(d.name||'')+'</span>';
     h+='</div>';
-    h+='<span style="color:var(--gray-400);width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;">'+(d.caseNo||'—')+'</span>';
+    // 申請受付番号：案件紐づきあればreceiptNo、なければd.caseNo
+    var _dispCaseNo = linkedCase ? (linkedCase.receiptNo||d.caseNo||'') : (d.caseNo||'');
+    // 担当者・支援機関：案件紐づきがあればそちらを優先
+    var _dispStaff = linkedCase ? (linkedCase.staff||'') : '';
+    var _dispOrg = linkedCase ? (linkedCase.org||linkedCase.company||d.org||'') : (d.org||'');
+    h+='<span style="color:var(--gray-400);width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;">'+(_dispCaseNo||'—')+'</span>';
+    // 担当者バッジ
+    if(_dispStaff) h+='<span style="flex-shrink:0;font-size:9px;color:#6366f1;background:#eef2ff;border:1px solid #c7d2fe;border-radius:4px;padding:2px 6px;white-space:nowrap;">👤 '+esc(_dispStaff)+'</span>';
     // ステータスバッジ（rec のみ）
     if(type==='rec' && linkedCase){
       var _st=linkedCase.status||'';
@@ -26465,7 +26472,7 @@ function renderListItems(type, data, borderColor){
       var _sc=_stColors[_st]?_stColors[_st].split(':'):['#f1f5f9','#64748b'];
       h+='<span style="flex-shrink:0;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;white-space:nowrap;background:'+_sc[0]+';color:'+_sc[1]+';border:1px solid '+_sc[1]+'33;">'+esc(_st)+'</span>';
     }
-    h+='<span style="color:var(--gray-400);width:100px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;">'+(d.org||'—')+'</span>';
+    h+='<span style="color:var(--gray-400);width:100px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;">'+(_dispOrg||'—')+'</span>';
     // 右側：紐づけボタン類
     if(type==='rec'||type==='shinsa'||type==='cert'){
       if(linkedCase){
@@ -26632,16 +26639,15 @@ function renderShinsaList(){
   var fOrg=((document.getElementById('shinsaFilterOrg')||{}).value||'');
   var data=shinsaListData.filter(function(d){
     if(q && (d.name||'').toLowerCase().indexOf(q)===-1&&(d.caseNo||'').toLowerCase().indexOf(q)===-1&&(d.org||'').toLowerCase().indexOf(q)===-1) return false;
+    var _lc=_getLinkedCase(d);
     if(fStaff||fOrg){
-      var lc=_getLinkedCase(d);
-      var staff=lc?(lc.staff||''):'';
-      var org=lc?(lc.org||''):(d.org||'');
+      var staff=_lc?(_lc.staff||''):'';
+      var org=_lc?(_lc.org||''):(d.org||'');
       if(fStaff && staff!==fStaff) return false;
       if(fOrg && org.indexOf(fOrg)===-1) return false;
     }
-    // caseId紐づき済みで申請受付番号(_caseNo)が空の案件は除外
-    var _lc=_getLinkedCase(d);
-    if(_lc && !(_lc._caseNo||'').trim()) return false;
+    // caseId紐づき済みで、かつ案件のreceiptNo（申請受付番号）が空のものは除外
+    if(_lc && !(_lc.receiptNo||'').trim()) return false;
     return true;
   }).sort(function(a,b){
     if(sort==='date') return (b.date||'').localeCompare(a.date||'');
