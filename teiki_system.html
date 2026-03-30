@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.59</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.60</div>
   </div>
 
   <div class="nav-section">
@@ -1585,11 +1585,11 @@ var ORG_NAME = localStorage.getItem('org_name') || '株式会社ＫＭＴ';
 var companies = [], foreigners = [], salaryData = [];
 var selectedCompany = null, editingCompanyId = null, editingForeignerId = null;
 var importRows = [], fgImportRows = [];
-var kijun1 = false, kijun2 = false;
+var kijun1 = false, kijun2 = false, kijun_exp_auto = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.59%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.60%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -2544,7 +2544,19 @@ function editCompany(name){
   document.getElementById('support-other-wrap').style.display=hasOtherSupport?'block':'none';
   (co.has_non_exec_officer==='✓'?document.getElementById('non-exec-yes'):document.getElementById('non-exec-no')).checked=true;
   var expEl=document.getElementById('kijun-exp-check');
-  if(expEl) expEl.className='kijun-check'+(co.kijun_exp==='✓'?' checked':'');
+  if(expEl) {
+    // foreignersデータから3年以上雇用実績を自動判定（2023/04/01より前から在籍）
+    var THREE_YEAR_BASE2 = new Date('2023-04-01');
+    var autoHas3yr = foreigners.some(function(f){
+      if(resolveCompanyName(f.companyName) !== co.name) return false;
+      var cs3 = f.contractStart ? new Date(normDate(f.contractStart)) : null;
+      var ce3 = f.contractEnd   ? new Date(normDate(f.contractEnd))   : null;
+      return cs3 && cs3 < THREE_YEAR_BASE2 && (!ce3 || ce3 >= THREE_YEAR_BASE2);
+    });
+    var expChecked = autoHas3yr || co.kijun_exp === '✓';
+    expEl.className = 'kijun-check' + (expChecked ? ' kijun-checked' : '');
+    kijun_exp_auto = expChecked;
+  }
   var sjEl=document.getElementById('co-support-jokyo'); if(sjEl) sjEl.value=co.supportJokyo||'全部委託';
   // 案内文タブ：kijun_resultからパターンを自動設定
   var kr = co.kijun_result || calcKijunResult(co);
@@ -2563,7 +2575,7 @@ async function saveCompany(){
   var data={action:'upsertReport',companyName:name,fiscalYear:document.getElementById('co-fiscal-year').value,status:document.getElementById('co-status').value,
     kijun_1:kijun1?'✓':'✗',kijun_2:kijun2?'✓':'✗',kijun_3_type:(document.querySelector('input[name=kijun3]:checked')||{value:'なし'}).value,
     kijun_6a:document.getElementById('kijun6a').checked?'✓':'✗',kijun_6b:document.getElementById('kijun6b').checked?'✓':'✗',
-    kijun_exp:document.getElementById('kijun-exp-check')&&document.getElementById('kijun-exp-check').classList.contains('checked')?'✓':'✗',
+    kijun_exp:(document.getElementById('kijun-exp-check')&&(document.getElementById('kijun-exp-check').classList.contains('kijun-checked')||document.getElementById('kijun-exp-check').classList.contains('checked')))?'✓':'✗',
     loginId1:document.getElementById('co-login-id1').value,loginId2:document.getElementById('co-login-id2').value,
     password:document.getElementById('co-password').value,pwUpdated:document.getElementById('co-pw-updated').value,
     support_org_type:document.getElementById('co-support-type').value,support_org_other:document.getElementById('co-support-other').value,
