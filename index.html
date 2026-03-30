@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260330_7 -->
+<!-- OFUSA_VERSION 20260330_9 -->
 <!-- OFUSA v20 - 2026-03-29 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -610,7 +610,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260330.7</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260330.9</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -970,13 +970,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <option>坂齊チーム</option>
       </select>
       <span class="filter-label">申請種別</span>
-      <select class="filter-select" id="fType" onchange="applyFilters(true)" data-tip-target="tip-filter-team">
-        <option>全種別</option>
-        <option>認定</option>
-        <option>更新</option>
-        <option>変更</option>
-        <option>申請済</option>
-      </select>
+      <div style="position:relative;display:inline-block;" id="fTypeWrap">
+        <button id="fTypeBtn" onclick="toggleTypeDropdown()" class="filter-select" style="cursor:pointer;min-width:80px;text-align:left;background:white;" data-tip-target="tip-filter-team">全種別 ▾</button>
+        <div id="fTypeDropdown" style="display:none;position:absolute;top:100%;left:0;background:white;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.12);z-index:200;padding:8px;min-width:100px;">
+          <label style="display:flex;align-items:center;gap:6px;padding:4px 6px;cursor:pointer;font-size:12px;white-space:nowrap;"><input type="checkbox" id="fType_nintei" onchange="applyTypeFilter()"> 認定</label>
+          <label style="display:flex;align-items:center;gap:6px;padding:4px 6px;cursor:pointer;font-size:12px;white-space:nowrap;"><input type="checkbox" id="fType_koshin" onchange="applyTypeFilter()"> 更新</label>
+          <label style="display:flex;align-items:center;gap:6px;padding:4px 6px;cursor:pointer;font-size:12px;white-space:nowrap;"><input type="checkbox" id="fType_henkou" onchange="applyTypeFilter()"> 変更</label>
+          <label style="display:flex;align-items:center;gap:6px;padding:4px 6px;cursor:pointer;font-size:12px;white-space:nowrap;"><input type="checkbox" id="fType_shinsei" onchange="applyTypeFilter()"> 申請済</label>
+          <label style="display:flex;align-items:center;gap:6px;padding:4px 6px;cursor:pointer;font-size:12px;white-space:nowrap;"><input type="checkbox" id="fType_empty" onchange="applyTypeFilter()"> 未入力</label>
+        </div>
+      </div>
       <span class="filter-label">ステータス</span>
       <select class="filter-select" id="fStatus" onchange="applyFilters(true)" data-tip-target="tip-filter-team">
         <option>全ステータス</option>
@@ -2222,7 +2225,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260330.7';
+var OFUSA_VERSION = 'ver.20260330.9';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -19021,10 +19024,15 @@ function kanbanUpdateStatus(caseId, newStatus) {
   });
 }
 // ===== /\u30ab\u30f3\u30d0\u30f3\u30d3\u30e5\u30fc =====
+function toggleTypeDropdown(){var d=document.getElementById('fTypeDropdown');if(!d)return;var open=d.style.display==='none';d.style.display=open?'block':'none';if(open){setTimeout(function(){document.addEventListener('click',function h(e){if(!document.getElementById('fTypeWrap').contains(e.target)){d.style.display='none';document.removeEventListener('click',h);}});},0);}}
+function applyTypeFilter(){var keys=['nintei','koshin','henkou','shinsei','empty'];var labels={nintei:'認定',koshin:'更新',henkou:'変更',shinsei:'申請済',empty:'未入力'};var checked=keys.filter(function(k){var el=document.getElementById('fType_'+k);return el&&el.checked;});var btn=document.getElementById('fTypeBtn');if(btn)btn.textContent=(checked.length===0||checked.length===5)?'全種別 ▾':checked.map(function(k){return labels[k];}).join('・')+' ▾';applyFilters(true);}
 function applyFilters(resetPage) {
   if (resetPage !== false) currentPage = 1;
   var team = document.getElementById('fTeam').value;
-  var type = document.getElementById('fType').value;
+  var _fTypeChecked = ['nintei','koshin','henkou','shinsei','empty'].filter(function(k){ var el=document.getElementById('fType_'+k); return el&&el.checked; });
+  var _fTypeMap = {nintei:'認定',koshin:'更新',henkou:'変更',shinsei:'申請済'};
+  var type = _fTypeChecked.length ? _fTypeChecked.map(function(k){return _fTypeMap[k]||'';}) : null; // null=全種別
+  var _typeIncludeEmpty = _fTypeChecked.indexOf('empty') >= 0;
   var status = document.getElementById('fStatus').value;
   var staff = document.getElementById('fStaff').value;
   var org = (document.getElementById('fOrg')||{}).value||'';
@@ -19093,7 +19101,7 @@ function applyFilters(resetPage) {
     var filtered = cData.filter(function(c) {
       if (status === '全ステータス' && (c.status === '完了' || c.status === '審査完了')) return false;
       return (team === '全チーム' || c.team === team) &&
-             (type === '全種別' || c.appType === type) &&
+             (!type || (c.appType ? type.indexOf(c.appType) >= 0 : _typeIncludeEmpty)) &&
              (status === '全ステータス' || c.status === status) &&
              (staff === '全担当者' || c.staff === staff) &&
              (!org || c.org === org) &&
