@@ -1211,6 +1211,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <option value="applicant">申請者名</option>
         <option value="org">登録支援機関</option>
       </select>
+      <button id="shinsaNoReceiptBtn" onclick="toggleShinsaNoReceipt()" style="font-size:11px;padding:4px 10px;background:white;color:#dc2626;border:1.5px solid #fca5a5;border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;" title="紐づき案件に申請受付番号が未入力のものだけ表示">⚠️ 申請番号なし</button>
     </div>
   </div>
   <div style="padding:8px 16px 0;flex-shrink:0;">
@@ -26631,6 +26632,17 @@ function openShinsaList(){
   renderShinsaList();
   switchPanel('shinsaListScreen','nav-shinsaList');
 }
+var _shinsaNoReceiptOnly = false;
+function toggleShinsaNoReceipt(){
+  _shinsaNoReceiptOnly = !_shinsaNoReceiptOnly;
+  var btn = document.getElementById('shinsaNoReceiptBtn');
+  if(btn){
+    btn.style.background = _shinsaNoReceiptOnly ? '#dc2626' : 'white';
+    btn.style.color = _shinsaNoReceiptOnly ? 'white' : '#dc2626';
+    btn.style.borderColor = _shinsaNoReceiptOnly ? '#dc2626' : '#fca5a5';
+  }
+  renderShinsaList();
+}
 function renderShinsaList(){
   _populateListFilter('shinsaFilterStaff','shinsaFilterOrg',shinsaListData);
   var q=((document.getElementById('shinsaListSearch')||{}).value||'').toLowerCase();
@@ -26646,6 +26658,13 @@ function renderShinsaList(){
       if(fStaff && staff!==fStaff) return false;
       if(fOrg && org.indexOf(fOrg)===-1) return false;
     }
+    // 申請番号なしフィルター：紐づき案件のreceiptNoが空のもの
+    if(_shinsaNoReceiptOnly){
+      var lc=_getLinkedCase(d);
+      // 紐づき案件がなければ番号不明なので含める
+      // 紐づきありでreceiptNoが入っていれば除外
+      if(lc && lc.receiptNo && lc.receiptNo.trim()) return false;
+    }
     return true;
   }).sort(function(a,b){
     if(sort==='date') return (b.date||'').localeCompare(a.date||'');
@@ -26654,7 +26673,18 @@ function renderShinsaList(){
     return 0;
   });
   var el=document.getElementById('shinsaListContent');if(!el)return;
-  if(!data.length){el.innerHTML='<div style="text-align:center;padding:40px;color:var(--gray-400);">審査完了データがありません</div>';return;}
+  if(_shinsaNoReceiptOnly){
+    var noReceiptCount = shinsaListData.filter(function(d){
+      var lc=_getLinkedCase(d);
+      return !lc || !(lc.receiptNo && lc.receiptNo.trim());
+    }).length;
+    if(!data.length){
+      el.innerHTML='<div style="text-align:center;padding:40px;color:var(--gray-400);">申請番号なし対象なし</div>';
+      return;
+    }
+  } else {
+    if(!data.length){el.innerHTML='<div style="text-align:center;padding:40px;color:var(--gray-400);">審査完了データがありません</div>';return;}
+  }
   el.innerHTML=renderListItems('shinsa',data,'#16a34a');
 }
 
