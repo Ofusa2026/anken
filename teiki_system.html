@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.64</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.65</div>
   </div>
 
   <div class="nav-section">
@@ -1590,7 +1590,7 @@ var kijun1 = false, kijun2 = false, kijun_exp_auto = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.64%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.65%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -1731,13 +1731,20 @@ async function bulkUpdateKijunExp() {
     });
     var newExp = has3yr ? '✓' : '✗';
 
+    // 条件3: 3年雇用あり かつ 条件3が未設定/該当なし → ⑥継続実績に自動設定
+    var newK3 = co.kijun_3_type;
+    if (has3yr && (!newK3 || newK3 === 'なし')) {
+      newK3 = '⑥継続実績';
+    }
+
     // 変更があれば保存
-    if (co.kijun_1 === newK1 && co.kijun_2 === newK2 && co.kijun_exp === newExp) {
+    if (co.kijun_1 === newK1 && co.kijun_2 === newK2 && co.kijun_exp === newExp && co.kijun_3_type === newK3) {
       skipped++; continue;
     }
     co.kijun_1 = newK1;
     co.kijun_2 = newK2;
     co.kijun_exp = newExp;
+    co.kijun_3_type = newK3;
     co.kijun_result = calcKijunResultFromData(co);
     try {
       await gasPost({ action: 'upsertCompany', row: Object.assign({}, co) });
@@ -2575,7 +2582,18 @@ function editCompany(name){
   kijun1=co.kijun_1==='✓' || !co.kijun_1; kijun2=co.kijun_2==='✓' || !!(co.loginId1||co.loginId2);
   document.getElementById('kijun1-check').className='kijun-check'+(kijun1?' kijun-checked':'');
   document.getElementById('kijun2-check').className='kijun-check'+(kijun2?' kijun-checked':'');
-  var k3=co.kijun_3_type||'なし';
+  // 条件3: 3年雇用あり かつ 未設定/なし → ⑥継続実績を自動選択
+  var k3 = co.kijun_3_type || 'なし';
+  (function(){
+    var THREE_YEAR_BASE_K3 = new Date('2023-04-01');
+    var autoHas3yrK3 = foreigners.some(function(f){
+      if(resolveCompanyName(f.companyName) !== co.name) return false;
+      var cs3 = f.contractStart ? new Date(normDate(f.contractStart)) : null;
+      var ce3 = f.contractEnd   ? new Date(normDate(f.contractEnd))   : null;
+      return cs3 && cs3 < THREE_YEAR_BASE_K3 && (!ce3 || ce3 >= THREE_YEAR_BASE_K3);
+    });
+    if (autoHas3yrK3 && (k3 === 'なし' || !k3)) k3 = '⑥継続実績';
+  })();
   document.querySelectorAll('input[name=kijun3]').forEach(r=>r.checked=r.value===k3);
   document.getElementById('kijun6-detail').style.display=k3==='⑥継続実績'?'block':'none';
   document.getElementById('kijun6a').checked=co.kijun_6a==='✓';
