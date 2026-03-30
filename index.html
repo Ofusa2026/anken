@@ -1620,7 +1620,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <select id="gmailFilterOrg" onchange="renderMails()" style="font-size:12px;padding:4px 8px;border:1px solid var(--gray-200);border-radius:6px;max-width:120px;">
         <option value="">全支援機関</option>
       </select>
-      <button onclick="fetchGmailNow()" style="padding:6px 14px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🔄 最新取得</button>
+      <button onclick="fetchGmailNow()" style="padding:6px 14px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🔄 全件取得</button>
+      <button onclick="fetchGmailByBadge('審査完了')" style="padding:5px 10px;background:#f0fdf4;color:#16a34a;border:1px solid #86efac;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;">✅ 審査完了</button>
+      <button onclick="fetchGmailByBadge('受付番号')" style="padding:5px 10px;background:#eff6ff;color:#2563eb;border:1px solid #93c5fd;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;">📋 受付番号</button>
+      <button onclick="fetchGmailByBadge('認定証明書')" style="padding:5px 10px;background:#fffbeb;color:#d97706;border:1px solid #fcd34d;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;">📄 認定証明書</button>
       <button onclick="clearSavedMails()" style="padding:4px 10px;background:none;border:1px solid var(--gray-200);border-radius:6px;font-size:10px;color:var(--gray-400);cursor:pointer;">🗑 キャッシュクリア</button>
     </div>
   </div>
@@ -27430,6 +27433,34 @@ function fetchGmailNow() {
     } else {
       showToast('❌ GAS取得失敗: ' + (data && data.msg ? data.msg : '接続エラー'));
       if(MAILS.length) renderMails();
+    }
+  });
+}
+function fetchGmailByBadge(badge) {
+  var btnSel = 'button[onclick="fetchGmailByBadge(\'' + badge + '\')"]';
+  var btn = document.querySelector(btnSel);
+  if(btn){ btn.disabled=true; btn.textContent='取得中...'; }
+  jsonpGet(GAS_GMAIL_URL + '?action=getGmail', function(data) {
+    if(btn){
+      var labels = {'審査完了':'✅ 審査完了','受付番号':'📋 受付番号','認定証明書':'📄 認定証明書'};
+      btn.disabled=false; btn.textContent=labels[badge]||badge;
+    }
+    if (data && data.status === 'ok' && data.mails) {
+      var existIds = {};
+      MAILS.forEach(function(m){existIds[m.id]=1;});
+      try{var _mc=JSON.parse(localStorage.getItem('ofusa_movedMailIds')||'{}');Object.keys(_mc).forEach(function(k){existIds[k]=1;});}catch(e){}
+      var newCount = 0;
+      data.mails.forEach(function(m){
+        if(m.badge !== badge) return; // 指定バッジのみ
+        if(!existIds[m.id]){ MAILS.push(m); existIds[m.id]=1; newCount++; }
+      });
+      savedMails = MAILS.slice();
+      persistSavedMails();
+      renderMails();
+      if(newCount > 0) showToast('📧 '+badge+' 新着 '+newCount+'件を取得しました');
+      else showToast('📧 '+badge+' 新着なし');
+    } else {
+      showToast('❌ GAS取得失敗: ' + (data && data.msg ? data.msg : '接続エラー'));
     }
   });
 }
