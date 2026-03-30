@@ -30046,19 +30046,30 @@ function generateDocText(caseId,ruleId){
   // {docList} を置換
   text=text.replace('{docList}',additions.join('\n'));
 
+  // 人材テンプレートの場合、ヒアリングフォームURLを書類リストの下に追記
+  if(rule.category==='人材' && _formUrl){
+    var _hearingSection = '\n━━━━━━━━━━━━━━━\n📝 ヒアリングフォーム\n━━━━━━━━━━━━━━━\n以下のフォームにもご記入ください：\n' + _formUrl + '\n━━━━━━━━━━━━━━━';
+    // 末尾の連絡先ブロック前に挿入（「━━」区切りの直前）
+    var _sepIdx = text.lastIndexOf('━━━━━━━━━━━━━━━\nご不明な点');
+    if(_sepIdx !== -1){
+      text = text.slice(0, _sepIdx) + _hearingSection + '\n\n' + text.slice(_sepIdx);
+    } else {
+      text = text + '\n' + _hearingSection;
+    }
+  }
+
   // ② 年度自動更新（更新・変更の場合のみ）
+  // 6月1日以降: 新年度（例: 2026年6月〜 → 令和7年度所得・課税、令和6年分源泉）
+  // 5月31日まで: 前年度（例: 2026年1〜5月 → 令和6年度所得・課税、令和5年分源泉）
+  // 令和6年度 = 2024年の所得に基づく証明書（令和6=2024-2018=6 ✓）
+  // 計算: 6月未満 → 令和(_yr-2020)年度、6月以降 → 令和(_yr-2019)年度
   if(cas.appType && (cas.appType.indexOf('更新')!==-1 || cas.appType.indexOf('変更')!==-1)){
     var _now = new Date();
     var _yr = _now.getFullYear();
-    var _reiwa = _yr - 2018;
-    var _isAfterJune = _now.getMonth() >= 5; // 6月以降（0-indexed）
-    // 所得・課税証明書・納税証明書の年度
-    var _nendoReiwa = _isAfterJune ? _reiwa : (_reiwa - 1);
+    var _isAfterJune = (_now.getMonth() >= 5); // 0-indexed: 5=6月
+    var _nendoReiwa = _isAfterJune ? (_yr - 2019) : (_yr - 2020);
     var _nendoLabel = '令和' + _nendoReiwa + '年度';
-    // 源泉徴収票の年（暦年）
-    var _gensenNen = _isAfterJune ? (_yr - 1) : (_yr - 2);
-    var _gensenLabel = _gensenNen + '年分';
-    // テキスト内の書類名に年度を付加（未入力の場合のみ）
+    var _gensenLabel = '令和' + (_nendoReiwa - 1) + '年分';
     text = text.replace(/□ 所得・課税証明書（しょとく・かぜいしょうめいしょ）/g,
       '□ ' + _nendoLabel + '所得・課税証明書（しょとく・かぜいしょうめいしょ）');
     text = text.replace(/□ 納税証明書（のうぜいしょうめいしょ）/g,
