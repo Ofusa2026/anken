@@ -25857,18 +25857,29 @@ function renderMailItem(m){
   h += '<div style="display:flex;align-items:center;gap:10px;cursor:pointer;" onclick="toggleM(\'' + m.id + '\')">';
   h += '<div class="mail-cb">' + (sel ? '✓' : '') + '</div>';
   h += '<div style="flex:1;min-width:0;">';
-  h += '<div class="mail-subject">' + (m.name || m.sub) + '</div>';
-  h += '<div class="mail-date">' + m.date + (m.caseNo ? '　📋 ' + m.caseNo : '') + '</div>';
+  // 氏名・申請受付番号・支援機関・案件名を表示（件名は非表示）
+  var _lc = m.linkedCase ? cData.find(function(c){return c.id===m.linkedCase;}) : null;
+  var _dispOrg = _lc ? (_lc.org||_lc.company||'') : (m.org||'');
+  var _dispName = m.name || (_lc ? ((_lc.applicant||'')||'') : '') || '（氏名なし）';
+  var _dispCaseNo = m.caseNo || (_lc ? (_lc.receiptNo||'') : '');
+  var _dispCaseName = _lc ? (_lc.name||_lc.company||'') : '';
+  h += '<div class="mail-subject">';
+  if(_dispCaseName) h += '<span style="font-size:10px;color:#374151;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:3px;padding:1px 5px;margin-right:5px;">'+esc(_dispCaseName)+'</span>';
+  h += esc(_dispName);
+  if(_dispCaseNo) h += '<span style="font-size:10px;font-weight:500;color:#6b7280;margin-left:8px;">📋 ' + esc(_dispCaseNo) + '</span>';
+  h += '</div>';
+  h += '<div class="mail-date">' + m.date + (_dispOrg ? '　🏢 ' + esc(_dispOrg) : '') + '</div>';
   h += '</div>';
   h += '</div>';
   if (m.badge === '受付番号' || m.badge === '審査完了' || m.badge === '認定証明書') {
-    // 自動マッチ試行（初回のみ）
+    // 自動マッチ試行（初回のみ）- 申請受付番号の完全一致のみ（氏名のみマッチは同姓同名リスクのため廃止）
     if (!m.linkedCase && !m._autoMatched) {
       m._autoMatched = true;
-      var _mn = (m.name||'').replace(/\s+/g,'').toUpperCase();
-      var _mcn = m.caseNo||'';
-      if (_mcn) { var _mc1 = cData.find(function(c){return c.receiptNo && c.receiptNo === _mcn;}); if(_mc1){m.linkedCase=_mc1.id;m._autoType='受付番号';} }
-      if (!m.linkedCase && _mn) { var _mc2 = cData.find(function(c){var _ca=(c.applicant||'').replace(/\s+/g,'').toUpperCase();return _ca&&_ca===_mn;}); if(_mc2){m.linkedCase=_mc2.id;m._autoType='氏名';} }
+      var _mcn = (m.caseNo||'').replace(/\s+/g,'');
+      if (_mcn) {
+        var _mc1 = cData.find(function(c){return c.receiptNo && c.receiptNo.replace(/\s+/g,'') === _mcn;});
+        if(_mc1){m.linkedCase=_mc1.id;m._autoType='受付番号';}
+      }
       if (m.linkedCase) persistSavedMails();
     }
     if (m.linkedCase) {
@@ -27522,6 +27533,9 @@ function openGmail() {
 }
 
 function fetchGmailNow() {
+  // nameが空のメールが多い場合はキャッシュが古い可能性
+  var _emptyNameCount = MAILS.filter(function(m){return !m.name;}).length;
+  if(_emptyNameCount > 0) showToast('⚠️ 氏名が取得できていないメールが'+_emptyNameCount+'件あります。キャッシュクリア→全件取得を推奨します');
   var btn = document.querySelector('button[onclick="fetchGmailNow()"]');
   if(btn){ btn.disabled=true; btn.textContent='取得中...'; }
   jsonpGet(GAS_GMAIL_URL + '?action=getGmail', function(data) {
