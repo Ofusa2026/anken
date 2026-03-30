@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.34</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.39</div>
   </div>
 
   <div class="nav-section">
@@ -501,7 +501,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
           <table>
             <thead><tr>
               <th style="width:36px">#</th><th>所属機関名</th><th>ステータス</th>
-              <th>担当者</th><th>電子届出</th><th>一定の基準</th><th>人材</th><th>給与</th><th>不足情報</th><th>大房書類</th><th>企業書類</th><th>操作</th>
+              <th>電子届出</th><th>一定の基準</th><th>3年雇用</th><th>人材</th><th>給与</th><th>不足情報</th><th>大房書類</th><th>企業書類</th><th>操作</th>
             </tr></thead>
             <tbody id="co-table-body">
               <tr><td colspan="9"><div class="empty-state"><div class="spinner"></div></div></td></tr>
@@ -673,6 +673,10 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
             <div class="field-group">
               <label class="field-label">GAS WebアプリURL</label>
               <input type="text" class="input" id="setting-gas-url" placeholder="https://script.google.com/macros/s/...">
+            </div>
+            <div class="field-group">
+              <label class="field-label">メール送信用GAS URL <span style="font-size:10px;color:var(--text3);font-weight:400">（k.sakamoto@gyosei-cambo.com用）</span></label>
+              <input type="text" class="input" id="setting-mail-gas-url" placeholder="https://script.google.com/macros/s/...">
             </div>
             <div class="field-group">
               <label class="field-label">Anthropic API Key <span style="font-size:10px;color:var(--text3);font-weight:400">（賃金台帳PDF取込に使用）</span></label>
@@ -946,10 +950,17 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
                 <option value="C">C｜基準非該当（書類多・早めに）</option>
               </select>
             </div>
+            <div class="field-group col-span2">
+              <label class="field-label">送信先メールアドレス</label>
+              <input type="email" class="input" id="co-mail-to" placeholder="yamada@example.com">
+            </div>
           </div>
           <div style="display:flex;gap:8px;align-items:center">
             <button class="btn btn-primary btn-sm" onclick="copyCoMailText()">📋 本文をコピー</button>
+            <button class="btn btn-primary btn-sm" style="background:var(--green)" onclick="sendCoMail()">📧 送信する</button>
             <span id="co-mail-copy-toast" style="font-size:12px;color:var(--green);display:none">✅ コピーしました</span>
+            <span id="co-mail-send-toast" style="font-size:12px;color:var(--green);display:none">✅ 送信しました</span>
+            <span id="co-mail-send-error" style="font-size:12px;color:var(--red);display:none"></span>
           </div>
           <div style="font-size:11px;color:var(--text3)">
             件名：<span id="co-mail-subject-preview" style="font-weight:600;color:var(--text)"></span>
@@ -1023,10 +1034,17 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
                 <option value="C">C｜基準非該当（書類多・早めに）</option>
               </select>
             </div>
+            <div class="field-group col-span2">
+              <label class="field-label">送信先メールアドレス</label>
+              <input type="email" class="input" id="co-mail-to" placeholder="yamada@example.com">
+            </div>
           </div>
           <div style="display:flex;gap:8px;align-items:center">
             <button class="btn btn-primary btn-sm" onclick="copyCoMailText()">📋 本文をコピー</button>
+            <button class="btn btn-primary btn-sm" style="background:var(--green)" onclick="sendCoMail()">📧 送信する</button>
             <span id="co-mail-copy-toast" style="font-size:12px;color:var(--green);display:none">✅ コピーしました</span>
+            <span id="co-mail-send-toast" style="font-size:12px;color:var(--green);display:none">✅ 送信しました</span>
+            <span id="co-mail-send-error" style="font-size:12px;color:var(--red);display:none"></span>
           </div>
           <div style="font-size:11px;color:var(--text3)">
             件名：<span id="co-mail-subject-preview" style="font-weight:600;color:var(--text)"></span>
@@ -1561,6 +1579,7 @@ function normStatus(f) {
 }
 
 var GAS_URL = localStorage.getItem('gas_url') || '';
+var MAIL_GAS_URL = localStorage.getItem('mail_gas_url') || '';
 var ANTHROPIC_KEY = localStorage.getItem('anthropic_key') || '';
 var FISCAL_YEAR = localStorage.getItem('fiscal_year') || '2025';
 var ORG_NAME = localStorage.getItem('org_name') || '株式会社ＫＭＴ';
@@ -1571,23 +1590,26 @@ var kijun1 = false, kijun2 = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.34%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.39%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
 
 function loadSettings() {
   document.getElementById('setting-gas-url').value = GAS_URL;
+  if(document.getElementById('setting-mail-gas-url')) document.getElementById('setting-mail-gas-url').value = MAIL_GAS_URL;
   document.getElementById('setting-year').value = FISCAL_YEAR;
   document.getElementById('setting-org-name').value = ORG_NAME;
   document.getElementById('setting-anthropic-key').value = ANTHROPIC_KEY;
 }
 function saveSettings() {
   GAS_URL = document.getElementById('setting-gas-url').value.trim();
+  MAIL_GAS_URL = (document.getElementById('setting-mail-gas-url')||{value:''}).value.trim();
   FISCAL_YEAR = document.getElementById('setting-year').value.trim();
   ORG_NAME = document.getElementById('setting-org-name').value.trim();
   ANTHROPIC_KEY = document.getElementById('setting-anthropic-key').value.trim();
   localStorage.setItem('gas_url', GAS_URL);
+  localStorage.setItem('mail_gas_url', MAIL_GAS_URL);
   localStorage.setItem('fiscal_year', FISCAL_YEAR);
   localStorage.setItem('org_name', ORG_NAME);
   localStorage.setItem('anthropic_key', ANTHROPIC_KEY);
@@ -1703,7 +1725,7 @@ function updateBadges() {
     if(f.isActive && String(f.isActive).trim().match(/[〇○◯]/)) return true;
     return false;
   }).length;
-  document.getElementById('badge-foreigners').textContent = activeCount;
+  // badge-foreigners は非表示のため削除済み
 }
 function renderDashStats() {
   var t=companies.length, d=companies.filter(c=>c.status==='完了').length;
@@ -1759,13 +1781,24 @@ function renderCompanyTable() {
     } else {
       salBadge = '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:var(--red);cursor:pointer" onclick="event.stopPropagation();jumpToSalary(\''+esc(co.name)+'\')">💴 未入力</span>';
     }
+    // 3年雇用判定: 2023/04/01より前から在籍していた人材が1人でもいれば⭕️
+    var THREE_YEAR_BASE = new Date('2023-04-01');
+    var has3yr = foreigners.some(function(f){
+      if(resolveCompanyName(f.companyName) !== co.name) return false;
+      var cs3 = f.contractStart ? new Date(normDate(f.contractStart)) : null;
+      var ce3 = f.contractEnd   ? new Date(normDate(f.contractEnd))   : null;
+      return cs3 && cs3 < THREE_YEAR_BASE && (!ce3 || ce3 >= THREE_YEAR_BASE);
+    });
+    var yr3Badge = has3yr
+      ? '<span style="font-size:13px">⭕️</span>'
+      : '<span style="font-size:13px;color:var(--text3)">❌</span>';
     return '<tr style="cursor:pointer;transition:.1s" onclick="editCompany(\''+esc(co.name)+'\')" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'\'">'+
       '<td style="color:var(--text3);font-family:\'DM Mono\',monospace;font-size:11px">'+(i+1)+'</td>'+
       '<td style="font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(co.name)+'</td>'+
       '<td>'+statusBadge(co.status)+'</td>'+
-      '<td style="font-size:11px;color:var(--text2)">'+esc(co.contactName||'—')+'</td>'+
       '<td>'+k2+'</td>'+
       '<td>'+kijunBadge(kr)+'</td>'+
+      '<td style="text-align:center">'+yr3Badge+'</td>'+
       '<td>'+fgBadge+'</td>'+
       '<td>'+salBadge+'</td>'+
       '<td style="max-width:200px">'+missingBadgesHtml(co)+'</td>'+
@@ -1804,7 +1837,10 @@ function renderForeignerTable() {
     var ce = f.contractEnd   ? new Date(normDate(f.contractEnd))   : null;
     var startOk = !cs || cs <= TARGET_TO;   // 開始日が期間終了以前（または未記入）
     var endOk   = !ce || ce >= TARGET_FROM; // 終了日が期間開始以降（または在職中）
-    var isTarget = startOk && endOk;
+    // 特定活動・技能実習は対象外
+    var rs = (f.residenceStatus||'');
+    var statusOk = rs.indexOf('特定活動') < 0 && rs.indexOf('技能実習') < 0;
+    var isTarget = startOk && endOk && statusOk;
     var rowStyle = isTarget ? '' : 'opacity:.4;background:var(--bg3)';
     if (window._fgTargetOnly && !isTarget) return '';
     return '<tr style="'+rowStyle+';cursor:pointer" onclick="editForeigner(\''+esc(f.nameEn)+'\',\''+esc(f.companyName)+'\')">'+
@@ -3356,19 +3392,19 @@ var MAIL_TEMPLATES = {
   A: {
     subject: '【大房行政書士法人】特定技能外国人 定期届出のご案内',
     body: function(co, contact, deadline, needs2yr) {
-      return co + '\n' + contact + ' 様\n\nいつもお世話になっております。\n大房行政書士法人の阪本でございます。\n\n特定技能外国人の定期届出の時期が参りましたので、ご案内いたします。\n\n━━━━━━━━━━━━━━━━━━━\n【今回ご用意いただくもの】\n━━━━━━━━━━━━━━━━━━━\n\n以下の1点をお送りください。\n\n▶ 在籍している特定技能外国人の賃金台帳のコピー\n　 （令和7年4月〜令和8年3月分・全員分）\n　 ※ 令和6年4月〜令和7年3月分もあわせてお送りください。\n　　 （前々年度分が手元にない場合は、ある分だけで構いません）\n\n━━━━━━━━━━━━━━━━━━━\n【送付方法・期限】\n━━━━━━━━━━━━━━━━━━━\n\n・スキャンまたは写真撮影してメールに添付してください。\n・送付先：k.sakamoto@gyosei-cambo.com\n・期　限：' + deadline + 'まで\n\nご不明な点は代表・大房までお気軽にお電話ください。\nTEL：070-4200-4733\n\n引き続きよろしくお願いいたします。\n\n━━━━━━━━━━━━━━━━━━━\n大房行政書士法人\n担当：阪本\nMail：k.sakamoto@gyosei-cambo.com\n━━━━━━━━━━━━━━━━━━━';
+      return co + '\n' + contact + ' 様\n\nいつもお世話になっております。\n大房行政書士法人の阪本でございます。\n\n特定技能外国人の定期届出の時期が参りましたので、ご案内いたします。\n\n━━━━━━━━━━━━━━━━━━━\n【今回ご用意いただくもの】\n━━━━━━━━━━━━━━━━━━━\n\n以下の1点をお送りください。\n\n▶ 在籍している特定技能外国人の賃金台帳のコピー\n　1. 2025年4月〜2026年3月分・全員分\n　2. 2024年4月〜2025年3月分・全員分\n　　＊2024年4月時点で在籍している特定技能の方がいる場合\n\n━━━━━━━━━━━━━━━━━━━\n【送付方法・期限】\n━━━━━━━━━━━━━━━━━━━\n\n・スキャンまたは写真撮影してメールに添付してください。\n・送付先：k.sakamoto@gyosei-cambo.com\n・期　限：' + deadline + 'まで\n\nご不明な点は代表・大房までお気軽にお電話ください。\nTEL：070-4200-4733\n\n引き続きよろしくお願いいたします。\n\n━━━━━━━━━━━━━━━━━━━\n大房行政書士法人\n担当：阪本\nMail：k.sakamoto@gyosei-cambo.com\n━━━━━━━━━━━━━━━━━━━';
     }
   },
   B: {
     subject: '【大房行政書士法人】特定技能外国人 定期届出のご案内',
     body: function(co, contact, deadline, needs2yr) {
-      return co + '\n' + contact + ' 様\n\nいつもお世話になっております。\n大房行政書士法人の阪本でございます。\n\n特定技能外国人の定期届出の時期が参りましたので、ご案内いたします。\n\n━━━━━━━━━━━━━━━━━━━\n【今回ご用意いただくもの】\n━━━━━━━━━━━━━━━━━━━\n\n以下の2点をお送りください。\n\n▶【１】在籍している特定技能外国人の賃金台帳のコピー\n　　　　（令和7年4月〜令和8年3月分・全員分）\n　　　　※ 令和6年4月〜令和7年3月分もあわせてお送りください。\n　　　　　 （前々年度分が手元にない場合は、ある分だけで構いません）\n\n▶【２】直近3期分の決算書のコピー\n　　　　（または下記の数字をご連絡ください）\n　　　　・売上高\n　　　　・経常損益（利益または損失）\n　　　　・純損益（利益または損失）\n　　　　・純資産（プラスかマイナスかも教えてください）\n\n━━━━━━━━━━━━━━━━━━━\n【1点だけご確認ください】\n━━━━━━━━━━━━━━━━━━━\n\n直近の決算で「純資産がマイナス（債務超過）」になっていませんか？\nマイナスの場合は別途対応が必要になりますので、お早めにご連絡ください。\n\n━━━━━━━━━━━━━━━━━━━\n【送付方法・期限】\n━━━━━━━━━━━━━━━━━━━\n\n・スキャンまたは写真撮影してメールに添付してください。\n・送付先：k.sakamoto@gyosei-cambo.com\n・期　限：' + deadline + 'まで\n\nご不明な点は代表・大房までお気軽にお電話ください。\nTEL：070-4200-4733\n\n引き続きよろしくお願いいたします。\n\n━━━━━━━━━━━━━━━━━━━\n大房行政書士法人\n担当：阪本\nMail：k.sakamoto@gyosei-cambo.com\n━━━━━━━━━━━━━━━━━━━';
+      return co + '\n' + contact + ' 様\n\nいつもお世話になっております。\n大房行政書士法人の阪本でございます。\n\n特定技能外国人の定期届出の時期が参りましたので、ご案内いたします。\n\n━━━━━━━━━━━━━━━━━━━\n【今回ご用意いただくもの】\n━━━━━━━━━━━━━━━━━━━\n\n以下の2点をお送りください。\n\n▶ 在籍している特定技能外国人の賃金台帳のコピー\n　1. 2025年4月〜2026年3月分・全員分\n　2. 2024年4月〜2025年3月分・全員分\n　　＊2024年4月時点で在籍している特定技能の方がいる場合\n\n▶【２】直近3期分の決算書のコピー\n　　　　（または下記の数字をご連絡ください）\n　　　　・売上高\n　　　　・経常損益（利益または損失）\n　　　　・純損益（利益または損失）\n　　　　・純資産（プラスかマイナスかも教えてください）\n\n━━━━━━━━━━━━━━━━━━━\n【1点だけご確認ください】\n━━━━━━━━━━━━━━━━━━━\n\n直近の決算で「純資産がマイナス（債務超過）」になっていませんか？\nマイナスの場合は別途対応が必要になりますので、お早めにご連絡ください。\n\n━━━━━━━━━━━━━━━━━━━\n【送付方法・期限】\n━━━━━━━━━━━━━━━━━━━\n\n・スキャンまたは写真撮影してメールに添付してください。\n・送付先：k.sakamoto@gyosei-cambo.com\n・期　限：' + deadline + 'まで\n\nご不明な点は代表・大房までお気軽にお電話ください。\nTEL：070-4200-4733\n\n引き続きよろしくお願いいたします。\n\n━━━━━━━━━━━━━━━━━━━\n大房行政書士法人\n担当：阪本\nMail：k.sakamoto@gyosei-cambo.com\n━━━━━━━━━━━━━━━━━━━';
     }
   },
   C: {
     subject: '【大房行政書士法人】特定技能外国人 定期届出のご案内（重要）',
     body: function(co, contact, deadline, needs2yr) {
-      return co + '\n' + contact + ' 様\n\nいつもお世話になっております。\n大房行政書士法人の阪本でございます。\n\n特定技能外国人の定期届出の時期が参りましたので、ご案内いたします。\n今回はご準備いただく書類が少し多くなりますが、一つひとつ確認しながら\n進めますのでご安心ください。\n\n━━━━━━━━━━━━━━━━━━━\n【今回ご用意いただくもの】\n━━━━━━━━━━━━━━━━━━━\n\n▶【１】在籍している特定技能外国人の賃金台帳のコピー\n　　　　（令和7年4月〜令和8年3月分・全員分）\n　　　　※ 令和6年4月〜令和7年3月分もあわせてお送りください。\n　　　　　 （前々年度分が手元にない場合は、ある分だけで構いません）\n\n▶【２】役員の氏名と役職（全員分・ふりがなもあると助かります）\n　　　　例）代表取締役　〇〇 〇〇（ふりがな）\n　　　　　　取締役　　　〇〇 〇〇（ふりがな）\n\n▶【３】直近3期分の決算書のコピー\n　　　　（または下記の数字をご連絡ください）\n　　　　・売上高\n　　　　・経常損益（利益または損失）\n　　　　・純損益（利益または損失）\n　　　　・純資産（プラスかマイナスかも教えてください）\n\n▶【４】過去1年間の従業員の離職状況\n　　　　・特定技能外国人と同じ仕事をしていた日本人で退職した方の人数\n　　　　　（本人都合・会社都合に分けてお教えください）\n　　　　・外国人従業員で行方不明になった方の有無\n\n━━━━━━━━━━━━━━━━━━━\n【送付方法・期限】\n━━━━━━━━━━━━━━━━━━━\n\n・スキャンまたは写真撮影してメールに添付してください。\n・送付先：k.sakamoto@gyosei-cambo.com\n・期　限：' + deadline + 'まで\n\n※ 今回は書類の種類が多いため、早めのご準備をお願いいたします。\n　 ご不明な点は代表・大房までお気軽にお電話ください。\n　 TEL：070-4200-4733\n\n引き続きよろしくお願いいたします。\n\n━━━━━━━━━━━━━━━━━━━\n大房行政書士法人\n担当：阪本\nMail：k.sakamoto@gyosei-cambo.com\n━━━━━━━━━━━━━━━━━━━';
+      return co + '\n' + contact + ' 様\n\nいつもお世話になっております。\n大房行政書士法人の阪本でございます。\n\n特定技能外国人の定期届出の時期が参りましたので、ご案内いたします。\n今回はご準備いただく書類が少し多くなりますが、一つひとつ確認しながら\n進めますのでご安心ください。\n\n━━━━━━━━━━━━━━━━━━━\n【今回ご用意いただくもの】\n━━━━━━━━━━━━━━━━━━━\n\n▶ 在籍している特定技能外国人の賃金台帳のコピー\n　1. 2025年4月〜2026年3月分・全員分\n　2. 2024年4月〜2025年3月分・全員分\n　　＊2024年4月時点で在籍している特定技能の方がいる場合\n\n▶【２】役員の氏名と役職（全員分・ふりがなもあると助かります）\n　　　　例）代表取締役　〇〇 〇〇（ふりがな）\n　　　　　　取締役　　　〇〇 〇〇（ふりがな）\n\n▶【３】直近3期分の決算書のコピー\n　　　　（または下記の数字をご連絡ください）\n　　　　・売上高\n　　　　・経常損益（利益または損失）\n　　　　・純損益（利益または損失）\n　　　　・純資産（プラスかマイナスかも教えてください）\n\n▶【４】過去1年間の従業員の離職状況\n　　　　・特定技能外国人と同じ仕事をしていた日本人で退職した方の人数\n　　　　　（本人都合・会社都合に分けてお教えください）\n　　　　・外国人従業員で行方不明になった方の有無\n\n━━━━━━━━━━━━━━━━━━━\n【送付方法・期限】\n━━━━━━━━━━━━━━━━━━━\n\n・スキャンまたは写真撮影してメールに添付してください。\n・送付先：k.sakamoto@gyosei-cambo.com\n・期　限：' + deadline + 'まで\n\n※ 今回は書類の種類が多いため、早めのご準備をお願いいたします。\n　 ご不明な点は代表・大房までお気軽にお電話ください。\n　 TEL：070-4200-4733\n\n引き続きよろしくお願いいたします。\n\n━━━━━━━━━━━━━━━━━━━\n大房行政書士法人\n担当：阪本\nMail：k.sakamoto@gyosei-cambo.com\n━━━━━━━━━━━━━━━━━━━';
     }
   }
 };
@@ -3431,6 +3467,33 @@ function copyCoMailText() {
     el.style.display = 'inline';
     setTimeout(function(){ el.style.display = 'none'; }, 2500);
   });
+}
+
+async function sendCoMail() {
+  var to      = (document.getElementById('co-mail-to')||{}).value || '';
+  var subject = document.getElementById('co-mail-subject-preview').textContent;
+  var body    = document.getElementById('co-mail-body-preview').value;
+  var errEl   = document.getElementById('co-mail-send-error');
+  var okEl    = document.getElementById('co-mail-send-toast');
+  errEl.style.display = 'none';
+  if (!to) { errEl.textContent = '送信先メールアドレスを入力してください'; errEl.style.display = 'inline'; return; }
+  if (!body) { errEl.textContent = '本文が空です'; errEl.style.display = 'inline'; return; }
+  if (!confirm('以下の宛先にメールを送信します。\n\n' + to + '\n件名：' + subject + '\n\nよろしいですか？')) return;
+  try {
+    var mailUrl = MAIL_GAS_URL || GAS_URL;
+    if (!mailUrl) { errEl.textContent = '設定画面でメール送信用GAS URLを入力してください'; errEl.style.display = 'inline'; return; }
+    var res = await fetch(mailUrl, {method:'POST', body:JSON.stringify({action:'sendMail',to:to,subject:subject,body:body})}).then(r=>r.json());
+    if (res && res.ok) {
+      okEl.style.display = 'inline';
+      setTimeout(function(){ okEl.style.display = 'none'; }, 3000);
+    } else {
+      errEl.textContent = '送信失敗：' + (res && res.error ? res.error : '不明なエラー');
+      errEl.style.display = 'inline';
+    }
+  } catch(e) {
+    errEl.textContent = '送信失敗：' + String(e);
+    errEl.style.display = 'inline';
+  }
 }
 
 
