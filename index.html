@@ -26419,19 +26419,10 @@ function renderListItems(type, data, borderColor){
   data.forEach(function(d){
     var sel=!!cfg.sel[d.id];
     var isReported=!!d.reported;
-    // 案件を解決（caseId or 名前マッチ）
+    // 案件を解決（caseIdが明示的にある場合のみ）
     var linkedCase=null;
     if(type==='rec'||type==='shinsa'||type==='cert'){
-      if(d.caseId) linkedCase=cData.find(function(c){return c.id===d.caseId;});
-      if(!linkedCase && d.name){
-        var matches=cData.filter(function(c){
-          var dn=getDisplayName(c).toLowerCase();
-          var cn=(c.applicant||'').toLowerCase();
-          var nm=d.name.toLowerCase();
-          return dn===nm||cn===nm||dn.indexOf(nm)!==-1||nm.indexOf(dn)!==-1;
-        });
-        if(matches.length===1){linkedCase=matches[0];d.caseId=linkedCase.id;}
-      }
+      if(d.caseId) linkedCase=cData.find(function(c){return c.id===d.caseId;})||null;
     }
     var rowClick='';
     if(type==='rec' && linkedCase){
@@ -26442,18 +26433,9 @@ function renderListItems(type, data, borderColor){
     h+='<div'+rowClick+' style="display:flex;align-items:center;gap:6px;background:'+rowBg+';border-radius:6px;padding:5px 8px;margin-bottom:3px;border-left:3px solid '+rowBorderColor+';font-size:11px;'+(isReported?'opacity:0.55;':'')+''+(type==='rec'&&linkedCase?'cursor:pointer;':'')+'transition:background .15s;" '+(type==='rec'&&linkedCase?'onmouseenter="this.style.background=\'#f0f4ff\'" onmouseleave="this.style.background=\''+rowBg+'\'"':'')+'>';
     h+='<input type="checkbox" '+(sel?'checked':'')+' onclick="event.stopPropagation()" onchange="listToggleSel(\''+type+'\',\''+d.id+'\')" style="width:14px;height:14px;cursor:pointer;flex-shrink:0;">';
     h+='<span style="flex-shrink:0;width:68px;color:var(--gray-400);">'+(d.date?d.date.slice(0,10):'—')+'</span>';
-    // 案件紐づけ（rec/shinsa/cert）事前解決
-    if(type==='rec'||type==='shinsa'||type==='cert'){
-      if(!linkedCase && d.name){
-        var _matches=cData.filter(function(c){
-          var dn=getDisplayName(c).toLowerCase();
-          var cn=(c.applicant||'').toLowerCase();
-          var nm=d.name.toLowerCase();
-          return dn===nm||cn===nm||dn.indexOf(nm)!==-1||nm.indexOf(dn)!==-1;
-        });
-        if(_matches.length===1){linkedCase=_matches[0];d.caseId=linkedCase.id;}
-      }
-      if(d.caseId && !linkedCase) linkedCase=cData.find(function(c){return c.id===d.caseId;});
+    // caseIdで再確認（念のため）
+    if((type==='rec'||type==='shinsa'||type==='cert') && d.caseId && !linkedCase){
+      linkedCase=cData.find(function(c){return c.id===d.caseId;})||null;
     }
     // 左側：案件名タグ（紐づけあり時）＋申請者名
     h+='<div style="flex:1;min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden;">';
@@ -26534,11 +26516,8 @@ function openRecords() {
   switchPanel('recordsScreen', 'nav-records');
 }
 function _getLinkedCase(d){
+  // caseIdが明示的にある場合のみ紐づけ（名前マッチは同姓同名誤判定のため廃止）
   if(d.caseId) return cData.find(function(c){return c.id===d.caseId;})||null;
-  if(d.name){
-    var ms=cData.filter(function(c){var dn=getDisplayName(c).toLowerCase();var nm=d.name.toLowerCase();return dn===nm||dn.indexOf(nm)!==-1||nm.indexOf(dn)!==-1;});
-    if(ms.length===1) return ms[0];
-  }
   return null;
 }
 function _populateListFilter(staffSelId, orgSelId, listData) {
@@ -26659,13 +26638,32 @@ function renderShinsaList(){
       if(fStaff && staff!==fStaff) return false;
       if(fOrg && org.indexOf(fOrg)===-1) return false;
     }
-    // 申請番号なしフィルター：紐づき案件のreceiptNoが空のもの
-    if(_shinsaNoReceiptOnly){
-      var lc=_getLinkedCase(d);
-      // 紐づき案件がなければ番号不明なので含める
-      // 紐づきありでreceiptNoが入っていれば除外
-      if(lc && lc.receiptNo && lc.receiptNo.trim()) return false;
-    }
+     // 申請番号なしフィルター
+     // 条件：メールのcaseNo（申請受付番号）と案件の_caseNo（申請情報の申請受付番号）が完全一致
+     //        かつメールのname（氏名）と案件のapplicantが完全一致
+     //        かつ案件の_caseNoが空のもの
+     // ※ caseNoが空のメール・_caseNoが空の案件は抽出しない
+     if(_shinsaNoReceiptOnly){
+       var _mn = (d.name||'').replace(/\s+/g,'').toUpperCase();
+       var _mc = (d.caseNo||'').replace(/\s+/g,'');
+       // メールにcaseNoがない → 対象外
+       if(!_mc || !_mn) return false;
+       // 氏名が完全一致する案件を探す
+       var _nameMatched = cData.filter(function(c){
+         var _ca = (c.applicant||'').replace(/\s+/g,'').toUpperCase();
+         return _ca && _ca === _mn;
+       });
+       // 氏名一致案件がない → 対象外
+       if(!_nameMatched.length) return false;
+       // 氏名一致案件の中で_caseNoが空のものがあるか
+       var _noNumber = _nameMatched.find(function(c){
+         return !(c._caseNo||'').replace(/\s+/g,'');
+       });
+       // _caseNoが空の案件がある → 抽出対象
+       if(_noNumber) return true;
+       // 全員_caseNoが入っている → 対象外
+       return false;
+     }
     return true;
   }).sort(function(a,b){
     if(sort==='date') return (b.date||'').localeCompare(a.date||'');
@@ -26674,17 +26672,11 @@ function renderShinsaList(){
     return 0;
   });
   var el=document.getElementById('shinsaListContent');if(!el)return;
-  if(_shinsaNoReceiptOnly){
-    var noReceiptCount = shinsaListData.filter(function(d){
-      var lc=_getLinkedCase(d);
-      return !lc || !(lc.receiptNo && lc.receiptNo.trim());
-    }).length;
-    if(!data.length){
-      el.innerHTML='<div style="text-align:center;padding:40px;color:var(--gray-400);">申請番号なし対象なし</div>';
-      return;
-    }
-  } else {
-    if(!data.length){el.innerHTML='<div style="text-align:center;padding:40px;color:var(--gray-400);">審査完了データがありません</div>';return;}
+  if(!data.length){
+    el.innerHTML='<div style="text-align:center;padding:40px;color:var(--gray-400);">'+(
+      _shinsaNoReceiptOnly ? '申請番号なし（氏名完全一致・受付番号未入力）の案件はありません' : '審査完了データがありません'
+    )+'</div>';
+    return;
   }
   el.innerHTML=renderListItems('shinsa',data,'#16a34a');
 }
