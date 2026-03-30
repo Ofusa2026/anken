@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260330_12 -->
+<!-- OFUSA_VERSION 20260330_13 -->
 <!-- OFUSA v20 - 2026-03-29 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -25661,6 +25661,11 @@ function persistSavedMails(){
   var _movedIds={};
   try{var _mc=JSON.parse(localStorage.getItem('ofusa_movedMailIds')||'{}');Object.keys(_mc).forEach(function(k){_movedIds[k]=1;});}catch(e){}
   savedMails=savedMails.filter(function(m){return !!_kb2[m.badge] && !_movedIds[m.id];});
+  // OOM防止：保存前にbodyを500文字に切り詰める
+  savedMails = savedMails.map(function(m){
+    if(!m.body || m.body.length <= 500) return m;
+    var mc = Object.assign({}, m); mc.body = mc.body.slice(0, 500); return mc;
+  });
   try{localStorage.setItem('ofusa_savedMails',JSON.stringify(savedMails));}catch(e){}
   if(DB_READY){_sb.from('settings').upsert({key:'saved_mails',value:JSON.stringify(savedMails)},{onConflict:'key'}).then(function(r){if(r.error)console.error('savedMails sync err:',r.error);});}
 }
@@ -27424,8 +27429,13 @@ function fetchGmailNow() {
         var newCount = 0;
         var _known3 = {'審査完了':1,'受付番号':1,'認定証明書':1};
         data.mails.forEach(function(m){
-          if(!existIds[m.id] && _known3[m.badge]){ MAILS.push(m); existIds[m.id]=1; newCount++; }
-          else if(!existIds[m.id] && !_known3[m.badge]){
+          if(!existIds[m.id] && _known3[m.badge]){
+            // body全文は不要（除外判定は先頭500文字で十分）。OOM防止のため切り詰める
+            var mTrim = Object.assign({}, m);
+            if(mTrim.body && mTrim.body.length > 500) mTrim.body = mTrim.body.slice(0, 500);
+            MAILS.push(mTrim); existIds[m.id]=1; newCount++;
+          } else if(!existIds[m.id] && !_known3[m.badge]){
+            // TSUIKAN_MAILSはAI解析のためbody全文を維持
             if(!TSUIKAN_MAILS.find(function(x){return x.id===m.id;})) TSUIKAN_MAILS.push(m);
           }
         });
@@ -27460,7 +27470,12 @@ function fetchGmailByBadge(badge) {
       var newCount = 0;
       data.mails.forEach(function(m){
         if(m.badge !== badge) return; // 指定バッジのみ
-        if(!existIds[m.id]){ MAILS.push(m); existIds[m.id]=1; newCount++; }
+        if(!existIds[m.id]){
+          // OOM防止のためbodyを切り詰める
+          var mTrim = Object.assign({}, m);
+          if(mTrim.body && mTrim.body.length > 500) mTrim.body = mTrim.body.slice(0, 500);
+          MAILS.push(mTrim); existIds[m.id]=1; newCount++;
+        }
       });
       savedMails = MAILS.slice();
       persistSavedMails();
@@ -33215,8 +33230,7 @@ persistChats = function(){_origPersistChats();if(DB_READY)_sb.from('settings').u
 var _origPersistCoDocCheck = persistCoDocCheck;
 persistCoDocCheck = function(){_origPersistCoDocCheck();if(DB_READY)_sb.from('settings').upsert({key:'coDocCheck',value:coDocCheck},{onConflict:'key'}).then(function(){});};
 // shinsaList/certList/receiptList は専用テーブルに移行済みのためsettingsオーバーライド不要
-var _origPersistSavedMails = persistSavedMails;
-persistSavedMails = function(){_origPersistSavedMails();if(DB_READY)_sb.from('settings').upsert({key:'savedMails',value:savedMails},{onConflict:'key'}).then(function(){});};
+// persistSavedMails: 元関数内で key:'saved_mails' として JSON.stringify 済みのため二重書き込み不要
 var _origPersistTrash = persistTrash;
 persistTrash = function(){_origPersistTrash();if(DB_READY)_sb.from('settings').upsert({key:'trash',value:TRASH_CASES},{onConflict:'key'}).then(function(){});};
 var _origPersistTplGroups = persistTplGroups;
