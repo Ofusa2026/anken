@@ -531,6 +531,24 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
               <option value="特定技能1号">1号</option>
               <option value="特定技能2号">2号</option>
             </select>
+            <select class="input btn-sm" style="width:auto" id="fg-field-filter" onchange="renderForeignerTable()">
+              <option value="">全分野</option>
+              <option>外食業</option>
+              <option>農業</option>
+              <option>漁業</option>
+              <option>飲食料品製造業</option>
+              <option>素形材・産業機械・電気電子情報関連製造業</option>
+              <option>工業製品製造業</option>
+              <option>建設</option>
+              <option>造船・舶用工業</option>
+              <option>自動車整備</option>
+              <option>航空</option>
+              <option>宿泊</option>
+              <option>介護</option>
+              <option>ビルクリーニング</option>
+              <option>林業</option>
+              <option>木材産業</option>
+            </select>
             <button class="btn btn-secondary btn-sm" onclick="openForeignerImport()">📥 CSV取込</button>
             <button class="btn btn-sm" id="btn-target-only" onclick="toggleTargetOnly()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text2)">📅 対象者のみ</button>
             <button class="btn btn-primary btn-sm" onclick="openModal('modal-foreigner-add')">＋ 追加</button>
@@ -550,6 +568,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
               <th onclick="sortFg('contractStart')" style="white-space:nowrap;cursor:pointer;user-select:none">雇用開始日 <span id="sort-contractStart"></span></th>
               <th onclick="sortFg('contractEnd')" style="white-space:nowrap;cursor:pointer;user-select:none">雇用終了日 <span id="sort-contractEnd"></span></th>
               <th onclick="sortFg('status')" style="white-space:nowrap;cursor:pointer;user-select:none">在職 <span id="sort-status"></span></th>
+              <th onclick="sortFg('field')" style="white-space:nowrap;cursor:pointer;user-select:none">分野 <span id="sort-field"></span></th>
               <th style="white-space:nowrap">給与</th>
             </tr></thead>
             <tbody id="fg-table-body">
@@ -1009,6 +1028,26 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
         <div class="field-group"><label class="field-label">5年満了日</label><input type="text" class="input" id="fg-five-year" placeholder="2028-06-01"></div>
         <div class="field-group"><label class="field-label">在職状況</label>
           <select class="input" id="fg-status"><option>在職</option><option>退職</option><option>休職</option></select>
+        </div>
+        <div class="field-group"><label class="field-label">分野</label>
+          <select class="input" id="fg-field">
+            <option value="">未設定</option>
+            <option>外食業</option>
+            <option>農業</option>
+            <option>漁業</option>
+            <option>飲食料品製造業</option>
+            <option>素形材・産業機械・電気電子情報関連製造業</option>
+            <option>工業製品製造業</option>
+            <option>建設</option>
+            <option>造船・舶用工業</option>
+            <option>自動車整備</option>
+            <option>航空</option>
+            <option>宿泊</option>
+            <option>介護</option>
+            <option>ビルクリーニング</option>
+            <option>林業</option>
+            <option>木材産業</option>
+          </select>
         </div>
         <div class="field-group col-span3"><label class="field-label">備考</label><input type="text" class="input" id="fg-memo"></div>
       </div>
@@ -1814,6 +1853,7 @@ function renderCompanyTable() {
 function renderForeignerTable() {
   var q=(document.getElementById('fg-search').value||'').toLowerCase();
   var sf=document.getElementById('fg-status-filter').value, zf=document.getElementById('fg-zairyu-filter').value;
+  var ff=(document.getElementById('fg-field-filter')||{}).value||'';
   // ソート適用
   var sortedForeigners = foreigners.slice();
   if (_fgSortKey) {
@@ -1825,9 +1865,9 @@ function renderForeignerTable() {
     });
   }
   var list=sortedForeigners.filter(function(f){
-    return (!sf||normStatus(f)===sf)&&(!zf||f.residenceStatus===zf)&&(!q||[(f.nameEn||''),(f.companyName||'')].some(function(s){return s.toLowerCase().includes(q);}));
+    return (!sf||normStatus(f)===sf)&&(!zf||f.residenceStatus===zf)&&(!ff||f.field===ff)&&(!q||[(f.nameEn||''),(f.companyName||'')].some(function(s){return s.toLowerCase().includes(q);}));
   });
-  if (!list.length) { document.getElementById('fg-table-body').innerHTML='<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
+  if (!list.length) { document.getElementById('fg-table-body').innerHTML='<tr><td colspan="11"><div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
   document.getElementById('fg-table-body').innerHTML=list.map(function(f){
     var statusNorm = normStatus(f);
     var statusBadge = statusNorm==='在職'?'badge-green':statusNorm==='退職'?'badge-red':'badge-gray';
@@ -1858,6 +1898,7 @@ function renderForeignerTable() {
       '<td style="font-size:10px;white-space:nowrap;color:var(--text3)">'+fmtDate(f.contractStart)+'</td>'+
       '<td style="font-size:10px;white-space:nowrap;color:'+(f.contractEnd?'var(--red)':'var(--text3)')+'">'+fmtDate(f.contractEnd)+'</td>'+
       '<td><span class="badge '+statusBadge+'">'+esc(statusNorm||'—')+'</span></td>'+
+      '<td style="font-size:11px;white-space:nowrap;color:var(--text2)">'+esc(f.field||'—')+'</td>'+
       '<td style="white-space:nowrap" onclick="event.stopPropagation()">'+
         '<button class="btn btn-secondary btn-sm" style="font-size:10px;padding:2px 6px" onclick="jumpToSalary(\''+esc(f.companyName)+'\')">💴</button>'+
       '</td>'+
@@ -2604,6 +2645,7 @@ function editForeigner(nameEn,coName){
   document.getElementById('fg-zairyu').value=f.residenceStatus||'特定技能1号';
   document.getElementById('fg-gender').value=f.gender||'男';
   document.getElementById('fg-status').value=f.status||'在職';
+  document.getElementById('fg-field').value=f.field||'';
   openModal('modal-foreigner-add');
 }
 async function saveForeigner(){
@@ -2616,6 +2658,7 @@ async function saveForeigner(){
     contractStart:normDate(document.getElementById('fg-start').value),
     contractEnd:normDate(document.getElementById('fg-end').value),fiveYearExpiry:normDate(document.getElementById('fg-five-year').value),
     status:document.getElementById('fg-status').value,
+    field:document.getElementById('fg-field').value,
     memo:document.getElementById('fg-memo').value};
   var idx=foreigners.findIndex(f=>f.nameEn===nameEn&&f.companyName===coName);
   if(idx>=0) foreigners[idx]=Object.assign(foreigners[idx],data); else foreigners.push(data);
