@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.67</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.69</div>
   </div>
 
   <div class="nav-section">
@@ -493,6 +493,22 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
               <option value="確認待ち">確認待ち</option>
               <option value="完了">完了</option>
             </select>
+            <select class="input btn-sm" style="width:auto" id="co-kijun2-filter" onchange="renderCompanyTable()">
+              <option value="">電子届出：全て</option>
+              <option value="ok">✓ 電子</option>
+              <option value="ng">✗ 郵送</option>
+              <option value="unset">未設定</option>
+            </select>
+            <select class="input btn-sm" style="width:auto" id="co-kijun-filter" onchange="renderCompanyTable()">
+              <option value="">一定の基準：全て</option>
+              <option value="ok">基準該当</option>
+              <option value="ng">非該当</option>
+            </select>
+            <select class="input btn-sm" style="width:auto" id="co-3yr-filter" onchange="renderCompanyTable()">
+              <option value="">3年雇用：全て</option>
+              <option value="ok">⭕️ あり</option>
+              <option value="ng">❌ なし</option>
+            </select>
             <button class="btn btn-secondary btn-sm" onclick="openImportModal()">📥 インポート</button>
             <button class="btn btn-secondary btn-sm" onclick="bulkUpdateKijunExp()" title="全社の3年雇用実績を一括判定してスプシに保存">⚡ 3年雇用一括判定</button>
             <button class="btn btn-primary btn-sm" onclick="openModal('modal-company-add')">＋ 追加</button>
@@ -501,8 +517,15 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
         <div style="overflow-x:auto">
           <table>
             <thead><tr>
-              <th style="width:36px">#</th><th>所属機関名</th><th>ステータス</th>
-              <th>電子届出</th><th>一定の基準</th><th>3年雇用</th><th>人材</th><th>給与</th><th>不足情報</th><th>大房書類</th><th>企業書類</th><th>操作</th>
+              <th style="width:36px">#</th>
+              <th onclick="sortCo('name')" style="cursor:pointer;user-select:none">所属機関名 <span id="cosort-name"></span></th>
+              <th onclick="sortCo('status')" style="cursor:pointer;user-select:none">ステータス <span id="cosort-status"></span></th>
+              <th onclick="sortCo('kijun_2')" style="cursor:pointer;user-select:none">電子届出 <span id="cosort-kijun_2"></span></th>
+              <th onclick="sortCo('kijun_result')" style="cursor:pointer;user-select:none">一定の基準 <span id="cosort-kijun_result"></span></th>
+              <th onclick="sortCo('has3yr')" style="cursor:pointer;user-select:none">3年雇用 <span id="cosort-has3yr"></span></th>
+              <th onclick="sortCo('fgActive')" style="cursor:pointer;user-select:none">人材 <span id="cosort-fgActive"></span></th>
+              <th onclick="sortCo('salDone')" style="cursor:pointer;user-select:none">給与 <span id="cosort-salDone"></span></th>
+              <th>不足情報</th><th>大房書類</th><th>企業書類</th><th>操作</th>
             </tr></thead>
             <tbody id="co-table-body">
               <tr><td colspan="9"><div class="empty-state"><div class="spinner"></div></div></td></tr>
@@ -1587,10 +1610,11 @@ var companies = [], foreigners = [], salaryData = [];
 var selectedCompany = null, editingCompanyId = null, editingForeignerId = null;
 var importRows = [], fgImportRows = [];
 var kijun1 = false, kijun2 = false, kijun_exp_auto = false;
+var _coSortKey = '', _coSortAsc = true;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.67%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.69%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -1807,10 +1831,73 @@ function renderDashTable() {
       '<td style="white-space:nowrap"><button class="btn btn-secondary btn-sm" onclick="openDocCheck(\''+esc(co.name)+'\')">書類確認</button> <button class="btn btn-danger btn-sm" onclick="confirmDeleteCompany(\''+esc(co.name)+'\')">削除</button></td></tr>';
   }).join('');
 }
+function sortCo(key) {
+  if (_coSortKey === key) _coSortAsc = !_coSortAsc;
+  else { _coSortKey = key; _coSortAsc = true; }
+  renderCompanyTable();
+}
 function renderCompanyTable() {
   var q=(document.getElementById('co-search').value||'').toLowerCase();
   var sf=document.getElementById('co-status-filter').value;
-  var list=companies.filter(c=>(!sf||c.status===sf)&&(!q||(c.name||'').toLowerCase().includes(q)));
+  var kf2  = document.getElementById('co-kijun2-filter')  ? document.getElementById('co-kijun2-filter').value  : '';
+  var kfr  = document.getElementById('co-kijun-filter')   ? document.getElementById('co-kijun-filter').value   : '';
+  var kf3y = document.getElementById('co-3yr-filter')     ? document.getElementById('co-3yr-filter').value     : '';
+  var THREE_YEAR_BASE_F = new Date('2023-04-01');
+  var list=companies.filter(function(c){
+    if (sf && c.status !== sf) return false;
+    if (q && !(c.name||'').toLowerCase().includes(q)) return false;
+    if (kf2) {
+      var isElec = c.kijun_2 === '✓';
+      var isMail = c.kijun_2 === '✗';
+      if (kf2 === 'ok'    && !isElec) return false;
+      if (kf2 === 'ng'    && !isMail) return false;
+      if (kf2 === 'unset' && (isElec || isMail)) return false;
+    }
+    if (kfr) {
+      var kr = c.kijun_result || calcKijunResult(c);
+      var isOk = kr && kr !== '非該当';
+      if (kfr === 'ok' && !isOk) return false;
+      if (kfr === 'ng' &&  isOk) return false;
+    }
+    if (kf3y) {
+      var has3y = foreigners.some(function(f){
+        if(resolveCompanyName(f.companyName)!==c.name)return false;
+        var cs=f.contractStart?new Date(normDate(f.contractStart)):null,ce=f.contractEnd?new Date(normDate(f.contractEnd)):null;
+        return cs&&cs<THREE_YEAR_BASE_F&&(!ce||ce>=THREE_YEAR_BASE_F);
+      });
+      if (kf3y === 'ok' && !has3y) return false;
+      if (kf3y === 'ng' &&  has3y) return false;
+    }
+    return true;
+  });
+  // ソート
+  var THREE_YEAR_BASE_SORT = new Date('2023-04-01');
+  if (_coSortKey) {
+    list = list.slice().sort(function(a, b) {
+      var av, bv;
+      if (_coSortKey === 'has3yr') {
+        av = foreigners.some(function(f){ if(resolveCompanyName(f.companyName)!==a.name)return false; var cs=f.contractStart?new Date(normDate(f.contractStart)):null,ce=f.contractEnd?new Date(normDate(f.contractEnd)):null; return cs&&cs<THREE_YEAR_BASE_SORT&&(!ce||ce>=THREE_YEAR_BASE_SORT); })?1:0;
+        bv = foreigners.some(function(f){ if(resolveCompanyName(f.companyName)!==b.name)return false; var cs=f.contractStart?new Date(normDate(f.contractStart)):null,ce=f.contractEnd?new Date(normDate(f.contractEnd)):null; return cs&&cs<THREE_YEAR_BASE_SORT&&(!ce||ce>=THREE_YEAR_BASE_SORT); })?1:0;
+      } else if (_coSortKey === 'fgActive') {
+        av = foreigners.filter(f=>resolveCompanyName(f.companyName)===a.name&&normStatus(f)==='在職').length;
+        bv = foreigners.filter(f=>resolveCompanyName(f.companyName)===b.name&&normStatus(f)==='在職').length;
+      } else if (_coSortKey === 'salDone') {
+        var afg = foreigners.filter(f=>resolveCompanyName(f.companyName)===a.name&&normStatus(f)==='在職');
+        var bfg = foreigners.filter(f=>resolveCompanyName(f.companyName)===b.name&&normStatus(f)==='在職');
+        av = afg.length ? afg.filter(f=>salaryData.some(s=>s.companyName===a.name&&s.nameEn===f.nameEn&&s.yearYear==='prev'&&(s.totalPay||s.workDays))).length/afg.length : -1;
+        bv = bfg.length ? bfg.filter(f=>salaryData.some(s=>s.companyName===b.name&&s.nameEn===f.nameEn&&s.yearYear==='prev'&&(s.totalPay||s.workDays))).length/bfg.length : -1;
+      } else {
+        av = a[_coSortKey] || ''; bv = b[_coSortKey] || '';
+      }
+      var cmp = typeof av === 'number' ? av - bv : String(av).localeCompare(String(bv), 'ja');
+      return _coSortAsc ? cmp : -cmp;
+    });
+  }
+  // ソートインジケーター更新
+  ['name','status','kijun_2','kijun_result','has3yr','fgActive','salDone'].forEach(function(k){
+    var el = document.getElementById('cosort-'+k);
+    if(el) el.textContent = _coSortKey===k ? (_coSortAsc?'▲':'▼') : '';
+  });
   if (!list.length) { document.getElementById('co-table-body').innerHTML='<tr><td colspan="12"><div class="empty-state"><div class="empty-icon">🏭</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
   document.getElementById('co-table-body').innerHTML=list.map(function(co,i){
     var kr=co.kijun_result||calcKijunResult(co);
