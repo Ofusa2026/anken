@@ -1613,7 +1613,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="topbar">
     <span class="page-title">Gmail取込</span>
     <span id="gmailMailCount" style="font-size:13px;color:var(--gray-400);"></span>
-    <div style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+    <div style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+      <select id="gmailFilterStaff" onchange="renderMails()" style="font-size:12px;padding:4px 8px;border:1px solid var(--gray-200);border-radius:6px;max-width:100px;">
+        <option value="">全担当者</option>
+      </select>
+      <select id="gmailFilterOrg" onchange="renderMails()" style="font-size:12px;padding:4px 8px;border:1px solid var(--gray-200);border-radius:6px;max-width:120px;">
+        <option value="">全支援機関</option>
+      </select>
       <button onclick="fetchGmailNow()" style="padding:6px 14px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🔄 最新取得</button>
       <button onclick="clearSavedMails()" style="padding:4px 10px;background:none;border:1px solid var(--gray-200);border-radius:6px;font-size:10px;color:var(--gray-400);cursor:pointer;">🗑 キャッシュクリア</button>
     </div>
@@ -25695,6 +25701,33 @@ function renderMails() {
   var _knownBadges = {'審査完了':1,'受付番号':1,'認定証明書':1};
   var _filteredMails = MAILS.filter(function(m){return !!_knownBadges[m.badge];});
   if(window._gmailUnlinkedOnly) _filteredMails = _filteredMails.filter(function(m){return !m.linkedCase;});
+  // 担当・支援機関フィルター適用
+  var fStaff = (document.getElementById('gmailFilterStaff')||{}).value||'';
+  var fOrg   = (document.getElementById('gmailFilterOrg')||{}).value||'';
+  if(fStaff || fOrg) {
+    _filteredMails = _filteredMails.filter(function(m){
+      var lc = m.linkedCase ? cData.find(function(c){return c.id===m.linkedCase;}) : null;
+      var staff = lc ? (lc.staff||'') : '';
+      var org   = lc ? (lc.org||lc.company||'') : (m.org||'');
+      if(fStaff && staff !== fStaff) return false;
+      if(fOrg   && org.indexOf(fOrg) < 0) return false;
+      return true;
+    });
+  }
+  // 担当・支援機関セレクト初期化（重複なし）
+  var staffSel = document.getElementById('gmailFilterStaff');
+  var orgSel   = document.getElementById('gmailFilterOrg');
+  if(staffSel && staffSel.options.length <= 1){
+    var staffSet={}, orgSet={};
+    MAILS.forEach(function(m){
+      var lc = m.linkedCase ? cData.find(function(c){return c.id===m.linkedCase;}) : null;
+      if(lc && lc.staff) staffSet[lc.staff]=1;
+      var o = lc ? (lc.org||lc.company||'') : (m.org||'');
+      if(o) orgSet[o]=1;
+    });
+    Object.keys(staffSet).sort().forEach(function(s){ var op=document.createElement('option');op.value=s;op.textContent=s;staffSel.appendChild(op); });
+    if(orgSel) Object.keys(orgSet).sort().forEach(function(o){ var op=document.createElement('option');op.value=o;op.textContent=o.length>15?o.slice(0,15)+'…':o;orgSel.appendChild(op); });
+  }
   var _displayCount = _filteredMails.length;
   document.getElementById('gmailMailCount').textContent = '（' + _displayCount + '件）';
   var grouped = {};
@@ -25728,7 +25761,7 @@ function renderMails() {
     dateOrder.forEach(function(d){
       var dm = byDate[d];
       var grpId = 'gmailGrp_'+cat.key.replace(/[^a-zA-Z0-9]/g,'_')+'_'+d.replace(/-/g,'');
-      var isOpen = window._gmailGrpOpen && window._gmailGrpOpen[grpId] === false ? false : true;
+      var isOpen = window._gmailGrpOpen && window._gmailGrpOpen[grpId] === true ? true : false; // デフォルト折りたたみ
       h += '<div style="border-bottom:1px solid #f1f5f9;">';
       // 日付ヘッダー（クリックで折りたたみ）
       h += '<div onclick="toggleGmailGrp(\''+grpId+'\')" style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:#f8fafc;cursor:pointer;user-select:none;">';
