@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.60</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.63</div>
   </div>
 
   <div class="nav-section">
@@ -494,6 +494,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
               <option value="完了">完了</option>
             </select>
             <button class="btn btn-secondary btn-sm" onclick="openImportModal()">📥 インポート</button>
+            <button class="btn btn-secondary btn-sm" onclick="bulkUpdateKijunExp()" title="全社の3年雇用実績を一括判定してスプシに保存">⚡ 3年雇用一括判定</button>
             <button class="btn btn-primary btn-sm" onclick="openModal('modal-company-add')">＋ 追加</button>
           </div>
         </div>
@@ -1589,7 +1590,7 @@ var kijun1 = false, kijun2 = false, kijun_exp_auto = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.60%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.63%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -1706,6 +1707,49 @@ function saveLocalCache() {
 }
 function renderAll() { updateBadges(); renderDashStats(); renderDashTable(); renderCompanyTable(); renderForeignerTable(); renderSalaryCoList(); renderCalcCoList(); renderDocCoList(); updateFgCompanyDatalist(); }
 function refreshData() { document.getElementById('refresh-icon').className='spinner'; loadAllData().then(()=>document.getElementById('refresh-icon').textContent='🔄'); }
+
+async function bulkUpdateKijunExp() {
+  if (!GAS_URL) { showToast('GAS URLが未設定です', 'warn'); return; }
+  var THREE_YEAR_BASE = new Date('2023-04-01');
+  var updated = 0, skipped = 0;
+  showToast('全社を一括判定中...', 'info');
+  for (var i = 0; i < companies.length; i++) {
+    var co = companies[i];
+
+    // 条件1: kijun_1が未設定（空・✗以外）ならデフォルトで✓
+    var newK1 = (co.kijun_1 === '✗') ? '✗' : '✓';
+
+    // 条件2: loginId1またはloginId2があれば✓
+    var newK2 = (co.loginId1 || co.loginId2) ? '✓' : (co.kijun_2 || '✗');
+
+    // 3年雇用: 2023/04/01より前から在籍している人材が1人でもいれば✓
+    var has3yr = foreigners.some(function(f) {
+      if (resolveCompanyName(f.companyName) !== co.name) return false;
+      var cs3 = f.contractStart ? new Date(normDate(f.contractStart)) : null;
+      var ce3 = f.contractEnd   ? new Date(normDate(f.contractEnd))   : null;
+      return cs3 && cs3 < THREE_YEAR_BASE && (!ce3 || ce3 >= THREE_YEAR_BASE);
+    });
+    var newExp = has3yr ? '✓' : '✗';
+
+    // 変更があれば保存
+    if (co.kijun_1 === newK1 && co.kijun_2 === newK2 && co.kijun_exp === newExp) {
+      skipped++; continue;
+    }
+    co.kijun_1 = newK1;
+    co.kijun_2 = newK2;
+    co.kijun_exp = newExp;
+    co.kijun_result = calcKijunResultFromData(co);
+    try {
+      await gasPost({ action: 'upsertCompany', row: Object.assign({}, co) });
+      updated++;
+    } catch(e) {
+      console.error('bulkUpdateKijun error:', co.name, e);
+    }
+  }
+  saveLocalCache();
+  renderCompanyTable();
+  showToast('一括判定完了：' + updated + '社更新、' + skipped + '社変更なし', 'success');
+}
 function calcDeadline() {
   var deadline=new Date('2026-05-31'), today=new Date();
   var diff=Math.ceil((deadline-today)/(1000*60*60*24));
@@ -2528,7 +2572,7 @@ function editCompany(name){
   });
   document.getElementById('co-fiscal-year').value=co.fiscalYear||FISCAL_YEAR;
   document.getElementById('co-status').value=co.status||'未着手';
-  kijun1=co.kijun_1==='✓' || !co.kijun_1; kijun2=co.kijun_2==='✓';
+  kijun1=co.kijun_1==='✓' || !co.kijun_1; kijun2=co.kijun_2==='✓' || !!(co.loginId1||co.loginId2);
   document.getElementById('kijun1-check').className='kijun-check'+(kijun1?' kijun-checked':'');
   document.getElementById('kijun2-check').className='kijun-check'+(kijun2?' kijun-checked':'');
   var k3=co.kijun_3_type||'なし';
@@ -2568,6 +2612,7 @@ function editCompany(name){
   var patEl = document.getElementById('co-mail-pattern');
   if (patEl) patEl.value = autoPattern;
   var ctEl=document.getElementById('co-mail-corp-type'); if(ctEl) delete ctEl.dataset.manualSet;
+  var expEl3=document.getElementById('kijun-exp-check'); if(expEl3) delete expEl3.dataset.manualSet;
   openModal('modal-company-add');
 }
 async function saveCompany(){
@@ -2796,8 +2841,9 @@ function updatePassword(){
 }
 function toggleKijunExp(){
   var el=document.getElementById('kijun-exp-check');
-  var active=el.classList.contains('checked');
-  el.className='kijun-check'+(active?'':' checked');
+  var active=el.classList.contains('kijun-checked')||el.classList.contains('checked');
+  el.className='kijun-check'+(active?'':' kijun-checked');
+  el.dataset.manualSet='1';
 }
 
 // ===== ルールブックに基づくチェック関数 =====
@@ -2877,6 +2923,24 @@ function switchModalTab(tabId,btn){
   ['tab-co-basic','tab-co-kijun','tab-co-support','tab-co-mail'].forEach(function(t){var el=document.getElementById(t);if(el)el.style.display=t===tabId?'block':'none';});
   document.querySelectorAll('.tab-bar .tab-btn').forEach(b=>b.classList.remove('active'));
   if(btn) btn.classList.add('active');
+  // kijunタブ表示時に3年雇用を自動判定
+  if(tabId === 'tab-co-kijun') {
+    var coNameEl = document.getElementById('co-name');
+    var coName = coNameEl ? coNameEl.value : '';
+    if(coName && foreigners.length > 0) {
+      var expEl2 = document.getElementById('kijun-exp-check');
+      if(expEl2 && !expEl2.dataset.manualSet) {
+        var THREE_YEAR_BASE3 = new Date('2023-04-01');
+        var autoHas3yr2 = foreigners.some(function(f){
+          if(resolveCompanyName(f.companyName) !== coName) return false;
+          var cs3 = f.contractStart ? new Date(normDate(f.contractStart)) : null;
+          var ce3 = f.contractEnd   ? new Date(normDate(f.contractEnd))   : null;
+          return cs3 && cs3 < THREE_YEAR_BASE3 && (!ce3 || ce3 >= THREE_YEAR_BASE3);
+        });
+        expEl2.className = 'kijun-check' + (autoHas3yr2 ? ' kijun-checked' : '');
+      }
+    }
+  }
 }
 function showToast(msg,type){
   var icons={success:'✅',warn:'⚠️',error:'❌',info:'ℹ️'};
