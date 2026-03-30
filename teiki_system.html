@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.49</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.52</div>
   </div>
 
   <div class="nav-section">
@@ -933,12 +933,19 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
               <input type="date" class="input" id="co-mail-deadline" value="2026-04-10"
                 oninput="renderCoMailPreview()">
             </div>
-            <div class="field-group col-span2">
+            <div class="field-group">
               <label class="field-label">パターン</label>
               <select class="input" id="co-mail-pattern" onchange="renderCoMailPreview()">
                 <option value="A">A｜基準該当①〜⑤（書類最少）</option>
                 <option value="B">B｜⑥継続実績（決算書が必要）</option>
                 <option value="C">C｜基準非該当（書類多・早めに）</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label class="field-label">法人区分</label>
+              <select class="input" id="co-mail-corp-type" onchange="this.dataset.manualSet='1';renderCoMailPreview()">
+                <option value="corp">法人</option>
+                <option value="kojin">個人事業主</option>
               </select>
             </div>
             <div class="field-group col-span2">
@@ -1013,12 +1020,19 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
               <input type="date" class="input" id="co-mail-deadline" value="2026-04-10"
                 oninput="renderCoMailPreview()">
             </div>
-            <div class="field-group col-span2">
+            <div class="field-group">
               <label class="field-label">パターン</label>
               <select class="input" id="co-mail-pattern" onchange="renderCoMailPreview()">
                 <option value="A">A｜基準該当①〜⑤（書類最少）</option>
                 <option value="B">B｜⑥継続実績（決算書が必要）</option>
                 <option value="C">C｜基準非該当（書類多・早めに）</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label class="field-label">法人区分</label>
+              <select class="input" id="co-mail-corp-type" onchange="this.dataset.manualSet='1';renderCoMailPreview()">
+                <option value="corp">法人</option>
+                <option value="kojin">個人事業主</option>
               </select>
             </div>
             <div class="field-group col-span2">
@@ -1577,7 +1591,7 @@ var kijun1 = false, kijun2 = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.49%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.52%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -2498,8 +2512,8 @@ function resetCompanyForm(){
   document.getElementById('co-support-other').value='';
   document.getElementById('support-other-wrap').style.display='none';
   document.getElementById('non-exec-no').checked=true;
-  kijun1=false;kijun2=false;
-  document.getElementById('kijun1-check').className='kijun-check';
+  kijun1=true;kijun2=false;
+  document.getElementById('kijun1-check').className='kijun-check kijun-checked';
   var expEl2=document.getElementById('kijun-exp-check'); if(expEl2) expEl2.className='kijun-check';
   document.getElementById('kijun2-check').className='kijun-check';
   document.querySelectorAll('input[name=kijun3]').forEach(r=>r.checked=r.value==='なし');
@@ -2518,9 +2532,9 @@ function editCompany(name){
   });
   document.getElementById('co-fiscal-year').value=co.fiscalYear||FISCAL_YEAR;
   document.getElementById('co-status').value=co.status||'未着手';
-  kijun1=co.kijun_1==='✓'; kijun2=co.kijun_2==='✓';
-  document.getElementById('kijun1-check').className='kijun-check'+(kijun1?' checked':'');
-  document.getElementById('kijun2-check').className='kijun-check'+(kijun2?' checked':'');
+  kijun1=co.kijun_1==='✓' || !co.kijun_1; kijun2=co.kijun_2==='✓';
+  document.getElementById('kijun1-check').className='kijun-check'+(kijun1?' kijun-checked':'');
+  document.getElementById('kijun2-check').className='kijun-check'+(kijun2?' kijun-checked':'');
   var k3=co.kijun_3_type||'なし';
   document.querySelectorAll('input[name=kijun3]').forEach(r=>r.checked=r.value===k3);
   document.getElementById('kijun6-detail').style.display=k3==='⑥継続実績'?'block':'none';
@@ -2545,6 +2559,7 @@ function editCompany(name){
   }
   var patEl = document.getElementById('co-mail-pattern');
   if (patEl) patEl.value = autoPattern;
+  var ctEl=document.getElementById('co-mail-corp-type'); if(ctEl) delete ctEl.dataset.manualSet;
   openModal('modal-company-add');
 }
 async function saveCompany(){
@@ -2651,7 +2666,7 @@ async function executeFgImport(){
   btn.disabled=false; btn.textContent='インポート実行';
 }
 function toggleKijun(id){
-  if(id==='kijun1'){kijun1=!kijun1;document.getElementById('kijun1-check').className='kijun-check'+(kijun1?' checked':'');}
+  if(id==='kijun1'){kijun1=!kijun1;document.getElementById('kijun1-check').className='kijun-check'+(kijun1?' kijun-checked':'');}
   else{kijun2=!kijun2;document.getElementById('kijun2-check').className='kijun-check'+(kijun2?' checked':'');}
   updateKijunResult();
 }
@@ -3489,8 +3504,15 @@ var MAIL_TEMPLATES = {
   },
   C: {
     subject: '【大房行政書士法人】特定技能外国人 定期届出のご案内（重要）',
-    body: function(co, contact, deadline, needs2yr) {
-      return co + '\n' + contact + ' 様\n\nいつもお世話になっております。\n大房行政書士法人の阪本でございます。\n\n特定技能外国人の定期届出の時期が参りましたので、ご案内いたします。\n今回はご準備いただく書類が少し多くなりますが、一つひとつ確認しながら\n進めますのでご安心ください。\n\n━━━━━━━━━━━━━━━━━━━\n【今回ご用意いただくもの】\n━━━━━━━━━━━━━━━━━━━\n\n▶【１】在籍している特定技能外国人の賃金台帳のコピー\n　　　　1. 2025年4月〜2026年3月分・全員分\n　　　　2. 2024年4月〜2025年3月分・全員分\n　　　　　 ＊2024年4月時点で在籍している特定技能の方がいる場合\n\n▶【２】登記事項証明書（発行から3ヶ月以内のもの）\n　　　　※ 法務局またはオンラインで取得できます\n\n▶【３】業務執行役員・代表者の住民票\n　　　　（マイナンバーなし・本籍地あり）\n\n▶【４】役員の氏名と役職（全員分・ふりがなもあると助かります）\n　　　　例）代表取締役　〇〇 〇〇（ふりがな）\n\n▶【５】直近1年分の労働保険料の納付資料\n　　　　（申告書控えと領収書のコピー）\n\n▶【６】社会保険料の領収書（納付書）\n　　　　2025年2月分〜2026年1月分\n\n▶【７】納税証明書（その3）\n　　　　（税務署で取得：法人税・消費税・源泉所得税）\n\n▶【８】法人住民税の納税証明書（直近1年分）\n　　　　（市区町村窓口で取得）\n\n▶【９】直近3期分の決算書のコピー\n　　　　（または売上高・経常損益・純損益・純資産の数字をご連絡ください）\n\n▶【１０】過去1年間の従業員の離職状況\n　　　　・特定技能外国人と同じ仕事をしていた日本人で退職した方の人数\n　　　　　（本人都合・会社都合に分けてお教えください）\n　　　　・外国人従業員で行方不明になった方の有無\n\n━━━━━━━━━━━━━━━━━━━\n【送付方法・期限】\n━━━━━━━━━━━━━━━━━━━\n\n・スキャンまたは写真撮影してメールに添付してください。\n・送付先：k.sakamoto@gyosei-cambo.com\n・期　限：' + deadline + 'まで\n\n※ 今回は書類の種類が多いため、早めのご準備をお願いいたします。\n　 ご不明な点は代表・大房までお気軽にお電話ください。\n　 TEL：070-4200-4733\n\n引き続きよろしくお願いいたします。\n\n━━━━━━━━━━━━━━━━━━━\n大房行政書士法人\n担当：阪本\nMail：k.sakamoto@gyosei-cambo.com\n━━━━━━━━━━━━━━━━━━━';
+    body: function(co, contact, deadline, corpType) {
+      var isCorp = (corpType !== 'kojin');
+      var shakaiHoken = isCorp
+        ? '▶【６】社会保険料の領収書（納付書）\n　　　　2025年2月分〜2026年1月分\n　　　　（健康保険・厚生年金保険 適用事業所の場合）'
+        : '▶【６】社会保険料・国民健康保険料の領収書（納付書）\n　　　　2025年2月分〜2026年1月分';
+      var nouzei = isCorp
+        ? '▶【７】納税証明書（その3）\n　　　　（税務署で取得：源泉所得税・法人税・消費税・地方消費税）\n\n▶【８】法人住民税の納税証明書（直近1年分）\n　　　　（市区町村窓口で取得）'
+        : '▶【７】納税証明書（その3）\n　　　　（税務署で取得：源泉所得税・申告所得税・消費税・地方消費税・相続税・贈与税）\n\n▶【８】個人住民税の納税証明書（直近1年分）\n　　　　（市区町村窓口で取得）';
+      return co + '\n' + contact + ' 様\n\nいつもお世話になっております。\n大房行政書士法人の阪本でございます。\n\n特定技能外国人の定期届出の時期が参りましたので、ご案内いたします。\n今回はご準備いただく書類が少し多くなりますが、一つひとつ確認しながら\n進めますのでご安心ください。\n\n━━━━━━━━━━━━━━━━━━━\n【今回ご用意いただくもの】\n━━━━━━━━━━━━━━━━━━━\n\n▶【１】在籍している特定技能外国人の賃金台帳のコピー\n　　　　1. 2025年4月〜2026年3月分・全員分\n　　　　2. 2024年4月〜2025年3月分・全員分\n　　　　　 ＊2024年4月時点で在籍している特定技能の方がいる場合\n\n▶【２】登記事項証明書（発行から3ヶ月以内のもの）\n　　　　※ 法務局またはオンラインで取得できます\n\n▶【３】業務執行役員・代表者の住民票\n　　　　（マイナンバーなし・本籍地あり）\n\n▶【４】役員の氏名と役職（全員分・ふりがなもあると助かります）\n　　　　例）代表取締役　〇〇 〇〇（ふりがな）\n\n▶【５】直近1年分の労働保険料の納付資料\n　　　　（申告書控えと領収書のコピー）\n\n' + shakaiHoken + '\n\n' + nouzei + '\n\n▶【９】直近3期分の決算書のコピー\n　　　　（または売上高・経常損益・純損益・純資産の数字をご連絡ください）\n\n▶【１０】過去1年間の従業員の離職状況\n　　　　・特定技能外国人と同じ仕事をしていた日本人で退職した方の人数\n　　　　　（本人都合・会社都合に分けてお教えください）\n　　　　・外国人従業員で行方不明になった方の有無\n\n━━━━━━━━━━━━━━━━━━━\n【送付方法・期限】\n━━━━━━━━━━━━━━━━━━━\n\n・スキャンまたは写真撮影してメールに添付してください。\n・送付先：k.sakamoto@gyosei-cambo.com\n・期　限：' + deadline + 'まで\n\n※ 今回は書類の種類が多いため、早めのご準備をお願いいたします。\n　 ご不明な点は代表・大房までお気軽にお電話ください。\n　 TEL：070-4200-4733\n\n引き続きよろしくお願いいたします。\n\n━━━━━━━━━━━━━━━━━━━\n大房行政書士法人\n担当：阪本\nMail：k.sakamoto@gyosei-cambo.com\n━━━━━━━━━━━━━━━━━━━';
     }
   }
 };
@@ -3540,6 +3562,14 @@ function renderCoMailPreview() {
   var co       = (coEl ? coEl.value.trim() : '') || '〇〇株式会社';
   var contact  = 'ご担当者';
   var rawDeadline = document.getElementById('co-mail-deadline').value.trim() || '2026-04-10';
+  // 法人番号の有無で自動判定（手動変更済みの場合はそのまま）
+  var corpTypeEl = document.getElementById('co-mail-corp-type');
+  if (corpTypeEl && !corpTypeEl.dataset.manualSet) {
+    var coObj = companies.find(function(c){ return c.name === co; });
+    var autoType = (coObj && coObj.corpNo && coObj.corpNo.trim()) ? 'corp' : 'kojin';
+    corpTypeEl.value = autoType;
+  }
+  var corpType = (corpTypeEl || {value:'corp'}).value;
   var deadline = (function(s){
     var m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
     if (!m) return s;
