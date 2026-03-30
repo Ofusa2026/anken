@@ -25708,21 +25708,54 @@ function renderMails() {
   categories.forEach(function(cat){
     var mails = grouped[cat.key];
     if(!mails || !mails.length) return;
-    // セクションヘッダー
+    // 日付ごとにサブグループ化（新しい順）
+    var byDate = {};
+    var dateOrder = [];
+    mails.forEach(function(m){
+      var d = (m.date||'').slice(0,10);
+      if(!byDate[d]){ byDate[d]=[]; dateOrder.push(d); }
+      byDate[d].push(m);
+    });
+    dateOrder.sort(function(a,b){return b.localeCompare(a);}); // 新しい順
+    // カテゴリヘッダー
     h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;margin:0 -12px;background:'+cat.bg+';border-left:4px solid '+cat.color+';border-bottom:1px solid '+cat.border+';">';
     h += '<span style="font-size:13px;font-weight:700;color:'+cat.color+';">'+cat.icon+' '+cat.key+'　<span style="font-weight:500;font-size:11px;color:#64748b;">'+mails.length+'件</span></span>';
     h += '<div style="display:flex;gap:6px;">';
     h += '<button onclick="selectMailsByBadge(\''+cat.key+'\',true)" style="font-size:10px;padding:3px 10px;background:white;color:'+cat.color+';border:1px solid '+cat.border+';border-radius:6px;cursor:pointer;font-weight:600;">☑ 全選択</button>';
     h += '<button onclick="selectMailsByBadge(\''+cat.key+'\',false)" style="font-size:10px;padding:3px 10px;background:white;color:#94a3b8;border:1px solid #e2e8f0;border-radius:6px;cursor:pointer;font-weight:600;">☐ 全解除</button>';
     h += '</div></div>';
-    // メール一覧
-    mails.forEach(function(m){
-      h += renderMailItem(m);
+    // 日付ごとに折りたたみグループ
+    dateOrder.forEach(function(d){
+      var dm = byDate[d];
+      var grpId = 'gmailGrp_'+cat.key.replace(/[^a-zA-Z0-9]/g,'_')+'_'+d.replace(/-/g,'');
+      var isOpen = window._gmailGrpOpen && window._gmailGrpOpen[grpId] === false ? false : true;
+      h += '<div style="border-bottom:1px solid #f1f5f9;">';
+      // 日付ヘッダー（クリックで折りたたみ）
+      h += '<div onclick="toggleGmailGrp(\''+grpId+'\')" style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:#f8fafc;cursor:pointer;user-select:none;">';
+      h += '<span id="'+grpId+'_arrow" style="font-size:11px;color:#64748b;transition:transform 0.2s;display:inline-block;transform:'+(isOpen?'rotate(90deg)':'rotate(0deg)')+';">▶</span>';
+      h += '<span style="font-size:12px;font-weight:700;color:#374151;">'+d+'</span>';
+      h += '<span style="font-size:11px;color:#94a3b8;margin-left:4px;">'+dm.length+'件</span>';
+      h += '</div>';
+      // メール一覧（折りたたみ対象）
+      h += '<div id="'+grpId+'" style="display:'+(isOpen?'block':'none')+';">';
+      dm.forEach(function(m){ h += renderMailItem(m); });
+      h += '</div></div>';
     });
   });
   // その他は非表示
   document.getElementById('gmailMailList').innerHTML = h;
   updateSelCount();
+}
+
+function toggleGmailGrp(grpId){
+  if(!window._gmailGrpOpen) window._gmailGrpOpen = {};
+  var el = document.getElementById(grpId);
+  var arrow = document.getElementById(grpId+'_arrow');
+  if(!el) return;
+  var isOpen = el.style.display !== 'none';
+  el.style.display = isOpen ? 'none' : 'block';
+  window._gmailGrpOpen[grpId] = !isOpen;
+  if(arrow) arrow.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(90deg)';
 }
 
 function renderMailItem(m){
