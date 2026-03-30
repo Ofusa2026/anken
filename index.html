@@ -1594,11 +1594,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <button onclick="fetchGmailTsuikan()" style="padding:6px 14px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🔄 最新取得</button>
     </div>
   </div>
-  <div style="padding:8px 16px;background:white;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:10px;">
+  <div style="padding:8px 16px;background:white;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
     <button onclick="tsuikanSelectAll()" style="font-size:12px;padding:5px 14px;background:white;color:var(--navy);border:1.5px solid var(--gray-200);border-radius:8px;cursor:pointer;font-weight:700;">☑ 全選択</button>
     <button onclick="tsuikanDeselectAll()" style="font-size:12px;padding:5px 14px;background:white;color:var(--gray-400);border:1.5px solid var(--gray-200);border-radius:8px;cursor:pointer;">☐ 全解除</button>
     <span id="tsuikanSelCount" style="font-size:12px;color:var(--gray-400);">0件選択中</span>
     <button id="tsuikanUnmatchedBtn" onclick="toggleTsuikanUnmatched()" style="font-size:12px;padding:5px 14px;background:white;color:#dc2626;border:1.5px solid #fca5a5;border-radius:8px;cursor:pointer;font-weight:700;">⚠️ 未登録のみ</button>
+    <span style="font-size:12px;color:var(--gray-400);margin-left:8px;">期間：</span>
+    <input type="date" id="tsuikanDateFrom" onchange="renderTsuikanMails()" style="font-size:12px;padding:4px 8px;border:1.5px solid var(--gray-200);border-radius:8px;">
+    <span style="font-size:12px;color:var(--gray-400);">〜</span>
+    <input type="date" id="tsuikanDateTo" onchange="renderTsuikanMails()" style="font-size:12px;padding:4px 8px;border:1.5px solid var(--gray-200);border-radius:8px;">
+    <button onclick="document.getElementById('tsuikanDateFrom').value='';document.getElementById('tsuikanDateTo').value='';renderTsuikanMails();" style="font-size:11px;padding:4px 10px;background:white;color:var(--gray-400);border:1.5px solid var(--gray-200);border-radius:8px;cursor:pointer;">クリア</button>
     <button onclick="moveTsuikanMails()" style="margin-left:auto;padding:8px 20px;background:#dc2626;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">指摘カードに追加</button>
   </div>
   <div id="tsuikanContent" style="flex:1;overflow-y:auto;padding:16px;"></div>
@@ -33497,6 +33502,15 @@ function renderTsuikanMails(){
   // 未追加と追加済に分ける
   var pending=TSUIKAN_MAILS.filter(function(m){return !m._addedToCard;});
   if(_tsuikanUnmatchedOnly) pending=pending.filter(function(m){ return _tsuikanIsUnmatched(m); });
+  // 期間フィルター
+  var dateFrom=document.getElementById('tsuikanDateFrom');
+  var dateTo=document.getElementById('tsuikanDateTo');
+  var fromVal=dateFrom?dateFrom.value:'';
+  var toVal=dateTo?dateTo.value:'';
+  if(fromVal) pending=pending.filter(function(m){ return (m.date||'')>=fromVal; });
+  if(toVal)   pending=pending.filter(function(m){ return (m.date||'').slice(0,10)<=toVal; });
+  // 新しい順にソート
+  pending=pending.slice().sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); });
   var added=TSUIKAN_MAILS.filter(function(m){return !!m._addedToCard;});
   var count=document.getElementById('tsuikanCount');
   if(count)count.textContent=pending.length+'件'+(added.length?' (追加済'+added.length+'件)':'');
@@ -33688,7 +33702,7 @@ function tsuikanToggle(id){if(tsuikanSel[id])delete tsuikanSel[id];else tsuikanS
 function tsuikanSelectAll(){TSUIKAN_MAILS.forEach(function(m){tsuikanSel[m.id]=1;});renderTsuikanMails();}
 function tsuikanDeselectAll(){tsuikanSel={};renderTsuikanMails();}
 function updateTsuikanSelCount(){var el=document.getElementById('tsuikanSelCount');if(el)el.textContent=Object.keys(tsuikanSel).length+'件選択中';}
-function tsuikanUnlink(id){var m=TSUIKAN_MAILS.find(function(x){return x.id===id;});if(m){delete m.linkedCase;persistTsuikanMails();}renderTsuikanMails();}
+function tsuikanUnlink(id){var m=TSUIKAN_MAILS.find(function(x){return x.id===id;});if(m)delete m.linkedCase;renderTsuikanMails();}
 function tsuikanSearchCase(mailId,q){
   var el=document.getElementById('tsuikan_results_'+mailId);if(!el)return;
   if(!q){el.style.display='none';return;}
@@ -33700,7 +33714,7 @@ function tsuikanSearchCase(mailId,q){
 }
 function tsuikanLinkCase(mailId,caseId){
   var m=TSUIKAN_MAILS.find(function(x){return x.id===mailId;});
-  if(m){m.linkedCase=caseId;persistTsuikanMails();}
+  if(m){m.linkedCase=caseId;}
   renderTsuikanMails();
 }
 function moveTsuikanMails(){
