@@ -981,11 +981,19 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         </div>
       </div>
       <span class="filter-label">ステータス</span>
+      <select class="filter-select" id="fBall" onchange="applyFilters(true)" style="max-width:90px;">
+        <option value="">全ボール</option>
+        <option value="大房">🏢 大房</option>
+        <option value="企業">🏭 企業</option>
+        <option value="人材">👤 人材</option>
+        <option value="おだいば">🏛 おだいば</option>
+      </select>
       <select class="filter-select" id="fStatus" onchange="applyFilters(true)" data-tip-target="tip-filter-team">
         <option>全ステータス</option>
         <option>未着手</option>
         <option>★ヒアリングフォーム送付</option>
         <option>ヒアリングフォーム回答待ち(送付済)</option>
+        <option>雇用条件待ち</option>
         <option>1-6作成</option>
         <option>★1-6企業送付</option>
         <option>1-6企業確認待ち(送付済)</option>
@@ -994,16 +1002,26 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <option>サイン書類作成</option>
         <option>★サイン書類送付</option>
         <option>サイン書類返送待ち(送付済)</option>
+        <option>企業書類作成</option>
         <option>★企業押印送付</option>
         <option>企業押印返送待ち(送付済)</option>
+        <option>人材書類待ち</option>
+        <option>企業書類待ち</option>
         <option>スキャン書類作成</option>
-        <option>申請</option>
+        <option>★申請</option>
         <option>申請済(番号待)</option>
         <option>審査中</option>
         <option>特活審査中</option>
-        <option>要追完</option>
+        <option>★要追完</option>
+        <option>★要追完 企業不足書類待ち</option>
+        <option>★要追完 人材不足書類待ち</option>
         <option>許可済 受取方法調整中</option>
+        <option>郵送交付</option>
+        <option>郵送交付中</option>
+        <option>窓口受取</option>
+        <option>窓口受取（本人）</option>
         <option>審査完了</option>
+        <option>完了</option>
       </select>
       <span class="filter-label">支援機関</span>
       <select class="filter-select" id="fOrg" onchange="applyFilters(true)" data-tip-target="tip-filter-org">
@@ -1251,6 +1269,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <option value="applicant">申請者名</option>
         <option value="org">登録支援機関</option>
       </select>
+      <button onclick="showCertNotifyModal()" style="font-size:12px;padding:5px 12px;background:#7c3aed;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">📢 担当者通知</button>
     </div>
   </div>
   <div style="padding:8px 16px 0;flex-shrink:0;">
@@ -7079,7 +7098,22 @@ async function insertCardIntoExcel(caseId, frontData, backData) {
       w.document.write('</div>');
     });
 
-    w.document.write('</body></html>');
+    w.document.write('
+<!-- 認定証明書 担当者通知モーダル -->
+<div id="certNotifyModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;align-items:center;justify-content:center;padding:16px;">
+  <div style="background:white;border-radius:16px;width:640px;max-width:95vw;max-height:85vh;box-shadow:0 24px 60px rgba(0,0,0,0.2);overflow:hidden;display:flex;flex-direction:column;">
+    <div style="background:#7c3aed;padding:16px 20px;display:flex;align-items:center;gap:10px;flex-shrink:0;">
+      <span style="color:white;font-size:15px;font-weight:700;">📢 担当者への通知文</span>
+      <button onclick="document.getElementById('certNotifyModal').style.display='none'" style="margin-left:auto;background:rgba(255,255,255,0.15);border:none;color:white;width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:16px;">✕</button>
+    </div>
+    <div style="padding:16px 20px;overflow-y:auto;flex:1;">
+      <div style="font-size:11px;color:#6b7280;margin-bottom:12px;">担当者ごとの通知文です。コピーしてLINE等でご連絡ください。</div>
+      <div id="certNotifyContent"></div>
+    </div>
+  </div>
+</div>
+
+</body></html>');
     w.document.close();
 
     // 印刷ダイアログを開く
@@ -14318,6 +14352,13 @@ function editEmpSet(coId, idx) {
   h += '<button onclick="checkEmpSetConsistency(\'' + coId + '\',' + idx + ')" style="flex:1;padding:12px;background:#f59e0b;color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">🤖 AI整合性チェック</button>';
   h += '<button onclick="aiTranslateAllEmp(\'' + coId + '\',' + idx + ')" style="flex:1;padding:12px;background:#7c3aed;color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">🤖 AI翻訳</button>';
   h += '</div>';
+  // 最下部にも戻るボタンと言語プルダウンを表示
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--gray-200);">';
+  h += '<button onclick="renderCompanyDetail(companies.find(function(x){return x.id===\'' + coId + '\'}))" style="font-size:11px;padding:5px 12px;background:var(--gray-200);color:var(--gray-600);border:none;border-radius:6px;cursor:pointer;font-weight:700;">← 戻る</button>';
+  h += '<div style="display:flex;gap:6px;align-items:center;">';
+  h += '<select id="empLangSelectBottom" onchange="document.getElementById(\'empLangSelect\').value=this.value" style="font-size:11px;padding:4px 8px;border:1.5px solid #c4b5fd;border-radius:6px;background:#faf5ff;color:#7c3aed;font-weight:700;">' + EMP_LANGUAGES.map(function(l){return '<option value="'+l.code+'"'+((guessEmpLang()===l.code)?' selected':'')+ '>'+l.label+'</option>';}).join('') + '</select>';
+  h += '<button onclick="var s=document.getElementById(\'empLangSelectBottom\');document.getElementById(\'empLangSelect\').value=s.value;aiTranslateAllEmp(\'' + coId + '\',' + idx + ')" style="font-size:11px;padding:5px 12px;background:#7c3aed;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">🤖 AI翻訳</button>';
+  h += '</div></div>';
   document.getElementById('companyDetail').innerHTML = h;
   // placeholderの色修正＆控除フィールドの自動計算
   var DEDUCT_KEYS = ['deductTax','deductSocial','deductEmployment','deductFood','deductHousing','deductUtility','deductOther1Amount','deductOther2Amount'];
@@ -18231,8 +18272,14 @@ var ST = {
   '申請済':'st-submit','追加資料対応':'st-add'
 };
 var RESIDENCE_STATUS_LIST = ['特定技能1号','特定技能2号','技能実習1号イ','技能実習1号ロ','技能実習2号イ','技能実習2号ロ','技能実習3号イ','技能実習3号ロ','特定活動','技術・人文知識・国際業務','高度専門職1号','高度専門職2号','経営・管理','企業内転勤','技能','人文知識・国際業務','留学','家族滞在','定住者','永住者','日本人の配偶者等','永住者の配偶者等','その他'];
-var STATUS_LIST = ['未着手', '★ヒアリングフォーム送付', 'ヒアリングフォーム回答待ち(送付済)', '1-6作成', '★1-6企業送付', '1-6企業確認待ち(送付済)', '1-6修正', '★1-6修正送付', 'サイン書類作成', '★サイン書類送付', 'サイン書類返送待ち(送付済)', '★企業押印送付', '企業押印返送待ち(送付済)', 'スキャン書類作成', '★申請', '申請済(番号待)', '審査中', '特活審査中', '★要追完', '許可済 受取方法調整中', '郵送交付', '窓口受取', '完了'];
+var STATUS_LIST = ['未着手', '★ヒアリングフォーム送付', 'ヒアリングフォーム回答待ち(送付済)', '雇用条件待ち', '1-6作成', '★1-6企業送付', '1-6企業確認待ち(送付済)', '1-6修正', '★1-6修正送付', 'サイン書類作成', '★サイン書類送付', 'サイン書類返送待ち(送付済)', '企業書類作成', '★企業押印送付', '企業押印返送待ち(送付済)', '人材書類待ち', '企業書類待ち', 'スキャン書類作成', '★申請', '申請済(番号待)', '審査中', '特活審査中', '★要追完', '★要追完 企業不足書類待ち', '★要追完 人材不足書類待ち', '許可済 受取方法調整中', '郵送交付', '郵送交付中', '窓口受取', '窓口受取（本人）', '審査完了', '完了'];
 var TYPECLS = {'認定':'type-new','更新':'type-renew','変更':'type-change','申請済':'type-cert'};
+var BALL_STATUS_MAP = {
+  '大房': ['未着手','★ヒアリングフォーム送付','1-6作成','★1-6企業送付','1-6修正','★1-6修正送付','サイン書類作成','★サイン書類送付','企業書類作成','★企業押印送付','スキャン書類作成','★申請','郵送交付','窓口受取'],
+  '企業': ['雇用条件待ち','1-6企業確認待ち(送付済)','企業押印返送待ち(送付済)','企業書類待ち','許可済 受取方法調整中'],
+  '人材': ['ヒアリングフォーム回答待ち(送付済)','サイン書類返送待ち(送付済)','人材書類待ち','窓口受取（本人）'],
+  'おだいば': ['郵送交付中']
+};
 
 var MAILS = [];
 var mSel = {};
@@ -18544,6 +18591,10 @@ function buildCaseRow(c, today, inGroup) {
     h += '<div style="font-size:11px;color:#374151;line-height:1.5;white-space:pre-wrap;word-break:break-all;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:6px;padding:6px 8px;max-height:80px;overflow:hidden;">' + esc(_pm) + '</div>';
   }
   h += '</td>';
+  // ③ 複製ボタン
+  h += '<td onclick="event.stopPropagation()" style="'+cs+'text-align:center;width:32px;padding:2px;">';
+  h += '<button onclick="event.stopPropagation();openDuplicateCase(\''+c.id+'\')" title="案件を複製" style="font-size:11px;padding:3px 7px;background:#f0f9ff;color:#0369a1;border:1px solid #7dd3fc;border-radius:5px;cursor:pointer;font-weight:700;">📋</button>';
+  h += '</td>';
   h += '</tr>';
   return h;
 }
@@ -18728,10 +18779,33 @@ function bulkChangeStatus(){
   var cbs = document.querySelectorAll('.group-sel-cb:checked');
   if(!cbs.length){ alert('案件を選択してください'); return; }
   var ids = []; cbs.forEach(function(cb){ ids.push(cb.getAttribute('data-id')); });
-  var newStatus = prompt(ids.length + '件の案件のステータスを変更します。\n\n選択肢: 未着手, ★ヒアリングフォーム送付, ヒアリングフォーム回答待ち(送付済), 1-6作成, ★1-6企業送付, 1-6企業確認待ち(送付済), 1-6修正, ★1-6修正送付, サイン書類作成, ★サイン書類送付, サイン書類返送待ち(送付済), ★企業押印送付, 企業押印返送待ち(送付済), スキャン書類作成, 申請, 申請済(番号待), 審査中, 要追完, 完了\n\n新しいステータスを入力:', '書類作成中');
+
+  // セレクトUIのモーダルを表示
+  var overlay = document.createElement('div');
+  overlay.id = 'bulkStatusOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:white;border-radius:16px;padding:24px;width:380px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,.3);';
+  box.innerHTML = '<div style="font-size:15px;font-weight:800;margin-bottom:16px;">📋 一括ステータス変更（' + ids.length + '件）</div>'
+    + '<div style="font-size:11px;color:#6b7280;margin-bottom:10px;">新しいステータスを選択してください</div>'
+    + '<select id="bulkStatusSel" style="width:100%;padding:10px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:13px;margin-bottom:16px;">'
+    + STATUS_LIST.map(function(s){ return '<option value="'+s+'">'+s+'</option>'; }).join('')
+    + '</select>'
+    + '<div style="display:flex;gap:8px;">'
+    + '<button onclick="document.getElementById('bulkStatusOverlay').remove()" style="flex:1;padding:10px;background:#f3f4f6;color:#374151;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">キャンセル</button>'
+    + '<button onclick="_execBulkStatus('+JSON.stringify(ids)+')" style="flex:1;padding:10px;background:#f59e0b;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">変更する</button>'
+    + '</div>';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+
+function _execBulkStatus(ids){
+  var sel = document.getElementById('bulkStatusSel');
+  if(!sel) return;
+  var newStatus = sel.value;
   if(!newStatus) return;
-  var valid = ['未着手','書類作成中','審査中','★要追完','完了','審査完了'];
-  if(valid.indexOf(newStatus) === -1){ alert('無効なステータスです。\n有効: ' + valid.join(', ')); return; }
+  var overlay = document.getElementById('bulkStatusOverlay');
+  if(overlay) overlay.remove();
   ids.forEach(function(cid){
     var c = cData.find(function(x){ return x.id === cid; });
     if(c) c.status = newStatus;
@@ -19132,6 +19206,12 @@ function applyFilters(resetPage) {
           if(_fieldFilter==='__empty__') return !af2;
           return af2.indexOf(_fieldFilter)>=0;
         });
+      }
+      // ボール絞り込み
+      var _ballFilter = (document.getElementById('fBall')||{}).value||'';
+      if(_ballFilter && BALL_STATUS_MAP[_ballFilter]) {
+        var _ballStatuses = BALL_STATUS_MAP[_ballFilter];
+        cases = cases.filter(function(c){ return _ballStatuses.indexOf(c.status) >= 0; });
       }
       window._filteredCases = cases;
       if(_viewMode === 'kanban'){
@@ -26092,6 +26172,16 @@ function updateListSelBar(type){
   if(bar) bar.style.display=n>0?'block':'none';
   if(cnt) cnt.textContent=n+'件選択中';
 }
+
+function recDupMarkReported(id, flag){
+  var item = receiptListData.find(function(d){return d.id===id;});
+  if(!item) return;
+  item.reported = flag;
+  item.reportedAt = flag ? new Date().toISOString() : null;
+  persistReceiptList(id);
+  renderRecords();
+  showToast(flag ? '✅ 対応済みにしました' : '🔄 未対応に戻しました');
+}
 function listBulkReported(type, flag){
   var cfg=getListConfig(type);
   var ids=Object.keys(cfg.sel);
@@ -26519,7 +26609,7 @@ function renderListItems(type, data, borderColor){
     // ステータスバッジ（全タイプ）
     if(linkedCase){
       var _st=linkedCase.status||'';
-      var _stColors={'審査中':'#fef3c7:#d97706','特活審査中':'#fef3c7:#d97706','許可済 受取方法調整中':'#e0f2fe:#0369a1','★要追完':'#fff7ed:#ea580c','郵送交付':'#e0f2fe:#0369a1','窓口受取':'#e0f2fe:#0369a1','申請済(番号待)':'#f0fdf4:#059669','完了':'#f0fdf4:#15803d','審査完了':'#f0fdf4:#15803d'};
+      var _stColors={'審査中':'#fef3c7:#d97706','特活審査中':'#fef3c7:#d97706','許可済 受取方法調整中':'#e0f2fe:#0369a1','★要追完':'#fff7ed:#ea580c','★要追完 企業不足書類待ち':'#fff7ed:#ea580c','★要追完 人材不足書類待ち':'#fff7ed:#ea580c','郵送交付':'#e0f2fe:#0369a1','郵送交付中':'#e0f2fe:#0369a1','窓口受取':'#e0f2fe:#0369a1','窓口受取（本人）':'#e0f2fe:#0369a1','申請済(番号待)':'#f0fdf4:#059669','雇用条件待ち':'#fdf4ff:#7c3aed','企業書類作成':'#eff6ff:#2563eb','企業書類待ち':'#fdf4ff:#7c3aed','人材書類待ち':'#fdf4ff:#7c3aed','完了':'#f0fdf4:#15803d','審査完了':'#f0fdf4:#15803d'};
       var _sc=_stColors[_st]?_stColors[_st].split(':'):['#f1f5f9','#64748b'];
       if(_st) h+='<span style="flex-shrink:0;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;white-space:nowrap;background:'+_sc[0]+';color:'+_sc[1]+';border:1px solid '+_sc[1]+'33;">'+esc(_st)+'</span>';
     }
@@ -26650,6 +26740,42 @@ function renderRecords() {
   if(!data.length){
     h+='<div style="text-align:center;padding:40px;color:var(--gray-400);">申請記録がありません</div>';
   } else {
+    // 重複名チェック：同名が複数あるものを警告表示
+    var _nameCount = {};
+    data.forEach(function(d){ var n=(d.name||'').trim().toUpperCase(); if(n) _nameCount[n]=(_nameCount[n]||0)+1; });
+    var _dupNames = {};
+    Object.keys(_nameCount).forEach(function(n){ if(_nameCount[n]>1) _dupNames[n]=1; });
+    var _dupItems = data.filter(function(d){ return !!_dupNames[(d.name||'').trim().toUpperCase()]; });
+    if(_dupItems.length){
+      h+='<div style="background:#fef3c7;border:1.5px solid #fcd34d;border-radius:8px;padding:10px 14px;margin-bottom:10px;">';
+      h+='<div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:8px;">⚠️ 同一氏名が複数あります（'+_dupItems.length+'件）— 正しい案件を選択して紐づけてください</div>';
+      // 名前ごとにグループ化
+      var _dupGroups = {};
+      _dupItems.forEach(function(d){ var n=(d.name||'').trim().toUpperCase(); if(!_dupGroups[n])_dupGroups[n]=[]; _dupGroups[n].push(d); });
+      Object.keys(_dupGroups).forEach(function(n){
+        var grp = _dupGroups[n];
+        h+='<div style="margin-bottom:10px;">';
+        h+='<div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:4px;">👤 '+esc(grp[0].name||'')+'</div>';
+        grp.forEach(function(d){
+          // 現在の紐づき案件
+          var lc = _getLinkedCase(d);
+          var lcName = lc ? (lc.name||lc.company||'') : '';
+          var lcOrg = lc ? (lc.org||'') : (d.org||'');
+          var lcNo = lc ? (lc.receiptNo||d.caseNo||'') : (d.caseNo||'');
+          h+='<div style="display:flex;align-items:center;gap:8px;background:white;border:1px solid #e5e7eb;border-radius:6px;padding:5px 10px;margin-bottom:3px;font-size:11px;">';
+          h+='<input type="radio" name="dupRec_'+esc(n)+'_'+d.id+'" onchange="recDupMarkReported(''+d.id+'',false)" style="cursor:pointer;">';
+          h+='<span style="font-weight:600;color:#374151;">'+esc(lcName||'（案件名不明）')+'</span>';
+          if(lcNo) h+='<span style="color:#6b7280;">受付番号: '+esc(lcNo)+'</span>';
+          if(lcOrg) h+='<span style="color:#6b7280;">🏢 '+esc(lcOrg)+'</span>';
+          if(lc) h+='<span style="color:#6b7280;">'+esc(lc.id||'')+'</span>';
+          h+='<button onclick="recDupMarkReported(''+d.id+'',true)" style="margin-left:auto;font-size:10px;padding:2px 8px;background:#d1fae5;color:#059669;border:1px solid #6ee7b7;border-radius:4px;cursor:pointer;font-weight:600;">✅ これが正しい</button>';
+          h+='<button onclick="recDupMarkReported(''+d.id+'',false)" style="font-size:10px;padding:2px 8px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;cursor:pointer;font-weight:600;">🔄 未対応に戻す</button>';
+          h+='</div>';
+        });
+        h+='</div>';
+      });
+      h+='</div>';
+    }
     h+=renderListItems('rec',data,'#2563eb');
   }
   // ゴミ箱セクション
@@ -26717,6 +26843,94 @@ function openCertList(){
   renderCertList();
   switchPanel('certListScreen','nav-certList');
 }
+
+function _buildCertNotifyText(targetData){
+  // 担当者ごとにグループ化
+  var byStaff = {};
+  targetData.forEach(function(d){
+    var _lc=cData.find(function(c){return c.id===d.caseId;})||null;
+    var staff = _lc ? (_lc.staff||'（担当不明）') : '（担当不明）';
+    if(!byStaff[staff]) byStaff[staff]=[];
+    byStaff[staff].push({
+      name: d.name||'',
+      caseNo: _lc ? (_lc.receiptNo||d.caseNo||'') : (d.caseNo||''),
+      org: _lc ? (_lc.org||_lc.company||'') : (d.org||''),
+      status: _lc ? (_lc.status||'') : '',
+      caseName: _lc ? (_lc.name||_lc.company||'') : ''
+    });
+  });
+  var h = '';
+  Object.keys(byStaff).sort().forEach(function(staff){
+    var items = byStaff[staff];
+    var lines = staff + 'さん\n\nお疲れ様です。\n以下の案件について認定証明書の交付が確認できました。\nステータスを「完了」に変更をお願いします。\n\n';
+    items.forEach(function(it, i){
+      lines += (i+1) + '. ' + it.name;
+      if(it.caseNo) lines += '　(' + it.caseNo + ')';
+      if(it.caseName) lines += '　【' + it.caseName + '】';
+      if(it.status) lines += '　現在：' + it.status;
+      lines += '\n';
+    });
+    lines += '\nよろしくお願いいたします。';
+    var tid = 'certNotifyText_' + staff.replace(/[^a-zA-Z0-9]/g,'_');
+    h += '<div style="margin-bottom:16px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">';
+    h += '<div style="background:#f3f4f6;padding:8px 12px;display:flex;align-items:center;justify-content:space-between;">';
+    h += '<span style="font-size:12px;font-weight:700;color:#374151;">👤 ' + esc(staff) + '　<span style="color:#6b7280;font-weight:500;">' + items.length + '件</span></span>';
+    h += '<button onclick="copyText(\'' + tid + '\')" style="font-size:10px;padding:3px 10px;background:#7c3aed;color:white;border:none;border-radius:5px;cursor:pointer;">📋 コピー</button>';
+    h += '</div>';
+    h += '<textarea id="' + tid + '" style="width:100%;height:160px;padding:10px 12px;font-size:12px;border:none;border-top:1px solid #e5e7eb;resize:vertical;font-family:inherit;line-height:1.7;box-sizing:border-box;">' + esc(lines) + '</textarea>';
+    h += '</div>';
+  });
+  return h || '<div style="text-align:center;padding:30px;color:#6b7280;">対象の案件がありません</div>';
+}
+
+function _getCertDisplayData(){
+  var q=((document.getElementById('certListSearch')||{}).value||'').toLowerCase();
+  var fStaff=((document.getElementById('certFilterStaff')||{}).value||'');
+  var fOrg=((document.getElementById('certFilterOrg')||{}).value||'');
+  return certListData.filter(function(d){
+    if(!d.caseId) return false;
+    var _lc=cData.find(function(c){return c.id===d.caseId;})||null;
+    if(!_lc) return false;
+    if(!(_lc.receiptNo||'').trim()) return false;
+    var _st=(_lc.status||'');
+    if(_st==='完了'||_st==='審査完了') return false;
+    if(q && (d.name||'').toLowerCase().indexOf(q)===-1&&(d.caseNo||'').toLowerCase().indexOf(q)===-1) return false;
+    if(fStaff && (_lc.staff||'')!==fStaff) return false;
+    if(fOrg && (_lc.org||'').indexOf(fOrg)===-1) return false;
+    return true;
+  });
+}
+
+function showCertNotifyModal(mode){
+  // mode: 'all'=表示中全件, 'sel'=チェック済みのみ
+  mode = mode || 'all';
+  var targetData;
+  if(mode === 'sel'){
+    var selIds = Object.keys(certSel);
+    if(!selIds.length){ showToast('⚠️ チェックされている案件がありません'); return; }
+    targetData = certListData.filter(function(d){ return !!certSel[d.id] && d.caseId; });
+  } else {
+    targetData = _getCertDisplayData();
+  }
+  var selCount = Object.keys(certSel).length;
+  var h = '';
+  // モード切替タブ
+  h += '<div style="display:flex;gap:8px;margin-bottom:14px;">';
+  h += '<button onclick="showCertNotifyModal(\'all\')" style="font-size:12px;padding:6px 16px;border-radius:6px;border:1.5px solid ' + (mode==='all'?'#7c3aed':'#e5e7eb') + ';background:' + (mode==='all'?'#7c3aed':'white') + ';color:' + (mode==='all'?'white':'#374151') + ';cursor:pointer;font-weight:600;">📋 表示中の全件</button>';
+  h += '<button onclick="showCertNotifyModal(\'sel\')" style="font-size:12px;padding:6px 16px;border-radius:6px;border:1.5px solid ' + (mode==='sel'?'#7c3aed':'#e5e7eb') + ';background:' + (mode==='sel'?'#7c3aed':'white') + ';color:' + (mode==='sel'?'white':'#374151') + ';cursor:pointer;font-weight:600;">☑️ チェック済みのみ' + (selCount?'　('+selCount+'件)':'') + '</button>';
+  h += '</div>';
+  h += _buildCertNotifyText(targetData);
+  document.getElementById('certNotifyContent').innerHTML = h;
+  document.getElementById('certNotifyModal').style.display = 'flex';
+}
+function copyText(id){
+  var el = document.getElementById(id);
+  if(!el) return;
+  el.select();
+  document.execCommand('copy');
+  showToast('📋 コピーしました');
+}
+
 function renderCertList(){
   _populateListFilter('certFilterStaff','certFilterOrg',certListData);
   var q=((document.getElementById('certListSearch')||{}).value||'').toLowerCase();
@@ -27742,6 +27956,56 @@ function submitManualRecord(){
   showToast('✅ 申請記録を登録しました');
 }
 
+
+function openDuplicateCase(srcId){
+  var src = cData.find(function(x){return x.id===srcId;});
+  if(!src){ showToast('⚠️ 複製元が見つかりません'); return; }
+  // まず通常の新規案件モーダルを開く
+  openNewCase();
+  // 引き継ぎフィールドを設定（少し遅延して確実にDOM生成後に設定）
+  setTimeout(function(){
+    // 案件名
+    var nameEl = document.getElementById('nc_name');
+    if(nameEl) nameEl.value = src.name || '';
+    // 登録支援機関
+    var orgEl = document.getElementById('nc_org');
+    if(orgEl && src.org){
+      for(var i=0;i<orgEl.options.length;i++){
+        if(orgEl.options[i].value === src.org){ orgEl.selectedIndex = i; break; }
+      }
+    }
+    // 所属機関（検索欄＋hidden）
+    var compSearch = document.getElementById('nc_companySearch');
+    var compHidden = document.getElementById('nc_company');
+    if(compSearch && src.company){ compSearch.value = src.company; }
+    if(compHidden && src.company){ compHidden.value = src.company; }
+    // 申請種別
+    var appTypeEl = document.getElementById('nc_appType');
+    if(appTypeEl && src.appType){
+      for(var j=0;j<appTypeEl.options.length;j++){
+        if(appTypeEl.options[j].value === src.appType){ appTypeEl.selectedIndex = j; break; }
+      }
+    }
+    // チーム
+    var teamEl = document.getElementById('nc_team');
+    if(teamEl && src.team){
+      for(var t=0;t<teamEl.options.length;t++){
+        if(teamEl.options[t].value === src.team){ teamEl.selectedIndex = t; break; }
+      }
+      filterStaffByTeam(src.team);
+    }
+    // 担当者（チーム設定後に遅延）
+    setTimeout(function(){
+      var staffEl = document.getElementById('nc_staff');
+      if(staffEl && src.staff){
+        for(var s=0;s<staffEl.options.length;s++){
+          if(staffEl.options[s].value === src.staff){ staffEl.selectedIndex = s; break; }
+        }
+      }
+    }, 100);
+    showToast('📋 複製元から登録支援機関・所属機関・案件名を引き継ぎました');
+  }, 50);
+}
 function openNewCase() {
   ['nc_applicant','nc_nationality','nc_name','nc_org','nc_expire','nc_residenceStatus','nc_currentStatus'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.value = '';
@@ -29786,6 +30050,27 @@ function generateDocText(caseId,ruleId){
 
   // {docList} を置換
   text=text.replace('{docList}',additions.join('\n'));
+
+  // ② 年度自動更新（更新・変更の場合のみ）
+  if(cas.appType && (cas.appType.indexOf('更新')!==-1 || cas.appType.indexOf('変更')!==-1)){
+    var _now = new Date();
+    var _yr = _now.getFullYear();
+    var _reiwa = _yr - 2018;
+    var _isAfterJune = _now.getMonth() >= 5; // 6月以降（0-indexed）
+    // 所得・課税証明書・納税証明書の年度
+    var _nendoReiwa = _isAfterJune ? _reiwa : (_reiwa - 1);
+    var _nendoLabel = '令和' + _nendoReiwa + '年度';
+    // 源泉徴収票の年（暦年）
+    var _gensenNen = _isAfterJune ? (_yr - 1) : (_yr - 2);
+    var _gensenLabel = _gensenNen + '年分';
+    // テキスト内の書類名に年度を付加（未入力の場合のみ）
+    text = text.replace(/□ 所得・課税証明書（しょとく・かぜいしょうめいしょ）/g,
+      '□ ' + _nendoLabel + '所得・課税証明書（しょとく・かぜいしょうめいしょ）');
+    text = text.replace(/□ 納税証明書（のうぜいしょうめいしょ）/g,
+      '□ ' + _nendoLabel + '納税証明書（のうぜいしょうめいしょ）');
+    text = text.replace(/□ 源泉徴収票（げんせんちょうしゅうひょう）/g,
+      '□ ' + _gensenLabel + '源泉徴収票（げんせんちょうしゅうひょう）');
+  }
 
   // 結果表示
   // 国籍→翻訳言語マッピング
