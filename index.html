@@ -27177,26 +27177,38 @@ function restoreImportUI() {
 }
 
 function runImport(skipPdf) { skipPdf = !!skipPdf;
+  // 実行中なら中断
+  if (bgImport.running) {
+    bgImport.aborted = true;
+    bgImport.running = false;
+    var btn = document.getElementById('importBtn');
+    if(btn){ btn.textContent = '📄 PDF化してDriveへ格納'; btn.style.background = ''; }
+    addLog('⏹ 中断しました（成功 ' + bgImport.okCount + '件 / エラー ' + bgImport.errCount + '件）', 'log-warn');
+    showToast('⏹ 取込を中断しました');
+    return;
+  }
   if (!Object.keys(mSel).length) return;
   var selectedMails = MAILS.filter(function(m){ return mSel[m.id]; });
-  bgImport = {running:true, type:'pdf', done:0, total:selectedMails.length, okCount:0, errCount:0, logs:[], finished:false};
+  bgImport = {running:true, aborted:false, type:'pdf', done:0, total:selectedMails.length, okCount:0, errCount:0, logs:[], finished:false};
   updateImportBadge();
   var btn = document.getElementById('importBtn');
-  btn.disabled = true; btn.textContent = '取込中... (0/'+selectedMails.length+')';
+  btn.disabled = false; btn.textContent = '⏹ 中断する (0/'+selectedMails.length+')';
+  btn.style.background = '#dc2626';
   document.getElementById('importLog').style.display = 'block';
   document.getElementById('importLog').innerHTML = '';
   function next() {
-    if (bgImport.done >= selectedMails.length) {
+    if (bgImport.aborted || bgImport.done >= selectedMails.length) {
       bgImport.running = false;
-      bgImport.finished = true;
+      bgImport.finished = !bgImport.aborted;
       updateImportBadge();
-      addLog('── 完了: 成功 ' + bgImport.okCount + '件 / エラー ' + bgImport.errCount + '件 ──', bgImport.okCount>0?'log-ok':'log-warn');
+      var msg = bgImport.aborted ? '── 中断: 成功 ' + bgImport.okCount + '件 / エラー ' + bgImport.errCount + '件 ──'
+                                  : '── 完了: 成功 ' + bgImport.okCount + '件 / エラー ' + bgImport.errCount + '件 ──';
+      addLog(msg, bgImport.okCount>0?'log-ok':'log-warn');
       var btn2 = document.getElementById('importBtn');
-      if(btn2){ btn2.disabled = false; btn2.textContent = '📄 PDF化してDriveへ格納'; }
+      if(btn2){ btn2.disabled = false; btn2.textContent = '📄 PDF化してDriveへ格納'; btn2.style.background = ''; }
       if(bgImport.okCount > 0) loadAllFromSupabase();
-      // Gmail画面にいれば通知、いなければ戻った時に restoreImportUI で表示
       if(document.getElementById('gmailScreen').style.display !== 'none'){
-        showToast('✅ 取込完了: 成功'+bgImport.okCount+'件 / エラー'+bgImport.errCount+'件');
+        showToast(bgImport.aborted ? '⏹ 中断: 成功'+bgImport.okCount+'件' : '✅ 取込完了: 成功'+bgImport.okCount+'件 / エラー'+bgImport.errCount+'件');
         bgImport.finished = false;
       }
       return;
@@ -27205,7 +27217,7 @@ function runImport(skipPdf) { skipPdf = !!skipPdf;
     addLog('📤 ' + m.name + ' 送信中... (' + bgImport.done + '/' + selectedMails.length + ')', '');
     updateImportBadge();
     var btn2 = document.getElementById('importBtn');
-    if(btn2) btn2.textContent = '取込中... ('+bgImport.done+'/'+selectedMails.length+')';
+    if(btn2) btn2.textContent = '⏹ 中断する ('+bgImport.done+'/'+selectedMails.length+')';
     // bodyを除いた最小データのみGASに送る（URLが長くなるのを防ぐ）
     var _mForGAS = {id:m.id, badge:m.badge, name:m.name, caseNo:m.caseNo||'', skipPdf:!!skipPdf};
     var _timeoutPromise = new Promise(function(res){ setTimeout(function(){ res({status:'error',message:'強制タイムアウト'}); }, 50000); });
