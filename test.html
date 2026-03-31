@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260331_06 -->
+<!-- OFUSA_VERSION 20260331_07 -->
 <!-- OFUSA v20 - 2026-03-29 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -3627,10 +3627,11 @@ function switchPanel(panelId, navId) {
 }
 
 function showCases() {
-  // フィルターを全リセットして全件表示に戻す
-  var _rv = function(id,val){ var el=document.getElementById(id); if(el) el.value=val; };
-  _rv('fTeam','全チーム'); _rv('fStatus','全ステータス'); _rv('fStaff','全担当者');
-  _rv('fOrg',''); _rv('fField',''); _rv('fSort',''); _rv('fBall',''); _rv('searchBox','');
+  // フィルターを先頭optionにリセットして全件表示に戻す（selectedIndex=0で確実にリセット）
+  ['fTeam','fStatus','fStaff','fOrg','fField','fSort','fBall'].forEach(function(id){
+    var el=document.getElementById(id); if(el) el.selectedIndex=0;
+  });
+  var sb=document.getElementById('searchBox'); if(sb) sb.value='';
   ['nintei','koshin','henkou','shinsei','empty'].forEach(function(k){ var el=document.getElementById('fType_'+k); if(el) el.checked=true; });
   var btn=document.getElementById('fTypeBtn'); if(btn) btn.textContent='全種別 ▾';
   setTimeout(updateFiltersStickyHeight, 50); applyFilters(); switchPanel('casesScreen','nav-cases'); setTimeout(updateStickyTop,100); setTimeout(updateCoDocAlertBadge,300); setTimeout(updatePersonDocAlertBadge,300); setTimeout(loadCoFormBadges,500);
@@ -9982,7 +9983,7 @@ function _migrateTaskMetaToDB(){
     var ti = parseInt(parts[parts.length-1]);
     if(isNaN(ti)) return;
     var caseId = parts.slice(0, parts.length-1).join('_');
-    if(!_validCaseIds[caseId]) return; // casesテーブルに存在しないcase_idはスキップ
+    if(!_validCaseIds[caseId]) return;
     var localStatus = _status[k] !== undefined ? (_status[k]||0) : null;
     var dbStatus = docTaskStatus[k] !== undefined ? docTaskStatus[k] : null;
     // DB側に既にステータスが入っていればそちら優先、なければlocalStorageのものを使う
@@ -14390,11 +14391,10 @@ function editEmpSet(coId, idx) {
         var _tval = val;
         if(_tval && !/^\d{2}:\d{2}$/.test(_tval)){
           if(/^\d{4}$/.test(_tval)) _tval = _tval.slice(0,2)+':'+_tval.slice(2);
-          else if(/^\d{1}:\d{2}$/.test(_tval)) _tval = '0'+_tval; // "9:00" → "09:00"
-          else if(/^\d{2}:\d{1}$/.test(_tval)) _tval = _tval.slice(0,3)+'0'+_tval.slice(3); // "09:0" → "09:00"
+          else if(/^\d{1}:\d{2}$/.test(_tval)) _tval = '0'+_tval;
           else _tval = '';
         }
-        h += '<input id="esf_' + f.k + '" type="time" value="' + _tval + '" data-raw="' + (val||'') + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;box-sizing:border-box;">';
+        h += '<input id="esf_' + f.k + '" type="time" value="' + _tval + '" style="width:100%;padding:7px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;box-sizing:border-box;">';
       } else if (f.type === 'date') {
         // yyyy-MM-dd形式に正規化
         var _dval = val;
@@ -14637,15 +14637,7 @@ function saveEmpSet(coId, idx) {
         return;
       }
       var el = document.getElementById('esf_' + f.k);
-      if (el) {
-        var _elv = el.tagName === 'TEXTAREA' ? el.value : el.value.trim();
-        // type='time'のinputで"9:00"→"09:00"正規化（ブラウザがvalidationで空にする対策）
-        if (f.type === 'time' && !_elv) {
-          var _rawv = el.getAttribute('data-raw') || '';
-          if (_rawv && /^\d{1}:\d{2}$/.test(_rawv)) _elv = '0' + _rawv;
-        }
-        es[f.k] = _elv;
-      }
+      if (el) es[f.k] = el.tagName === 'TEXTAREA' ? el.value : el.value.trim();
       var hasTrField = f.tr || f.type === 'fieldSelect' || f.type === 'fieldSelect2' || f.type === 'catSelect' || f.type === 'catSelect2';
       if (hasTrField) {
         var _trKey = f.trKey || (f.k + 'En');
