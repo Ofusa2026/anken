@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260331_17 -->
+<!-- OFUSA_VERSION 20260331_19 -->
 <!-- OFUSA v20 - 2026-03-29 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -9634,11 +9634,21 @@ function renderReview() {
     if(note.replied && note.reply) h+='<div style="font-size:12px;margin-top:6px;padding:8px;background:#f0fdf4;border-radius:6px;border-left:3px solid var(--green);">💬 '+note.reply+(note.replyAssignee?' <small style="color:var(--gray-400);">— '+note.replyAssignee+'</small>':'')+'</div>';
     h+='<div style="display:flex;gap:6px;margin-top:8px;">';
     h+='<button onclick="openCase(this.dataset.id)" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:var(--blue);color:white;border:none;border-radius:6px;cursor:pointer;">案件を開く</button>';
-    if(note.replied){h+='<button onclick="markRepliedRead(\''+id+'\');renderReview()" style="font-size:12px;padding:5px 14px;background:var(--green);color:white;border:none;border-radius:6px;cursor:pointer;">✓ 既読にする</button>';}
-    if(!note.replied){h+='<button onclick="markConfirmDone(\''+id+'\')" style="font-size:12px;padding:5px 14px;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;">✓ 確認済にする</button>';}
+        if(note.replied){h+='<button data-action="markRepliedRead" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:var(--green);color:white;border:none;border-radius:6px;cursor:pointer;">✓ 既読にする</button>';}
+    if(!note.replied){h+='<button data-action="markConfirmDone" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;">✓ 確認済にする</button>';}
     h+='</div></div>';
   });
   el.innerHTML=h;
+  // イベント委任（CSP対策）
+  el.onclick = function(e){
+    var btn = e.target.closest('[data-action]');
+    if(!btn) return;
+    var action = btn.dataset.action;
+    var id = btn.dataset.id;
+    if(action==='openCase'){ openCase(id); }
+    else if(action==='markRepliedRead'){ markRepliedRead(id); renderReview(); }
+    else if(action==='markConfirmDone'){ markConfirmDone(id); }
+  };
 }
 
 // ===== 確認事項 > タスク一覧タブ =====
@@ -11251,7 +11261,8 @@ function persistDocTaskStatus(specificKey) {
         urgent:!!(taskUrgent[k]),
         assignee:taskAssignee[k]||'',
         handler:taskHandler[k]||'',
-        confirm:String(taskConfirm[k]||0)
+        confirm:String(taskConfirm[k]||0),
+        checker:taskAssignee[k+'_checker']||''
       });
     });
     if(rows.length) _sb.from('doc_tasks').upsert(rows,{onConflict:'case_id,task_index'}).then(function(r){if(r.error)console.error('docTasks sync err:',r.error);});
@@ -18258,6 +18269,8 @@ function saveProgressMemo(caseId) {
 function _persistOneNote(caseId) {
   try { localStorage.setItem('ofusa_caseNotes', JSON.stringify(caseNotes)); } catch(e) {}
   if (!DB_READY) return;
+  _skipCaseNotesRealtime = true;
+  setTimeout(function(){ _skipCaseNotesRealtime = false; }, 3000);
   _sb.from('case_notes').upsert({case_id: caseId, note: caseNotes[caseId]}, {onConflict:'case_id'}).then(function(r){
     if (r.error) console.error('❌ [OFUSA] caseNote DB err:', r.error.message);
   });
@@ -18298,8 +18311,9 @@ function saveCaseReply(caseId) {
 
 function markRepliedRead(caseId) {
   if (!caseNotes[caseId]) return;
-  // 回答済を既読にする（confirm/repliedをリセット）
+  // 回答済を既読にする（confirm/confirmState/repliedをリセット）
   caseNotes[caseId].confirm = false;
+  caseNotes[caseId].confirmState = 0;
   caseNotes[caseId].replied = false;
   _persistOneNote(caseId);
   updateReviewBadge();
@@ -18309,6 +18323,7 @@ function markRepliedRead(caseId) {
 function markConfirmDone(caseId) {
   if (!caseNotes[caseId]) return;
   caseNotes[caseId].confirm = false;
+  caseNotes[caseId].confirmState = 0;
   caseNotes[caseId].replied = false;
   _persistOneNote(caseId);
   updateReviewBadge();
@@ -33094,6 +33109,7 @@ function loadAllFromSupabase() {
             if(r.assignee) taskAssignee[key] = r.assignee;
             if(r.handler) taskHandler[key] = r.handler;
             if(r.confirm) taskConfirm[key] = parseInt(r.confirm)||0;
+            if(r.checker) taskAssignee[key+'_checker'] = r.checker;
           });
           if(res.data.length === 1000) {
             loadDocTasksAll(from + 1000);
