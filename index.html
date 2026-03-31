@@ -1025,6 +1025,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <option>★窓口受取</option>
         <option>窓口受取</option>
         <option>窓口受取（本人）</option>
+        <option style="display:none">書類作成中</option>
+        <option style="display:none">質問票回答待ち(送付済)</option>
         <option>完了</option>
       </select>
       <span class="filter-label">支援機関</span>
@@ -9373,7 +9375,7 @@ function setDocTaskFromList(caseId,taskIdx,status){
   if(status===4){if(!confirm(TASK_NAMES[taskIdx]+' を完了にしますか？'))return;}
   // アコーディオン開閉状態を保存
   var openAccs={};for(var i=0;i<TASK_NAMES.length;i++){var acc=document.getElementById('docAcc_'+i);if(acc&&acc.style.display!=='none')openAccs[i]=true;}
-  docTaskStatus[caseId+'_'+taskIdx]=status;persistDocTaskStatus();
+  docTaskStatus[caseId+'_'+taskIdx]=status;persistDocTaskStatus(caseId+'_'+taskIdx);
   var co=cData.find(function(x){return x.id===caseId;});
   if(co){var d=0;for(var i=0;i<TASK_NAMES.length;i++){var _st=(docTaskStatus[co.id+'_'+i]||0);if(_st>=4)d++;}co.taskDone=d;co.taskTotal=TASK_NAMES.length;}
   
@@ -9442,12 +9444,13 @@ function bulkCompleteDocTasks(){
     }
     updated[caseId]=true;
   });
-  persistDocTaskStatus();
-  if(personUpdated) persistPersonData();
+  // 変更したcaseIdのキーのみ送信
   Object.keys(updated).forEach(function(caseId){
+    for(var _ti=0;_ti<TASK_NAMES.length;_ti++) persistDocTaskStatus(caseId+'_'+_ti);
     var co=cData.find(function(x){return x.id===caseId;});
     if(co){var d=0;for(var i=0;i<TASK_NAMES.length;i++){var _st=(docTaskStatus[co.id+'_'+i]||0);if(_st>=4)d++;}co.taskDone=d;co.taskTotal=TASK_NAMES.length;}
   });
+  if(personUpdated) persistPersonData();
   updateReviewBadge();applyFilters();renderDocsContent();
   for(var k in openAccs){var acc=document.getElementById('docAcc_'+k);if(acc){acc.style.display='block';var hdr=acc.previousElementSibling;if(hdr){var da=hdr.querySelector('.da');if(da)da.textContent='▼';}}}
   showToast('✅ '+cbs.length+'件のタスクを完了にしました');
@@ -9622,7 +9625,7 @@ function renderReview() {
 function setDocTaskFromReview(caseId,taskIdx,status){
   if(status===4){if(!confirm(TASK_NAMES[taskIdx]+' を完了にしますか？'))return;}
   var openAccs={};for(var i=0;i<TASK_NAMES.length;i++){var acc=document.getElementById('rvTaskAcc_'+i);if(acc&&acc.style.display!=='none')openAccs[i]=true;}
-  docTaskStatus[caseId+'_'+taskIdx]=status;persistDocTaskStatus();
+  docTaskStatus[caseId+'_'+taskIdx]=status;persistDocTaskStatus(caseId+'_'+taskIdx);
   var co=cData.find(function(x){return x.id===caseId;});
   if(co){var d=0;for(var i=0;i<TASK_NAMES.length;i++){var _st=(docTaskStatus[co.id+'_'+i]||0);if(_st>=4)d++;}co.taskDone=d;co.taskTotal=TASK_NAMES.length;}
   
@@ -9879,7 +9882,7 @@ function bulkCompleteCaseTasks(){
       docTaskStatus[c.id+'_'+ti]=4;
     }
   });
-  persistDocTaskStatus();
+  for(var _ti4=0;_ti4<TASK_NAMES.length;_ti4++) persistDocTaskStatus(c.id+'_'+_ti4);
   if(personUpdated) persistPersonData();
   var d=0;for(var i=0;i<TASK_NAMES.length;i++){var _s=(docTaskStatus[c.id+'_'+i]||0);if(_s>=4)d++;}
   c.taskDone=d;c.taskTotal=TASK_NAMES.length;
@@ -9898,7 +9901,8 @@ function saveTaskConfirm(tkey){
   var next=(cur+1)%3;
   taskConfirm[tkey]=next;
   try{localStorage.setItem('ofusa_taskConfirm',JSON.stringify(taskConfirm));}catch(e){} 
-  persistTaskMeta(); 
+  persistTaskMeta();
+  persistDocTaskStatus(tkey);
   // 確認依頼(1)になった時、確認事項に登録
   var parts=tkey.split('_');
   var ti=parseInt(parts[parts.length-1]);
@@ -9913,16 +9917,96 @@ function saveTaskConfirm(tkey){
   showTab('tasks'); 
   setTimeout(function(){var el=document.getElementById('acc_'+tkey);if(el)el.style.display='block';},50); 
 }
-function saveTaskAssignee(tkey,val){ taskAssignee[tkey]=val; try{localStorage.setItem('ofusa_taskAssignee',JSON.stringify(taskAssignee));}catch(e){} persistTaskMeta(); }
-function saveTaskHandler(tkey,val){ taskHandler[tkey]=val; try{localStorage.setItem('ofusa_taskHandler',JSON.stringify(taskHandler));}catch(e){} persistTaskMeta(); }
-function saveTaskChecker(tkey,val){ taskAssignee[tkey+'_checker']=val; try{localStorage.setItem('ofusa_taskAssignee',JSON.stringify(taskAssignee));}catch(e){} persistTaskMeta(); }
-function toggleTaskUrgent(tkey){ taskUrgent[tkey]=!taskUrgent[tkey]; try{localStorage.setItem('ofusa_taskUrgent',JSON.stringify(taskUrgent));}catch(e){} persistTaskMeta(); showTab('tasks'); setTimeout(function(){var el=document.getElementById('acc_'+tkey);if(el)el.style.display='block';},50); }
+function saveTaskAssignee(tkey,val){ taskAssignee[tkey]=val; try{localStorage.setItem('ofusa_taskAssignee',JSON.stringify(taskAssignee));}catch(e){} persistTaskMeta(); persistDocTaskStatus(tkey); }
+function saveTaskHandler(tkey,val){ taskHandler[tkey]=val; try{localStorage.setItem('ofusa_taskHandler',JSON.stringify(taskHandler));}catch(e){} persistTaskMeta(); persistDocTaskStatus(tkey); }
+function saveTaskChecker(tkey,val){ taskAssignee[tkey+'_checker']=val; try{localStorage.setItem('ofusa_taskAssignee',JSON.stringify(taskAssignee));}catch(e){} persistTaskMeta(); persistDocTaskStatus(tkey); }
+function toggleTaskUrgent(tkey){ taskUrgent[tkey]=!taskUrgent[tkey]; try{localStorage.setItem('ofusa_taskUrgent',JSON.stringify(taskUrgent));}catch(e){} persistTaskMeta(); persistDocTaskStatus(tkey); showTab('tasks'); setTimeout(function(){var el=document.getElementById('acc_'+tkey);if(el)el.style.display='block';},50); }
 function persistTaskMeta(){
   if(!DB_READY)return;
   try{
     var meta={taskDeadline:taskDeadline,taskMemo:taskMemo,taskConfirm:taskConfirm,taskAssignee:taskAssignee,taskUrgent:taskUrgent,taskHandler:taskHandler};
     _sb.from('settings').upsert({key:'taskMeta',value:JSON.stringify(meta)},{onConflict:'key'}).then(function(r){if(r.error)console.error('persistTaskMeta err:',r.error);});
   }catch(e){console.error('persistTaskMeta err:',e);}
+}
+function _migrateTaskMetaToDB(){
+  // 既に移行済みならスキップ
+  if(localStorage.getItem('ofusa_taskMeta_migrated_v1')) return;
+  if(!DB_READY) return;
+
+  // localStorageから各データを読み込む
+  var _urgent = {}, _assignee = {}, _handler = {}, _confirm = {};
+  try{ var tu=localStorage.getItem('ofusa_taskUrgent'); if(tu) _urgent=JSON.parse(tu); }catch(e){}
+  try{ var ta=localStorage.getItem('ofusa_taskAssignee'); if(ta) _assignee=JSON.parse(ta); }catch(e){}
+  try{ var th=localStorage.getItem('ofusa_taskHandler'); if(th) _handler=JSON.parse(th); }catch(e){}
+  try{ var tc=localStorage.getItem('ofusa_taskConfirm'); if(tc) _confirm=JSON.parse(tc); }catch(e){}
+
+  // localStorageのdocTaskStatusも読み込む
+  var _status = {}, _deadline = {}, _memo = {};
+  try{ var ds=localStorage.getItem('ofusa_docTaskStatus'); if(ds) _status=JSON.parse(ds); }catch(e){}
+  try{ var dd=localStorage.getItem('ofusa_taskDeadline'); if(dd) _deadline=JSON.parse(dd); }catch(e){}
+  try{ var dm=localStorage.getItem('ofusa_taskMemo'); if(dm) _memo=JSON.parse(dm); }catch(e){}
+
+  // 全キーを収集（status/urgent/assignee/handler/confirm/deadline/memoのいずれかに値があるもの）
+  var allKeys = {};
+  [_status, _urgent, _assignee, _handler, _confirm, _deadline, _memo].forEach(function(obj){
+    Object.keys(obj).forEach(function(k){ allKeys[k]=1; });
+  });
+
+  var rows = [];
+  Object.keys(allKeys).forEach(function(k){
+    // _checker系のキーは別処理
+    if(k.indexOf('_checker') !== -1) return;
+    var parts = k.split('_');
+    var ti = parseInt(parts[parts.length-1]);
+    if(isNaN(ti)) return;
+    var caseId = parts.slice(0, parts.length-1).join('_');
+    var localStatus = _status[k] !== undefined ? (_status[k]||0) : null;
+    var dbStatus = docTaskStatus[k] !== undefined ? docTaskStatus[k] : null;
+    // DB側に既にステータスが入っていればそちら優先、なければlocalStorageのものを使う
+    var finalStatus = (dbStatus !== null) ? dbStatus : (localStatus !== null ? localStatus : 0);
+    var hasData = !!(localStatus || _urgent[k] || _assignee[k] || _handler[k] || _confirm[k] || _deadline[k] || _memo[k]);
+    if(!hasData) return;
+    rows.push({
+      case_id: caseId,
+      task_index: ti,
+      status: finalStatus,
+      deadline: taskDeadline[k] || _deadline[k] || null,
+      memo: taskMemo[k] || _memo[k] || null,
+      urgent: !!(_urgent[k]),
+      assignee: _assignee[k] || '',
+      handler: _handler[k] || '',
+      confirm: String(_confirm[k] || 0)
+    });
+    // メモリにも反映
+    if(localStatus && dbStatus === null) docTaskStatus[k] = localStatus;
+    if(_urgent[k]) taskUrgent[k] = true;
+    if(_assignee[k]) taskAssignee[k] = _assignee[k];
+    if(_handler[k]) taskHandler[k] = _handler[k];
+    if(_confirm[k]) taskConfirm[k] = parseInt(_confirm[k])||0;
+    if(_deadline[k] && !taskDeadline[k]) taskDeadline[k] = _deadline[k];
+    if(_memo[k] && !taskMemo[k]) taskMemo[k] = _memo[k];
+  });
+
+  if(!rows.length){
+    localStorage.setItem('ofusa_taskMeta_migrated_v1','1');
+    return;
+  }
+
+  // 50件ずつチャンクに分けてupsert
+  var chunks = [];
+  for(var i=0;i<rows.length;i+=50) chunks.push(rows.slice(i,i+50));
+  var done = 0;
+  chunks.forEach(function(chunk){
+    _sb.from('doc_tasks').upsert(chunk,{onConflict:'case_id,task_index'}).then(function(r){
+      if(r.error){ console.error('migration err:', r.error); return; }
+      done += chunk.length;
+      if(done >= rows.length){
+        localStorage.setItem('ofusa_taskMeta_migrated_v1','1');
+        console.log('✅ taskMeta migration完了:', rows.length+'件をDBに保存');
+        showToast('✅ タスク情報をDBに同期しました（'+rows.length+'件）');
+      }
+    });
+  });
 }
 function aiTranslateFieldCategory() {
   var apiKey = getApiKey();
@@ -11136,7 +11220,16 @@ function persistDocTaskStatus(specificKey) {
     var keys = specificKey ? [specificKey] : Object.keys(docTaskStatus);
     keys.forEach(function(k) {
       var parts = k.split('_'); var caseId = parts.slice(0,-1).join('_'); var ti = parseInt(parts[parts.length-1]);
-      if(!isNaN(ti)) rows.push({case_id:caseId, task_index:ti, status:docTaskStatus[k]||0, deadline:taskDeadline[k]||null, memo:taskMemo[k]||null});
+      if(!isNaN(ti)) rows.push({
+        case_id:caseId, task_index:ti,
+        status:docTaskStatus[k]||0,
+        deadline:taskDeadline[k]||null,
+        memo:taskMemo[k]||null,
+        urgent:!!(taskUrgent[k]),
+        assignee:taskAssignee[k]||'',
+        handler:taskHandler[k]||'',
+        confirm:String(taskConfirm[k]||0)
+      });
     });
     if(rows.length) _sb.from('doc_tasks').upsert(rows,{onConflict:'case_id,task_index'}).then(function(r){if(r.error)console.error('docTasks sync err:',r.error);});
   }
@@ -17733,7 +17826,7 @@ function importSyncData(){
     if(obj.caseChats){ caseChats=obj.caseChats; persistChats(); }
     if(obj.docCheck){ docCheck=obj.docCheck; try{localStorage.setItem('ofusa_docCheck',JSON.stringify(docCheck));}catch(e){} }
     if(obj.coDocCheck){ coDocCheck=obj.coDocCheck; try{localStorage.setItem('ofusa_coDocCheck',JSON.stringify(coDocCheck));}catch(e){} }
-    if(obj.docTaskStatus){ docTaskStatus=obj.docTaskStatus; persistDocTaskStatus(); }
+    if(obj.docTaskStatus){ docTaskStatus=obj.docTaskStatus; persistDocTaskStatus(); } // GASインポート時のみ全件送信
     if(obj.myTaskData){ myTaskData=obj.myTaskData; try{localStorage.setItem('ofusa_myTasks',JSON.stringify(myTaskData));}catch(e){} }
     rebuildLoginSelect();
     renderStats();
@@ -18848,7 +18941,7 @@ function toggleShinsa(el){
         
       }
     }
-    persistDocTaskStatus();
+    if(c){for(var _ti5=0;_ti5<TASK_NAMES.length;_ti5++) persistDocTaskStatus(c.id+'_'+_ti5);}
     if(c){c.taskDone=TASK_NAMES.length;c.taskTotal=TASK_NAMES.length;persist();}
   } else {
     if(!shinsaData[id]) shinsaData[id]={};
@@ -19556,8 +19649,31 @@ function getDisplayName(cas) {
 function openCase(id) {
   window._infoEditMode = false;
   var c = cData.find(function(x) { return x.id === id; });
-  if (!c) return;
+  if (!c) { c = {id:id,name:'',status:'',applicant:'',nationality:'',appType:'',team:'',company:'',org:''}; }
   currentCase = c;
+  // Supabaseから最新データを取得してcDataとモーダルを即時更新
+  if(DB_READY){
+    _sb.from('cases').select('*').eq('id', id).single().then(function(res){
+      if(res.data && !res.error){
+        var fresh = dbRowToCase(res.data);
+        var idx = cData.findIndex(function(x){return x.id===id;});
+        if(idx>=0){ Object.assign(cData[idx], fresh); currentCase = cData[idx]; }
+        else { cData.push(fresh); currentCase = fresh; }
+        // ステータスタグ・select・ヘッダーを最新値で更新
+        var _st = currentCase.status||'';
+        var stTags = document.querySelectorAll('#caseDetailTags .case-header-tag');
+        if(stTags.length>0) stTags[0].textContent = '● ' + _st;
+        var stSel = document.querySelector('select[data-field="status"]');
+        if(stSel){ stSel.value = _st; }
+        // 基本情報タブが表示中なら各フィールドも更新
+        ['staff','team','appType','residenceStatus','org','company'].forEach(function(f){
+          var el = document.querySelector('[data-field="'+f+'"]');
+          if(el && el.tagName==='SELECT') el.value = currentCase[f]||'';
+          else if(el) el.textContent = currentCase[f]||'';
+        });
+      }
+    }).catch(function(){});
+  }
   var pd = personData[c.id] || {};
   var headerName = pd.applicantNameEn || pd.applicantName || c.applicant || c.name || c.id;
   document.getElementById('caseDetailName').textContent = headerName;
@@ -28492,7 +28608,10 @@ function executeCsvImport(){
         applied++;
       });
       if(applied>0){
-        persistDocTaskStatus();
+        // 変更したケースのキーのみ送信（全件送信を回避）
+        cData.filter(function(c){return c.status==='審査中';}).forEach(function(c){
+          for(var _ti3=0;_ti3<TASK_NAMES.length;_ti3++) persistDocTaskStatus(c.id+'_'+_ti3);
+        });
         showToast('✅ 審査中 '+applied+'件のタスクを完了にしました');
       }
     }, 3000);
@@ -32740,6 +32859,10 @@ function loadAllFromSupabase() {
             docTaskStatus[key] = r.status || 0;
             if(r.deadline) taskDeadline[key] = r.deadline;
             if(r.memo) taskMemo[key] = r.memo;
+            if(r.urgent) taskUrgent[key] = true;
+            if(r.assignee) taskAssignee[key] = r.assignee;
+            if(r.handler) taskHandler[key] = r.handler;
+            if(r.confirm) taskConfirm[key] = parseInt(r.confirm)||0;
           });
           if(res.data.length === 1000) {
             loadDocTasksAll(from + 1000);
@@ -32747,6 +32870,8 @@ function loadAllFromSupabase() {
           }
         }
         console.log('📥 docTasks loaded:', Object.keys(docTaskStatus).length);
+        // ★ localStorageマイグレーション（初回のみ）
+        _migrateTaskMetaToDB();
       }).catch(function(e) { console.error('docTasks load err:', e); });
     })(0);
   });
