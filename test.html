@@ -2086,7 +2086,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         </select>
         <input type="text" id="nc_residenceStatus" placeholder="在留資格を入力" style="display:none;width:100%;padding:9px 12px;font-size:14px;border:1px solid var(--gray-200);border-radius:8px;margin-top:6px;box-sizing:border-box;">
       </div>
-      <div class="person-field"><label>登録支援機関 *</label><select id="nc_org" style="width:100%;padding:9px 12px;font-size:14px;border:1px solid var(--gray-200);border-radius:8px;"><option value="">-- 選択 --</option></select></div>
+      <div class="person-field"><label>登録支援機関 *</label><select id="nc_org" onchange="filterCompanyDropdown(document.getElementById('nc_companySearch').value)" style="width:100%;padding:9px 12px;font-size:14px;border:1px solid var(--gray-200);border-radius:8px;"><option value="">-- 選択 --</option></select></div>
       <div class="person-field"><label>所属機関</label>
         <div style="position:relative;">
           <input type="text" id="nc_companySearch" placeholder="企業名で検索..." autocomplete="off" oninput="filterCompanyDropdown(this.value)" onfocus="document.getElementById('nc_companyDropdown').style.display='block'" style="width:100%;padding:9px 12px;font-size:14px;border:1px solid var(--gray-200);border-radius:8px;box-sizing:border-box;">
@@ -8812,7 +8812,7 @@ function exportCases() {
   cData.forEach(function(cas){
     var p = personData[cas.id] || {};
     // 企業マッチ
-    var co = companies.find(function(x){return x.name===cas.company;}) || null;
+    var co = findCompanyByName(cas.company) || null;
     // 雇用条件セット
     var es = null;
     if(co && co.empSets && cas.empSetIdx !== undefined && cas.empSetIdx !== ''){
@@ -15914,7 +15914,7 @@ function showMappingPreview() {
   if(!c) return;
   // company名で検索、見つからない場合はorgでも検索
   var co = findCompanyByName(c.company);
-  if(!co && c.org) co = companies.find(function(x){return x.name===c.org;});
+  if(!co && c.org) co = findCompanyByName(c.org);
   co = co || {};
   var es = (co.empSets && empSetIdx!=='') ? co.empSets[parseInt(empSetIdx)] || {} : {};
   var p = personData[caseId] || {};
@@ -16143,7 +16143,7 @@ function onDocGenCaseChange() {
 
   if (needsEmpSet) {
     var co = findCompanyByName(c.company);
-    if(!co && c.org) co = companies.find(function(x){ return x.name === c.org; });
+    if(!co && c.org) co = findCompanyByName(c.org);
     var sel = document.getElementById('dg_empset');
     sel.innerHTML = '<option value="">-- 選択してください --</option>';
     if (co && co.empSets && co.empSets.length > 0) {
@@ -16898,7 +16898,7 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
   var c=cData.find(function(x){return x.id===caseId;});
   if(!c) return;
   var co=findCompanyByName(c.company);
-  if(!co&&c.org)co=companies.find(function(x){return x.name===c.org;});
+  if(!co&&c.org)co=findCompanyByName(c.org);
   co=co||{};
   var es=(co.empSets&&empSetIdx!=='') ? co.empSets[parseInt(empSetIdx)]||{} : {};
   var p=personData[caseId]||{};
@@ -17515,7 +17515,7 @@ function checkMappingFields(caseId, empSetIdx, mappingArr, onComplete) {
   var c = cData.find(function(x){return x.id===caseId;});
   if(!c) return;
   var co = findCompanyByName(c.company);
-  if(!co&&c.org) co=companies.find(function(x){return x.name===c.org;});
+  if(!co&&c.org) co=findCompanyByName(c.org);
   co=co||{};
   var es = (co.empSets && empSetIdx!=='') ? co.empSets[parseInt(empSetIdx)] || {} : {};
   var p = personData[caseId] || {};
@@ -17710,7 +17710,7 @@ function checkMappingFields(caseId, empSetIdx, mappingArr, onComplete) {
         persist();
       }
     }
-    var _dg_co = currentCase ? companies.find(function(x){return x.name===currentCase.company;}) : null;
+    var _dg_co = currentCase ? findCompanyByName(currentCase.company) : null;
     if(_dg_co) persistCompanies(_dg_co.id); else persistCompanies();
     persistPersonData(currentCase ? currentCase.id : null);
     area.style.display='none';
@@ -17778,7 +17778,7 @@ function saveDgMissing(count, caseId, empSetIdx) {
       }
     }
   }
-  var _miss_co = currentCase ? companies.find(function(x){return x.name===currentCase.company;}) : null;
+  var _miss_co = currentCase ? findCompanyByName(currentCase.company) : null;
   if(_miss_co) persistCompanies(_miss_co.id); else persistCompanies();
   persistPersonData(currentCase ? currentCase.id : null);
   document.getElementById('dg_missing_edit').style.display = 'none';
@@ -26159,12 +26159,13 @@ function dummyMails() {
 function normalizeNameForMatch(name) {
   return (name || '').replace(/[・\s\-]/g, '').toLowerCase();
 }
-// 会社名を正規化して検索（全角スペース・半角スペース・NFKC差異を吸収）
+// 会社名正規化（全角/半角スペース・NFKC差異を吸収）
 function normalizeCoName(s) {
   try { s = (s||'').normalize('NFKC'); } catch(e) {}
   return s.replace(/[\s\u3000]/g, ' ').trim();
 }
 function findCompanyByName(name) {
+  if (!name) return null;
   var n = normalizeCoName(name);
   return companies.find(function(x){ return normalizeCoName(x.name) === n; }) || null;
 }
@@ -28880,7 +28881,7 @@ function runOnlineReadinessCheck(caseId){
     if(!c){resEl.innerHTML='❌ 案件が見つかりません';btn.disabled=false;btn.textContent='チェック実行';return;}
     var p=personData[c.id]||{};
     var co=findCompanyByName(c.company);
-  if(!co&&c.org)co=companies.find(function(x){return x.name===c.org;});
+  if(!co&&c.org)co=findCompanyByName(c.org);
   co=co||{};
     var es=(co.empSets&&co.empSets.length>0)?co.empSets[c.empSetIdx||0]||co.empSets[0]:{};
     var sup=supportOrgs.find(function(x){return x.name===c.org;})||{};
@@ -30368,7 +30369,7 @@ function openDocTextGenerator(caseId){
   var cas=cData.find(function(c){return c.id===caseId;});
   if(!cas){showToast('⚠️ 案件が見つかりません');return;}
   var p=personData[caseId]||{};
-  var co=companies.find(function(x){return x.name===cas.company;})||{};
+  var co=findCompanyByName(cas.company)||{};
 
   // 必要な情報のチェック
   var missing=[];
@@ -30436,7 +30437,7 @@ function generateDocText(caseId,ruleId){
 
   var cas=cData.find(function(c){return c.id===caseId;});
   var p=personData[caseId]||{};
-  var co=companies.find(function(x){return x.name===cas.company;})||{};
+  var co=findCompanyByName(cas.company)||{};
 
   // 不足情報を反映
   var missingFields=['appType','currentStatus','residenceStatus','nationality'];
@@ -31563,7 +31564,7 @@ function exportApprovalCsv_gijinko(){
   if(!c){alert('案件が見つかりません');return;}
   var p=personData[c.id]||{};
   var co=findCompanyByName(c.company);
-  if(!co&&c.org)co=companies.find(function(x){return x.name===c.org;});
+  if(!co&&c.org)co=findCompanyByName(c.org);
   co=co||{};
   var es=(co.empSets&&co.empSets.length>0)?co.empSets[c.empSetIdx||0]||co.empSets[0]:{};
 
@@ -31683,7 +31684,7 @@ function exportChangeCsv_gijinko(){
   if(!c){alert('案件が見つかりません');return;}
   var p=personData[c.id]||{};
   var co=findCompanyByName(c.company);
-  if(!co&&c.org)co=companies.find(function(x){return x.name===c.org;});
+  if(!co&&c.org)co=findCompanyByName(c.org);
   co=co||{};
   var es=(co.empSets&&co.empSets.length>0)?co.empSets[c.empSetIdx||0]||co.empSets[0]:{};
 
@@ -32700,9 +32701,18 @@ function filterStaffByTeam(teamName){
 function filterCompanyDropdown(query){
   var dd=document.getElementById('nc_companyDropdown');
   if(!dd) return;
-  var q=query.toLowerCase().trim();
+  var _nfkc=function(s){try{return (s||'').normalize('NFKC');}catch(e){return s||'';}};
+  var q=_nfkc(query||'').toLowerCase().trim();
+  // 登録支援機関が「企業単独」の場合は supportOrgName が空 or '企業単独' の会社のみ表示
+  var orgVal=(document.getElementById('nc_org')||{}).value||'';
+  var isKigyoTandoku=(orgVal==='企業単独');
   var matches=companies.filter(function(co){
-    return !q || co.name.toLowerCase().indexOf(q)>=0 || (co.nameKana||'').toLowerCase().indexOf(q)>=0;
+    if(isKigyoTandoku){
+      var son=co.supportOrgName||'';
+      if(son&&son!=='企業単独') return false;
+    }
+    if(!q) return true;
+    return _nfkc(co.name).toLowerCase().indexOf(q)>=0 || _nfkc(co.nameKana||'').toLowerCase().indexOf(q)>=0;
   });
   if(!matches.length){
     dd.innerHTML='<div style="padding:8px 12px;font-size:12px;color:var(--gray-400);">該当なし</div>';
@@ -32710,10 +32720,10 @@ function filterCompanyDropdown(query){
     return;
   }
   var h='';
-  matches.slice(0,20).forEach(function(co){
+  matches.slice(0,50).forEach(function(co){
     h+='<div onclick="selectCompanyForNewCase(\''+co.name.replace(/'/g,"\\'")+'\')" style="padding:8px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--gray-100);transition:.15s;" onmouseover="this.style.background=\'#eff6ff\'" onmouseout="this.style.background=\'white\'">'+esc(co.name)+'</div>';
   });
-  if(matches.length>20) h+='<div style="padding:6px 12px;font-size:10px;color:var(--gray-400);">他 '+(matches.length-20)+'件...</div>';
+  if(matches.length>50) h+='<div style="padding:6px 12px;font-size:10px;color:var(--gray-400);">他 '+(matches.length-50)+'件...（検索で絞り込んでください）</div>';
   dd.innerHTML=h;
   dd.style.display='block';
 }
