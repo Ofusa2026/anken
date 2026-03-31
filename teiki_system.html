@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.73</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.74</div>
   </div>
 
   <div class="nav-section">
@@ -511,6 +511,8 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
             </select>
             <button class="btn btn-secondary btn-sm" onclick="openImportModal()">📥 インポート</button>
             <button class="btn btn-secondary btn-sm" onclick="bulkUpdateKijunExp()" title="全社の3年雇用実績を一括判定してスプシに保存">⚡ 3年雇用一括判定</button>
+            <button class="btn btn-secondary btn-sm" onclick="exportKijunCsv('ok')">📥 基準該当CSV</button>
+            <button class="btn btn-secondary btn-sm" onclick="exportKijunCsv('ng')">📥 非該当CSV</button>
             <button class="btn btn-primary btn-sm" onclick="openModal('modal-company-add')">＋ 追加</button>
           </div>
         </div>
@@ -1614,7 +1616,7 @@ var _coSortKey = '', _coSortAsc = true;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.73%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.74%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -1785,6 +1787,31 @@ async function bulkUpdateKijunExp() {
   saveLocalCache();
   renderCompanyTable();
   showToast('一括判定完了：' + updated + '社更新、' + skipped + '社変更なし', 'success');
+}
+function exportKijunCsv(type) {
+  var rows = companies.filter(function(c){
+    var kr = c.kijun_result || calcKijunResult(c);
+    var isOk = kr && kr !== '非該当';
+    return type === 'ok' ? isOk : !isOk;
+  });
+  if (!rows.length) { showToast('該当する会社がありません', 'warn'); return; }
+  var lines = ['﻿会社名,基準該当性,該当内容'];
+  rows.forEach(function(c){
+    var kr = c.kijun_result || calcKijunResult(c);
+    var isOk = kr && kr !== '非該当';
+    var detail = '';
+    if (isOk) {
+      if (c.kijun_3_type && c.kijun_3_type !== 'なし') detail = c.kijun_3_type;
+    }
+    lines.push([c.name, isOk ? '基準該当' : '非該当', detail].map(function(v){ return '"'+String(v||'').replace(/"/g,'""')+'"'; }).join(','));
+  });
+  var blob = new Blob([lines.join('
+')], {type:'text/csv;charset=utf-8'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (type==='ok'?'基準該当':'非該当')+'_一覧.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 function calcDeadline() {
   var deadline=new Date('2026-05-31'), today=new Date();
