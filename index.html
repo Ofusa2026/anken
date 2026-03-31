@@ -13162,9 +13162,10 @@ function renderCompanyDetail(co){
     } else {
       co.empSets.forEach(function(es, idx) {
         h += '<div style="background:var(--gray-100);border-radius:10px;padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;">';
-        h += '<div style="flex:1;cursor:pointer;" onclick="editEmpSet(\'' + co.id + '\',' + idx + ')">';
-        h += '<span style="font-size:13px;font-weight:800;">📋 ' + (es.setName || '条件' + (idx + 1)) + '</span>';
-        h += '<span style="font-size:10px;color:var(--gray-400);margin-left:8px;">' + (es.salary ? '月給 ' + es.salary + '円' : '') + (es.field ? ' / ' + es.field : '') + '</span></div>';
+        h += '<div style="flex:1;display:flex;align-items:center;gap:6px;">';
+        h += '<span style="font-size:12px;color:var(--gray-400);">📋</span>';
+        h += '<input type="text" value="' + esc(es.setName || '条件' + (idx + 1)) + '" onchange="saveEmpSetName(\'' + co.id + '\',' + idx + ',this.value)" onclick="event.stopPropagation()" style="font-size:13px;font-weight:800;border:none;border-bottom:1.5px solid transparent;background:transparent;cursor:pointer;padding:2px 4px;border-radius:4px;min-width:80px;flex:1;" onfocus="this.style.borderBottomColor=\'var(--blue)\';this.style.background=\'white\';this.style.cursor=\'text\'" onblur="this.style.borderBottomColor=\'transparent\';this.style.background=\'transparent\'">';
+        h += '<span style="font-size:10px;color:var(--gray-400);">' + (es.salary ? '月給 ' + es.salary + '円' : '') + (es.field ? ' / ' + es.field : '') + '</span></div>';
         h += '<div style="display:flex;gap:5px;flex-shrink:0;">';
         h += '<button onclick="event.stopPropagation();duplicateEmpSet(\'' + co.id + '\',' + idx + ')" style="font-size:10px;padding:4px 10px;background:white;color:var(--blue);border:1.5px solid var(--blue);border-radius:5px;cursor:pointer;font-weight:700;">📋 複製</button>';
         h += '<button onclick="event.stopPropagation();editEmpSet(\'' + co.id + '\',' + idx + ')" style="font-size:10px;padding:4px 10px;background:var(--blue);color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;">編集 ›</button>';
@@ -14205,6 +14206,17 @@ function addDynAllowanceRow(baseKey, coId, esIdx) {
 function removeDynAllowanceRow(baseKey, rowIdx, coId, esIdx) {
   var row = document.getElementById('dynRow_'+baseKey+rowIdx);
   if (row) row.remove();
+}
+
+function saveEmpSetName(coId, idx, val) {
+  var co = companies.find(function(x){ return x.id === coId; });
+  if (!co || !co.empSets || !co.empSets[idx]) return;
+  var trimmed = val.trim();
+  if (!trimmed) return;
+  co.empSets[idx].setName = trimmed;
+  persistCompanies(coId);
+  // リスト上のサマリー表示更新（ページ再描画なし）
+  showToast('✅ セット名を「' + trimmed + '」に変更しました');
 }
 
 function addEmpSet(coId) {
@@ -26162,7 +26174,11 @@ function normalizeNameForMatch(name) {
 // 会社名正規化（全角/半角スペース・NFKC差異を吸収）
 function normalizeCoName(s) {
   try { s = (s||'').normalize('NFKC'); } catch(e) {}
-  return s.replace(/[\s\u3000]/g, ' ').trim();
+  // 全角→半角、スペース・記号前後のスペースを除去して比較用に正規化
+  return s.replace(/　/g, ' ')         // 全角スペース→半角
+           .replace(/\s*&\s*/g, '&')        // & 前後のスペース除去
+           .replace(/\s+/g, ' ')            // 連続スペース→1個
+           .trim();
 }
 function findCompanyByName(name) {
   if (!name) return null;
