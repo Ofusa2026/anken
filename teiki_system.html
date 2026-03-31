@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.75</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.78</div>
   </div>
 
   <div class="nav-section">
@@ -454,10 +454,13 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
             <select class="input btn-sm" style="width:auto" id="dash-filter" onchange="renderDashTable()">
               <option value="">全て</option>
               <option value="未着手">未着手</option>
-              <option value="進行中">進行中</option>
+              <option value="案内送信済み">案内送信済み</option>
               <option value="書類収集中">書類収集中</option>
               <option value="確認待ち">確認待ち</option>
+              <option value="届出作成中">届出作成中</option>
+              <option value="提出済み">提出済み</option>
               <option value="完了">完了</option>
+              <option value="支援終了">支援終了</option>
             </select>
           </div>
         </div>
@@ -488,10 +491,13 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
             <select class="input btn-sm" style="width:auto" id="co-status-filter" onchange="renderCompanyTable()">
               <option value="">全ステータス</option>
               <option value="未着手">未着手</option>
-              <option value="進行中">進行中</option>
+              <option value="案内送信済み">案内送信済み</option>
               <option value="書類収集中">書類収集中</option>
               <option value="確認待ち">確認待ち</option>
+              <option value="届出作成中">届出作成中</option>
+              <option value="提出済み">提出済み</option>
               <option value="完了">完了</option>
+              <option value="支援終了">支援終了</option>
             </select>
             <select class="input btn-sm" style="width:auto" id="co-kijun2-filter" onchange="renderCompanyTable()">
               <option value="">電子届出：全て</option>
@@ -841,7 +847,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
           </div>
           <div class="field-group"><label class="field-label">ステータス</label>
             <select class="input" id="co-status">
-              <option>未着手</option><option>進行中</option><option>書類収集中</option><option>確認待ち</option><option>完了</option>
+              <option>未着手</option><option>案内送信済み</option><option>書類収集中</option><option>確認待ち</option><option>届出作成中</option><option>提出済み</option><option>完了</option><option>支援終了</option>
             </select>
           </div>
           <div class="field-group"><label class="field-label">企業担当者名</label><input type="text" class="input" id="co-contact-name" placeholder="山田 太郎"></div>
@@ -1616,7 +1622,7 @@ var _coSortKey = '', _coSortAsc = true;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.75%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.78%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -1741,6 +1747,7 @@ async function bulkUpdateKijunExp() {
   showToast('全社を一括判定中...', 'info');
   for (var i = 0; i < companies.length; i++) {
     var co = companies[i];
+    if (co.status === '支援終了') { skipped++; continue; }  // 支援終了はスキップ
 
     // 条件1: kijun_1が未設定（空・✗以外）ならデフォルトで✓
     var newK1 = (co.kijun_1 === '✗') ? '✗' : '✓';
@@ -1790,6 +1797,7 @@ async function bulkUpdateKijunExp() {
 }
 function exportKijunCsv(type) {
   var rows = companies.filter(function(c){
+    if (c.status === '支援終了') return false;  // 支援終了は除外
     var kr = c.kijun_result || calcKijunResult(c);
     var isOk = kr && kr !== '非該当';
     return type === 'ok' ? isOk : !isOk;
@@ -1949,7 +1957,7 @@ function renderCompanyTable() {
     }
     // 3年雇用判定: 2023/04/01より前から在籍していた人材が1人でもいれば⭕️
     var THREE_YEAR_BASE = new Date('2023-04-01');
-    var has3yr = foreigners.some(function(f){
+    var has3yr = co.kijun_exp === '✓' || foreigners.some(function(f){
       if(resolveCompanyName(f.companyName) !== co.name) return false;
       var cs3 = f.contractStart ? new Date(normDate(f.contractStart)) : null;
       var ce3 = f.contractEnd   ? new Date(normDate(f.contractEnd))   : null;
@@ -3851,6 +3859,17 @@ async function sendCoMail() {
     if (res && res.ok) {
       okEl.style.display = 'inline';
       setTimeout(function(){ okEl.style.display = 'none'; }, 3000);
+      // メール送信成功時にステータスを「案内送信済み」に自動更新
+      var coNameEl = document.getElementById('co-name');
+      if (coNameEl) {
+        var coObj = companies.find(function(c){ return c.name === coNameEl.value; });
+        if (coObj && coObj.status === '未着手') {
+          coObj.status = '案内送信済み';
+          saveLocalCache();
+          if(GAS_URL){ gasPost({action:'upsertCompany', row:Object.assign({},coObj)}).catch(function(){}); }
+          renderCompanyTable();
+        }
+      }
     } else {
       errEl.textContent = '送信失敗：' + (res && res.error ? res.error : '不明なエラー');
       errEl.style.display = 'inline';
