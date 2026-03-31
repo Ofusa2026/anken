@@ -71,7 +71,7 @@ html,body{height:100%;margin:0;padding:0;}body{font-family:-apple-system,BlinkMa
 .stat-sub{font-size:10px;color:var(--gray-400);margin-top:4px;}
 
 /* ===== FILTERS ===== */
-.filters-section{padding:6px 24px;}
+.filters-section{padding:6px 24px;position:sticky;top:0;z-index:40;background:#f8fafc;}
 .filters{background:white;border-radius:8px;padding:5px 10px;display:flex;flex-wrap:nowrap;gap:6px;align-items:center;box-shadow:var(--shadow);border:1px solid var(--gray-200);overflow-x:auto;}
 .filter-label{font-size:10px;color:var(--gray-400);font-weight:700;white-space:nowrap;}
 .filter-select{border:1px solid var(--gray-200);border-radius:5px;padding:3px 6px;font-size:11px;color:var(--navy);background:white;cursor:pointer;}
@@ -80,7 +80,7 @@ html,body{height:100%;margin:0;padding:0;}body{font-family:-apple-system,BlinkMa
 .search-input:focus{outline:none;border-color:var(--blue);}
 
 /* ===== TABLE ===== */
-.table-section{padding:0 24px 24px;flex:1;overflow-y:auto;}
+.table-section{padding:0 24px 24px;flex:1;}
 .table-wrap{background:white;border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--gray-200);overflow-x:auto;}
 table{width:100%;border-collapse:collapse;}
 thead th{padding:6px 10px;font-size:11px;color:var(--gray-400);font-weight:700;text-align:left;border-bottom:1px solid var(--gray-200);background:#fafafa;white-space:nowrap;position:sticky;top:0;z-index:10;}
@@ -934,7 +934,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div id="intakeList" class="table-section" style="flex:1;overflow-y:auto;padding:12px 16px;"></div>
 </div>
 
-<div id="casesScreen" class="main-panel" style="display:flex;flex-direction:column;height:100%;">
+<div id="casesScreen" class="main-panel" style="display:flex;flex-direction:column;height:100%;overflow-y:auto;">
   <!-- TOPBAR -->
   <div class="topbar">
     <span class="page-title">案件一覧</span>
@@ -3628,7 +3628,7 @@ function switchPanel(panelId, navId) {
   try{localStorage.setItem('ofusa_lastPanel',panelId);localStorage.setItem('ofusa_lastNav',navId||'');}catch(e){}
 }
 
-function showCases() { applyFilters(); switchPanel('casesScreen','nav-cases'); setTimeout(updateCoDocAlertBadge,300); setTimeout(updatePersonDocAlertBadge,300); setTimeout(loadCoFormBadges,500); }
+function showCases() { applyFilters(); switchPanel('casesScreen','nav-cases'); setTimeout(updateStickyTop,100); setTimeout(updateCoDocAlertBadge,300); setTimeout(updatePersonDocAlertBadge,300); setTimeout(loadCoFormBadges,500); }
 
 // ===== 個人タスク（Trello風カンバンボード）=====
 var myTaskData = JSON.parse(localStorage.getItem('ofusa_myTasks') || '{}');
@@ -8962,6 +8962,7 @@ function renderStats() {
   h += '</div>';
 
   document.getElementById('statsGrid').innerHTML = h;
+  setTimeout(updateStickyTop, 50);
   // サイドバーバッジ更新（無効化）
   var sb = document.getElementById('sidebar-badge');
   if(sb){ sb.style.display = 'none'; }
@@ -18390,7 +18391,7 @@ function renderTable(data) {
   var h = '';
   if (!data.length) {
     h = '<tr><td colspan="'+COLS+'" style="text-align:center;padding:30px;color:var(--gray-400);">該当する案件がありません</td></tr>';
-    document.getElementById('caseTable').innerHTML = h;
+    document.getElementById('caseTable').innerHTML = h; setTimeout(updateStickyTop, 30);
     renderAlerts(); return;
   }
   // スマホ用シンプルカード表示
@@ -18486,7 +18487,7 @@ function renderTable(data) {
       h += '<tr class="group-footer-row"><td colspan="'+COLS+'" style="height:3px;background:linear-gradient(90deg,#2563eb,#93c5fd);padding:0;border:none;"></td></tr>';
     }
   });
-  document.getElementById('caseTable').innerHTML = h;
+  document.getElementById('caseTable').innerHTML = h; setTimeout(updateStickyTop, 30);
   updateGroupSelectBar();
   renderAlerts();
 }
@@ -19148,6 +19149,26 @@ function setViewMode(mode) {
 var _kanbanDragCid = null;
 var _kanbanDragStatus = null;
 
+
+function updateStickyTop() {
+  // フィルターバーのtop = topbarの高さ
+  var topbar = document.querySelector('#casesScreen .topbar');
+  var statsSection = document.querySelector('#casesScreen .stats-section');
+  var filtersSection = document.querySelector('#casesScreen .filters-section');
+  var theadThs = document.querySelectorAll('#casesScreen thead th');
+  var selBars = document.querySelectorAll('#casesScreen .sel-bar, #casesScreen #groupSelectBar, #casesScreen #shinsaBulkBar');
+
+  var topbarH = topbar ? topbar.offsetHeight : 54;
+  var statsH = statsSection ? statsSection.offsetHeight : 70;
+  var filtersH = filtersSection ? filtersSection.offsetHeight : 44;
+
+  // フィルターバーはtopbarの直下
+  if(filtersSection) filtersSection.style.top = topbarH + 'px';
+
+  // theadはtopbar+stats+filtersの下
+  var theadTop = topbarH + statsH + filtersH;
+  theadThs.forEach(function(th){ th.style.top = theadTop + 'px'; });
+}
 
 function renderTaskKanban() {
   var el = document.getElementById('taskKanbanView');
@@ -33008,7 +33029,14 @@ function loadAllFromSupabase() {
     }
     done();
     // doc_tasksはpendingに含めず非同期でバックグラウンドロード
+    // 全タスク関連変数をリセット（再読み込み前に古いデータを消す）
     docTaskStatus = {};
+    taskDeadline = {};
+    taskMemo = {};
+    taskUrgent = {};
+    taskAssignee = {};
+    taskHandler = {};
+    taskConfirm = {};
     (function loadDocTasksAll(from){
       _sb.from('doc_tasks').select('*').range(from, from+999).then(function(res) {
         if (!res.error && res.data && res.data.length) {
