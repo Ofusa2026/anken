@@ -343,6 +343,9 @@ tr:hover td { background: var(--blue-light); }
     <div class="nav-item" onclick="showView('sales')">
       <span class="nav-icon">💰</span> 売上一覧
     </div>
+    <div class="nav-item" onclick="showView('forecast')">
+      <span class="nav-icon">📈</span> 売上速報
+    </div>
     <div class="nav-item" onclick="showView('masters')">
       <span class="nav-icon">🗂️</span> マスタ管理
     </div>
@@ -437,6 +440,37 @@ tr:hover td { background: var(--blue-light); }
           <div class="chart-card">
             <div class="chart-title">月別件数</div>
             <div class="chart-wrap" style="height:180px"><canvas id="chartCount"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== 売上速報 VIEW ===== -->
+      <div class="view" id="view-forecast">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+          <select class="form-select" id="fc-month-filter" style="width:140px" onchange="renderForecast()">
+            <option value="">全期間</option>
+          </select>
+          <button class="btn btn-secondary" onclick="loadForecast()" style="font-size:12px">🔄 更新</button>
+          <button class="btn btn-primary" onclick="openForecastModal(false)" style="font-size:12px">＋ 売上追加</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+          <div class="kpi-card" style="padding:14px"><div style="font-size:11px;color:var(--text3);margin-bottom:4px">件数</div><div id="fc-count" style="font-size:20px;font-weight:700">—</div></div>
+          <div class="kpi-card" style="padding:14px"><div style="font-size:11px;color:var(--text3);margin-bottom:4px">売上合計（税抜）</div><div id="fc-subtotal" style="font-size:20px;font-weight:700;color:var(--accent)">—</div></div>
+          <div class="kpi-card" style="padding:14px"><div style="font-size:11px;color:var(--text3);margin-bottom:4px">売上合計（税込）</div><div id="fc-total" style="font-size:20px;font-weight:700;color:var(--accent)">—</div></div>
+          <div class="kpi-card" style="padding:14px"><div style="font-size:11px;color:var(--orange);margin-bottom:4px">KB合計</div><div id="fc-kb" style="font-size:20px;font-weight:700;color:var(--orange)">—</div></div>
+        </div>
+        <div class="table-card" style="margin-bottom:16px">
+          <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-weight:700;font-size:13px">💹 速報売上一覧</div>
+          <div id="fc-list"></div>
+        </div>
+        <div class="table-card" style="border:1.5px solid #fed7aa">
+          <div style="padding:12px 16px;border-bottom:1px solid #fed7aa;font-weight:700;font-size:13px;color:var(--orange);display:flex;justify-content:space-between;align-items:center">
+            <span>🔄 キックバック（KB）</span>
+            <button class="btn" style="font-size:11px;padding:4px 10px;background:#fff7ed;border:1px solid #fed7aa;color:var(--orange)" onclick="openForecastModal(true)">＋ KB追加</button>
+          </div>
+          <div id="fc-kb-list"></div>
+          <div style="padding:10px 16px;font-size:12px;color:var(--text3);background:#fff7ed;border-top:1px solid #fed7aa">
+            <span>KB合計（税込）：</span><span id="fc-kb-total" style="font-weight:700;color:var(--orange)">¥0</span>
           </div>
         </div>
       </div>
@@ -849,7 +883,7 @@ tr:hover td { background: var(--blue-light); }
 // ============================================================
 // STATE
 // ============================================================
-const VERSION = '2026.03.27-73';
+const VERSION = '2026.03.31-74';
 
 console.log('%c 売上管理ダッシュボード v' + VERSION + ' ', 'background:#0f2040;color:#fff;font-size:14px;padding:4px 8px;border-radius:4px;font-weight:bold;');
 console.log('%c Supabase直接接続モード ', 'background:#10b981;color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;');
@@ -1159,6 +1193,7 @@ const viewTitles = {
   dashboard: 'ダッシュボード',
   sales: '売上一覧',
   invoices: '請求書履歴',
+  forecast: '売上速報',
   masters: 'マスタ管理',
   settings: '設定',
 };
@@ -1172,6 +1207,7 @@ function showView(name) {
   });
   document.getElementById('pageTitle').textContent = viewTitles[name] || name;
   if (name === 'invoices') renderInvoices();
+  if (name === 'forecast') loadForecast();
 }
 
 function onYearChange() { loadAll(); }
@@ -2924,6 +2960,84 @@ function toast(msg, type = '') {
   toastTimer = setTimeout(() => el.classList.remove('show'), 3500);
 }
 </script>
+
+
+  <!-- ===== 売上速報 入力モーダル ===== -->
+  <div class="overlay" id="fcModalOverlay" onclick="closeFcModal(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center">
+    <div class="modal" style="max-width:540px;width:92%;background:#fff;border-radius:12px;padding:24px;max-height:90vh;overflow-y:auto">
+      <div class="modal-title" id="fcModalTitle" style="font-size:16px;font-weight:700;margin-bottom:16px">📈 売上速報 追加</div>
+      <input type="hidden" id="fc-edit-id">
+
+      <div class="form-row">
+        <div class="form-group full" style="position:relative">
+          <label class="form-label">得意先名</label>
+          <input class="form-input" id="fc-client" placeholder="例: 株式会社JAM" autocomplete="off"
+            oninput="onFcClientInput()" onfocus="showFcClientDropdown()" onblur="hideFcClientDropdown()">
+          <div id="fcClientDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1.5px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);max-height:200px;overflow-y:auto;z-index:9999;margin-top:2px"></div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group full">
+          <label class="form-label">紹介元（登録支援機関）</label>
+          <input class="form-input" id="fc-support" placeholder="例: 株式会社〇〇支援機関" list="fcSupportList">
+          <datalist id="fcSupportList"></datalist>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group half">
+          <label class="form-label">売上計上日</label>
+          <input class="form-input" type="date" id="fc-date">
+        </div>
+        <div class="form-group half">
+          <label class="form-label">担当</label>
+          <select class="form-select" id="fc-staff-sel"><option value="">選択</option></select>
+        </div>
+      </div>
+      <div class="form-row" id="fc-item-row">
+        <div class="form-group full">
+          <label class="form-label">品目</label>
+          <input class="form-input" id="fc-item" placeholder="例: 在留資格申請「特定技能」変更">
+        </div>
+      </div>
+      <div class="form-row" id="fc-price-row">
+        <div class="form-group" style="flex:2">
+          <label class="form-label">単価（税抜）</label>
+          <input class="form-input" type="number" id="fc-price" placeholder="0" oninput="calcFcTotal()">
+        </div>
+        <div class="form-group" style="flex:1">
+          <label class="form-label">数量</label>
+          <input class="form-input" type="number" id="fc-qty" value="1" oninput="calcFcTotal()">
+        </div>
+        <div class="form-group" style="flex:2">
+          <label class="form-label">小計（税抜）</label>
+          <input class="form-input" id="fc-subtotal-disp" readonly style="background:#f8fafc;font-weight:700">
+        </div>
+      </div>
+
+      <!-- KBフィールド -->
+      <div id="fc-kb-fields" style="display:none;background:#fff7ed;border:1.5px solid #fed7aa;border-radius:8px;padding:14px;margin-bottom:14px">
+        <div style="font-size:13px;font-weight:700;color:var(--orange);margin-bottom:10px">🔄 キックバック</div>
+        <div class="form-row">
+          <div class="form-group full">
+            <label class="form-label">KB金額（税抜・マイナスで入力）</label>
+            <input class="form-input" type="number" id="fc-kb-amount" placeholder="-100000">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group full">
+          <label class="form-label">メモ</label>
+          <input class="form-input" id="fc-memo" placeholder="">
+        </div>
+      </div>
+
+      <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+        <button class="btn btn-secondary" onclick="closeFcModal()">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveForecast()">保存</button>
+      </div>
+    </div>
+  </div>
 
 </body>
 </html>
