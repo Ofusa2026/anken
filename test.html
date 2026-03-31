@@ -1440,7 +1440,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="topbar" style="flex-shrink:0;">
     <span class="page-title">🏭 所属機関</span>
     <div style="display:flex;gap:6px;align-items:center;">
-      <input id="companySearch" oninput="renderCompanyList()" placeholder="🔍 会社名で検索" style="font-size:12px;padding:5px 10px;border:1px solid var(--gray-200);border-radius:8px;width:160px;">
+      <input id="companySearch" oninput="renderCompanyList()" autocomplete="off" placeholder="🔍 会社名で検索" style="font-size:12px;padding:5px 10px;border:1px solid var(--gray-200);border-radius:8px;width:160px;">
       <button onclick="openCompanyNew()" style="font-size:12px;padding:6px 14px;background:var(--blue);color:white;border:none;border-radius:8px;cursor:pointer;font-weight:700;">＋ 新規登録</button>
       <button onclick="exportCompanyCsv()" style="font-size:12px;padding:5px 12px;background:#f8fafc;color:var(--navy);border:1.5px solid var(--gray-200);border-radius:8px;cursor:pointer;font-weight:700;">📤 CSV出力</button>
       <label ondragover="event.preventDefault();this.style.background='#dbeafe';this.style.borderColor='var(--blue)'" ondragleave="this.style.background='#f0fdf4';this.style.borderColor='var(--green)'" ondrop="event.preventDefault();this.style.background='#f0fdf4';this.style.borderColor='var(--green)';handleCompanyDrop(event)" style="font-size:12px;padding:5px 12px;background:#f0fdf4;color:var(--green);border:1.5px dashed var(--green);border-radius:8px;cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;transition:.15s;">
@@ -18269,6 +18269,8 @@ function saveProgressMemo(caseId) {
 function _persistOneNote(caseId) {
   try { localStorage.setItem('ofusa_caseNotes', JSON.stringify(caseNotes)); } catch(e) {}
   if (!DB_READY) return;
+  _skipCaseNotesRealtime = true;
+  setTimeout(function(){ _skipCaseNotesRealtime = false; }, 3000);
   _sb.from('case_notes').upsert({case_id: caseId, note: caseNotes[caseId]}, {onConflict:'case_id'}).then(function(r){
     if (r.error) console.error('❌ [OFUSA] caseNote DB err:', r.error.message);
   });
@@ -18309,8 +18311,9 @@ function saveCaseReply(caseId) {
 
 function markRepliedRead(caseId) {
   if (!caseNotes[caseId]) return;
-  // 回答済を既読にする（confirm/repliedをリセット）
+  // 回答済を既読にする（confirm/confirmState/repliedをリセット）
   caseNotes[caseId].confirm = false;
+  caseNotes[caseId].confirmState = 0;
   caseNotes[caseId].replied = false;
   _persistOneNote(caseId);
   updateReviewBadge();
@@ -18320,6 +18323,7 @@ function markRepliedRead(caseId) {
 function markConfirmDone(caseId) {
   if (!caseNotes[caseId]) return;
   caseNotes[caseId].confirm = false;
+  caseNotes[caseId].confirmState = 0;
   caseNotes[caseId].replied = false;
   _persistOneNote(caseId);
   updateReviewBadge();
@@ -26155,11 +26159,10 @@ function dummyMails() {
 function normalizeNameForMatch(name) {
   return (name || '').replace(/[・\s\-]/g, '').toLowerCase();
 }
-
 // 会社名を正規化して検索（全角スペース・半角スペース・NFKC差異を吸収）
 function normalizeCoName(s) {
   try { s = (s||'').normalize('NFKC'); } catch(e) {}
-  return s.replace(/[\s　]/g, ' ').trim();
+  return s.replace(/[\s\u3000]/g, ' ').trim();
 }
 function findCompanyByName(name) {
   var n = normalizeCoName(name);
