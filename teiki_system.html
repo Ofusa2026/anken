@@ -180,7 +180,7 @@ td { padding:10px 14px; font-size:12px; color:var(--text); vertical-align:middle
 .btn-secondary:hover { background:var(--bg3); }
 .btn-success  { background:var(--green); color:white; }
 .btn-success:hover  { filter:brightness(1.05); }
-.btn-sm   { padding:5px 10px; font-size:11px; }
+.btn-sm   { padding:3px 8px; font-size:11px; }
 .btn-icon { padding:6px 8px; }
 
 /* ===== INPUTS ===== */
@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.83</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.87</div>
   </div>
 
   <div class="nav-section">
@@ -523,6 +523,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
             <button class="btn btn-secondary btn-sm" onclick="bulkUpdateKijunExp()" title="全社の3年雇用実績を一括判定してスプシに保存">⚡ 3年雇用一括判定</button>
             <button class="btn btn-secondary btn-sm" onclick="exportKijunCsv('ok')">📥 基準該当CSV</button>
             <button class="btn btn-secondary btn-sm" onclick="exportKijunCsv('ng')">📥 非該当CSV</button>
+            <button id="btn-show-all-co" onclick="toggleShowAllCo()" style="font-size:10px;padding:2px 7px;border:1px solid var(--border2);background:var(--bg3);color:var(--text3);border-radius:5px;cursor:pointer;white-space:nowrap">全企業</button>
             <button class="btn btn-primary btn-sm" onclick="openModal('modal-company-add')">＋ 追加</button>
           </div>
         </div>
@@ -564,11 +565,12 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
             </select>
             <select class="input btn-sm" style="width:auto" id="fg-zairyu-filter" onchange="renderForeignerTable()">
               <option value="">全在留資格</option>
-              <option value="特定技能1号">1号</option>
-              <option value="特定技能2号">2号</option>
+              <option value="特定技能1号">特定技能1号</option>
+              <option value="特定技能2号">特定技能2号</option>
               <option value="特定活動">特定活動</option>
-              <option value="__other__">その他</option>
+              <option value="__applying__">申請中</option>
               <option value="__empty__">未入力</option>
+              <option value="__other__">その他</option>
             </select>
             <button class="btn btn-secondary btn-sm" onclick="openForeignerImport()">📥 CSV取込</button>
             <button class="btn btn-sm" id="btn-target-only" onclick="toggleTargetOnly()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text2)">📅 対象者のみ</button>
@@ -1625,11 +1627,11 @@ var companies = [], foreigners = [], salaryData = [];
 var selectedCompany = null, editingCompanyId = null, editingForeignerId = null;
 var importRows = [], fgImportRows = [];
 var kijun1 = false, kijun2 = false, kijun_exp_auto = false;
-var _coSortKey = '', _coSortAsc = true;
+var _coSortKey = '', _coSortAsc = true, _coShowAll = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.83%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.87%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -1890,6 +1892,16 @@ function renderDashTable() {
       '<td style="white-space:nowrap"><button class="btn btn-secondary btn-sm" onclick="openDocCheck(\''+esc(co.name)+'\')">書類確認</button> <button class="btn btn-danger btn-sm" onclick="confirmDeleteCompany(\''+esc(co.name)+'\')">削除</button></td></tr>';
   }).join('');
 }
+function toggleShowAllCo() {
+  _coShowAll = !_coShowAll;
+  var btn = document.getElementById('btn-show-all-co');
+  if (btn) {
+    btn.style.background = _coShowAll ? 'var(--blue)' : 'var(--bg3)';
+    btn.style.color = _coShowAll ? 'white' : 'var(--text3)';
+    btn.style.borderColor = _coShowAll ? 'var(--blue)' : 'var(--border2)';
+  }
+  renderCompanyTable();
+}
 function sortCo(key) {
   if (_coSortKey === key) _coSortAsc = !_coSortAsc;
   else { _coSortKey = key; _coSortAsc = true; }
@@ -1902,7 +1914,9 @@ function renderCompanyTable() {
   var kfr  = document.getElementById('co-kijun-filter')   ? document.getElementById('co-kijun-filter').value   : '';
   var kf3y = document.getElementById('co-3yr-filter')     ? document.getElementById('co-3yr-filter').value     : '';
   var THREE_YEAR_BASE_F = new Date('2023-04-01');
+  var HIDDEN_STATUSES = ['支援終了','企業側対応','対象外'];
   var list=companies.filter(function(c){
+    if (!_coShowAll && HIDDEN_STATUSES.indexOf(c.status) >= 0) return false;
     if (sf && c.status !== sf) return false;
     if (q && !(c.name||'').toLowerCase().includes(q)) return false;
     if (kf2) {
@@ -2029,7 +2043,8 @@ function renderForeignerTable() {
     var zfMatch = !zf || (function(){
       var rs = f.residenceStatus || '';
       if (zf === '__empty__') return !rs;
-      if (zf === '__other__') return !!rs && rs !== '特定技能1号' && rs !== '特定技能2号' && rs !== '特定活動' && rs !== '技能実習';
+      if (zf === '__applying__') return !!rs && (rs.indexOf('申請') >= 0 || rs.indexOf('申請中') >= 0 || rs === '認定');
+      if (zf === '__other__') return !!rs && rs.indexOf('特定技能') < 0 && rs !== '特定活動' && rs.indexOf('技能実習') < 0 && rs.indexOf('申請') < 0 && rs !== '認定' && rs !== '家族滞在';
       return rs === zf;
     })();
     return (!sf||normStatus(f)===sf)&&zfMatch&&(!q||[(f.nameEn||''),(f.companyName||'')].some(function(s){return s.toLowerCase().includes(q);}));
