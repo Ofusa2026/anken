@@ -1059,6 +1059,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <button onclick="openGroupNameModal()" style="background:#2563eb;color:white;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;">📁 グループ化</button>
     <button onclick="bulkTrashCases()" style="background:#dc2626;color:white;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;">🗑 一括削除</button>
     <button onclick="bulkChangeStatus()" style="background:#f59e0b;color:white;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;">📋 一括ステータス変更</button>
+    <button onclick="openDuplicateCaseFromSel()" style="background:#0ea5e9;color:white;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;">📋 複製</button>
     <button onclick="cancelGroupSelect()" style="background:white;color:#64748b;border:1px solid #d1d5db;border-radius:8px;padding:6px 12px;font-size:11px;cursor:pointer;">✕ 解除</button>
   </div>
   <!-- TABLE + KANBAN (共通ヘッダー) -->
@@ -18578,10 +18579,6 @@ function buildCaseRow(c, today, inGroup) {
     h += '<div style="font-size:11px;color:#374151;line-height:1.5;white-space:pre-wrap;word-break:break-all;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:6px;padding:6px 8px;max-height:80px;overflow:hidden;">' + esc(_pm) + '</div>';
   }
   h += '</td>';
-  // ③ 複製ボタン
-  h += '<td onclick="event.stopPropagation()" style="'+cs+'text-align:center;width:32px;padding:2px;">';
-  h += '<button onclick="event.stopPropagation();openDuplicateCase(\''+c.id+'\')" title="案件を複製" style="font-size:11px;padding:3px 7px;background:#f0f9ff;color:#0369a1;border:1px solid #7dd3fc;border-radius:5px;cursor:pointer;font-weight:700;">📋</button>';
-  h += '</td>';
   h += '</tr>';
   return h;
 }
@@ -27952,49 +27949,108 @@ function submitManualRecord(){
 }
 
 
+
+function openDuplicateCaseFromSel(){
+  var cbs = document.querySelectorAll('.group-sel-cb:checked');
+  if(!cbs.length){ showToast('⚠️ 複製する案件を1件選択してください'); return; }
+  if(cbs.length > 1){ showToast('⚠️ 複製は1件ずつ行ってください'); return; }
+  var srcId = cbs[0].getAttribute('data-id');
+  openDuplicateCase(srcId);
+}
 function openDuplicateCase(srcId){
+  // srcIdをスナップショット（文字列）として保持。cDataへの参照を避ける
   var src = cData.find(function(x){return x.id===srcId;});
   if(!src){ showToast('⚠️ 複製元が見つかりません'); return; }
-  // まず通常の新規案件モーダルを開く
+  // 必要な値だけスナップショットとしてコピー（元案件のオブジェクト参照を持たない）
+  var snap = {
+    name: src.name || '',
+    org: src.org || '',
+    company: src.company || '',
+    team: src.team || '',
+    staff: src.staff || '',
+    toritsugisha: src.toritsugisha || '',
+    residenceStatus: src.residenceStatus || '',
+    nationality: src.nationality || ''
+  };
+  // 通常の新規案件モーダルを開く（内部でフィールドをリセットする）
   openNewCase();
-  // 引き継ぎフィールドを設定（少し遅延して確実にDOM生成後に設定）
+  // 引き継ぎフィールドを設定（DOM生成後に設定）
   setTimeout(function(){
+    // 氏名・国籍・現在の在留資格・申請種別・在留期限 → リセット（openNewCase内で空になっているのでそのまま）
+
+    // 申請種別・現在の在留資格はリセット（openNewCaseでリセット済みだが念のため）
+    var appTypeEl = document.getElementById('nc_appType');
+    if(appTypeEl) appTypeEl.selectedIndex = 0; // 「認定」に戻す
+    var curStatusEl = document.getElementById('nc_currentStatus');
+    if(curStatusEl) curStatusEl.selectedIndex = 0;
+
+    // 国籍を引き継ぎ
+    if(snap.nationality){
+      var nSelEl = document.getElementById('nc_nationality_sel');
+      var nInpEl = document.getElementById('nc_nationality');
+      var natMatched = false;
+      if(nSelEl){
+        for(var ni=0;ni<nSelEl.options.length;ni++){
+          if(nSelEl.options[ni].value === snap.nationality){ nSelEl.selectedIndex=ni; natMatched=true; break; }
+        }
+      }
+      if(!natMatched && nSelEl && nInpEl){
+        nSelEl.value = '__other__';
+        nInpEl.style.display = 'block';
+        nInpEl.value = snap.nationality;
+      } else if(nInpEl){
+        nInpEl.style.display = 'none';
+        nInpEl.value = snap.nationality;
+      }
+    }
+
     // 案件名
     var nameEl = document.getElementById('nc_name');
-    if(nameEl) nameEl.value = src.name || '';
+    if(nameEl) nameEl.value = snap.name;
     // 登録支援機関
     var orgEl = document.getElementById('nc_org');
-    if(orgEl && src.org){
+    if(orgEl && snap.org){
       for(var i=0;i<orgEl.options.length;i++){
-        if(orgEl.options[i].value === src.org){ orgEl.selectedIndex = i; break; }
+        if(orgEl.options[i].value === snap.org){ orgEl.selectedIndex = i; break; }
       }
     }
     // 所属機関（検索欄＋hidden）
     var compSearch = document.getElementById('nc_companySearch');
     var compHidden = document.getElementById('nc_company');
-    if(compSearch && src.company){ compSearch.value = src.company; }
-    if(compHidden && src.company){ compHidden.value = src.company; }
-    // 申請種別
-    var appTypeEl = document.getElementById('nc_appType');
-    if(appTypeEl && src.appType){
-      for(var j=0;j<appTypeEl.options.length;j++){
-        if(appTypeEl.options[j].value === src.appType){ appTypeEl.selectedIndex = j; break; }
+    if(compSearch) compSearch.value = snap.company;
+    if(compHidden) compHidden.value = snap.company;
+    // 希望在留資格
+    var resSelEl = document.getElementById('nc_residenceSelect');
+    var resInpEl = document.getElementById('nc_residenceStatus');
+    if(resSelEl && snap.residenceStatus){
+      var matched = false;
+      for(var r=0;r<resSelEl.options.length;r++){
+        if(resSelEl.options[r].value === snap.residenceStatus){ resSelEl.selectedIndex = r; matched=true; break; }
+      }
+      if(!matched){
+        resSelEl.value = '__other__';
+        if(resInpEl){ resInpEl.style.display='block'; resInpEl.value = snap.residenceStatus; }
+      } else {
+        if(resInpEl){ resInpEl.style.display='none'; resInpEl.value = snap.residenceStatus; }
       }
     }
+    // 取次者
+    var torEl = document.getElementById('nc_toritsugisha');
+    if(torEl && snap.toritsugisha) torEl.value = snap.toritsugisha;
     // チーム
     var teamEl = document.getElementById('nc_team');
-    if(teamEl && src.team){
+    if(teamEl && snap.team){
       for(var t=0;t<teamEl.options.length;t++){
-        if(teamEl.options[t].value === src.team){ teamEl.selectedIndex = t; break; }
+        if(teamEl.options[t].value === snap.team){ teamEl.selectedIndex = t; break; }
       }
-      filterStaffByTeam(src.team);
+      filterStaffByTeam(snap.team);
     }
     // 担当者（チーム設定後に遅延）
     setTimeout(function(){
       var staffEl = document.getElementById('nc_staff');
-      if(staffEl && src.staff){
+      if(staffEl && snap.staff){
         for(var s=0;s<staffEl.options.length;s++){
-          if(staffEl.options[s].value === src.staff){ staffEl.selectedIndex = s; break; }
+          if(staffEl.options[s].value === snap.staff){ staffEl.selectedIndex = s; break; }
         }
       }
     }, 100);
