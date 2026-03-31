@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.69</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.73</div>
   </div>
 
   <div class="nav-section">
@@ -1614,7 +1614,7 @@ var _coSortKey = '', _coSortAsc = true;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.69%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.73%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -2404,8 +2404,8 @@ async function saveSalary(nameEn,coName) {
   var idx=salaryData.findIndex(s=>s.companyName===coName&&s.nameEn===nameEn);
   if(idx>=0) salaryData[idx]=Object.assign(salaryData[idx],data); else salaryData.push(data);
   saveLocalCache();
-  if(GAS_URL) { try { await gasPost(data); } catch(e){} }
   showToast(nameEn+' の給与データを保存しました','success');
+  if(GAS_URL){ gasPost(data).catch(function(e){console.error('GAS保存エラー',e);}); }
 }
 var calcYearTab = 'prev';
 var calcStatusTab = '1'; // '1'=1号, '2'=2号, 'all'=全員
@@ -2476,7 +2476,7 @@ function selectCalcCompany(name) {
         '<br><button class="btn btn-danger btn-sm" style="font-size:9px;padding:1px 6px;margin-top:3px" '+
         'onclick="if(confirm(\''+esc(sal.nameEn)+'（'+calcYearTab+'）のデータを削除しますか？\')){'+
         'salaryData=salaryData.filter(function(s){return !(s.companyName===\''+esc(sal.companyName)+'\'&&s.nameEn===\''+esc(sal.nameEn)+'\'&&s.yearYear===\''+calcYearTab+'\');});'+
-        'saveLocalCache();selectCalcCompany(\''+esc(name)+'\');}">🗑 削除</button>'+
+        'saveLocalCache();if(GAS_URL)gasPost({action:\'deleteSalary\',companyName:\''+esc(sal.companyName)+'\',nameEn:\''+esc(sal.nameEn)+'\'}).catch(function(){});selectCalcCompany(\''+esc(name)+'\');}">🗑 削除</button>'+
         '</th>';
     });
     html += '</tr></thead><tbody>';
@@ -2633,8 +2633,8 @@ async function saveDocStatus(coName) {
   var keys=['doc_36_main','doc_36_bessi1','doc_36_bessi2','doc_517or516','doc_129','doc_1111','doc_123','doc_touki','doc_juumin','doc_rodo','doc_shakai','doc_nouzei','doc_juminzei','doc_kyuyo','doc_shoyo'];
   var patch={companyName:coName,fiscalYear:FISCAL_YEAR,action:'upsertReport'};
   keys.forEach(function(k){ var el=document.getElementById('docsel-'+k); if(el){co[k]=el.value;patch[k]=el.value;} });
-  if(GAS_URL){try{await gasPost(patch);}catch(e){}}
   saveLocalCache(); showToast('書類ステータスを保存しました','success');
+  if(GAS_URL){ gasPost(patch).catch(function(e){console.error('GAS保存エラー',e);}); }
 }
 function openModal(id){document.getElementById(id).classList.add('open');}
 function closeModal(id){
@@ -2753,8 +2753,8 @@ async function saveCompany(){
   var idx=companies.findIndex(c=>c.name===name);
   if(idx>=0) companies[idx]=Object.assign(companies[idx],local); else companies.push(local);
   saveLocalCache(); renderAll();
-  if(GAS_URL){document.getElementById('co-save-spinner').style.display='inline-block';try{await gasPost(data);await gasPost({action:'upsertCompany',row:local});}catch(e){console.error('GAS保存エラー',e);}document.getElementById('co-save-spinner').style.display='none';}
   closeModal('modal-company-add'); showToast(name+' を保存しました','success');
+  if(GAS_URL){ gasPost({action:'upsertCompany',row:Object.assign({},local,data)}).catch(function(e){console.error('GAS保存エラー',e); showToast('GAS保存に失敗しました','warn');}); }
 }
 function updateFgCompanyDatalist(){document.getElementById('fg-company-list').innerHTML=companies.map(c=>'<option value="'+esc(c.name)+'">').join('');}
 function editForeigner(nameEn,coName){
@@ -2786,8 +2786,8 @@ async function saveForeigner(){
   var idx=foreigners.findIndex(f=>f.nameEn===nameEn&&f.companyName===coName);
   if(idx>=0) foreigners[idx]=Object.assign(foreigners[idx],data); else foreigners.push(data);
   saveLocalCache(); updateBadges(); renderForeignerTable(); updateFgCompanyDatalist();
-  if(GAS_URL){document.getElementById('fg-save-spinner').style.display='inline-block';try{await gasPost(data);}catch(e){}document.getElementById('fg-save-spinner').style.display='none';}
   closeModal('modal-foreigner-add'); editingForeignerId=null; showToast(nameEn+' を保存しました','success');
+  if(GAS_URL){ gasPost(data).catch(function(e){console.error('GAS保存エラー',e); showToast('GAS保存に失敗しました','warn');}); }
 }
 function openImportModal(){openModal('modal-import');}
 function openForeignerImport(){openModal('modal-fg-import');}
@@ -3217,6 +3217,7 @@ async function importSalaryPDFForPerson(inputEl) {
     saveLocalCache();
     renderSalaryInput();
     showToast(nameEn + ' の給与データを取り込みました ✅', 'success');
+    if(GAS_URL){ gasPost(Object.assign({action:'upsertMonthly'}, salaryData[salaryData.length-1])).catch(function(e){console.error('GAS保存エラー',e);}); }
   } catch(e) {
     showToast('エラー: ' + e.message, 'error');
   }
@@ -3317,6 +3318,10 @@ async function importSalaryPDF(event, coName) {
   saveLocalCache();
   renderSalaryInput();
   if (applied > 0) showToast(applied + '名分を取り込み・保存しました ✅', 'success');
+  if (GAS_URL && applied > 0) {
+    var newEntries = salaryData.filter(function(s){ return s.companyName === selectedCompany.name; });
+    newEntries.forEach(function(entry){ gasPost(Object.assign({action:'upsertMonthly'}, entry)).catch(function(e){console.error('GAS保存エラー',e);}); });
+  }
   errors.forEach(function(e, i){ setTimeout(function(){ showToast(e, 'warn'); }, (i+1)*1800); });
 }
 
