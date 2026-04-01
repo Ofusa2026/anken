@@ -5778,15 +5778,21 @@ var CELL_MAPPING_window = [
     TEMPLATE_CATEGORIES[ci].templates.push({name:bt.name, lang:'', filename:bt.filename, status:'登録済', uploadDate:ds, uploadTime:'自動'});
     tplData[ci+'_'+ti]={name:bt.filename, data:'data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,'+bt.b64};
     changed=true;
-    // Supabase Storageにもアップロード
+    // Supabase Storageにもアップロード（DB確認→未登録の場合のみ）
     if(DB_READY){
       var storagePath=sanitizeStoragePath(grpName+'/'+bt.filename);
       TEMPLATE_CATEGORIES[ci].templates[ti].storagePath=storagePath;
-      storageUploadBase64('templates',storagePath,bt.b64,'application/vnd.openxmlformats-officedocument.wordprocessingml.document',function(r,e){if(e)console.error('builtin tpl upload err:',e);});
-      _sb.from('templates').select('id').eq('storage_path',storagePath).then(function(chk){
-        if(chk.data&&chk.data.length>0)return; // 既に存在
-        _sb.from('templates').insert({group_name:grpName,name:bt.name,filename:bt.filename,lang:'',storage_path:storagePath,uploaded_by:'system'}).then(function(r){if(r.error&&r.error.code!=='23505')console.error('builtin tpl DB err:',r.error);});
-      });
+      // まずDBで存在確認し、未登録の場合のみStorageアップロード
+      (function(sp,btRef,grpNm){
+        _sb.from('templates').select('id').eq('storage_path',sp).then(function(chk){
+          if(chk.data&&chk.data.length>0) return; // 既にDB登録済み→スキップ
+          // 未登録：Storageアップロード→DB登録
+          storageUploadBase64('templates',sp,btRef.b64,'application/vnd.openxmlformats-officedocument.wordprocessingml.document',function(r,e){
+            if(e){ console.error('builtin tpl upload err:',e); return; }
+            _sb.from('templates').insert({group_name:grpNm,name:btRef.name,filename:btRef.filename,lang:'',storage_path:sp,uploaded_by:'system'}).then(function(r){if(r.error&&r.error.code!=='23505')console.error('builtin tpl DB err:',r.error);});
+          });
+        });
+      })(storagePath, bt, grpName);
     }
     // マッピングも適用
     var maps={'1-11':typeof CELL_MAPPING_111!=='undefined'?CELL_MAPPING_111:null,'1-16':typeof CELL_MAPPING_116!=='undefined'?CELL_MAPPING_116:null,'1-23':typeof CELL_MAPPING_123!=='undefined'?CELL_MAPPING_123:null,'1-25':typeof CELL_MAPPING_125!=='undefined'?CELL_MAPPING_125:null,'1-29':typeof CELL_MAPPING_129!=='undefined'?CELL_MAPPING_129:null,'窓口申請書':typeof CELL_MAPPING_window!=='undefined'?CELL_MAPPING_window:null};
@@ -17734,7 +17740,7 @@ function checkMappingFields(caseId, empSetIdx, mappingArr, onComplete) {
       }
     }
     var _dg_co = currentCase ? findCompanyByName(currentCase.company) : null;
-    if(_dg_co) persistCompanies(_dg_co.id); else persistCompanies();
+    if(_dg_co) persistCompanies(_dg_co.id); // currentCaseなし時は全件送信しない
     persistPersonData(currentCase ? currentCase.id : null);
     area.style.display='none';
     showToast('✅ データを保存しました');
@@ -17802,7 +17808,7 @@ function saveDgMissing(count, caseId, empSetIdx) {
     }
   }
   var _miss_co = currentCase ? findCompanyByName(currentCase.company) : null;
-  if(_miss_co) persistCompanies(_miss_co.id); else persistCompanies();
+  if(_miss_co) persistCompanies(_miss_co.id); // currentCaseなし時は全件送信しない
   persistPersonData(currentCase ? currentCase.id : null);
   document.getElementById('dg_missing_edit').style.display = 'none';
   showToast('✅ データを保存しました');
