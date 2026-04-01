@@ -1383,6 +1383,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <button id="reviewTabAll" onclick="reviewTab='all';renderReview()" style="font-size:12px;font-weight:700;padding:6px 16px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">全件</button>
     <button id="reviewTabCases" onclick="reviewTab='cases';renderReview()" style="font-size:12px;font-weight:700;padding:6px 16px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">案件一覧</button>
     <button id="reviewTabTasks" onclick="reviewTab='tasks';renderReview()" style="font-size:12px;font-weight:700;padding:6px 16px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">タスク一覧 <span id="reviewTasksBadge" style="background:#f97316;color:white;border-radius:99px;padding:0 5px;font-size:10px;margin-left:3px;">0</span></button>
+    <button id="reviewTabAnswerCheck" onclick="reviewTab='answerCheck';renderReview()" style="font-size:12px;font-weight:700;padding:6px 16px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">💬 回答確認 <span id="reviewAnswerCheckBadge" style="background:#e11d48;color:white;border-radius:99px;padding:0 5px;font-size:10px;margin-left:3px;display:none;">0</span></button>
     <button id="reviewTabReplied" onclick="reviewTab='replied';renderReview()" style="font-size:12px;font-weight:700;padding:6px 16px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">回答済 <span id="reviewRepliedBadge" style="background:var(--green);color:white;border-radius:99px;padding:0 5px;font-size:10px;margin-left:3px;display:none;">0</span></button>
     <button id="reviewTabMadoguchi" onclick="reviewTab='madoguchi';renderReview()" style="font-size:12px;font-weight:700;padding:6px 16px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">🏢 窓口 <span id="reviewMadoguchiB" style="background:#6366f1;color:white;border-radius:99px;padding:0 5px;font-size:10px;margin-left:3px;display:none;">0</span></button>
   </div>
@@ -9512,6 +9513,16 @@ function updateReviewBadge() {
       if((taskConfirm[tkey]||0)===1 && (taskAssignee[tkey+'_checker']||'')=== me) count++;
     }
   });
+  // 回答確認バッジ（自分が質問者でneedReviewCheck=trueのもの）
+  var acCount = 0;
+  Object.keys(caseNotes).forEach(function(id){
+    var n = caseNotes[id];
+    if(n && n.needReviewCheck && (n.askBy||'')=== me) acCount++;
+  });
+  var acBadge2=document.getElementById('reviewAnswerCheckBadge');
+  if(acBadge2){acBadge2.textContent=acCount;acBadge2.style.display=acCount?'inline':'none';}
+  // サイドバーバッジには回答確認も合算
+  count += acCount;
   var badge=document.getElementById('review-badge');
   if(badge){badge.textContent=count||'';badge.style.display=count?'inline':'none';}
   // 窓口バッジ更新
@@ -9531,7 +9542,7 @@ function renderReview() {
   var me = currentUser || '';
   var items = Object.keys(caseNotes).filter(function(id){ return caseNotes[id] && (caseNotes[id].confirm || caseNotes[id].confirmState === 1); });
   // Tab style update
-  ['Mine','All','Cases','Tasks','Replied','Madoguchi'].forEach(function(t){
+  ['Mine','All','Cases','Tasks','AnswerCheck','Replied','Madoguchi'].forEach(function(t){
     var btn=document.getElementById('reviewTab'+t);
     if(!btn) return;
     var active=(reviewTab===t.toLowerCase());
@@ -9559,6 +9570,12 @@ function renderReview() {
       if(n.replied) return false;
       // 回答依頼がタスクのステータス2（確認）から自動生成されたもの
       return true;
+    });
+  } else if (reviewTab === 'answerCheck') {
+    // 自分が質問者（askBy）で、回答確認待ち（needReviewCheck=true）のもの
+    filtered = items.filter(function(id){
+      var n=caseNotes[id];
+      return n.needReviewCheck && (n.askBy===me);
     });
   } else if (reviewTab === 'replied') {
     filtered = items.filter(function(id){ return caseNotes[id].replied; });
@@ -9589,6 +9606,8 @@ function renderReview() {
   try{cData.forEach(function(c){if(c.status==='完了')return;for(var i=0;i<TASK_NAMES.length;i++){var tk=c.id+'_'+i;if((taskConfirm[tk]||0)===1&&(taskAssignee[tk+'_checker']||'')===me)myTaskConfirmCount++;}});}catch(e){console.error('[renderReview]',e);}
   var totalMine = mineCount + myTaskConfirmCount;
   var repliedCount = items.filter(function(id){ return caseNotes[id].replied; }).length;
+  var answerCheckCount = items.filter(function(id){ var n=caseNotes[id]; return n.needReviewCheck && (n.askBy===me); }).length;
+  var acBadge=document.getElementById('reviewAnswerCheckBadge'); if(acBadge){acBadge.textContent=answerCheckCount;acBadge.style.display=answerCheckCount?'inline':'none';}
   var mb=document.getElementById('reviewMineBadge'); if(mb) mb.textContent=totalMine;
   // サイドバーバッジもmineCountと同期
   var sbBadge=document.getElementById('review-badge');
@@ -9648,10 +9667,18 @@ function renderReview() {
     if(note.taskName) h+='<div style="font-size:11px;color:#d97706;margin-top:4px;">📋 '+note.taskName+'</div>';
     if(note.text) h+='<div style="font-size:12px;margin-top:8px;padding:8px;background:var(--gray-100);border-radius:6px;">'+note.text+'</div>';
     if(note.replied && note.reply) h+='<div style="font-size:12px;margin-top:6px;padding:8px;background:#f0fdf4;border-radius:6px;border-left:3px solid var(--green);">💬 '+note.reply+(note.replyAssignee?' <small style="color:var(--gray-400);">— '+note.replyAssignee+'</small>':'')+'</div>';
+    // 回答確認タブ：回答者・回答日時を表示
+    if(reviewTab==='answerCheck' && note.needReviewCheck){
+      h+='<div style="font-size:11px;margin-top:6px;padding:6px 10px;background:#fef2f2;border-radius:6px;border-left:3px solid #e11d48;">💬 回答済みになりました'+(note.repliedBy?' — <b>'+esc(note.repliedBy)+'</b>':'')+(note.repliedAt?' <small style="color:var(--gray-400);">'+note.repliedAt+'</small>':'')+'</div>';
+    }
     h+='<div style="display:flex;gap:6px;margin-top:8px;">';
     h+='<button onclick="openCase(this.dataset.id)" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:var(--blue);color:white;border:none;border-radius:6px;cursor:pointer;">案件を開く</button>';
-        if(note.replied){h+='<button data-action="markRepliedRead" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:var(--green);color:white;border:none;border-radius:6px;cursor:pointer;">✓ 既読にする</button>';}
-    if(!note.replied){h+='<button data-action="markConfirmDone" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;">✓ 確認済にする</button>';}
+    if(reviewTab==='answerCheck'){
+      h+='<button data-action="markAnswerChecked" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:#e11d48;color:white;border:none;border-radius:6px;cursor:pointer;">✓ 確認済にする</button>';
+    } else {
+      if(note.replied){h+='<button data-action="markRepliedRead" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:var(--green);color:white;border:none;border-radius:6px;cursor:pointer;">✓ 既読にする</button>';}
+      if(!note.replied){h+='<button data-action="markConfirmDone" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;">✓ 確認済にする</button>';}
+    }
     h+='</div></div>';
   });
   el.innerHTML=h;
@@ -9664,6 +9691,7 @@ function renderReview() {
     if(action==='openCase'){ openCase(id); }
     else if(action==='markRepliedRead'){ markRepliedRead(id); renderReview(); }
     else if(action==='markConfirmDone'){ markConfirmDone(id); }
+    else if(action==='markAnswerChecked'){ markAnswerChecked(id); renderReview(); }
   };
 }
 
@@ -18354,6 +18382,18 @@ function markRepliedRead(caseId) {
   updateReviewBadge();
 }
 
+// 回答確認済みにする（質問者が回答を確認済み）
+function markAnswerChecked(caseId) {
+  if (!caseNotes[caseId]) return;
+  caseNotes[caseId].needReviewCheck = false;
+  // 完全クローズ（confirm・replied もリセット）
+  caseNotes[caseId].confirm = false;
+  caseNotes[caseId].confirmState = 0;
+  caseNotes[caseId].replied = false;
+  _persistOneNote(caseId);
+  updateReviewBadge();
+}
+
 // 確認事項を確認済にする（reply不要で閉じる）
 function markConfirmDone(caseId) {
   if (!caseNotes[caseId]) return;
@@ -18382,7 +18422,21 @@ function toggleReply(caseId) {
   if (qa) caseNotes[caseId].text = qa.value;
   var qasel = document.getElementById('noteAssignee_' + caseId);
   if (qasel) caseNotes[caseId].assignee = qasel.value;
-  caseNotes[caseId].replied = !caseNotes[caseId].replied;
+  var wasReplied = caseNotes[caseId].replied;
+  caseNotes[caseId].replied = !wasReplied;
+  // 回答済みにした時→質問者（askBy）への「回答確認」通知をセット
+  if(!wasReplied && caseNotes[caseId].replied){
+    var askBy = caseNotes[caseId].askBy || '';
+    if(askBy && askBy !== (currentUser||'')){
+      caseNotes[caseId].needReviewCheck = true; // 質問者に回答確認を促す
+      caseNotes[caseId].repliedBy = currentUser || ''; // 誰が回答したか
+      caseNotes[caseId].repliedAt = new Date().toISOString().slice(0,16).replace('T',' ');
+    }
+  }
+  // 回答済み解除時はフラグをリセット
+  if(wasReplied && !caseNotes[caseId].replied){
+    caseNotes[caseId].needReviewCheck = false;
+  }
   _persistOneNote(caseId);
   updateReviewBadge();
   showTab('info');
@@ -18405,6 +18459,8 @@ function toggleNoteConfirm(caseId) {
   var next = (cur + 1) % 3;
   caseNotes[caseId].confirmState = next;
   caseNotes[caseId].confirm = (next === 1);
+  // 確認依頼時に質問者を記録
+  if(next === 1) caseNotes[caseId].askBy = currentUser || '';
   _persistOneNote(caseId);
   updateReviewBadge();
   // ボタンの表示だけ更新（タブ切り替え不要）
@@ -26685,7 +26741,8 @@ function listBulkDelete(type){
     });
   }
   for(var k in cfg.sel) delete cfg.sel[k];
-  cfg.persist();
+  // DB削除は上で個別実行済み→localStorage更新のみ
+  try{localStorage.setItem(type==='rec'?'ofusa_receiptList':type==='shinsa'?'ofusa_shinsaList':'ofusa_certList', JSON.stringify(cfg.data));}catch(e){}
   updateListSelBar(type);
   cfg.render();
   showToast('🗑 '+n+'件を削除しました');
@@ -26729,7 +26786,8 @@ function listDeleteItem(type,id){
   if(type==='shinsa') shinsaListData=shinsaListData.filter(function(d){return d.id!==id;});
   if(type==='cert') certListData=certListData.filter(function(d){return d.id!==id;});
   delete cfg.sel[id];
-  cfg.persist();
+  // DB削除は下で個別実行→localStorage更新のみ
+  try{localStorage.setItem(type==='rec'?'ofusa_receiptList':type==='shinsa'?'ofusa_shinsaList':'ofusa_certList', JSON.stringify(cfg.data));}catch(e){}
   // 専用テーブルからも削除
   if(DB_READY){
     var tbl = type==='rec'?'receipt_archive':type==='shinsa'?'shinsa_archive':'cert_archive';
