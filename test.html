@@ -28017,8 +28017,6 @@ function renderShinsaList(){
       if(fStaff && staff!==fStaff) return false;
       if(fOrg && org.indexOf(fOrg)===-1) return false;
     }
-    // caseId紐づき済みで、かつ案件のreceiptNo（申請受付番号）が空のものは除外
-    if(_lc && !(_lc.receiptNo||'').trim()) return false;
     return true;
   }).sort(function(a,b){
     if(sort==='date') return (b.date||'').localeCompare(a.date||'');
@@ -28260,6 +28258,17 @@ function confirmLink(mailId, caseId) {
   if (mail.badge === '受付番号') {
     c.receiptNo   = mail.caseNo  || '';
     c.receiptDate = mail.date ? mail.date.slice(0, 10) : '';
+    // SupabaseDBにも申請受付番号・受付日を転記
+    if (DB_READY && mail.caseNo) {
+      var _patch = { updated_at: new Date().toISOString() };
+      if (mail.caseNo)  _patch.receipt_no   = mail.caseNo;
+      if (mail.date)    _patch.receipt_date  = mail.date.slice(0, 10);
+      _sb.from('cases').update(_patch).eq('id', caseId).then(function(r) {
+        if (r && r.error) console.error('❌ confirmLink receiptNo patch err:', r.error);
+        else console.log('✅ confirmLink: 申請受付番号をDBに転記 →', mail.caseNo, '→ caseId:', caseId);
+      });
+    }
+    showToast('✅ 申請受付番号を案件に転記しました：' + (mail.caseNo || '') + '　→　' + esc(getDisplayName(c)));
   } else if (mail.badge === '審査完了') {
     var sd = shinsaData[caseId] || {};
     sd.date = mail.date ? mail.date.slice(0, 10) : '';
@@ -28281,12 +28290,20 @@ function confirmLink(mailId, caseId) {
 function unlinkCase(mailId) {
   var mail = MAILS.find(function(m){ return m.id === mailId; });
   if (!mail) return;
-  var c = cData.find(function(x){ return x.id === mail.linkedCase; });
+  var prevCaseId = mail.linkedCase;
+  var c = cData.find(function(x){ return x.id === prevCaseId; });
   if (c) {
     if (mail.badge === '受付番号') {
       c.receiptNo = ''; c.receiptDate = '';
+      // SupabaseDBからも受付番号・受付日をクリア
+      if (DB_READY) {
+        _sb.from('cases').update({ receipt_no: null, receipt_date: null, updated_at: new Date().toISOString() }).eq('id', prevCaseId).then(function(r) {
+          if (r && r.error) console.error('❌ unlinkCase receiptNo clear err:', r.error);
+          else console.log('✅ unlinkCase: 申請受付番号をDBからクリア → caseId:', prevCaseId);
+        });
+      }
     } else if (mail.badge === '審査完了') {
-      var sd = shinsaData[mail.linkedCase];
+      var sd = shinsaData[prevCaseId];
       if (sd) { sd.done = false; sd.date = ''; }
       try { localStorage.setItem('ofusa_shinsaData', JSON.stringify(shinsaData)); } catch(e) {}
     } else if (mail.badge === '認定証明書') {
