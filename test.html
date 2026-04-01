@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_VERSION 20260401_04 -->
+<!-- OFUSA_VERSION 20260331_01 -->
 <!-- OFUSA v20 - 2026-03-29 -->
 <html lang="ja"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -2296,7 +2296,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260401.04';
+var OFUSA_VERSION = 'ver.20260331.01';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -30982,8 +30982,13 @@ function exportCOEcsv(){
   D[7] = p.spouse==='有'?'1':p.spouse==='無'?'0':''; // 1=有,0=無
   D[8] = p.occupation||'会社員'; // 職業
   D[9] = p.homeCountryAddress||p.birthPlace||''; // 本国住所（出生地と同じ）
-  D[10] = safeAddressCode(p.addressCode, p.address); // 住所コード（市区町村6桁）
-  D[11] = p.jpDetailAddress||cleanAddressDetail(p.address)||''; // 番地以降
+  D[10] = safeAddressCode(p.addressCode, p.address) || safeAddressCode(co.addressCode, (co.pref||'')+(co.city||'')+(co.address||'')); // 住所コード（市区町村6桁）、人材データになければ所属機関から
+  // 9.2 日本における連絡先 居住地：都道府県＋市区町村＋番地を結合（85文字以内・全角）
+  var _jpAddr = '';
+  if(p.jpDetailAddress){ _jpAddr = p.jpDetailAddress; }
+  else if(p.address){ _jpAddr = p.address; }
+  else { _jpAddr = (co.pref||'')+(co.city||'')+(co.address||''); }
+  D[11] = _jpAddr; // 居住地（都道府県＋市区町村＋番地）
   D[12] = p.telNum||p.phone||co.tel||''; // 電話番号（所属機関TELにフォールバック）
   D[13] = p.celPhone||''; // 携帯電話
   D[14] = 'mail@gyosei-cambo.com'; // 利用者メール（固定）
@@ -31042,7 +31047,7 @@ function exportCOEcsv(){
   D[79] = co.repName||''; // 代理人氏名（＝代表者）
   D[80] = '雇用主'; // 代理人との関係
   D[81] = co.addressCode||resolveAddrCode(co.pref||'')||''; // 代理人住所コード自動変換
-  D[82] = (co.pref||'')+(co.city||'')+(co.address||''); // 代理人住所（所属機関の都道府県+市区町村+住所）
+  D[82] = (function(){var _a=co.detailAddress||'';if(_a)return _a;var _sp=splitAddress(co.address||'');return _sp.rest||co.address||'';})(); // 代理人住所
   D[83] = co.tel||''; // 代理人電話（所属機関TEL）
   D[84] = ''; // 代理人携帯
 
@@ -31093,17 +31098,17 @@ function exportCOEcsv(){
   // === 雇用契約 [168-192] ===
   D[168] = (p.contractStart||'').replace(/-/g,''); // 契約始期
   D[169] = (p.contractEnd||'').replace(/-/g,''); // 契約終期
-  D[170] = es.fieldCode||resolveFieldCode(es.applicantField||es.field||'')||resolveFieldCode(c.applicantField||'')||''; // 特定産業分野コード1（申請人分野）
+  D[170] = es.fieldCode||resolveFieldCode(es.field)||resolveFieldCode(c.applicantField)||''; // 特定産業分野コード1
   D[171] = es.categoryCode||co.categoryCode||''; // 業務区分コード（所属機関から）
   D[172] = ''; D[173] = ''; D[174] = ''; D[175] = ''; // 分野2,3
   D[176] = es.occupationCode||co.occupationCode||''; // 主たる職種コード（所属機関から）
   D[177] = ''; D[178] = ''; D[179] = ''; // その他職種
   D[180] = es.workHoursWeek||es.workHours||'40'; // 所定労働時間（週）
   D[181] = '1'; // 所定労働時間同等 1=はい
-  D[182] = String(es.salaryMonthly||es.salary||'').replace(/[^0-9]/g,''); // 月額基本給
-  D[183] = String(es.hourlyRate||es.jpBaseSalary||'').replace(/[^0-9]/g,''); // 時給換算額
+  D[182] = es.salary||''; // 月額報酬
+  D[183] = es.jpBaseSalary||''; // 日本人基本給時間換算
   D[184] = '1'; // 報酬同等以上 1=はい
-  D[185] = (function(){ var pm=es.payMethod||''; if(pm==='口座振込'||pm==='銀行振込'||pm==='02') return '02'; if(pm==='現金'||pm==='通貨払'||pm==='01') return '01'; return '02'; })(); // 支払方法
+  D[185] = es.payMethod||'02'; // 支払方法 02=銀行振込
   D[186] = '0'; // 異なった待遇なし
   D[187] = ''; // 待遇詳細
   D[188] = '1'; // 有給休暇あり
@@ -31594,13 +31599,9 @@ function exportApprovalCsv_gijinko(){
   var gradDate=(p.completionDate||'').replace(/-/g,'');
   var schoolName=p.schoolName||'';
   // 住居地（日本の住所）
-  // 認定の場合、人材はまだ来日前のため住所が空→所属機関の住所をフォールバックに使う
-  var _coFullAddr = (co.pref||'')+(co.city||'')+(co.address||'');
-  var jpPostalCode=(p.jpPostalCode||co.zip||'').replace(/-/g,'').replace(/^〒/,'');
-  // 認定は来日前なので人材住所が空の場合は所属機関住所を確実に使う
-  var _pAddr = p.jpDetailAddress||p.jpAddress||cleanAddressDetail(p.address)||'';
-  var jpAddrCode=(_pAddr ? (safeAddressCode(p.addressCode, p.jpAddress||p.address||'')||resolveAddrCode(_pAddr)) : resolveAddrCode(_coFullAddr))||'';
-  var jpDetailAddr=_pAddr||_coFullAddr||'';
+  var jpPostalCode=(p.jpPostalCode||'').replace(/-/g,'').replace(/^〒/,'');
+  var jpAddrCode=safeAddressCode(p.addressCode, p.jpAddress||p.address||'');
+  var jpDetailAddr=p.jpDetailAddress||p.jpAddress||cleanAddressDetail(p.address)||'';
   // 所属機関
   var coZip=(co.zip||'').replace(/-/g,'').replace(/^〒/,'');
   var coAddrCode=resolveAddrCode(co.address||'')||'';
