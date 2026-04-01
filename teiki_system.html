@@ -389,7 +389,7 @@ body.focus-mode .focus-hide { display:none !important; }
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.142</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.145</div>
   </div>
 
   <div class="nav-section">
@@ -468,7 +468,8 @@ body.focus-mode .focus-hide { display:none !important; }
 
   <div id="content">
 
-    <!-- DASHBOARD -->\n    <div id="panel-dashboard" class="panel active">
+    <!-- DASHBOARD -->
+    <div id="panel-dashboard" class="panel active">
       <!-- マイルストーン -->
       <div class="milestone-wrap">
         <div class="milestone-title">📋 申請フロー（書類受領後）</div>
@@ -977,6 +978,11 @@ body.focus-mode .focus-hide { display:none !important; }
             <label class="field-label">会社名（所属機関名） <span style="color:var(--red)">*</span></label>
             <input type="text" class="input" id="co-name" placeholder="株式会社〇〇">
           </div>
+          <div id="co-folder-link-area" class="field-group col-span2" style="display:none">
+            <a id="co-folder-link" href="#" target="_blank" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--blue);text-decoration:none;padding:6px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
+              📁 企業フォルダを開く
+            </a>
+          </div>
           <div class="field-group"><label class="field-label">ふりがな</label><input type="text" class="input" id="co-name-kana" placeholder="かぶしきがいしゃ〇〇"></div>
           <div class="field-group"><label class="field-label">法人番号</label><input type="text" class="input" id="co-corp-no" placeholder="1234567890123"></div>
           <div class="field-group"><label class="field-label">受入分野数</label><input type="number" min="1" max="15" class="input" id="co-num-fields" value="1" placeholder="1"></div>
@@ -1036,6 +1042,26 @@ body.focus-mode .focus-hide { display:none !important; }
             <span id="section-finance-icon" style="font-size:12px;color:var(--text3)">▶</span>
           </div>
           <div id="section-finance" style="display:none;margin-top:10px">
+            <!-- 決算書OCRゾーン -->
+            <div id="kessan-ocr-zone"
+              style="border:2px dashed var(--border2);border-radius:10px;padding:12px;margin-bottom:12px;text-align:center;cursor:pointer;transition:.2s;background:var(--bg2)"
+              ondragover="event.preventDefault();this.style.borderColor='var(--blue)'"
+              ondragleave="this.style.borderColor='var(--border2)'"
+              ondrop="handleKessanDrop(event)"
+              onclick="document.getElementById('kessan-file-input').click()">
+              <input type="file" id="kessan-file-input" accept="application/pdf,image/*" style="display:none" onchange="handleKessanFile(this.files[0])">
+              <div style="font-size:18px;margin-bottom:4px">📊</div>
+              <div style="font-size:12px;font-weight:700;color:var(--text2)">決算書をドロップ または クリックして選択</div>
+              <div style="font-size:11px;color:var(--text3);margin-top:2px">PDF・画像対応 ／ 売上高・経常損益・純損益・純資産を自動読み取り</div>
+              <!-- 期選択 -->
+              <div style="margin-top:10px;display:flex;align-items:center;justify-content:center;gap:8px" onclick="event.stopPropagation()">
+                <span style="font-size:11px;color:var(--text3);font-weight:600">対象期：</span>
+                <label style="display:flex;align-items:center;gap:3px;font-size:12px;cursor:pointer"><input type="radio" name="kessan-year" value="1" checked> 前期</label>
+                <label style="display:flex;align-items:center;gap:3px;font-size:12px;cursor:pointer"><input type="radio" name="kessan-year" value="2"> 前々期</label>
+                <label style="display:flex;align-items:center;gap:3px;font-size:12px;cursor:pointer"><input type="radio" name="kessan-year" value="3"> 前々々期</label>
+              </div>
+              <div id="kessan-ocr-status" style="margin-top:8px;font-size:11px;color:var(--blue);display:none"></div>
+            </div>
             <div style="font-size:11px;color:var(--text3);margin-bottom:8px">単位：円　※マイナスの場合は先頭に「-」を入力</div>
             <table style="width:100%;font-size:11px;border-collapse:collapse">
               <thead>
@@ -1967,7 +1993,7 @@ var _coSortKey = '', _coSortAsc = true, _coShowAll = false, _docShowAll = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.142%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.145%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -3338,6 +3364,93 @@ function applyToukiPreview() {
   showToast('フォームに反映しました ✅', 'success');
 }
 
+function handleKessanDrop(event) {
+  event.preventDefault();
+  document.getElementById('kessan-ocr-zone').style.borderColor = 'var(--border2)';
+  var file = event.dataTransfer.files[0];
+  if (file) handleKessanFile(file);
+}
+
+async function handleKessanFile(file) {
+  if (!file) return;
+  if (!ANTHROPIC_KEY) { showToast('設定画面でAnthropic API Keyを入力してください', 'warn'); return; }
+  var yearVal = (document.querySelector('input[name=kessan-year]:checked') || {value:'1'}).value;
+  var yearLabel = yearVal === '1' ? '前期' : yearVal === '2' ? '前々期' : '前々々期';
+  var suffix = 'Y' + yearVal;
+  var statusEl = document.getElementById('kessan-ocr-status');
+  statusEl.style.display = 'block';
+  statusEl.style.color = 'var(--blue)';
+  statusEl.textContent = '🔍 決算書（' + yearLabel + '）を読み取り中...';
+  try {
+    var base64 = await new Promise(function(resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function(e) { resolve(e.target.result.split(',')[1]); };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    var mediaType = file.type || 'application/pdf';
+    var prompt = [
+      'これは決算書（損益計算書・貸借対照表）のスキャンです。',
+      '以下の4項目をJSONのみで返してください（説明不要）。',
+      '・売上高（sales）: 損益計算書の「売上高」または「営業収益」。単位は円（整数）。',
+      '・経常損益（ordinaryPL）: 損益計算書の「経常利益」または「経常損失」。損失の場合はマイナス値。',
+      '・純損益（netPL）: 損益計算書の「当期純利益」または「当期純損失」。損失の場合はマイナス値。',
+      '・純資産（netAssets）: 貸借対照表の「純資産合計」または「株主資本合計」。単位は円（整数）。',
+      '△や▲はマイナスを意味します。必ずマイナス値で返してください。',
+      '例: {"sales":150000000,"ordinaryPL":-3000000,"netPL":-2500000,"netAssets":45000000}'
+    ].join('\n');
+    var resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 500,
+        messages: [{role: 'user', content: [
+          {type: 'document', source: {type: 'base64', media_type: mediaType, data: base64}},
+          {type: 'text', text: prompt}
+        ]}]
+      })
+    });
+    var json = await resp.json();
+    var text = (json.content || []).map(function(b){ return b.text || ''; }).join('');
+    var m = text.match(/\{[\s\S]+\}/);
+    if (!m) throw new Error('JSONが取得できませんでした');
+    var d = JSON.parse(m[0]);
+    // フォームに反映
+    var fields = [
+      {id: 'co-salesY'+suffix.slice(1),       val: d.sales},
+      {id: 'co-ordinaryPLY'+suffix.slice(1),   val: d.ordinaryPL},
+      {id: 'co-netPLY'+suffix.slice(1),        val: d.netPL},
+      {id: 'co-netAssetsY'+suffix.slice(1),    val: d.netAssets}
+    ];
+    // suffix が 'Y1'→列1, 'Y2'→列2, 'Y3'→列3
+    var col = suffix.slice(1); // '1','2','3'
+    var fieldMap = {
+      sales:      'co-salesY'+col,
+      ordinaryPL: 'co-ordinaryPLY'+col,
+      netPL:      'co-netPLY'+col,
+      netAssets:  'co-netAssetsY'+col
+    };
+    Object.keys(fieldMap).forEach(function(key) {
+      var el = document.getElementById(fieldMap[key]);
+      if (el && d[key] !== undefined && d[key] !== null) el.value = String(d[key]);
+    });
+    // 財務セクションを開く
+    var sec = document.getElementById('section-finance');
+    if (sec && sec.style.display === 'none') toggleSection('section-finance');
+    statusEl.textContent = '✅ ' + yearLabel + 'の数値を反映しました！内容を確認してください。';
+    statusEl.style.color = 'var(--green)';
+  } catch(e) {
+    statusEl.textContent = '❌ エラー: ' + String(e);
+    statusEl.style.color = 'var(--red)';
+  }
+}
+
 function resetCompanyForm(){
   ['co-name','co-name-kana','co-corp-no','co-num-fields','co-zip','co-pref','co-city','co-address','co-tel','co-email','co-rep-name','co-rep-title','co-industry','co-contact-name','co-note','co-login-id1','co-login-id2','co-password','co-pw-updated'].forEach(id=>{var e=document.getElementById(id);if(e)e.value='';});
   var sjR=document.getElementById('co-support-jokyo');if(sjR)sjR.value='全部委託'; 
@@ -3367,6 +3480,8 @@ function resetCompanyForm(){
     var el=document.getElementById(id); if(el) el.style.display='none';
     var ic=document.getElementById(id+'-icon'); if(ic) ic.textContent='▶';
   });
+  var folderArea = document.getElementById('co-folder-link-area');
+  if (folderArea) folderArea.style.display = 'none';
   switchModalTab('tab-co-basic',document.querySelector('.tab-bar .tab-btn'));
 }
 function editCompany(name){
@@ -3452,6 +3567,17 @@ function editCompany(name){
     var ic=document.getElementById(id+'-icon'); if(ic) ic.textContent='▶';
   });
   openModal('modal-company-add');
+  // 企業フォルダリンク
+  var folderArea = document.getElementById('co-folder-link-area');
+  var folderLink = document.getElementById('co-folder-link');
+  if (folderArea && folderLink) {
+    if (co.folderURL) {
+      folderLink.href = co.folderURL;
+      folderArea.style.display = '';
+    } else {
+      folderArea.style.display = 'none';
+    }
+  }
   // 既存会社編集時は最初から「給与データ入力へ」ボタンを表示（既存は削除して更新）
   var modalFoot2 = document.querySelector('#modal-company-add .modal-foot');
   if (modalFoot2) {
