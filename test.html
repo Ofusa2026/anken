@@ -9572,10 +9572,17 @@ function renderReview() {
       return true;
     });
   } else if (reviewTab === 'answerCheck') {
-    // 自分が質問者（askBy）で、回答確認待ち（needReviewCheck=true）のもの
+    // 自分が質問者（askBy）で、回答確認待ち or 回答済み通知のもの
     filtered = items.filter(function(id){
       var n=caseNotes[id];
       return n.needReviewCheck && (n.askBy===me);
+    });
+    // itemsに含まれない（confirm=false）でもneedReviewCheckが立っているものも含める
+    Object.keys(caseNotes).forEach(function(id){
+      var n=caseNotes[id];
+      if(n && n.needReviewCheck && n.askBy===me && filtered.indexOf(id)===-1){
+        filtered.push(id);
+      }
     });
   } else if (reviewTab === 'replied') {
     filtered = items.filter(function(id){ return caseNotes[id].replied; });
@@ -9667,9 +9674,13 @@ function renderReview() {
     if(note.taskName) h+='<div style="font-size:11px;color:#d97706;margin-top:4px;">📋 '+note.taskName+'</div>';
     if(note.text) h+='<div style="font-size:12px;margin-top:8px;padding:8px;background:var(--gray-100);border-radius:6px;">'+note.text+'</div>';
     if(note.replied && note.reply) h+='<div style="font-size:12px;margin-top:6px;padding:8px;background:#f0fdf4;border-radius:6px;border-left:3px solid var(--green);">💬 '+note.reply+(note.replyAssignee?' <small style="color:var(--gray-400);">— '+note.replyAssignee+'</small>':'')+'</div>';
-    // 回答確認タブ：回答者・回答日時を表示
+    // 回答確認タブ：replyStateで表示を区別
     if(reviewTab==='answerCheck' && note.needReviewCheck){
-      h+='<div style="font-size:11px;margin-top:6px;padding:6px 10px;background:#fef2f2;border-radius:6px;border-left:3px solid #e11d48;">💬 回答済みになりました'+(note.repliedBy?' — <b>'+esc(note.repliedBy)+'</b>':'')+(note.repliedAt?' <small style="color:var(--gray-400);">'+note.repliedAt+'</small>':'')+'</div>';
+      var _rs = note.replyState || (note.replied?2:1);
+      var _rsLabel = _rs===2 ? '✅ 回答済みになりました' : '📬 回答確認依頼が届いています';
+      var _rsBg = _rs===2 ? '#f0fdf4' : '#fff7ed';
+      var _rsBorder = _rs===2 ? '#16a34a' : '#f97316';
+      h+='<div style="font-size:11px;margin-top:6px;padding:6px 10px;background:'+_rsBg+';border-radius:6px;border-left:3px solid '+_rsBorder+';">' + _rsLabel + (note.repliedBy?' — <b>'+esc(note.repliedBy)+'</b>':'')+(note.repliedAt?' <small style="color:var(--gray-400);">'+note.repliedAt+'</small>':'')+'</div>';
     }
     h+='<div style="display:flex;gap:6px;margin-top:8px;">';
     h+='<button onclick="openCase(this.dataset.id)" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:var(--blue);color:white;border:none;border-radius:6px;cursor:pointer;">案件を開く</button>';
@@ -18413,7 +18424,8 @@ function saveCaseReplyAssignee(caseId, val) {
 
 function toggleReply(caseId) {
   _skipCaseNotesRealtime = true;
-  if (!caseNotes[caseId]) caseNotes[caseId] = { text:'', confirm:false, assignee:'', reply:'', replied:false, replyAssignee:'', confirmState:0 };
+  if (!caseNotes[caseId]) caseNotes[caseId] = { text:'', confirm:false, assignee:'', reply:'', replied:false, replyAssignee:'', confirmState:0, replyState:0 };
+  // DOM値を保存
   var ta = document.getElementById('caseReply_' + caseId);
   if (ta) caseNotes[caseId].reply = ta.value;
   var asel = document.getElementById('replyAssignee_' + caseId);
@@ -18422,25 +18434,63 @@ function toggleReply(caseId) {
   if (qa) caseNotes[caseId].text = qa.value;
   var qasel = document.getElementById('noteAssignee_' + caseId);
   if (qasel) caseNotes[caseId].assignee = qasel.value;
-  var wasReplied = caseNotes[caseId].replied;
-  caseNotes[caseId].replied = !wasReplied;
-  // 回答済みにした時→質問者（askBy）への「回答確認」通知をセット
-  if(!wasReplied && caseNotes[caseId].replied){
-    var askBy = caseNotes[caseId].askBy || '';
-    if(askBy && askBy !== (currentUser||'')){
-      caseNotes[caseId].needReviewCheck = true; // 質問者に回答確認を促す
-      caseNotes[caseId].repliedBy = currentUser || ''; // 誰が回答したか
-      caseNotes[caseId].repliedAt = new Date().toISOString().slice(0,16).replace('T',' ');
-    }
+
+  // 3ステート遷移: 0→1→2
+  var cur = caseNotes[caseId].replyState || (caseNotes[caseId].replied ? 2 : (caseNotes[caseId].needReviewCheck ? 1 : 0));
+  var next = (cur >= 2) ? 2 : cur + 1;
+  caseNotes[caseId].replyState = next;
+
+  var askBy = caseNotes[caseId].askBy || '';
+  var now = new Date().toISOString().slice(0,16).replace('T',' ');
+
+  if(next === 1) {
+    // 回答→「回答確認依頼」：質問者（askBy）の回答確認タブに通知
+    caseNotes[caseId].replied = false;
+    caseNotes[caseId].needReviewCheck = true;
+    caseNotes[caseId].repliedBy = currentUser || '';
+    caseNotes[caseId].repliedAt = now;
+    showToast('📬 回答確認依頼を送りました' + (askBy ? '（' + askBy + 'さんに通知）' : ''));
+  } else if(next === 2) {
+    // 「回答確認依頼」→「回答済」：質問者に通知
+    caseNotes[caseId].replied = true;
+    caseNotes[caseId].needReviewCheck = true; // 質問者に回答済み通知
+    caseNotes[caseId].repliedBy = currentUser || '';
+    caseNotes[caseId].repliedAt = now;
+    showToast('✅ 回答済みにしました' + (askBy ? '（' + askBy + 'さんに通知）' : ''));
   }
-  // 回答済み解除時はフラグをリセット
-  if(wasReplied && !caseNotes[caseId].replied){
-    caseNotes[caseId].needReviewCheck = false;
-  }
+
+  _persistOneNote(caseId);
+  updateReviewBadge();
+  // ボタン表示を即時更新
+  var _rBtnBorder = next===2?'var(--green)':next===1?'#f97316':'var(--gray-200)';
+  var _rBtnBg     = next===2?'var(--green)':next===1?'#f97316':'white';
+  var _rBtnColor  = next>=1?'white':'var(--gray-400)';
+  var _rBtnLabel  = next===2?'✓ 回答済':next===1?'📬 回答確認依頼':'回答';
+  var btn = document.getElementById('replyBtn_' + caseId);
+  if(btn){ btn.style.borderColor=_rBtnBorder; btn.style.background=_rBtnBg; btn.style.color=_rBtnColor; btn.textContent=_rBtnLabel; }
+  setTimeout(function(){ _skipCaseNotesRealtime = false; }, 2000);
+}
+
+// 質問・回答・フラグを全クリア（質問者がリセットする）
+function resetNoteAndReply(caseId) {
+  if(!confirm('質問・回答の内容をすべてリセットしますか？')) return;
+  if (!caseNotes[caseId]) caseNotes[caseId] = {};
+  caseNotes[caseId].text = '';
+  caseNotes[caseId].assignee = '';
+  caseNotes[caseId].reply = '';
+  caseNotes[caseId].replyAssignee = '';
+  caseNotes[caseId].replied = false;
+  caseNotes[caseId].confirm = false;
+  caseNotes[caseId].confirmState = 0;
+  caseNotes[caseId].replyState = 0;
+  caseNotes[caseId].needReviewCheck = false;
+  caseNotes[caseId].askBy = '';
+  caseNotes[caseId].repliedBy = '';
+  caseNotes[caseId].repliedAt = '';
   _persistOneNote(caseId);
   updateReviewBadge();
   showTab('info');
-  setTimeout(function(){ _skipCaseNotesRealtime = false; }, 2000);
+  showToast('🔄 リセットしました');
 }
 
 function toggleNoteConfirm(caseId) {
@@ -20772,6 +20822,12 @@ function showTab(tab) {
     var noteAssignee= (caseNotes[c.id] || {}).assignee || '';
     var noteReply   = (caseNotes[c.id] || {}).reply    || '';
     var noteReplied = (caseNotes[c.id] || {}).replied  || false;
+    var noteNeedCheck = (caseNotes[c.id] || {}).needReviewCheck || false;
+    // 回答ボタンのステート
+    // 0: 未回答（「回答」）
+    // 1: 回答確認依頼中（「回答確認依頼」）→ replied=false, needReviewCheck=true
+    // 2: 回答済（「✓ 回答済」）→ replied=true
+    var replyState = noteReplied ? 2 : (noteNeedCheck ? 1 : 0);
     var ncBorder=noteConfirmState===1?'#f59e0b':noteConfirmState===2?'var(--green)':'var(--gray-200)';
     var ncBg=noteConfirmState===1?'#f59e0b':noteConfirmState===2?'var(--green)':'white';
     var ncColor=noteConfirmState>=1?'white':'var(--gray-400)';
@@ -20801,7 +20857,15 @@ function showTab(tab) {
     h += '</select></div>';
     h += '<div style="display:flex;gap:8px;align-items:flex-start;">';
     h += '<textarea id="caseReply_' + c.id + '" oninput="saveCaseReply(\'' + c.id + '\')" style="flex:1;padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;resize:vertical;min-height:44px;font-family:inherit;" placeholder="回答を入力...">' + esc(noteReply) + '</textarea>';
-    h += '<button id="replyBtn_' + c.id + '" onclick="toggleReply(\'' + c.id + '\')" style="padding:6px 10px;border-radius:8px;border:2px solid ' + (noteReplied?'var(--green)':'var(--gray-200)') + ';background:' + (noteReplied?'var(--green)':'white') + ';color:' + (noteReplied?'white':'var(--gray-400)') + ';font-size:11px;font-weight:800;cursor:pointer;flex-shrink:0;">' + (noteReplied?'✓ 回答済':'回答') + '</button>';
+    // 回答ボタン（3ステート）
+    var _rBtnBorder = replyState===2?'var(--green)':replyState===1?'#f97316':'var(--gray-200)';
+    var _rBtnBg     = replyState===2?'var(--green)':replyState===1?'#f97316':'white';
+    var _rBtnColor  = replyState>=1?'white':'var(--gray-400)';
+    var _rBtnLabel  = replyState===2?'✓ 回答済':replyState===1?'📬 回答確認依頼':'回答';
+    h += '<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">';
+    h += '<button id="replyBtn_' + c.id + '" onclick="toggleReply(\'' + c.id + '\')" style="padding:6px 10px;border-radius:8px;border:2px solid ' + _rBtnBorder + ';background:' + _rBtnBg + ';color:' + _rBtnColor + ';font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;">' + _rBtnLabel + '</button>';
+    h += '<button onclick="resetNoteAndReply(\'' + c.id + '\')" style="padding:4px 6px;border-radius:6px;border:1px solid var(--gray-200);background:white;color:var(--gray-400);font-size:10px;cursor:pointer;white-space:nowrap;">🔄 リセット</button>';
+    h += '</div>';
     h += '</div></div></div>';
     // 進捗バー
     h += '<div style="margin-bottom:12px;padding:10px 14px;background:white;border-radius:10px;border:1.5px solid var(--gray-200);">';
