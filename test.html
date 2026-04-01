@@ -8721,6 +8721,34 @@ function saveMySettings(){
   closeMySettings();showToast('✅ 設定を保存しました');
 }
 
+function showRefreshToast(count) {
+  // 既存のrefreshToastがあれば削除
+  var existing = document.getElementById('refreshToast');
+  if(existing) existing.remove();
+
+  var el = document.createElement('div');
+  el.id = 'refreshToast';
+  el.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9999;padding:14px 24px;border-radius:14px;font-size:13px;font-weight:700;background:#6366f1;color:white;box-shadow:0 6px 24px rgba(99,102,241,.35);cursor:pointer;display:flex;align-items:center;gap:10px;white-space:nowrap;animation:slideUpFade .4s ease;';
+  el.innerHTML = '<span style="font-size:18px;">🔔</span> 確認事項が ' + count + '件 届いています <span style="font-size:11px;opacity:.8;margin-left:4px;">タップして確認</span>';
+  el.onclick = function(){
+    openReview();
+    el.remove();
+  };
+  document.body.appendChild(el);
+  // 10秒後に自動消去
+  setTimeout(function(){ if(el.parentNode) el.remove(); }, 10000);
+}
+
+// slideUpFadeアニメーション追加（まだない場合）
+(function(){
+  if(!document.getElementById('refreshToastStyle')){
+    var st = document.createElement('style');
+    st.id = 'refreshToastStyle';
+    st.textContent = '@keyframes slideUpFade{from{opacity:0;transform:translateX(-50%) translateY(20px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}';
+    document.head.appendChild(st);
+  }
+})();
+
 function showToast(msg) {
   var el = document.createElement('div');
   el.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;padding:12px 18px;border-radius:10px;font-size:13px;font-weight:700;background:#f0fdf4;color:#16a34a;box-shadow:0 4px 16px rgba(0,0,0,.12);max-width:300px;';
@@ -33561,6 +33589,17 @@ function loadAllFromSupabase() {
       // 確認事項画面が開いていれば再描画（taskNotificationsロード後に反映）
       try { if(document.getElementById('reviewScreen') && document.getElementById('reviewScreen').style.display !== 'none') renderReview(); } catch(e) {}
       try { buildStaffFilter(); } catch(e) {}
+      // 確認事項に通知がある場合は更新ポップアップを表示
+      try {
+        var _me = currentUser || '';
+        var _notifCount = Object.keys(taskNotifications).filter(function(k){ var n=taskNotifications[k]; return n&&(n.to||'')=== _me; }).length;
+        var _myTaskCnt = 0;
+        cData.forEach(function(c){ if(c.status==='完了')return; for(var i=0;i<TASK_NAMES.length;i++){ var tk=c.id+'_'+i; if((taskConfirm[tk]||0)===1&&(taskAssignee[tk+'_checker']||'')=== _me&&!taskNotifications[tk])_myTaskCnt++; } });
+        var _totalNotif = _notifCount + _myTaskCnt;
+        if(_totalNotif > 0){
+          showRefreshToast(_totalNotif);
+        }
+      } catch(e) {}
       showToast('✅ データ同期完了');
       loadMadoguchiRecords();
       loadTsuikanMailsFromDB();
