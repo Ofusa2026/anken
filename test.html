@@ -9516,8 +9516,8 @@ function updateReviewBadge() {
   // 回答確認バッジ（自分が質問者でneedReviewCheck=trueのもの）
   var acCount = 0;
   Object.keys(caseNotes).forEach(function(id){
-    var n = caseNotes[id];
-    if(n && n.needReviewCheck && (n.askBy||'')=== me) acCount++;
+    var n = caseNotes[id]; if(!n) return;
+    if((n.needConfirmCheck && (n.replyAssignee||'')=== me) || (n.needReviewCheck && (n.askBy||'')=== me)) acCount++;
   });
   var acBadge2=document.getElementById('reviewAnswerCheckBadge');
   if(acBadge2){acBadge2.textContent=acCount;acBadge2.style.display=acCount?'inline':'none';}
@@ -9572,17 +9572,16 @@ function renderReview() {
       return true;
     });
   } else if (reviewTab === 'answerCheck') {
-    // 自分が質問者（askBy）で、回答確認待ち or 回答済み通知のもの
-    filtered = items.filter(function(id){
-      var n=caseNotes[id];
-      return n.needReviewCheck && (n.askBy===me);
-    });
-    // itemsに含まれない（confirm=false）でもneedReviewCheckが立っているものも含める
+    // 自分宛の通知を2種類まとめて表示
+    // (A) 自分がreplyAssigneeで回答確認依頼（needConfirmCheck）
+    // (B) 自分がaskByで回答済み通知（needReviewCheck）
+    filtered = [];
     Object.keys(caseNotes).forEach(function(id){
       var n=caseNotes[id];
-      if(n && n.needReviewCheck && n.askBy===me && filtered.indexOf(id)===-1){
-        filtered.push(id);
-      }
+      if(!n) return;
+      var isA = n.needConfirmCheck && (n.replyAssignee===me);
+      var isB = n.needReviewCheck  && (n.askBy===me);
+      if((isA || isB) && filtered.indexOf(id)===-1) filtered.push(id);
     });
   } else if (reviewTab === 'replied') {
     filtered = items.filter(function(id){ return caseNotes[id].replied; });
@@ -9613,7 +9612,11 @@ function renderReview() {
   try{cData.forEach(function(c){if(c.status==='完了')return;for(var i=0;i<TASK_NAMES.length;i++){var tk=c.id+'_'+i;if((taskConfirm[tk]||0)===1&&(taskAssignee[tk+'_checker']||'')===me)myTaskConfirmCount++;}});}catch(e){console.error('[renderReview]',e);}
   var totalMine = mineCount + myTaskConfirmCount;
   var repliedCount = items.filter(function(id){ return caseNotes[id].replied; }).length;
-  var answerCheckCount = items.filter(function(id){ var n=caseNotes[id]; return n.needReviewCheck && (n.askBy===me); }).length;
+  var answerCheckCount = 0;
+  Object.keys(caseNotes).forEach(function(id){
+    var n=caseNotes[id]; if(!n) return;
+    if((n.needConfirmCheck && n.replyAssignee===me) || (n.needReviewCheck && n.askBy===me)) answerCheckCount++;
+  });
   var acBadge=document.getElementById('reviewAnswerCheckBadge'); if(acBadge){acBadge.textContent=answerCheckCount;acBadge.style.display=answerCheckCount?'inline':'none';}
   var mb=document.getElementById('reviewMineBadge'); if(mb) mb.textContent=totalMine;
   // サイドバーバッジもmineCountと同期
@@ -9674,13 +9677,15 @@ function renderReview() {
     if(note.taskName) h+='<div style="font-size:11px;color:#d97706;margin-top:4px;">📋 '+note.taskName+'</div>';
     if(note.text) h+='<div style="font-size:12px;margin-top:8px;padding:8px;background:var(--gray-100);border-radius:6px;">'+note.text+'</div>';
     if(note.replied && note.reply) h+='<div style="font-size:12px;margin-top:6px;padding:8px;background:#f0fdf4;border-radius:6px;border-left:3px solid var(--green);">💬 '+note.reply+(note.replyAssignee?' <small style="color:var(--gray-400);">— '+note.replyAssignee+'</small>':'')+'</div>';
-    // 回答確認タブ：replyStateで表示を区別
-    if(reviewTab==='answerCheck' && note.needReviewCheck){
-      var _rs = note.replyState || (note.replied?2:1);
-      var _rsLabel = _rs===2 ? '✅ 回答済みになりました' : '📬 回答確認依頼が届いています';
-      var _rsBg = _rs===2 ? '#f0fdf4' : '#fff7ed';
-      var _rsBorder = _rs===2 ? '#16a34a' : '#f97316';
-      h+='<div style="font-size:11px;margin-top:6px;padding:6px 10px;background:'+_rsBg+';border-radius:6px;border-left:3px solid '+_rsBorder+';">' + _rsLabel + (note.repliedBy?' — <b>'+esc(note.repliedBy)+'</b>':'')+(note.repliedAt?' <small style="color:var(--gray-400);">'+note.repliedAt+'</small>':'')+'</div>';
+    // 回答確認タブ：種類別に表示
+    if(reviewTab==='answerCheck'){
+      var _isConfirmReq = note.needConfirmCheck && (note.replyAssignee===me); // A: 自分が確認依頼を受けた
+      var _isReplied    = note.needReviewCheck  && (note.askBy===me);          // B: 自分の質問に回答済み
+      if(_isConfirmReq){
+        h+='<div style="font-size:11px;margin-top:6px;padding:6px 10px;background:#fff7ed;border-radius:6px;border-left:3px solid #f97316;">📬 回答確認依頼が届いています'+(note.repliedBy?' — <b>'+esc(note.repliedBy)+'</b>':'')+(note.repliedAt?' <small style="color:var(--gray-400);">'+note.repliedAt+'</small>':'')+'</div>';
+      } else if(_isReplied){
+        h+='<div style="font-size:11px;margin-top:6px;padding:6px 10px;background:#f0fdf4;border-radius:6px;border-left:3px solid #16a34a;">✅ 回答済みになりました'+(note.repliedBy?' — <b>'+esc(note.repliedBy)+'</b>':'')+(note.repliedAt?' <small style="color:var(--gray-400);">'+note.repliedAt+'</small>':'')+'</div>';
+      }
     }
     h+='<div style="display:flex;gap:6px;margin-top:8px;">';
     h+='<button onclick="openCase(this.dataset.id)" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:var(--blue);color:white;border:none;border-radius:6px;cursor:pointer;">案件を開く</button>';
@@ -18393,14 +18398,23 @@ function markRepliedRead(caseId) {
   updateReviewBadge();
 }
 
-// 回答確認済みにする（質問者が回答を確認済み）
+// 回答確認済みにする（種別対応）
 function markAnswerChecked(caseId) {
   if (!caseNotes[caseId]) return;
-  caseNotes[caseId].needReviewCheck = false;
-  // 完全クローズ（confirm・replied もリセット）
-  caseNotes[caseId].confirm = false;
-  caseNotes[caseId].confirmState = 0;
-  caseNotes[caseId].replied = false;
+  var me = currentUser || '';
+  var n = caseNotes[caseId];
+  if(n.needConfirmCheck && n.replyAssignee === me){
+    // A: 自分が確認依頼を受けた → needConfirmCheckをクリア（ボタンで回答済に進む）
+    // ※ここでは「確認した」だけなのでreplyState=2へ進める
+    // 実際はreplyBtnで進めるのでここでは単純にフラグだけクリア
+    n.needConfirmCheck = false;
+  } else if(n.needReviewCheck && n.askBy === me){
+    // B: 自分の質問への回答済み通知を確認済に → 全クリア
+    n.needReviewCheck = false;
+    n.confirm = false;
+    n.confirmState = 0;
+    n.replied = false;
+  }
   _persistOneNote(caseId);
   updateReviewBadge();
 }
@@ -18441,19 +18455,22 @@ function toggleReply(caseId) {
   caseNotes[caseId].replyState = next;
 
   var askBy = caseNotes[caseId].askBy || '';
+  var replyTo = caseNotes[caseId].replyAssignee || ''; // 回答先（中谷など）
   var now = new Date().toISOString().slice(0,16).replace('T',' ');
 
   if(next === 1) {
-    // 回答→「回答確認依頼」：質問者（askBy）の回答確認タブに通知
+    // 回答→「回答確認依頼」：回答先（replyAssignee=中谷）の確認事項に通知
     caseNotes[caseId].replied = false;
-    caseNotes[caseId].needReviewCheck = true;
+    caseNotes[caseId].needReviewCheck = false; // askByへの通知はまだ立てない
+    caseNotes[caseId].needConfirmCheck = true;  // replyAssignee（中谷）への通知フラグ
     caseNotes[caseId].repliedBy = currentUser || '';
     caseNotes[caseId].repliedAt = now;
-    showToast('📬 回答確認依頼を送りました' + (askBy ? '（' + askBy + 'さんに通知）' : ''));
+    showToast('📬 回答確認依頼を送りました' + (replyTo ? '（' + replyTo + 'さんに通知）' : ''));
   } else if(next === 2) {
-    // 「回答確認依頼」→「回答済」：質問者に通知
+    // 「回答確認依頼」→「回答済」：質問者（askBy=亀谷）に回答済み通知
     caseNotes[caseId].replied = true;
-    caseNotes[caseId].needReviewCheck = true; // 質問者に回答済み通知
+    caseNotes[caseId].needConfirmCheck = false; // 自分（中谷）の通知をクリア
+    caseNotes[caseId].needReviewCheck = true;   // askBy（亀谷）への回答済み通知
     caseNotes[caseId].repliedBy = currentUser || '';
     caseNotes[caseId].repliedAt = now;
     showToast('✅ 回答済みにしました' + (askBy ? '（' + askBy + 'さんに通知）' : ''));
