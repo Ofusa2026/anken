@@ -1256,6 +1256,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <span id="shinsaSelCount" style="font-size:11px;color:#16a34a;font-weight:600;">0件</span>
       <button onclick="listBulkReported('shinsa',true)" style="font-size:11px;padding:3px 10px;background:#d1fae5;color:#059669;border:1px solid #6ee7b7;border-radius:6px;cursor:pointer;font-weight:600;">✅ 一括対応済み</button>
       <button onclick="listBulkReported('shinsa',false)" style="font-size:11px;padding:3px 10px;background:#fef9c3;color:#92400e;border:1px solid #fde68a;border-radius:6px;cursor:pointer;font-weight:600;">⏳ 一括未対応</button>
+      <button onclick="bulkRemakePdf()" style="font-size:11px;padding:3px 10px;background:#ede9fe;color:#7c3aed;border:1px solid #c4b5fd;border-radius:6px;cursor:pointer;font-weight:600;">📄 PDF再作成</button>
       <button onclick="listBulkDelete('shinsa')" style="font-size:11px;padding:3px 10px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;cursor:pointer;font-weight:600;">🗑 一括削除</button>
     </div>
   </div>
@@ -19101,6 +19102,67 @@ function shinsaSelectAll(checked){
   });
   updateShinsaBulkBar();
 }
+// PDF再作成（単体）
+function remakePdf(itemId) {
+  var d = shinsaListData.find(function(x){ return x.id === itemId; });
+  if(!d){ showToast('⚠️ データが見つかりません'); return; }
+  if(!confirm('"' + (d.name||'') + '" のPDFを再作成しますか？')) return;
+  _doRemakePdf([d], function(ok, err){
+    showToast(ok ? '✅ PDF再作成完了' : ('⚠️ PDF再作成失敗: ' + err));
+  });
+}
+// PDF再作成（一括）
+function bulkRemakePdf() {
+  var selIds = Object.keys(shinsaSel).filter(function(k){ return shinsaSel[k]; });
+  if(!selIds.length){ showToast('⚠️ チェックされている案件がありません'); return; }
+  var targets = shinsaListData.filter(function(d){ return !!shinsaSel[d.id]; });
+  if(!confirm(targets.length + '件のPDFを再作成しますか？')) return;
+  var done = 0, okCount = 0, errCount = 0;
+  showToast('📄 PDF再作成中... (0/' + targets.length + ')');
+  function next(i) {
+    if(i >= targets.length) {
+      showToast('✅ PDF再作成完了: ' + okCount + '件 / エラー: ' + errCount + '件');
+      renderShinsaList();
+      return;
+    }
+    _doRemakePdf([targets[i]], function(ok) {
+      if(ok) okCount++; else errCount++;
+      done++;
+      showToast('📄 PDF再作成中... (' + done + '/' + targets.length + ')');
+      setTimeout(function(){ next(i + 1); }, 500);
+    });
+  }
+  next(0);
+}
+// PDF再作成の実処理（GAS経由）
+function _doRemakePdf(items, callback) {
+  var item = items[0];
+  var linkedCase = item.caseId ? cData.find(function(c){ return c.id === item.caseId; }) : null;
+  var mForGAS = {
+    id: item.id,
+    badge: '審査完了',
+    name: item.name || '',
+    caseNo: (linkedCase ? (linkedCase.receiptNo || '') : '') || item.caseNo || '',
+    skipPdf: false
+  };
+  var timeout = new Promise(function(res){ setTimeout(function(){ res({status:'error',message:'タイムアウト'}); }, 50000); });
+  Promise.race([gasGmailPost('importMail', mForGAS), timeout])
+    .then(function(result){
+      if(result && result.status === 'ok'){
+        item.pdfDone = true;
+        persistShinsaList(item.id);
+        if(callback) callback(true);
+      } else {
+        console.error('remakePdf error:', result);
+        if(callback) callback(false, (result&&result.message)||JSON.stringify(result));
+      }
+    })
+    .catch(function(e){
+      console.error('remakePdf exception:', e);
+      if(callback) callback(false, e.message||String(e));
+    });
+}
+
 function updateShinsaBulkBar(){
   var count=0;
   document.querySelectorAll('.shinsa-cb').forEach(function(cb){
@@ -27019,6 +27081,8 @@ function renderListItems(type, data, borderColor){
     }
     // PDF済みバッジ
     if(d.pdfDone) h+='<span style="flex-shrink:0;font-size:10px;background:#ede9fe;color:#7c3aed;border:1px solid #c4b5fd;border-radius:4px;padding:2px 7px;font-weight:700;white-space:nowrap;">📄 PDF済</span>';
+    // PDF再作成ボタン（審査完了のみ）
+    if(type==='shinsa') h+='<button onclick="event.stopPropagation();remakePdf(\'' + d.id + '\')" title="PDF再作成" style="flex-shrink:0;font-size:10px;background:#f5f3ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:4px;padding:2px 6px;cursor:pointer;white-space:nowrap;">📄 再作成</button>';
     h+='<button onclick="event.stopPropagation();toggleReported(\''+type+'\',\''+d.id+'\')" title="'+(isReported?'対応済み（クリックで解除）':'未対応（クリックで対応済みにする）')+'" style="flex-shrink:0;font-size:10px;background:'+(isReported?'#d1fae5':'#fef9c3')+';color:'+(isReported?'#059669':'#92400e')+';border:1px solid '+(isReported?'#6ee7b7':'#fde68a')+';border-radius:4px;padding:2px 7px;cursor:pointer;font-weight:700;white-space:nowrap;">'+(isReported?'✅ 対応済':'⏳ 未対応')+'</button>';
     h+='<button onclick="event.stopPropagation();listEditItem(\''+type+'\',\''+d.id+'\')" style="flex-shrink:0;font-size:10px;background:#eff6ff;color:#2563eb;border:none;border-radius:4px;padding:2px 6px;cursor:pointer;">✏️</button>';
     if(type==='rec'){
