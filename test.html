@@ -27087,6 +27087,7 @@ function selectMailsByDate(ids, select){
 function moveMailData(skipPdf){
   var selected = MAILS.filter(function(m){return mSel[m.id];});
   if(!selected.length){alert('移動するメールを選択してください');return;}
+  var _receiptTransferQueue = []; // 重複氏名の転記待ちキュー
   var shinsaCount=0, certCount=0, receiptCount=0, otherCount=0;
   selected.forEach(function(m){
     if(m.badge==='審査完了') shinsaCount++;
@@ -27129,10 +27130,27 @@ function moveMailData(skipPdf){
       if(!receiptListData.some(function(x){return x.id===m.id;})){
         receiptListData.push(entry); moved++;
       }
-      // 案件にも反映
+      // 案件への受付番号転記
       if(m.linkedCase){
+        // 紐づけ済み → そのまま転記
         var c=cData.find(function(x){return x.id===m.linkedCase;});
         if(c){c.receiptNo=m.caseNo||'';c.receiptDate=m.date?m.date.slice(0,10):'';}
+      } else if(m.caseNo && m.name){
+        // 未紐づけ → 氏名で案件を検索
+        var _mName=(m.name||'').trim().toLowerCase();
+        var _matches=cData.filter(function(x){
+          if(x.status==='完了') return false;
+          return (x.applicant||'').trim().toLowerCase()===_mName;
+        });
+        if(_matches.length===1){
+          _matches[0].receiptNo=m.caseNo||'';
+          _matches[0].receiptDate=m.date?m.date.slice(0,10):'';
+          m.linkedCase=_matches[0].id;
+          entry.caseId=_matches[0].id;
+          persistCasesToDB([_matches[0]]);
+        } else if(_matches.length>1){
+          _receiptTransferQueue.push({m:m,entry:entry,matches:_matches});
+        }
       }
     }
   });
@@ -27178,11 +27196,76 @@ function moveMailData(skipPdf){
   savedMails=MAILS.slice(); persistSavedMails();
   mSel={};
   renderMails();
+  // 重複氏名の受付番号転記モーダルを順番に表示
+  if(_receiptTransferQueue.length>0){
+    _showReceiptTransferModal(_receiptTransferQueue, 0);
+  }
   applyFilters();
   showToast('✅ '+moved+'件のデータを移動しました');
 }
 
 // ===== 共通リスト操作 =====
+// 受付番号転記モーダル（重複氏名時）
+function _showReceiptTransferModal(queue, idx) {
+  if(idx >= queue.length) return;
+  var item = queue[idx];
+  var m = item.m;
+  var matches = item.matches;
+
+  var modal = document.getElementById('receiptTransferModal');
+  if(modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'receiptTransferModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px;';
+
+  var h = '<div style="background:white;border-radius:14px;width:100%;max-width:540px;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;">';
+  h += '<div style="padding:16px 20px;border-bottom:1px solid #e5e7eb;background:#fefce8;">';
+  h += '<div style="font-size:14px;font-weight:800;color:#92400e;">⚠️ 同名の案件が複数あります</div>';
+  h += '<div style="font-size:12px;color:#6b7280;margin-top:4px;">「'+esc(m.name||'')+'」の受付番号 <b>'+esc(m.caseNo||'')+'</b> をどの案件に転記しますか？</div>';
+  h += '</div>';
+  h += '<div style="padding:14px 20px;">';
+  h += '<div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:8px;">転記先を選択：</div>';
+  matches.forEach(function(c, i){
+    var orgName = c.org || c.company || '';
+    h += '<label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1.5px solid #e5e7eb;border-radius:8px;margin-bottom:6px;cursor:pointer;">';
+    h += '<input type="radio" name="receiptTarget" value="'+i+'" style="margin-top:2px;flex-shrink:0;">';
+    h += '<div>';
+    h += '<div style="font-size:13px;font-weight:700;">'+esc(c.name||c.applicant||'')+'</div>';
+    h += '<div style="font-size:11px;color:#6b7280;margin-top:2px;">🏢 '+esc(orgName)+'　状態：'+esc(c.status||'')+'</div>';
+    h += '</div></label>';
+  });
+  h += '<label style="display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px dashed #d1d5db;border-radius:8px;cursor:pointer;">';
+  h += '<input type="radio" name="receiptTarget" value="-1">';
+  h += '<span style="font-size:12px;color:#6b7280;">転記しない（スキップ）</span>';
+  h += '</label>';
+  h += '</div>';
+  h += '<div style="padding:12px 20px 16px;border-top:1px solid #e5e7eb;display:flex;gap:8px;justify-content:flex-end;">';
+  if(queue.length > 1) h += '<span style="font-size:11px;color:#9ca3af;align-self:center;">'+(idx+1)+' / '+queue.length+'件</span>';
+  h += '<button id="receiptTransferOk" style="padding:8px 24px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">転記する</button>';
+  h += '</div>';
+  h += '</div>';
+
+  modal.innerHTML = h;
+  document.body.appendChild(modal);
+
+  document.getElementById('receiptTransferOk').onclick = function(){
+    var sel = modal.querySelector('input[name="receiptTarget"]:checked');
+    var selIdx = sel ? parseInt(sel.value) : -1;
+    if(selIdx >= 0 && selIdx < matches.length){
+      var target = matches[selIdx];
+      target.receiptNo = m.caseNo||'';
+      target.receiptDate = m.date ? m.date.slice(0,10) : '';
+      m.linkedCase = target.id;
+      item.entry.caseId = target.id;
+      persistCasesToDB([target]);
+      showToast('✅ 受付番号を転記しました：'+esc(target.name||target.applicant||''));
+    }
+    modal.remove();
+    // 次のキューへ
+    _showReceiptTransferModal(queue, idx+1);
+  };
+}
+
 function getListConfig(type){
   if(type==='rec') return {data:receiptListData,sel:recSel,persist:persistReceiptList,render:renderRecords,barId:'recSelBar',countId:'recSelCount',color:'#2563eb'};
   if(type==='shinsa') return {data:shinsaListData,sel:shinsaSel,persist:persistShinsaList,render:renderShinsaList,barId:'shinsaSelBar',countId:'shinsaSelCount',color:'#16a34a'};
