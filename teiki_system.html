@@ -291,6 +291,60 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
 .alert-danger  { background:var(--red-lt);    border:1px solid #fca5a5; color:#991b1b; }
 
 /* ===== DEADLINE BANNER ===== */
+/* ===== FOCUS MODE ===== */
+body.focus-mode #sidebar { display:none; }
+body.focus-mode .focus-hide { display:none !important; }
+.focus-mode-ms .milestone-step.ms-clickable { cursor:pointer; }
+.focus-mode-ms .milestone-step.ms-clickable:hover .ms-circle {
+  background:var(--blue); color:#fff; border-color:var(--blue); transform:scale(1.12);
+}
+.focus-mode-ms .milestone-step.ms-clickable:hover .ms-label { color:var(--blue); }
+/* ステップ2/4はグレーアウト */
+.focus-mode-ms .milestone-step:not(.ms-clickable) .ms-circle { opacity:.45; }
+
+/* ===== MILESTONE ===== */
+.milestone-wrap {
+  background:var(--bg2); border:1px solid var(--border); border-radius:var(--r);
+  padding:14px 20px; margin-bottom:16px; box-shadow:var(--shadow);
+}
+.milestone-title {
+  font-size:11px; font-weight:700; color:var(--text3); letter-spacing:.05em;
+  text-transform:uppercase; margin-bottom:12px;
+}
+.milestone-track {
+  display:flex; align-items:center; gap:0; overflow-x:auto; padding-bottom:2px;
+}
+.milestone-step {
+  display:flex; flex-direction:column; align-items:center; gap:5px;
+  min-width:72px; cursor:default; user-select:none;
+}
+.milestone-step[onclick] { cursor:pointer; }
+.milestone-step[onclick]:hover .ms-circle {
+  background:var(--blue); color:#fff; border-color:var(--blue);
+  transform:scale(1.08);
+}
+.milestone-step[onclick]:hover .ms-label { color:var(--blue); }
+.ms-circle {
+  width:32px; height:32px; border-radius:50%;
+  border:2px solid var(--border2); background:var(--bg3);
+  color:var(--text3); font-size:12px; font-weight:700;
+  display:flex; align-items:center; justify-content:center;
+  transition:all .15s; flex-shrink:0;
+}
+.ms-label {
+  font-size:11px; font-weight:700; color:var(--text2);
+  text-align:center; line-height:1.3; white-space:nowrap;
+}
+.ms-sub {
+  font-size:9px; color:var(--text3); text-align:center;
+  white-space:nowrap;
+}
+.ms-arrow {
+  font-size:18px; color:var(--border2); flex-shrink:0;
+  padding:0 4px; margin-bottom:14px; font-weight:300;
+}
+/* 状態スタイルは未使用 */
+
 .deadline-banner {
   background:linear-gradient(135deg,#fffbeb,#fff7ed);
   border:1px solid #fde68a; border-radius:var(--r);
@@ -336,7 +390,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.134</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.140</div>
   </div>
 
   <div class="nav-section">
@@ -391,6 +445,19 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
       <span class="topbar-sub" id="topbar-sub">KMT 定期届出 2025年度</span>
     </div>
     <div class="topbar-actions">
+      <!-- 集中モードバナー（集中中のみ表示） -->
+      <div id="focus-banner" style="display:none;align-items:center;gap:8px;background:var(--blue-lt);border:1px solid #bfdbfe;border-radius:8px;padding:4px 12px">
+        <span style="font-size:11px;color:var(--blue);font-weight:700">🎯 集中モード</span>
+        <span id="focus-banner-name" style="font-size:12px;font-weight:700;color:var(--text)"></span>
+        <button class="btn btn-sm" onclick="exitFocusMode()" style="font-size:10px;padding:2px 8px;background:#fee2e2;color:var(--red);border:1px solid #fca5a5;border-radius:5px">✕ 解除</button>
+      </div>
+      <!-- 集中モード開始ボタン（通常時のみ表示） -->
+      <div id="focus-select-wrap" style="display:flex;align-items:center;gap:6px">
+        <select id="focus-company-select" class="input btn-sm" style="width:180px;display:none" onchange="startFocusMode(this.value)">
+          <option value="">会社を選択...</option>
+        </select>
+        <button id="focus-btn" class="btn btn-secondary btn-sm" onclick="toggleFocusSelect()">🎯 集中モード</button>
+      </div>
       <button class="btn btn-secondary btn-sm" onclick="refreshData()">
         <span id="refresh-icon">🔄</span> 最新データ取得
       </button>
@@ -402,8 +469,55 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
 
   <div id="content">
 
-    <!-- DASHBOARD -->
-    <div id="panel-dashboard" class="panel active">
+    <!-- DASHBOARD -->\n    <div id="panel-dashboard" class="panel active">
+      <!-- マイルストーン -->
+      <div class="milestone-wrap">
+        <div class="milestone-title">📋 申請フロー（書類受領後）</div>
+        <div class="milestone-track" id="ms-track">
+          <div class="milestone-step ms-clickable" id="ms-s1" onclick="msFocusGo(1)">
+            <div class="ms-circle">1</div>
+            <div class="ms-label">詳細入力</div>
+            <div class="ms-sub">所属機関一覧</div>
+          </div>
+          <div class="ms-arrow">›</div>
+          <div class="milestone-step" id="ms-s2">
+            <div class="ms-circle">2</div>
+            <div class="ms-label">保存</div>
+            <div class="ms-sub">モーダル内</div>
+          </div>
+          <div class="ms-arrow">›</div>
+          <div class="milestone-step ms-clickable" id="ms-s3" onclick="msFocusGo(3)">
+            <div class="ms-circle">3</div>
+            <div class="ms-label">給与データ入力</div>
+            <div class="ms-sub">PDF取込</div>
+          </div>
+          <div class="ms-arrow">›</div>
+          <div class="milestone-step" id="ms-s4">
+            <div class="ms-circle">4</div>
+            <div class="ms-label">保存</div>
+            <div class="ms-sub">各人物ごと</div>
+          </div>
+          <div class="ms-arrow">›</div>
+          <div class="milestone-step ms-clickable" id="ms-s5" onclick="msFocusGo(5)">
+            <div class="ms-circle">5</div>
+            <div class="ms-label">自動計算確認</div>
+            <div class="ms-sub">労働条件チェック</div>
+          </div>
+          <div class="ms-arrow">›</div>
+          <div class="milestone-step ms-clickable" id="ms-s6" onclick="msFocusGo(6)">
+            <div class="ms-circle">6</div>
+            <div class="ms-label">書類チェック</div>
+            <div class="ms-sub">不備確認</div>
+          </div>
+          <div class="ms-arrow">›</div>
+          <div class="milestone-step last ms-clickable" id="ms-s7" onclick="msFocusGo(7)">
+            <div class="ms-circle">7</div>
+            <div class="ms-label">書類出力</div>
+            <div class="ms-sub">全選択・ZIP化</div>
+          </div>
+        </div>
+      </div>
+
       <div class="deadline-banner">
         <div style="text-align:center">
           <div class="deadline-days" id="days-left">-</div>
@@ -1649,10 +1763,111 @@ function jumpToForeigner(coName) {
   var searchEl = document.getElementById('fg-search');
   if (searchEl) { searchEl.value = coName; renderForeignerTable(); }
 }
+// ===== 集中モード =====
+var focusCompany = null;
+
+function toggleFocusSelect() {
+  var sel = document.getElementById('focus-company-select');
+  var isVisible = sel.style.display !== 'none';
+  if (isVisible) {
+    sel.style.display = 'none';
+    return;
+  }
+  // 会社一覧をドロップダウンに設定
+  sel.innerHTML = '<option value="">会社を選択...</option>' +
+    companies.map(function(c){ return '<option value="'+esc(c.name)+'">'+esc(c.name)+'</option>'; }).join('');
+  sel.style.display = 'block';
+  sel.focus();
+}
+
+function startFocusMode(name) {
+  if (!name) return;
+  focusCompany = companies.find(function(c){ return c.name === name; });
+  if (!focusCompany) return;
+  // UI切り替え
+  document.body.classList.add('focus-mode');
+  document.getElementById('focus-banner').style.display = 'flex';
+  document.getElementById('focus-banner-name').textContent = name;
+  document.getElementById('focus-select-wrap').style.display = 'none';
+  // マイルストーンを集中モード表示に
+  document.getElementById('ms-track').classList.add('focus-mode-ms');
+  // ダッシュボードに戻る
+  switchPanel('dashboard', null);
+  showToast('🎯 集中モード：'+name, 'info');
+}
+
+function exitFocusMode() {
+  focusCompany = null;
+  document.body.classList.remove('focus-mode');
+  document.getElementById('focus-banner').style.display = 'none';
+  document.getElementById('focus-select-wrap').style.display = 'flex';
+  document.getElementById('focus-company-select').style.display = 'none';
+  document.getElementById('ms-track').classList.remove('focus-mode-ms');
+  renderAll();
+}
+
+function msFocusGo(step) {
+  if (!focusCompany) {
+    // 通常モード：従来通りパネル遷移のみ
+    var panelMap = {1:'companies',3:'salary',5:'calc',6:'doccheck',7:'doccheck'};
+    var pid = panelMap[step];
+    if (pid) switchPanel(pid, document.querySelector('[data-panel='+pid+']'));
+    return;
+  }
+  var name = focusCompany.name;
+  var panelMap = {1:'companies',3:'salary',5:'calc',6:'doccheck',7:'doccheck'};
+  var pid = panelMap[step];
+  if (!pid) return;
+  switchPanel(pid, document.querySelector('[data-panel='+pid+']'));
+  setTimeout(function(){
+    if (step === 1) {
+      var el = document.getElementById('co-search');
+      if (el) { el.value = name; renderCompanyTable(); }
+    } else if (step === 3) {
+      selectSalaryCompany(name);
+    } else if (step === 5) {
+      selectCalcCompany(name);
+    } else if (step === 6 || step === 7) {
+      openDocCheck(name);
+    }
+  }, 60);
+}
+
+// 集中モード時の各パネル描画フィルタ
+function _focusFilter(list) {
+  if (!focusCompany) return list;
+  return list.filter(function(c){ return c.name === focusCompany.name; });
+}
+
 function jumpToSalary(coName) {
   // 給与データ入力パネルに切り替えて会社を選択
   switchPanel('salary', document.querySelector('[data-panel="salary"]'));
   setTimeout(function(){ selectSalaryCompany(coName); }, 50);
+}
+function jumpToCalc(coName) {
+  switchPanel('calc', document.querySelector('[data-panel="calc"]'));
+  setTimeout(function(){
+    var searchEl = document.getElementById('calc-co-search');
+    if(searchEl){ searchEl.value = coName; renderCalcCoList(); }
+    selectCalcCompany(coName);
+  }, 50);
+}
+function _showGotoCalcBtn(nameEn, coName) {
+  // 該当者の保存ボタン行を探して「自動計算確認へ」ボタンを追加
+  var btns = document.querySelectorAll('#sal-input-area .btn-primary');
+  for(var i=0;i<btns.length;i++){
+    if(btns[i].dataset.name===nameEn && btns[i].dataset.co===coName){
+      var row = btns[i].parentNode;
+      if(!row.querySelector('.btn-goto-calc')){
+        var gb = document.createElement('button');
+        gb.className='btn btn-success btn-sm btn-goto-calc';
+        gb.innerHTML='🧮 自動計算確認へ';
+        gb.onclick=function(){ jumpToCalc(coName); };
+        row.appendChild(gb);
+      }
+      break;
+    }
+  }
 }
 
 // ===== サイドバー折りたたみ =====
@@ -1751,7 +1966,7 @@ var _coSortKey = '', _coSortAsc = true, _coShowAll = false, _docShowAll = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.134%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.140%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -2252,6 +2467,7 @@ function renderForeignerTable() {
 function renderSalaryCoList() {
   var q=(document.getElementById('sal-co-search').value||'').toLowerCase();
   var list=companies.filter(c=>!q||(c.name||'').toLowerCase().includes(q));
+  list = _focusFilter(list);
   document.getElementById('sal-co-list').innerHTML=list.map(function(co){
     var cnt=foreigners.filter(f=>resolveCompanyName(f.companyName)===co.name&&normStatus(f)==='在職').length;
     var active=selectedCompany&&selectedCompany.name===co.name;
@@ -2262,7 +2478,9 @@ function renderSalaryCoList() {
 }
 function renderCalcCoList() {
   var q=(document.getElementById('calc-co-search').value||'').toLowerCase();
-  document.getElementById('calc-co-list').innerHTML=companies.filter(c=>!q||(c.name||'').toLowerCase().includes(q)).map(function(co){
+  var list = companies.filter(c=>!q||(c.name||'').toLowerCase().includes(q));
+  list = _focusFilter(list);
+  document.getElementById('calc-co-list').innerHTML=list.map(function(co){
     var has=salaryData.some(s=>s.companyName===co.name);
     return '<div onclick="selectCalcCompany(\''+esc(co.name)+'\')" style="padding:8px 10px;border-radius:6px;cursor:pointer;margin-bottom:2px;border:1px solid transparent;transition:.1s" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'transparent\'">'+
       '<div style="font-size:12px;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(co.name)+'</div>'+
@@ -2272,10 +2490,12 @@ function renderCalcCoList() {
 function renderDocCoList() {
   var q=(document.getElementById('doc-co-search').value||'').toLowerCase();
   var HIDDEN_DOC = ['支援終了','企業側対応','対象外'];
-  document.getElementById('doc-co-list').innerHTML=companies.filter(function(c){
+  var list = companies.filter(function(c){
     if (!_docShowAll && HIDDEN_DOC.indexOf(c.status) >= 0) return false;
     return !q||(c.name||'').toLowerCase().includes(q);
-  }).map(function(co){
+  });
+  list = _focusFilter(list);
+  document.getElementById('doc-co-list').innerHTML=list.map(function(co){
     var kr=co.kijun_result||calcKijunResult(co);
     return '<div onclick="selectDocCompany(\''+esc(co.name)+'\')" style="padding:8px 10px;border-radius:6px;cursor:pointer;margin-bottom:2px;border:1px solid transparent;transition:.1s" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'transparent\'">'+
       '<div style="font-size:12px;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(co.name)+'</div>'+
@@ -2564,6 +2784,7 @@ async function saveAnnualSalary(nameEn, coName, yearKey) {
   } else {
     showToast(nameEn+' の給与データを保存しました（ローカル）', 'success');
   }
+  _showGotoCalcBtn(nameEn, coName);
 }
 
 async function deleteAnnualSalary(nameEn, coName, yearKey) {
@@ -2656,6 +2877,7 @@ async function saveSalary(nameEn,coName) {
   saveLocalCache();
   showToast(nameEn+' の給与データを保存しました','success');
   if(GAS_URL){ gasPost(data).catch(function(e){console.error('GAS保存エラー',e);}); }
+  _showGotoCalcBtn(nameEn, coName);
 }
 var calcYearTab = 'prev';
 var calcStatusTab = '1'; // '1'=1号, '2'=2号, 'all'=全員
@@ -2910,7 +3132,14 @@ async function saveDocStatus(coName) {
   saveLocalCache(); showToast('書類ステータスを保存しました','success');
   if(GAS_URL){ gasPost(patch).catch(function(e){console.error('GAS保存エラー',e);}); }
 }
-function openModal(id){document.getElementById(id).classList.add('open');}
+function openModal(id){
+  document.getElementById(id).classList.add('open');
+  // 新規追加で開く場合はgoto-salaryボタンを除去
+  if(id==='modal-company-add' && !editingCompanyId){
+    var old=document.querySelector('#modal-company-add .btn-goto-salary');
+    if(old) old.remove();
+  }
+}
 function closeModal(id){
   document.getElementById(id).classList.remove('open');
   if(id==='modal-company-add'){editingCompanyId=null;resetCompanyForm();}
@@ -3216,6 +3445,19 @@ function editCompany(name){
     var ic=document.getElementById(id+'-icon'); if(ic) ic.textContent='▶';
   });
   openModal('modal-company-add');
+  // 既存会社編集時は最初から「給与データ入力へ」ボタンを表示（既存は削除して更新）
+  var modalFoot2 = document.querySelector('#modal-company-add .modal-foot');
+  if (modalFoot2) {
+    var oldBtn2 = modalFoot2.querySelector('.btn-goto-salary');
+    if (oldBtn2) oldBtn2.remove();
+    var gotoBtn2 = document.createElement('button');
+    gotoBtn2.className = 'btn btn-success btn-goto-salary';
+    gotoBtn2.style.cssText = 'margin-left:auto;';
+    gotoBtn2.innerHTML = '💴 給与データ入力へ';
+    var _name = co.name;
+    gotoBtn2.onclick = function() { closeModal('modal-company-add'); jumpToSalary(_name); };
+    modalFoot2.appendChild(gotoBtn2);
+  }
 }
 async function saveCompany(){
   var name=document.getElementById('co-name').value.trim(); if(!name){showToast('会社名は必須です','warn');return;}
@@ -3260,7 +3502,19 @@ async function saveCompany(){
   var idx=companies.findIndex(c=>c.name===name);
   if(idx>=0) companies[idx]=Object.assign(companies[idx],local); else companies.push(local);
   saveLocalCache(); renderAll();
-  closeModal('modal-company-add'); showToast(name+' を保存しました','success');
+  showToast(name+' を保存しました','success');
+  // 保存後に「給与データ入力へ」ボタンをフッターに表示（既存は削除して更新）
+  var modalFoot = document.querySelector('#modal-company-add .modal-foot');
+  if (modalFoot) {
+    var oldBtn = modalFoot.querySelector('.btn-goto-salary');
+    if (oldBtn) oldBtn.remove();
+    var gotoBtn = document.createElement('button');
+    gotoBtn.className = 'btn btn-success btn-goto-salary';
+    gotoBtn.style.cssText = 'margin-left:auto;';
+    gotoBtn.innerHTML = '💴 給与データ入力へ';
+    gotoBtn.onclick = function() { closeModal('modal-company-add'); jumpToSalary(name); };
+    modalFoot.appendChild(gotoBtn);
+  }
   if(GAS_URL){ gasPost({action:'upsertCompany',row:Object.assign({},local,data)}).catch(function(e){console.error('GAS保存エラー',e); showToast('GAS保存に失敗しました','warn');}); }
 }
 function updateFgCompanyDatalist(){document.getElementById('fg-company-list').innerHTML=companies.map(c=>'<option value="'+esc(c.name)+'">').join('');}
@@ -3686,7 +3940,23 @@ function switchPanel(id,el){
   if(el) el.classList.add('active');
   var t={dashboard:'ダッシュボード',companies:'所属機関一覧',foreigners:'外国人マスタ',salary:'給与データ入力',calc:'自動計算・確認',doccheck:'書類チェック',mail:'案内文',settings:'設定'};
   if (id === 'mail') setTimeout(renderMailPreview, 50);
-  document.getElementById('topbar-title').textContent=t[id]||id;
+  var title = t[id]||id;
+  if (focusCompany) title += '　🎯 ' + focusCompany.name;
+  document.getElementById('topbar-title').textContent = title;
+  // 集中モード時：左ペインのリストを非表示、会社を自動選択
+  if (focusCompany) {
+    var sideMap = {salary:'sal-co-list', calc:'calc-co-list', doccheck:'doc-co-list'};
+    var searchMap = {salary:'sal-co-search', calc:'calc-co-search', doccheck:'doc-co-search'};
+    Object.keys(sideMap).forEach(function(panel){
+      var listEl = document.getElementById(sideMap[panel]);
+      var searchEl = document.getElementById(searchMap[panel]);
+      if (listEl) listEl.closest('.table-wrapper') && (listEl.closest('.table-wrapper').style.display = (id===panel ? 'none' : ''));
+      if (searchEl) searchEl.style.display = (id===panel ? 'none' : '');
+    });
+    if (id === 'salary') setTimeout(function(){ selectSalaryCompany(focusCompany.name); }, 60);
+    if (id === 'calc')   setTimeout(function(){ selectCalcCompany(focusCompany.name); }, 60);
+    if (id === 'doccheck') setTimeout(function(){ openDocCheck(focusCompany.name); }, 60);
+  }
 }
 function switchModalTab(tabId,btn){
   ['tab-co-basic','tab-co-kijun','tab-co-support','tab-co-mail'].forEach(function(t){var el=document.getElementById(t);if(el)el.style.display=t===tabId?'block':'none';});
