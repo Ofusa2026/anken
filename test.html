@@ -4065,6 +4065,15 @@ function openReview() {
   }
   switchPanel('reviewScreen','nav-review');
   try { updateReviewBadge(); } catch(e) {}
+  // ロード中なら完了後に再描画
+  if(typeof isLoading !== 'undefined' && isLoading){
+    var _reviewPollTimer = setInterval(function(){
+      if(!isLoading){
+        clearInterval(_reviewPollTimer);
+        try { renderReview(); updateReviewBadge(); } catch(e) {}
+      }
+    }, 300);
+  }
 }
 function openFlow(){ switchPanel('flowScreen','nav-flow'); }
 function openSupport(){ renderSupportList(); renderSupportTree(); switchPanel('supportScreen','nav-support'); }
@@ -22015,7 +22024,9 @@ function showTab(tab) {
       else if (tConfirm===1) subParts.push('<span style="color:#f59e0b;font-weight:700;">📩 確認依頼</span>');
       else if (tConfirm===2) subParts.push('<span style="color:#16a34a;font-weight:700;">✓ 確認済</span>');
       else if (_checker) subParts.push('<span style="color:#6366f1;font-weight:600;">👁 ' + _checker + '</span>');
-      if (tMemo) subParts.push('<span style="color:#94a3b8;">💬 ' + tMemo.slice(0,20) + (tMemo.length>20?'…':'') + '</span>');
+      var tAssigneeCommentDisp = taskAssigneeComment[tkey] || '';
+      if (tAssigneeCommentDisp) subParts.push('<span style="color:#6366f1;font-weight:600;">🙋 ' + tAssigneeCommentDisp.slice(0,20) + (tAssigneeCommentDisp.length>20?'…':'') + '</span>');
+      else if (tMemo) subParts.push('<span style="color:#94a3b8;">💬 ' + tMemo.slice(0,20) + (tMemo.length>20?'…':'') + '</span>');
       if (subParts.length) h += '<div style="font-size:11px;margin-top:2px;display:flex;gap:8px;flex-wrap:wrap;">' + subParts.join('') + '</div>';
       h += '</div>';
       h += '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px;">';
@@ -33545,6 +33556,8 @@ function loadAllFromSupabase() {
       isLoading = false;
       hideLoading();
       renderStats(); applyFilters(); updateReviewBadge();
+      // 確認事項画面が開いていれば再描画（taskNotificationsロード後に反映）
+      try { if(document.getElementById('reviewScreen') && document.getElementById('reviewScreen').style.display !== 'none') renderReview(); } catch(e) {}
       try { buildStaffFilter(); } catch(e) {}
       showToast('✅ データ同期完了');
       loadMadoguchiRecords();
