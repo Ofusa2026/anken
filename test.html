@@ -5983,11 +5983,16 @@ function resolveAddrCode(addr){
 }
 function cleanAddressDetail(addr) {
   if (!addr) return '';
-  // 〒xxx-xxxx または 数字7桁 を先頭から除去
-  var s = addr.replace(/^[〒]?\s*\d{3}[-－]?\d{4}\s*/,'');
+  // 先頭の郵便番号（6〜8桁、ハイフンあり/なし）を除去
+  var s = addr.replace(/^[〒]?\s*\d{3}[-－]?\d{3,4}\s*/,'');
   // 残りから都道府県・市区町村を除去
   var sp = splitAddress(s);
   return sp.rest || s;
+}
+// 居住地用：郵便番号のみ除去し都道府県以降を全部残す
+function cleanAddressForResidence(addr) {
+  if (!addr) return '';
+  return addr.replace(/^[〒]?[\s\d\-－]+/,'');
 }
 // addressCodeが郵便番号（7桁）の場合は使わない
 function safeAddressCode(code, addr) {
@@ -30991,12 +30996,11 @@ function exportCOEcsv(){
   D[10] = safeAddressCode(p.addressCode, p.address) || safeAddressCode(co.addressCode, (co.pref||'')+(co.city||'')+(co.address||'')); // 住所コード（市区町村6桁）、人材データになければ所属機関から
   // 9.2 日本における連絡先 居住地：都道府県＋市区町村＋番地を結合（85文字以内・全角）
   var _jpAddr = '';
-  if(p.jpDetailAddress){ _jpAddr = p.jpDetailAddress; }
-  else if(p.address){ _jpAddr = p.address.replace(/^[〒]?[\s\d\-－]+/,''); }
+  if(p.jpDetailAddress){ _jpAddr = cleanAddressForResidence(p.jpDetailAddress); }
+  else if(p.address){ _jpAddr = cleanAddressForResidence(p.address); }
   else {
     var _coAddrFull = (co.pref||'')+(co.city||'')+(co.address||'');
-    // co.addressに郵便番号が混入している場合も考慮して先頭の郵便番号を除去
-    _jpAddr = _coAddrFull.replace(/^[〒]?[\s\d\-－]+/,'');
+    _jpAddr = cleanAddressForResidence(_coAddrFull);
   }
   D[11] = _jpAddr; // 居住地（都道府県＋市区町村＋番地）
   D[12] = p.telNum||p.phone||co.tel||''; // 電話番号（所属機関TELにフォールバック）
