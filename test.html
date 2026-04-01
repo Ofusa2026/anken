@@ -3395,6 +3395,7 @@ var taskHandler = {};
 var taskAssigneeComment = {}; // 対応者コメント
 var taskCheckerComment = {};  // 確認者コメント
 var taskReviewState = {};     // 確認フロー状態: 0=未, 1=確認依頼中, 2=確認済, 3=差戻し
+var taskNotifications = {};   // タスク由来の通知 {tkey: {to, from, state, taskName, assigneeComment, repliedAt, caseId}}
 var docCheck = {};
 var caseNotes = {};
 var personData = {};
@@ -9518,9 +9519,17 @@ function updateReviewBadge() {
   });
   // 回答確認バッジ（自分が質問者でneedReviewCheck=trueのもの）
   var acCount = 0;
+  // taskNotificationsから自分宛の通知をカウント
+  Object.keys(taskNotifications).forEach(function(tkey){
+    var tn = taskNotifications[tkey]; if(!tn) return;
+    if((tn.to||'')=== me) acCount++;
+  });
+  // caseNotes由来（基本情報の質問回答）もカウント
   Object.keys(caseNotes).forEach(function(id){
     var n = caseNotes[id]; if(!n) return;
-    if((n.needConfirmCheck && (n.replyAssignee||'')=== me) || (n.needReviewCheck && (n.askBy||'')=== me)) acCount++;
+    if(!n.taskConfirmNote && !n.taskReviewNote){ // タスク由来は除外
+      if((n.needConfirmCheck && (n.replyAssignee||'')=== me) || (n.needReviewCheck && (n.askBy||'')=== me)) acCount++;
+    }
   });
   var acBadge2=document.getElementById('reviewAnswerCheckBadge');
   if(acBadge2){acBadge2.textContent=acCount;acBadge2.style.display=acCount?'inline':'none';}
@@ -9575,13 +9584,16 @@ function renderReview() {
       return true;
     });
   } else if (reviewTab === 'answerCheck') {
-    // 自分宛の通知を2種類まとめて表示
-    // (A) 自分がreplyAssigneeで回答確認依頼（needConfirmCheck）
-    // (B) 自分がaskByで回答済み通知（needReviewCheck）
+    // taskNotificationsから自分宛の通知を収集（ダミーidとしてtkeyを使用）
     filtered = [];
+    Object.keys(taskNotifications).forEach(function(tkey){
+      var tn = taskNotifications[tkey]; if(!tn) return;
+      if((tn.to||'')=== me && filtered.indexOf(tkey)===-1) filtered.push(tkey);
+    });
+    // caseNotes由来（基本情報の質問回答）も追加（タスク由来は除外）
     Object.keys(caseNotes).forEach(function(id){
-      var n=caseNotes[id];
-      if(!n) return;
+      var n=caseNotes[id]; if(!n) return;
+      if(n.taskConfirmNote || n.taskReviewNote) return; // タスク由来は除外
       var isA = n.needConfirmCheck && (n.replyAssignee===me);
       var isB = n.needReviewCheck  && (n.askBy===me);
       if((isA || isB) && filtered.indexOf(id)===-1) filtered.push(id);
@@ -9616,8 +9628,13 @@ function renderReview() {
   var totalMine = mineCount + myTaskConfirmCount;
   var repliedCount = items.filter(function(id){ return caseNotes[id].replied; }).length;
   var answerCheckCount = 0;
+  Object.keys(taskNotifications).forEach(function(tkey){
+    var tn=taskNotifications[tkey]; if(!tn) return;
+    if((tn.to||'')=== me) answerCheckCount++;
+  });
   Object.keys(caseNotes).forEach(function(id){
     var n=caseNotes[id]; if(!n) return;
+    if(n.taskConfirmNote || n.taskReviewNote) return;
     if((n.needConfirmCheck && n.replyAssignee===me) || (n.needReviewCheck && n.askBy===me)) answerCheckCount++;
   });
   var acBadge=document.getElementById('reviewAnswerCheckBadge'); if(acBadge){acBadge.textContent=answerCheckCount;acBadge.style.display=answerCheckCount?'inline':'none';}
@@ -9669,8 +9686,89 @@ function renderReview() {
     h+='</div>';
   }
   filtered.forEach(function(id){
-    var note=caseNotes[id]; var c=cData.find(function(x){return x.id===id;}); if(!c) return;
+    // taskNotificationsのtkeyの場合、案件IDを取得
+    var _isTkeyEntry = !!(taskNotifications[id]);
+    var _realCaseId = _isTkeyEntry ? taskNotifications[id].caseId : id;
+    var note = caseNotes[_realCaseId] || {};
+    var c = cData.find(function(x){return x.id===_realCaseId;});
+    if(!c && !_isTkeyEntry) return; // タスク通知の場合は案件なくても続行
+    if(!c) c = {id:_realCaseId, name:'', org:'', company:'', appType:'', team:'', staff:''};
     var assigneeLabel = note.assignee || c.staff || '未設定';
+
+    // answerCheckタブ：タスク由来と基本情報由来を分けて表示
+    if(reviewTab==='answerCheck'){
+      var _isConfirmReq = _isTkeyEntry ? (taskNotifications[id].state===1) : (note.needConfirmCheck && (note.replyAssignee===me));
+      var _isReplied    = _isTkeyEntry ? (taskNotifications[id].state>=2)  : (note.needReviewCheck  && (note.askBy===me));
+      var _isTask = _isTkeyEntry; // taskNotificationsから来た = タスク由来
+
+      if(_isTask){
+        // ===== タスク由来の通知カード =====
+        // idがtkeyの場合（taskNotificationsから来た通知）
+        var _tn = taskNotifications[id]; // tkeyキーで保存済み
+        var _tkey = _tn ? id : null;
+        var _ti = _tkey ? parseInt(_tkey.split('_').pop()) : -1;
+        var _taskName = (_tn && _tn.taskName) ? _tn.taskName : ((_ti >= 0 && typeof TASK_NAMES !== 'undefined') ? TASK_NAMES[_ti]||'' : '');
+        var _taskDeadline = _tkey ? (taskDeadline[_tkey]||'') : '';
+        var _taskAssignee = (_tn && _tn.from) ? _tn.from : (_tkey ? (taskAssignee[_tkey]||'') : '');
+        var _assigneeComment = (_tn && _tn.assigneeComment) ? _tn.assigneeComment : (_tkey ? (taskAssigneeComment[_tkey]||'') : '');
+        var _checkerComment  = (_tn && _tn.checkerComment)  ? _tn.checkerComment  : '';
+        var _tnState = _tn ? (_tn.state||1) : 1;
+        var _stateLabel = _tnState===1 ? '📬 確認依頼が届いています' : _tnState===2 ? '✅ 確認済になりました' : '↩ 差戻しになりました';
+        var _stateBg = _tnState===1 ? '#fff7ed' : _tnState===2 ? '#f0fdf4' : '#fef2f2';
+        var _stateBorder = _tnState===1 ? '#f97316' : _tnState===2 ? '#16a34a' : '#ef4444';
+
+        h+='<div style="background:white;border-radius:10px;padding:14px;margin-bottom:10px;border:2px solid '+_stateBorder+';">';
+        // ヘッダ
+        h+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">';
+        h+='<div>';
+        h+='<div style="font-size:13px;font-weight:700;">'+esc(getDisplayName(c))+'</div>';
+        h+='<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">'+esc(c.org||c.company||'')+'　'+esc(c.appType||'')+'　'+esc(c.team||'')+'</div>';
+        h+='</div>';
+        h+='<span style="font-size:10px;padding:3px 8px;border-radius:6px;background:'+_stateBg+';color:'+_stateBorder+';font-weight:800;border:1px solid '+_stateBorder+';white-space:nowrap;">📋 タスク</span>';
+        h+='</div>';
+        // タスク詳細
+        h+='<div style="background:#f8fafc;border-radius:8px;padding:10px 12px;margin-bottom:8px;">';
+        if(_taskName) h+='<div style="font-size:12px;font-weight:700;color:#6366f1;margin-bottom:4px;">📋 '+esc(_taskName)+'</div>';
+        if(_taskAssignee) h+='<div style="font-size:11px;color:var(--gray-400);">🙋 対応者：<b>'+esc(_taskAssignee)+'</b></div>';
+        if(_taskDeadline) h+='<div style="font-size:11px;color:var(--gray-400);">📅 期限：'+esc(_taskDeadline)+'</div>';
+        if(_assigneeComment) h+='<div style="font-size:11px;margin-top:4px;padding:6px 8px;background:#f5f3ff;border-radius:6px;">💬 '+esc(_assigneeComment)+'</div>';
+        h+='</div>';
+        // 通知メッセージ
+        h+='<div style="font-size:11px;padding:6px 10px;background:'+_stateBg+';border-radius:6px;border-left:3px solid '+_stateBorder+';margin-bottom:8px;">'+_stateLabel+(note.repliedBy?' — <b>'+esc(note.repliedBy)+'</b>':'')+(note.repliedAt?' <small style="color:var(--gray-400);">'+note.repliedAt+'</small>':'')+'</div>';
+        // ボタン
+        h+='<div style="display:flex;gap:6px;">';
+        if(_tkey){
+          h+='<button data-action="openCaseTask" data-id="'+id+'" data-tkey="'+_tkey+'" style="font-size:12px;padding:5px 14px;background:var(--blue);color:white;border:none;border-radius:6px;cursor:pointer;">案件を開く</button>';
+        } else {
+          h+='<button data-action="openCase" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:var(--blue);color:white;border:none;border-radius:6px;cursor:pointer;">案件を開く</button>';
+        }
+        h+='<button data-action="markAnswerChecked" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:#e11d48;color:white;border:none;border-radius:6px;cursor:pointer;">✓ 確認済にする</button>';
+        h+='</div>';
+        h+='</div>';
+      } else {
+        // ===== 基本情報由来の通知カード =====
+        h+='<div style="background:white;border-radius:10px;padding:14px;margin-bottom:10px;border:1px solid var(--gray-200);">';
+        h+='<div style="display:flex;justify-content:space-between;align-items:center;">';
+        h+='<div style="font-size:13px;font-weight:700;">'+getDisplayName(c)+'</div>';
+        h+='<span style="font-size:10px;padding:2px 8px;border-radius:99px;background:#eff6ff;color:#2563eb;font-weight:700;">👤 '+assigneeLabel+'</span>';
+        h+='</div>';
+        h+='<div style="font-size:11px;color:var(--gray-400);">'+c.appType+'　'+c.team+'　'+c.staff+'</div>';
+        if(note.text) h+='<div style="font-size:12px;margin-top:8px;padding:8px;background:var(--gray-100);border-radius:6px;">'+note.text+'</div>';
+        if(note.replied && note.reply) h+='<div style="font-size:12px;margin-top:6px;padding:8px;background:#f0fdf4;border-radius:6px;border-left:3px solid var(--green);">💬 '+note.reply+(note.replyAssignee?' <small style="color:var(--gray-400);">— '+note.replyAssignee+'</small>':'')+'</div>';
+        if(_isConfirmReq){
+          h+='<div style="font-size:11px;margin-top:6px;padding:6px 10px;background:#fff7ed;border-radius:6px;border-left:3px solid #f97316;">📬 回答確認依頼が届いています'+(note.repliedBy?' — <b>'+esc(note.repliedBy)+'</b>':'')+(note.repliedAt?' <small style="color:var(--gray-400);">'+note.repliedAt+'</small>':'')+'</div>';
+        } else if(_isReplied){
+          h+='<div style="font-size:11px;margin-top:6px;padding:6px 10px;background:#f0fdf4;border-radius:6px;border-left:3px solid #16a34a;">✅ 回答済みになりました'+(note.repliedBy?' — <b>'+esc(note.repliedBy)+'</b>':'')+(note.repliedAt?' <small style="color:var(--gray-400);">'+note.repliedAt+'</small>':'')+'</div>';
+        }
+        h+='<div style="display:flex;gap:6px;margin-top:8px;">';
+        h+='<button data-action="openCase" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:var(--blue);color:white;border:none;border-radius:6px;cursor:pointer;">案件を開く</button>';
+        h+='<button data-action="markAnswerChecked" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:#e11d48;color:white;border:none;border-radius:6px;cursor:pointer;">✓ 確認済にする</button>';
+        h+='</div></div>';
+      }
+      return; // answerCheckタブはここで終了
+    }
+
+    // ===== 通常タブ（自分宛・全件・回答済など）=====
     h+='<div style="background:white;border-radius:10px;padding:14px;margin-bottom:10px;border:1px solid var(--gray-200);">';
     h+='<div style="display:flex;justify-content:space-between;align-items:center;">';
     h+='<div style="font-size:13px;font-weight:700;">'+getDisplayName(c)+'</div>';
@@ -9680,24 +9778,10 @@ function renderReview() {
     if(note.taskName) h+='<div style="font-size:11px;color:#d97706;margin-top:4px;">📋 '+note.taskName+'</div>';
     if(note.text) h+='<div style="font-size:12px;margin-top:8px;padding:8px;background:var(--gray-100);border-radius:6px;">'+note.text+'</div>';
     if(note.replied && note.reply) h+='<div style="font-size:12px;margin-top:6px;padding:8px;background:#f0fdf4;border-radius:6px;border-left:3px solid var(--green);">💬 '+note.reply+(note.replyAssignee?' <small style="color:var(--gray-400);">— '+note.replyAssignee+'</small>':'')+'</div>';
-    // 回答確認タブ：種類別に表示
-    if(reviewTab==='answerCheck'){
-      var _isConfirmReq = note.needConfirmCheck && (note.replyAssignee===me); // A: 自分が確認依頼を受けた
-      var _isReplied    = note.needReviewCheck  && (note.askBy===me);          // B: 自分の質問に回答済み
-      if(_isConfirmReq){
-        h+='<div style="font-size:11px;margin-top:6px;padding:6px 10px;background:#fff7ed;border-radius:6px;border-left:3px solid #f97316;">📬 回答確認依頼が届いています'+(note.repliedBy?' — <b>'+esc(note.repliedBy)+'</b>':'')+(note.repliedAt?' <small style="color:var(--gray-400);">'+note.repliedAt+'</small>':'')+'</div>';
-      } else if(_isReplied){
-        h+='<div style="font-size:11px;margin-top:6px;padding:6px 10px;background:#f0fdf4;border-radius:6px;border-left:3px solid #16a34a;">✅ 回答済みになりました'+(note.repliedBy?' — <b>'+esc(note.repliedBy)+'</b>':'')+(note.repliedAt?' <small style="color:var(--gray-400);">'+note.repliedAt+'</small>':'')+'</div>';
-      }
-    }
     h+='<div style="display:flex;gap:6px;margin-top:8px;">';
-    h+='<button onclick="openCase(this.dataset.id)" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:var(--blue);color:white;border:none;border-radius:6px;cursor:pointer;">案件を開く</button>';
-    if(reviewTab==='answerCheck'){
-      h+='<button data-action="markAnswerChecked" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:#e11d48;color:white;border:none;border-radius:6px;cursor:pointer;">✓ 確認済にする</button>';
-    } else {
-      if(note.replied){h+='<button data-action="markRepliedRead" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:var(--green);color:white;border:none;border-radius:6px;cursor:pointer;">✓ 既読にする</button>';}
-      if(!note.replied){h+='<button data-action="markConfirmDone" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;">✓ 確認済にする</button>';}
-    }
+    h+='<button data-action="openCase" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:var(--blue);color:white;border:none;border-radius:6px;cursor:pointer;">案件を開く</button>';
+    if(note.replied){h+='<button data-action="markRepliedRead" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:var(--green);color:white;border:none;border-radius:6px;cursor:pointer;">✓ 既読にする</button>';}
+    if(!note.replied){h+='<button data-action="markConfirmDone" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;">✓ 確認済にする</button>';}
     h+='</div></div>';
   });
   el.innerHTML=h;
@@ -9708,6 +9792,23 @@ function renderReview() {
     var action = btn.dataset.action;
     var id = btn.dataset.id;
     if(action==='openCase'){ openCase(id); }
+    else if(action==='openCaseTask'){
+      // タスクタブを開いて対象アコーディオンを展開
+      var tkey = btn.dataset.tkey || id;
+      // idがtkeyの場合はcaseIdを取得
+      var _tn2 = taskNotifications[id];
+      var _openId = _tn2 ? _tn2.caseId : id;
+      openCase(_openId);
+      setTimeout(function(){
+        showTab('tasks');
+        setTimeout(function(){
+          var _accTkey = btn ? btn.dataset.tkey || id : id;
+          var _tn3 = taskNotifications[_accTkey]; var _realTkey = _tn3 ? _accTkey : _accTkey;
+          var el = document.getElementById('acc_'+_realTkey);
+          if(el){ el.style.display='block'; var hdr=el.previousElementSibling; if(hdr){var da=hdr.querySelector('.da');if(da)da.textContent='▼';} el.scrollIntoView({behavior:'smooth',block:'center'}); }
+        }, 300);
+      }, 200);
+    }
     else if(action==='markRepliedRead'){ markRepliedRead(id); renderReview(); }
     else if(action==='markConfirmDone'){ markConfirmDone(id); }
     else if(action==='markAnswerChecked'){ markAnswerChecked(id); renderReview(); }
@@ -10043,13 +10144,18 @@ function sendTaskReviewRequest(tkey){
     var caseId = parts.slice(0, parts.length-1).join('_');
     var c = cData.find(function(x){ return x.id===caseId; });
     if(c && checker){
-      if(!caseNotes[caseId]) caseNotes[caseId] = {};
-      caseNotes[caseId].needConfirmCheck = true;
-      caseNotes[caseId].replyAssignee = checker;
-      caseNotes[caseId].repliedBy = currentUser || '';
-      caseNotes[caseId].repliedAt = new Date().toISOString().slice(0,16).replace('T',' ');
-      caseNotes[caseId].taskConfirmNote = (taskAssigneeComment[tkey]||'') + '（タスク：' + (typeof TASK_NAMES !== 'undefined' ? TASK_NAMES[ti]||'' : '') + '）';
-      _persistOneNote(caseId);
+      // caseNotesは汚染しない→専用のtaskNotificationsに通知を保存
+      var _taskNm = (typeof TASK_NAMES !== 'undefined') ? TASK_NAMES[ti]||'' : '';
+      taskNotifications[tkey] = {
+        to: checker,
+        from: currentUser || '',
+        state: 1, // 確認依頼中
+        taskName: _taskNm,
+        assigneeComment: taskAssigneeComment[tkey] || '',
+        repliedAt: new Date().toISOString().slice(0,16).replace('T',' '),
+        caseId: caseId
+      };
+      _persistTaskNotifications();
       updateReviewBadge();
     }
     showToast('📩 確認依頼を送りました' + (checker ? '（' + checker + 'さんに通知）' : ''));
@@ -10071,17 +10177,20 @@ function setTaskReviewState(tkey, state){
   var parts = tkey.split('_'); var ti = parseInt(parts[parts.length-1]);
   var caseId = parts.slice(0, parts.length-1).join('_');
   var assignee = taskAssignee[tkey] || '';
-  if(assignee){
-    if(!caseNotes[caseId]) caseNotes[caseId] = {};
-    caseNotes[caseId].needReviewCheck = true;
-    caseNotes[caseId].askBy = assignee; // 対応者に通知
-    caseNotes[caseId].repliedBy = currentUser || '';
-    caseNotes[caseId].repliedAt = new Date().toISOString().slice(0,16).replace('T',' ');
-    caseNotes[caseId].replied = (state === 2);
-    caseNotes[caseId].taskReviewNote = (state===2?'✅ 確認済':'↩ 差戻し') + '（タスク：' + (typeof TASK_NAMES !== 'undefined' ? TASK_NAMES[ti]||'' : '') + '）' + (taskCheckerComment[tkey]?' — '+taskCheckerComment[tkey]:'');
-    _persistOneNote(caseId);
-    updateReviewBadge();
-  }
+  var _taskNm2 = (typeof TASK_NAMES !== 'undefined') ? TASK_NAMES[ti]||'' : '';
+  // taskNotificationsに対応者向け通知を上書き保存
+  taskNotifications[tkey] = {
+    to: assignee,           // 通知先：対応者
+    from: currentUser || '',
+    state: state,           // 2=確認済, 3=差戻し
+    taskName: _taskNm2,
+    assigneeComment: taskAssigneeComment[tkey] || '',
+    checkerComment: taskCheckerComment[tkey] || '',
+    repliedAt: new Date().toISOString().slice(0,16).replace('T',' '),
+    caseId: caseId
+  };
+  _persistTaskNotifications();
+  if(assignee) updateReviewBadge();
   var msg = state===2 ? '✅ 確認済にしました' : '↩ 差戻しました';
   showToast(msg + (assignee ? '（' + assignee + 'さんに通知）' : ''));
   persistTaskMeta();
@@ -10099,7 +10208,9 @@ function resetTaskMeta(tkey){
   delete taskCheckerComment[tkey];
   delete taskReviewState[tkey];
   delete taskConfirm[tkey];
+  delete taskNotifications[tkey];
   persistTaskMeta();
+  _persistTaskNotifications();
   persistDocTaskStatus(tkey);
   showToast('🔄 リセットしました');
   showTab('tasks');
@@ -10109,10 +10220,15 @@ function toggleTaskUrgent(tkey){ taskUrgent[tkey]=!taskUrgent[tkey]; try{localSt
 function persistTaskMeta(){
   if(!DB_READY)return;
   try{
-    var meta={taskDeadline:taskDeadline,taskMemo:taskMemo,taskConfirm:taskConfirm,taskAssignee:taskAssignee,taskUrgent:taskUrgent,taskHandler:taskHandler,taskAssigneeComment:taskAssigneeComment,taskCheckerComment:taskCheckerComment,taskReviewState:taskReviewState};
+    var meta={taskDeadline:taskDeadline,taskMemo:taskMemo,taskConfirm:taskConfirm,taskAssignee:taskAssignee,taskUrgent:taskUrgent,taskHandler:taskHandler,taskAssigneeComment:taskAssigneeComment,taskCheckerComment:taskCheckerComment,taskReviewState:taskReviewState,taskNotifications:taskNotifications};
     _sb.from('settings').upsert({key:'taskMeta',value:JSON.stringify(meta)},{onConflict:'key'}).then(function(r){if(r.error)console.error('persistTaskMeta err:',r.error);});
   }catch(e){console.error('persistTaskMeta err:',e);}
 }
+function _persistTaskNotifications(){
+  // taskNotificationsをtaskMetaと同じsettingsキーに含めて保存
+  persistTaskMeta();
+}
+
 function _migrateTaskMetaToDB(){
   // 既に移行済みならスキップ
   if(localStorage.getItem('ofusa_taskMeta_migrated_v1')) return;
@@ -18486,24 +18602,28 @@ function markRepliedRead(caseId) {
   updateReviewBadge();
 }
 
-// 回答確認済みにする（種別対応）
-function markAnswerChecked(caseId) {
-  if (!caseNotes[caseId]) return;
+// 回答確認済みにする（taskNotifications & caseNotes両対応）
+function markAnswerChecked(idOrTkey) {
   var me = currentUser || '';
-  var n = caseNotes[caseId];
+  // taskNotificationsのtkeyの場合
+  if(taskNotifications[idOrTkey]){
+    delete taskNotifications[idOrTkey];
+    _persistTaskNotifications();
+    updateReviewBadge();
+    return;
+  }
+  // caseNotes由来
+  if (!caseNotes[idOrTkey]) return;
+  var n = caseNotes[idOrTkey];
   if(n.needConfirmCheck && n.replyAssignee === me){
-    // A: 自分が確認依頼を受けた → needConfirmCheckをクリア（ボタンで回答済に進む）
-    // ※ここでは「確認した」だけなのでreplyState=2へ進める
-    // 実際はreplyBtnで進めるのでここでは単純にフラグだけクリア
     n.needConfirmCheck = false;
   } else if(n.needReviewCheck && n.askBy === me){
-    // B: 自分の質問への回答済み通知を確認済に → 全クリア
     n.needReviewCheck = false;
     n.confirm = false;
     n.confirmState = 0;
     n.replied = false;
   }
-  _persistOneNote(caseId);
+  _persistOneNote(idOrTkey);
   updateReviewBadge();
 }
 
@@ -33758,6 +33878,7 @@ function loadAllFromSupabase() {
             if(tm.taskAssigneeComment) taskAssigneeComment=tm.taskAssigneeComment;
             if(tm.taskCheckerComment) taskCheckerComment=tm.taskCheckerComment;
             if(tm.taskReviewState) taskReviewState=tm.taskReviewState;
+            if(tm.taskNotifications) taskNotifications=tm.taskNotifications;
             try{localStorage.setItem('ofusa_taskConfirm',JSON.stringify(taskConfirm));localStorage.setItem('ofusa_taskAssignee',JSON.stringify(taskAssignee));localStorage.setItem('ofusa_taskUrgent',JSON.stringify(taskUrgent));localStorage.setItem('ofusa_taskHandler',JSON.stringify(taskHandler));}catch(e){}
           }
         } catch(e) {}
