@@ -336,7 +336,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.125</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.129</div>
   </div>
 
   <div class="nav-section">
@@ -825,11 +825,39 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
       <div class="tab-bar">
         <button class="tab-btn active" onclick="switchModalTab('tab-co-basic',this)">基本情報</button>
         <button class="tab-btn" onclick="switchModalTab('tab-co-kijun',this)">一定の基準</button>
-        <button class="tab-btn" onclick="switchModalTab('tab-co-support',this)">支援機関・役員</button>
+        <button class="tab-btn" onclick="switchModalTab('tab-co-support',this)">支援機関</button>
         <button class="tab-btn" onclick="switchModalTab('tab-co-mail',this);renderCoMailPreview()">✉️ 案内文</button>
       </div>
 
       <div id="tab-co-basic">
+        <!-- 登記簿OCRゾーン -->
+        <div id="touki-ocr-zone"
+          style="border:2px dashed var(--border2);border-radius:10px;padding:16px;margin-bottom:14px;text-align:center;cursor:pointer;transition:.2s;background:var(--bg2)"
+          ondragover="event.preventDefault();this.style.borderColor='var(--blue)'"
+          ondragleave="this.style.borderColor='var(--border2)'"
+          ondrop="handleToukiDrop(event)"
+          onclick="document.getElementById('touki-file-input').click()">
+          <input type="file" id="touki-file-input" accept="application/pdf,image/*" style="display:none" onchange="handleToukiFile(this.files[0])">
+          <div style="font-size:22px;margin-bottom:4px">📄</div>
+          <div style="font-size:12px;font-weight:700;color:var(--text2)">登記簿スキャンをドロップ または クリックして選択</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">PDF・画像対応 ／ 主たる事務所・役員氏名・役職を自動読み取り</div>
+          <div id="touki-ocr-status" style="margin-top:8px;font-size:11px;color:var(--blue);display:none"></div>
+        </div>
+        <!-- 登記簿OCRプレビューパネル -->
+        <div id="touki-preview-panel" style="display:none;border:1px solid var(--border2);border-radius:10px;padding:14px;margin-bottom:14px;background:var(--bg2)">
+          <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:10px">📋 読み取り結果を確認・編集してから反映してください</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+            <div><label style="font-size:11px;color:var(--text3);font-weight:600">郵便番号</label><input type="text" id="touki-prev-zip" class="input" style="font-size:12px;margin-top:2px"></div>
+            <div><label style="font-size:11px;color:var(--text3);font-weight:600">都道府県</label><input type="text" id="touki-prev-pref" class="input" style="font-size:12px;margin-top:2px"></div>
+            <div style="grid-column:1/-1"><label style="font-size:11px;color:var(--text3);font-weight:600">住所（市区町村以降）</label><input type="text" id="touki-prev-address" class="input" style="font-size:12px;margin-top:2px"></div>
+          </div>
+          <div style="font-size:11px;color:var(--text3);font-weight:600;margin-bottom:6px">役員</div>
+          <div id="touki-prev-officers" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px"></div>
+          <div style="display:flex;gap:8px">
+            <button type="button" class="btn btn-primary btn-sm" onclick="applyToukiPreview()">✅ フォームに反映</button>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('touki-preview-panel').style.display='none'">キャンセル</button>
+          </div>
+        </div>
         <div class="form-grid">
           <div class="field-group col-span2">
             <label class="field-label">会社名（所属機関名） <span style="color:var(--red)">*</span></label>
@@ -880,6 +908,75 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
           <div class="field-group"><label class="field-label">企業担当者名</label><input type="text" class="input" id="co-contact-name" placeholder="山田 太郎"></div>
           <div class="field-group col-span2"><label class="field-label">備考</label><input type="text" class="input" id="co-note"></div>
         </div>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+          <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">👔 役員情報</div>
+          <div id="officer-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
+          <button class="btn btn-secondary btn-sm" type="button" onclick="addOfficerRow()" id="officer-add-btn">＋ 役員を追加</button>
+        </div>
+
+        <!-- 財務情報（折りたたみ） -->
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+          <div onclick="toggleSection('section-finance')" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;user-select:none">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">💰 財務情報（直近3期）</div>
+            <span id="section-finance-icon" style="font-size:12px;color:var(--text3)">▶</span>
+          </div>
+          <div id="section-finance" style="display:none;margin-top:10px">
+            <div style="font-size:11px;color:var(--text3);margin-bottom:8px">単位：円　※マイナスの場合は先頭に「-」を入力</div>
+            <table style="width:100%;font-size:11px;border-collapse:collapse">
+              <thead>
+                <tr>
+                  <th style="padding:5px 8px;text-align:left;background:var(--bg3);border:1px solid var(--border);width:30%"></th>
+                  <th style="padding:5px 8px;text-align:center;background:var(--bg3);border:1px solid var(--border)">前年</th>
+                  <th style="padding:5px 8px;text-align:center;background:var(--bg3);border:1px solid var(--border)">前々年</th>
+                  <th style="padding:5px 8px;text-align:center;background:var(--bg3);border:1px solid var(--border)">前々々年</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="padding:4px 8px;border:1px solid var(--border);font-weight:600">売上高</td>
+                  <td style="padding:2px 4px;border:1px solid var(--border)"><input type="text" class="input" id="co-salesY1" style="font-size:11px;padding:3px 6px;height:24px" placeholder="0"></td>
+                  <td style="padding:2px 4px;border:1px solid var(--border)"><input type="text" class="input" id="co-salesY2" style="font-size:11px;padding:3px 6px;height:24px" placeholder="0"></td>
+                  <td style="padding:2px 4px;border:1px solid var(--border)"><input type="text" class="input" id="co-salesY3" style="font-size:11px;padding:3px 6px;height:24px" placeholder="0"></td>
+                </tr>
+                <tr>
+                  <td style="padding:4px 8px;border:1px solid var(--border);font-weight:600">経常損益</td>
+                  <td style="padding:2px 4px;border:1px solid var(--border)"><input type="text" class="input" id="co-ordinaryPLY1" style="font-size:11px;padding:3px 6px;height:24px" placeholder="0"></td>
+                  <td style="padding:2px 4px;border:1px solid var(--border)"><input type="text" class="input" id="co-ordinaryPLY2" style="font-size:11px;padding:3px 6px;height:24px" placeholder="0"></td>
+                  <td style="padding:2px 4px;border:1px solid var(--border)"><input type="text" class="input" id="co-ordinaryPLY3" style="font-size:11px;padding:3px 6px;height:24px" placeholder="0"></td>
+                </tr>
+                <tr>
+                  <td style="padding:4px 8px;border:1px solid var(--border);font-weight:600">純損益</td>
+                  <td style="padding:2px 4px;border:1px solid var(--border)"><input type="text" class="input" id="co-netPLY1" style="font-size:11px;padding:3px 6px;height:24px" placeholder="0"></td>
+                  <td style="padding:2px 4px;border:1px solid var(--border)"><input type="text" class="input" id="co-netPLY2" style="font-size:11px;padding:3px 6px;height:24px" placeholder="0"></td>
+                  <td style="padding:2px 4px;border:1px solid var(--border)"><input type="text" class="input" id="co-netPLY3" style="font-size:11px;padding:3px 6px;height:24px" placeholder="0"></td>
+                </tr>
+                <tr>
+                  <td style="padding:4px 8px;border:1px solid var(--border);font-weight:600">純資産</td>
+                  <td style="padding:2px 4px;border:1px solid var(--border)"><input type="text" class="input" id="co-netAssetsY1" style="font-size:11px;padding:3px 6px;height:24px" placeholder="0"></td>
+                  <td style="padding:2px 4px;border:1px solid var(--border)"><input type="text" class="input" id="co-netAssetsY2" style="font-size:11px;padding:3px 6px;height:24px" placeholder="0"></td>
+                  <td style="padding:2px 4px;border:1px solid var(--border)"><input type="text" class="input" id="co-netAssetsY3" style="font-size:11px;padding:3px 6px;height:24px" placeholder="0"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 離職者情報（折りたたみ） -->
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+          <div onclick="toggleSection('section-quit')" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;user-select:none">
+            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em">🚶 離職者情報（過去1年）</div>
+            <span id="section-quit-icon" style="font-size:12px;color:var(--text3)">▶</span>
+          </div>
+          <div id="section-quit" style="display:none;margin-top:10px">
+            <div class="form-grid">
+              <div class="field-group"><label class="field-label" style="font-size:11px">自発的離職者（日本人）</label><input type="number" min="0" class="input" id="co-jpVoluntaryQuit" placeholder="0" style="font-size:12px"></div>
+              <div class="field-group"><label class="field-label" style="font-size:11px">非自発的離職者（日本人）</label><input type="number" min="0" class="input" id="co-jpInvoluntaryQuit" placeholder="0" style="font-size:12px"></div>
+              <div class="field-group"><label class="field-label" style="font-size:11px">自発的離職者（外国人）</label><input type="number" min="0" class="input" id="co-fgnVoluntaryQuit" placeholder="0" style="font-size:12px"></div>
+              <div class="field-group"><label class="field-label" style="font-size:11px">非自発的離職者（外国人）</label><input type="number" min="0" class="input" id="co-fgnInvoluntaryQuit" placeholder="0" style="font-size:12px"></div>
+            </div>
+          </div>
+        </div>
+
         <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
           <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">🔐 電子届出ログイン情報</div>
           <div class="form-grid">
@@ -1652,7 +1749,7 @@ var _coSortKey = '', _coSortAsc = true, _coShowAll = false, _docShowAll = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.125%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.129%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -2805,6 +2902,191 @@ function closeModal(id){
   document.getElementById(id).classList.remove('open');
   if(id==='modal-company-add'){editingCompanyId=null;resetCompanyForm();}
 }
+
+// ===== 役員情報（追加式） =====
+function addOfficerRow(kana, name, title) {
+  var list = document.getElementById('officer-list');
+  var count = list.children.length;
+  if (count >= 10) { showToast('役員は最大10名までです', 'warn'); return; }
+  var n = count + 1;
+  var row = document.createElement('div');
+  row.className = 'officer-row';
+  row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;align-items:center';
+  row.dataset.n = n;
+  row.innerHTML =
+    '<input type="text" class="input" placeholder="氏名（例：山田 太郎）" value="' + esc(name||'') + '" data-role="name" style="font-size:12px">' +
+    '<input type="text" class="input" placeholder="ふりがな（例：やまだ たろう）" value="' + esc(kana||'') + '" data-role="kana" style="font-size:12px">' +
+    '<input type="text" class="input" placeholder="役職（例：代表取締役）" value="' + esc(title||'') + '" data-role="title" style="font-size:12px">' +
+    '<button type="button" onclick="removeOfficerRow(this)" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;padding:0 4px">✕</button>';
+  list.appendChild(row);
+  // 10名で追加ボタン非表示
+  document.getElementById('officer-add-btn').style.display = list.children.length >= 10 ? 'none' : '';
+}
+function removeOfficerRow(btn) {
+  btn.closest('.officer-row').remove();
+  document.getElementById('officer-add-btn').style.display = '';
+}
+function clearOfficerRows() {
+  document.getElementById('officer-list').innerHTML = '';
+  document.getElementById('officer-add-btn').style.display = '';
+}
+function getOfficerData() {
+  var rows = document.querySelectorAll('#officer-list .officer-row');
+  var result = {};
+  rows.forEach(function(row, i) {
+    var n = i + 1;
+    result['officer' + n + 'Name']  = row.querySelector('[data-role=name]').value.trim();
+    result['officer' + n + 'Kana']  = row.querySelector('[data-role=kana]').value.trim();
+    result['officer' + n + 'Title'] = row.querySelector('[data-role=title]').value.trim();
+  });
+  // 残りをクリア
+  for (var i = rows.length + 1; i <= 10; i++) {
+    result['officer' + i + 'Name']  = '';
+    result['officer' + i + 'Kana']  = '';
+    result['officer' + i + 'Title'] = '';
+  }
+  return result;
+}
+function loadOfficerRows(co) {
+  clearOfficerRows();
+  for (var n = 1; n <= 10; n++) {
+    var name  = co['officer' + n + 'Name']  || '';
+    var kana  = co['officer' + n + 'Kana']  || '';
+    var title = co['officer' + n + 'Title'] || '';
+    if (name || kana || title) addOfficerRow(kana, name, title);
+  }
+}
+
+// ===== 登記簿OCR =====
+function handleToukiDrop(event) {
+  event.preventDefault();
+  document.getElementById('touki-ocr-zone').style.borderColor = 'var(--border2)';
+  var file = event.dataTransfer.files[0];
+  if (file) handleToukiFile(file);
+}
+async function handleToukiFile(file) {
+  if (!file) return;
+  if (!ANTHROPIC_KEY) { showToast('設定画面でAnthropic API Keyを入力してください', 'warn'); return; }
+  var statusEl = document.getElementById('touki-ocr-status');
+  statusEl.style.display = 'block';
+  statusEl.style.color = 'var(--blue)';
+  statusEl.textContent = '🔍 登記簿を読み取り中...';
+  document.getElementById('touki-preview-panel').style.display = 'none';
+  try {
+    var base64 = await new Promise(function(resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function(e) { resolve(e.target.result.split(',')[1]); };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    var mediaType = file.type || 'application/pdf';
+    var prompt = [
+      '以下は法人登記簿（登記事項証明書）のスキャンです。',
+      '以下の情報をJSONのみで返してください（説明・コメント不要）。',
+      '・主たる事務所の住所（最新=一番上のもの）: zip（郵便番号、ハイフンなし数字のみ）, pref（都道府県）, address（市区町村以降）',
+      '・役員（現任のみ）: officers配列。各要素は {name: "氏名", title: "役職"} 形式。',
+      '・重要: 「退任」「辞任」「死亡」などの記載がある役員は必ず除外すること。現在在任中の役員のみを含めること。',
+      '例: {"zip":"1000001","pref":"東京都","address":"千代田区千代田1-1","officers":[{"name":"山田太郎","title":"代表取締役"},{"name":"佐藤花子","title":"取締役"}]}'
+    ].join('\n');
+    var resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1500,
+        messages: [{role: 'user', content: [
+          {type: 'document', source: {type: 'base64', media_type: mediaType, data: base64}},
+          {type: 'text', text: prompt}
+        ]}]
+      })
+    });
+    var json = await resp.json();
+    var text = (json.content || []).map(function(b){ return b.text || ''; }).join('');
+    var m = text.match(/\{[\s\S]+\}/);
+    if (!m) throw new Error('JSONが取得できませんでした');
+    var ocrData = JSON.parse(m[0]);
+
+    // ふりがなを生成
+    statusEl.textContent = '✍️ ふりがなを生成中...';
+    var kanas = [];
+    if (ocrData.officers && ocrData.officers.length > 0) {
+      var names = ocrData.officers.map(function(o){ return o.name; });
+      var kanaResp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_KEY,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 500,
+          messages: [{role: 'user', content:
+            '以下の日本人名のひらがなふりがなをJSONの配列のみで返してください（説明不要）。\n' +
+            '例: ["やまだたろう","さとうはなこ"]\n' +
+            '名前: ' + JSON.stringify(names)
+          }]
+        })
+      });
+      var kanaJson = await kanaResp.json();
+      var kanaText = (kanaJson.content || []).map(function(b){ return b.text || ''; }).join('');
+      var kanaMatch = kanaText.match(/\[[\s\S]+\]/);
+      kanas = kanaMatch ? JSON.parse(kanaMatch[0]) : [];
+    }
+
+    // プレビューパネルに表示
+    document.getElementById('touki-prev-zip').value     = (ocrData.zip     || '').replace(/-/g,'');
+    document.getElementById('touki-prev-pref').value    = ocrData.pref    || '';
+    document.getElementById('touki-prev-address').value = ocrData.address || '';
+
+    // 役員プレビュー
+    var prevOfficers = document.getElementById('touki-prev-officers');
+    prevOfficers.innerHTML = '';
+    (ocrData.officers || []).slice(0, 10).forEach(function(o, i) {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px';
+      row.innerHTML =
+        '<input type="text" class="input" placeholder="氏名" value="' + esc(o.name||'') + '" data-role="name" style="font-size:12px">' +
+        '<input type="text" class="input" placeholder="ふりがな" value="' + esc(kanas[i]||'') + '" data-role="kana" style="font-size:12px">' +
+        '<input type="text" class="input" placeholder="役職" value="' + esc(o.title||'') + '" data-role="title" style="font-size:12px">';
+      prevOfficers.appendChild(row);
+    });
+
+    document.getElementById('touki-preview-panel').style.display = 'block';
+    statusEl.textContent = '✅ 読み取り完了！内容を確認して「フォームに反映」を押してください。';
+    statusEl.style.color = 'var(--green)';
+  } catch(e) {
+    statusEl.textContent = '❌ エラー: ' + String(e);
+    statusEl.style.color = 'var(--red)';
+  }
+}
+
+function applyToukiPreview() {
+  // 住所を反映
+  document.getElementById('co-zip').value     = document.getElementById('touki-prev-zip').value;
+  document.getElementById('co-pref').value    = document.getElementById('touki-prev-pref').value;
+  document.getElementById('co-address').value = document.getElementById('touki-prev-address').value;
+
+  // 役員を反映
+  var rows = document.querySelectorAll('#touki-prev-officers > div');
+  clearOfficerRows();
+  rows.forEach(function(row) {
+    var name  = row.querySelector('[data-role=name]').value.trim();
+    var kana  = row.querySelector('[data-role=kana]').value.trim();
+    var title = row.querySelector('[data-role=title]').value.trim();
+    if (name || title) addOfficerRow(kana, name, title);
+  });
+
+  document.getElementById('touki-preview-panel').style.display = 'none';
+  showToast('フォームに反映しました ✅', 'success');
+}
+
 function resetCompanyForm(){
   ['co-name','co-name-kana','co-corp-no','co-num-fields','co-zip','co-pref','co-address','co-tel','co-email','co-rep-name','co-rep-title','co-industry','co-contact-name','co-note','co-login-id1','co-login-id2','co-password','co-pw-updated'].forEach(id=>{var e=document.getElementById(id);if(e)e.value='';});
   var sjR=document.getElementById('co-support-jokyo');if(sjR)sjR.value='全部委託'; 
@@ -2824,6 +3106,16 @@ function resetCompanyForm(){
   document.getElementById('kijun6a').checked=false;document.getElementById('kijun6b').checked=false;
   document.getElementById('kijun-result-display').innerHTML='';
   document.getElementById('co-modal-title').textContent='所属機関 追加';
+  clearOfficerRows();
+  document.getElementById('touki-ocr-status').style.display='none';
+  ['co-salesY1','co-salesY2','co-salesY3','co-ordinaryPLY1','co-ordinaryPLY2','co-ordinaryPLY3',
+   'co-netPLY1','co-netPLY2','co-netPLY3','co-netAssetsY1','co-netAssetsY2','co-netAssetsY3',
+   'co-jpVoluntaryQuit','co-jpInvoluntaryQuit','co-fgnVoluntaryQuit','co-fgnInvoluntaryQuit'
+  ].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; });
+  ['section-finance','section-quit'].forEach(function(id){
+    var el=document.getElementById(id); if(el) el.style.display='none';
+    var ic=document.getElementById(id+'-icon'); if(ic) ic.textContent='▶';
+  });
   switchModalTab('tab-co-basic',document.querySelector('.tab-bar .tab-btn'));
 }
 function editCompany(name){
@@ -2898,6 +3190,16 @@ function editCompany(name){
     }
   }
   var expEl3=document.getElementById('kijun-exp-check'); if(expEl3) delete expEl3.dataset.manualSet;
+  loadOfficerRows(co);
+  document.getElementById('touki-ocr-status').style.display='none';
+  ['salesY1','salesY2','salesY3','ordinaryPLY1','ordinaryPLY2','ordinaryPLY3',
+   'netPLY1','netPLY2','netPLY3','netAssetsY1','netAssetsY2','netAssetsY3',
+   'jpVoluntaryQuit','jpInvoluntaryQuit','fgnVoluntaryQuit','fgnInvoluntaryQuit'
+  ].forEach(function(k){ var e=document.getElementById('co-'+k); if(e) e.value=co[k]||''; });
+  ['section-finance','section-quit'].forEach(function(id){
+    var el=document.getElementById(id); if(el) el.style.display='none';
+    var ic=document.getElementById(id+'-icon'); if(ic) ic.textContent='▶';
+  });
   openModal('modal-company-add');
 }
 async function saveCompany(){
@@ -2911,6 +3213,7 @@ async function saveCompany(){
     support_org_type:document.getElementById('co-support-type').value,support_org_other:document.getElementById('co-support-other').value,
     has_non_exec_officer:document.getElementById('non-exec-yes').checked?'✓':'✗',note:document.getElementById('co-note').value};
   data.kijun_result=calcKijunResultFromData(data);
+  var officerData = getOfficerData();
   var local=Object.assign({name,nameKana:document.getElementById('co-name-kana').value,corpNo:document.getElementById('co-corp-no').value,numFields:document.getElementById('co-num-fields').value||'1',zip:document.getElementById('co-zip').value,pref:document.getElementById('co-pref').value,
     address:document.getElementById('co-address').value,tel:document.getElementById('co-tel').value,email:(document.getElementById('co-email')||{value:''}).value,repName:document.getElementById('co-rep-name').value,
     repTitle:document.getElementById('co-rep-title').value,industry:document.getElementById('co-industry').value,
@@ -2922,7 +3225,23 @@ async function saveCompany(){
     kijun_1:kijun1?'✓':'✗',kijun_2:kijun2?'✓':'✗',
     kijun_3_type:(document.querySelector('input[name=kijun3]:checked')||{value:'なし'}).value,
     kijun_6a:document.getElementById('kijun6a').checked?'✓':'✗',
-    kijun_6b:document.getElementById('kijun6b').checked?'✓':'✗'},data);
+    kijun_6b:document.getElementById('kijun6b').checked?'✓':'✗',
+    salesY1:(document.getElementById('co-salesY1')||{value:''}).value,
+    salesY2:(document.getElementById('co-salesY2')||{value:''}).value,
+    salesY3:(document.getElementById('co-salesY3')||{value:''}).value,
+    ordinaryPLY1:(document.getElementById('co-ordinaryPLY1')||{value:''}).value,
+    ordinaryPLY2:(document.getElementById('co-ordinaryPLY2')||{value:''}).value,
+    ordinaryPLY3:(document.getElementById('co-ordinaryPLY3')||{value:''}).value,
+    netPLY1:(document.getElementById('co-netPLY1')||{value:''}).value,
+    netPLY2:(document.getElementById('co-netPLY2')||{value:''}).value,
+    netPLY3:(document.getElementById('co-netPLY3')||{value:''}).value,
+    netAssetsY1:(document.getElementById('co-netAssetsY1')||{value:''}).value,
+    netAssetsY2:(document.getElementById('co-netAssetsY2')||{value:''}).value,
+    netAssetsY3:(document.getElementById('co-netAssetsY3')||{value:''}).value,
+    jpVoluntaryQuit:(document.getElementById('co-jpVoluntaryQuit')||{value:'0'}).value||'0',
+    jpInvoluntaryQuit:(document.getElementById('co-jpInvoluntaryQuit')||{value:'0'}).value||'0',
+    fgnVoluntaryQuit:(document.getElementById('co-fgnVoluntaryQuit')||{value:'0'}).value||'0',
+    fgnInvoluntaryQuit:(document.getElementById('co-fgnInvoluntaryQuit')||{value:'0'}).value||'0'},officerData,data);
   var idx=companies.findIndex(c=>c.name===name);
   if(idx>=0) companies[idx]=Object.assign(companies[idx],local); else companies.push(local);
   saveLocalCache(); renderAll();
@@ -3193,6 +3512,15 @@ function runTeikiChecks(coName, fgs, sals) {
   }
 
   return {errors, warnings};
+}
+
+
+function toggleSection(id) {
+  var el = document.getElementById(id);
+  var icon = document.getElementById(id + '-icon');
+  var open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : 'block';
+  if (icon) icon.textContent = open ? '▶' : '▼';
 }
 
 function toggleSupportOther(){document.getElementById('support-other-wrap').style.display=document.getElementById('co-other-support-check').checked?'block':'none';}
@@ -4141,18 +4469,18 @@ async function generate1111(coName) {
     '{{所属機関名}}':       coName,
     '{{所属機関代表者役職}}': co.repTitle  || '',
     '{{所属機関代表者名}}':  co.repName   || '',
-    '{{売上高前年}}':        co.prevSales1 || '',
-    '{{売上高前々年}}':      co.prevSales2 || '',
-    '{{売上高前々々年}}':    co.prevSales3 || '',
-    '{{経常損益前年}}':      co.prevOrdinary1 || '',
-    '{{経常損益前々年}}':    co.prevOrdinary2 || '',
-    '{{経常損益前々々年}}':  co.prevOrdinary3 || '',
-    '{{純損益前年}}':        co.prevNet1  || '',
-    '{{純損益前々年}}':      co.prevNet2  || '',
-    '{{純損益前々々年}}':    co.prevNet3  || '',
-    '{{純資産前年}}':        co.prevAsset1 || '',
-    '{{純資産前々年}}':      co.prevAsset2 || '',
-    '{{純資産前々々年}}':    co.prevAsset3 || '',
+    '{{売上高前年}}':        co.salesY1 || '',
+    '{{売上高前々年}}':      co.salesY2 || '',
+    '{{売上高前々々年}}':    co.salesY3 || '',
+    '{{経常損益前年}}':      co.ordinaryPLY1 || '',
+    '{{経常損益前々年}}':    co.ordinaryPLY2 || '',
+    '{{経常損益前々々年}}':  co.ordinaryPLY3 || '',
+    '{{純損益前年}}':        co.netPLY1  || '',
+    '{{純損益前々年}}':      co.netPLY2  || '',
+    '{{純損益前々々年}}':    co.netPLY3  || '',
+    '{{純資産前年}}':        co.netAssetsY1 || '',
+    '{{純資産前々年}}':      co.netAssetsY2 || '',
+    '{{純資産前々々年}}':    co.netAssetsY3 || '',
     '{{自発的離職者日本人}}': co.jpVoluntaryQuit    || '0',
     '{{非自発的離職者日本人}}': co.jpInvoluntaryQuit || '0',
     '{{自発的離職者外国人}}':  co.fgnVoluntaryQuit   || '0',
