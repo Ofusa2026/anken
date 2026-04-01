@@ -389,7 +389,7 @@ body.focus-mode .focus-hide { display:none !important; }
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.04.02.150</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.04.02.152</div>
   </div>
 
   <div class="nav-section">
@@ -2033,7 +2033,7 @@ var _coSortKey = '', _coSortAsc = true, _coShowAll = false, _docShowAll = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.04.02.150%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.04.02.152%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -3158,18 +3158,17 @@ function selectDocCompany(name) {
     '<span style="display:inline-block;width:10px;height:10px;background:var(--amber);border-radius:2px"></span> 企業収集書類</div>'+
     '<div class="doc-list">'+docs_ext.map(d=>renderDocItem(co,d)).join('')+'</div>'+
     '<div style="margin-top:16px">'+
-    '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">'+
-    '<span>📁 書類出力</span>'+
-    '<label style="font-size:11px;font-weight:400;cursor:pointer;display:flex;align-items:center;gap:4px">'+
-    '<input type="checkbox" id="doc-select-all" onchange="toggleSelectAllDocs(this)"> 全選択</label></div>'+
-    '<div id="doc-output-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">'+
-    '<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:12px;background:var(--bg2)"><input type="checkbox" class="doc-out-chk" value="patA"> <span style="flex:1">📄 パターンA</span></label>'+
-    '<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:12px;background:var(--bg2)"><input type="checkbox" class="doc-out-chk" value="patB"> <span style="flex:1">📄 パターンB</span></label>'+
-    '<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:12px;background:var(--bg2)"><input type="checkbox" class="doc-out-chk" value="patC"> <span style="flex:1">📄 パターンC</span></label>'+
+    '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">📁 書類出力</div>'+
+    '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);margin-bottom:12px">'+
+    '<span style="font-size:13px;font-weight:700;color:var(--text)">'+
+    (isN ? '📄 パターンC（基準非該当）' : isE6 ? '📄 パターンB（⑥継続実績）' : '📄 パターンA（基準該当①〜⑤）')+
+    '</span>'+
+    '<div style="display:flex;gap:6px;margin-left:auto">'+
+    '<button class="btn btn-primary btn-sm" onclick="outputAutoPat(\''+esc(co.name)+'\',\''+( isN?'patC':isE6?'patB':'patA' )+'\')" >📥 出力</button>'+
+    '<button class="btn btn-secondary btn-sm" onclick="openConfirmMail(\''+esc(co.name)+'\')">✉️ 企業へメール</button>'+
+    '</div>'+
     '</div>'+
     '<div style="display:flex;gap:8px;justify-content:flex-end">'+
-    '<button class="btn btn-secondary" onclick="outputSelectedDocs(\''+esc(co.name)+'\')">📥 選択した書類を出力</button>'+
-    '<button class="btn btn-secondary" onclick="outputSelectedDocsZip(\''+esc(co.name)+'\')">🗜️ ZIP一括出力</button>'+
     '<button class="btn btn-primary" onclick="saveDocStatus(\''+esc(co.name)+'\')">💾 ステータスを保存</button>'+
     '</div></div>'+
     '</div></div>';
@@ -3968,6 +3967,31 @@ function toggleSection(id) {
 // ===== 書類出力チェックボックス制御 =====
 function toggleSelectAllDocs(cb) {
   document.querySelectorAll('#doc-output-list .doc-out-chk').forEach(function(c){ c.checked = cb.checked; });
+}
+
+function openConfirmMail(coName) {
+  // 企業モーダルを開いて案内文タブ→確認メールに切り替え
+  var co = companies.find(function(c){ return c.name === coName; });
+  if (co) openCompanyModal(co);
+  setTimeout(function() {
+    // 案内文タブへ切替
+    var btn = document.querySelector('[onclick*="tab-co-mail"]');
+    if (btn) btn.click();
+    // メール種別を確認メールに
+    var typeEl = document.getElementById('co-mail-type');
+    if (typeEl) { typeEl.value = 'confirm'; renderCoMailPreview(); }
+  }, 120);
+}
+
+async function outputAutoPat(coName, patKey) {
+  var r = await _generateDocBlob(patKey, coName);
+  if (!r) { alert('生成失敗'); return; }
+  var ext = patKey === 'patC' ? '.xlsx' : '.xlsx';
+  var label = patKey === 'patA' ? 'パターンA' : patKey === 'patB' ? 'パターンB' : 'パターンC';
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(r);
+  a.download = label + '_' + coName + '.xlsx';
+  a.click();
 }
 
 async function outputSelectedDocs(coName) {
