@@ -3392,6 +3392,9 @@ var taskConfirm = {};
 var taskAssignee = {};
 var taskUrgent = {};
 var taskHandler = {};
+var taskAssigneeComment = {}; // 対応者コメント
+var taskCheckerComment = {};  // 確認者コメント
+var taskReviewState = {};     // 確認フロー状態: 0=未, 1=確認依頼中, 2=確認済, 3=差戻し
 var docCheck = {};
 var caseNotes = {};
 var personData = {};
@@ -10017,11 +10020,96 @@ function saveTaskConfirm(tkey){
 function saveTaskAssignee(tkey,val){ taskAssignee[tkey]=val; try{localStorage.setItem('ofusa_taskAssignee',JSON.stringify(taskAssignee));}catch(e){} persistTaskMeta(); persistDocTaskStatus(tkey); }
 function saveTaskHandler(tkey,val){ taskHandler[tkey]=val; try{localStorage.setItem('ofusa_taskHandler',JSON.stringify(taskHandler));}catch(e){} persistTaskMeta(); persistDocTaskStatus(tkey); }
 function saveTaskChecker(tkey,val){ taskAssignee[tkey+'_checker']=val; try{localStorage.setItem('ofusa_taskAssignee',JSON.stringify(taskAssignee));}catch(e){} persistTaskMeta(); persistDocTaskStatus(tkey); }
+// ===== タスク確認フロー =====
+function saveAssigneeComment(tkey, val){
+  taskAssigneeComment[tkey] = val;
+  persistTaskMeta();
+}
+function saveCheckerComment(tkey, val){
+  taskCheckerComment[tkey] = val;
+  persistTaskMeta();
+}
+function sendTaskReviewRequest(tkey){
+  // 確認依頼ボタン：対応者コメントを保存してreviewState=1に
+  var ta = document.getElementById('assigneeComment_' + tkey);
+  if(ta) taskAssigneeComment[tkey] = ta.value;
+  var cur = taskReviewState[tkey] || 0;
+  if(cur === 0){
+    // 0→1: 確認依頼
+    taskReviewState[tkey] = 1;
+    var checker = taskAssignee[tkey+'_checker'] || '';
+    // 確認者への通知（caseNotes経由で確認事項に表示）
+    var parts = tkey.split('_'); var ti = parseInt(parts[parts.length-1]);
+    var caseId = parts.slice(0, parts.length-1).join('_');
+    var c = cData.find(function(x){ return x.id===caseId; });
+    if(c && checker){
+      if(!caseNotes[caseId]) caseNotes[caseId] = {};
+      caseNotes[caseId].needConfirmCheck = true;
+      caseNotes[caseId].replyAssignee = checker;
+      caseNotes[caseId].repliedBy = currentUser || '';
+      caseNotes[caseId].repliedAt = new Date().toISOString().slice(0,16).replace('T',' ');
+      caseNotes[caseId].taskConfirmNote = (taskAssigneeComment[tkey]||'') + '（タスク：' + (typeof TASK_NAMES !== 'undefined' ? TASK_NAMES[ti]||'' : '') + '）';
+      _persistOneNote(caseId);
+      updateReviewBadge();
+    }
+    showToast('📩 確認依頼を送りました' + (checker ? '（' + checker + 'さんに通知）' : ''));
+  } else {
+    // 解除（依頼中→未）
+    taskReviewState[tkey] = 0;
+    showToast('確認依頼を取り消しました');
+  }
+  persistTaskMeta();
+  showTab('tasks');
+  setTimeout(function(){var el=document.getElementById('acc_'+tkey);if(el)el.style.display='block';},50);
+}
+function setTaskReviewState(tkey, state){
+  // state=2: 確認済, state=3: 差戻し
+  var tc = document.getElementById('checkerComment_' + tkey);
+  if(tc) taskCheckerComment[tkey] = tc.value;
+  taskReviewState[tkey] = state;
+  // 対応者への通知
+  var parts = tkey.split('_'); var ti = parseInt(parts[parts.length-1]);
+  var caseId = parts.slice(0, parts.length-1).join('_');
+  var assignee = taskAssignee[tkey] || '';
+  if(assignee){
+    if(!caseNotes[caseId]) caseNotes[caseId] = {};
+    caseNotes[caseId].needReviewCheck = true;
+    caseNotes[caseId].askBy = assignee; // 対応者に通知
+    caseNotes[caseId].repliedBy = currentUser || '';
+    caseNotes[caseId].repliedAt = new Date().toISOString().slice(0,16).replace('T',' ');
+    caseNotes[caseId].replied = (state === 2);
+    caseNotes[caseId].taskReviewNote = (state===2?'✅ 確認済':'↩ 差戻し') + '（タスク：' + (typeof TASK_NAMES !== 'undefined' ? TASK_NAMES[ti]||'' : '') + '）' + (taskCheckerComment[tkey]?' — '+taskCheckerComment[tkey]:'');
+    _persistOneNote(caseId);
+    updateReviewBadge();
+  }
+  var msg = state===2 ? '✅ 確認済にしました' : '↩ 差戻しました';
+  showToast(msg + (assignee ? '（' + assignee + 'さんに通知）' : ''));
+  persistTaskMeta();
+  showTab('tasks');
+  setTimeout(function(){var el=document.getElementById('acc_'+tkey);if(el)el.style.display='block';},50);
+}
+function resetTaskMeta(tkey){
+  if(!confirm('このタスクの対応者・確認者・期限・急ぎ・コメントをすべてリセットしますか？')) return;
+  delete taskAssignee[tkey];
+  delete taskAssignee[tkey+'_checker'];
+  delete taskDeadline[tkey];
+  delete taskUrgent[tkey];
+  delete taskMemo[tkey];
+  delete taskAssigneeComment[tkey];
+  delete taskCheckerComment[tkey];
+  delete taskReviewState[tkey];
+  delete taskConfirm[tkey];
+  persistTaskMeta();
+  persistDocTaskStatus(tkey);
+  showToast('🔄 リセットしました');
+  showTab('tasks');
+  setTimeout(function(){var el=document.getElementById('acc_'+tkey);if(el)el.style.display='block';},50);
+}
 function toggleTaskUrgent(tkey){ taskUrgent[tkey]=!taskUrgent[tkey]; try{localStorage.setItem('ofusa_taskUrgent',JSON.stringify(taskUrgent));}catch(e){} persistTaskMeta(); persistDocTaskStatus(tkey); showTab('tasks'); setTimeout(function(){var el=document.getElementById('acc_'+tkey);if(el)el.style.display='block';},50); }
 function persistTaskMeta(){
   if(!DB_READY)return;
   try{
-    var meta={taskDeadline:taskDeadline,taskMemo:taskMemo,taskConfirm:taskConfirm,taskAssignee:taskAssignee,taskUrgent:taskUrgent,taskHandler:taskHandler};
+    var meta={taskDeadline:taskDeadline,taskMemo:taskMemo,taskConfirm:taskConfirm,taskAssignee:taskAssignee,taskUrgent:taskUrgent,taskHandler:taskHandler,taskAssigneeComment:taskAssigneeComment,taskCheckerComment:taskCheckerComment,taskReviewState:taskReviewState};
     _sb.from('settings').upsert({key:'taskMeta',value:JSON.stringify(meta)},{onConflict:'key'}).then(function(r){if(r.error)console.error('persistTaskMeta err:',r.error);});
   }catch(e){console.error('persistTaskMeta err:',e);}
 }
@@ -21806,9 +21894,41 @@ function showTab(tab) {
       h += '</select>';
       h += '</div></div>';
       h += '</div>';
-      // コメント
-      h += '<label style="font-size:10px;font-weight:700;color:var(--gray-400);display:block;margin-bottom:4px;">💬 コメント</label>';
-      h += '<textarea onchange="event.stopPropagation();saveMemo(\'' + tkey + '\',this.value)" placeholder="コメントを入力..." style="width:100%;font-size:12px;padding:8px;border:1px solid var(--gray-200);border-radius:6px;resize:vertical;min-height:50px;font-family:inherit;box-sizing:border-box;">' + esc(tMemo) + '</textarea>';
+      // 対応者コメント＋確認依頼ボタン
+      var tAssigneeComment = taskAssigneeComment[tkey] || '';
+      var tCheckerComment  = taskCheckerComment[tkey]  || '';
+      var tReviewState     = taskReviewState[tkey]     || 0;
+      // reviewState: 0=未, 1=確認依頼中, 2=確認済, 3=差戻し
+      var _rvBorder = tReviewState===1?'#f59e0b':tReviewState===2?'#16a34a':tReviewState===3?'#ef4444':'var(--gray-200)';
+      var _rvBg     = tReviewState===1?'#f59e0b':tReviewState===2?'#16a34a':tReviewState===3?'#ef4444':'white';
+      var _rvColor  = tReviewState>=1?'white':'var(--gray-400)';
+      var _rvLabel  = tReviewState===1?'📩 確認依頼中':tReviewState===2?'✅ 確認済':tReviewState===3?'↩ 差戻し':'📩 確認依頼';
+
+      h += '<div style="margin-bottom:8px;">';
+      h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">';
+      h += '<label style="font-size:10px;font-weight:700;color:#6366f1;">🙋 対応者コメント</label>';
+      h += '<button onclick="event.stopPropagation();sendTaskReviewRequest(\'' + tkey + '\')" style="padding:4px 10px;border-radius:6px;border:2px solid ' + _rvBorder + ';background:' + _rvBg + ';color:' + _rvColor + ';font-size:10px;font-weight:800;cursor:pointer;white-space:nowrap;">' + _rvLabel + '</button>';
+      h += '</div>';
+      h += '<textarea id="assigneeComment_' + tkey + '" onchange="event.stopPropagation();saveAssigneeComment(\'' + tkey + '\',this.value)" placeholder="対応内容を入力して確認依頼を送る..." style="width:100%;font-size:12px;padding:8px;border:1px solid #c7d2fe;border-radius:6px;resize:vertical;min-height:50px;font-family:inherit;box-sizing:border-box;background:#f5f3ff;">' + esc(tAssigneeComment) + '</textarea>';
+      h += '</div>';
+
+      // 確認者コメント＋確認済/差戻しボタン
+      var _ckDisabled = tReviewState === 0 ? 'opacity:0.4;pointer-events:none;' : '';
+      h += '<div style="margin-bottom:8px;' + _ckDisabled + '">';
+      h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">';
+      h += '<label style="font-size:10px;font-weight:700;color:#059669;">👁 確認者コメント</label>';
+      h += '<div style="display:flex;gap:4px;">';
+      h += '<button onclick="event.stopPropagation();setTaskReviewState(\'' + tkey + '\',2)" style="padding:4px 8px;border-radius:6px;border:2px solid #16a34a;background:' + (tReviewState===2?'#16a34a':'white') + ';color:' + (tReviewState===2?'white':'#16a34a') + ';font-size:10px;font-weight:800;cursor:pointer;">✅ 確認済</button>';
+      h += '<button onclick="event.stopPropagation();setTaskReviewState(\'' + tkey + '\',3)" style="padding:4px 8px;border-radius:6px;border:2px solid #ef4444;background:' + (tReviewState===3?'#ef4444':'white') + ';color:' + (tReviewState===3?'white':'#ef4444') + ';font-size:10px;font-weight:800;cursor:pointer;">↩ 差戻し</button>';
+      h += '</div>';
+      h += '</div>';
+      h += '<textarea id="checkerComment_' + tkey + '" onchange="event.stopPropagation();saveCheckerComment(\'' + tkey + '\',this.value)" placeholder="確認コメントを入力..." style="width:100%;font-size:12px;padding:8px;border:1px solid #a7f3d0;border-radius:6px;resize:vertical;min-height:50px;font-family:inherit;box-sizing:border-box;background:#f0fdf4;">' + esc(tCheckerComment) + '</textarea>';
+      h += '</div>';
+
+      // リセットボタン
+      h += '<div style="display:flex;justify-content:flex-end;">';
+      h += '<button onclick="event.stopPropagation();resetTaskMeta(\'' + tkey + '\')" style="font-size:10px;padding:3px 10px;border:1px solid var(--gray-200);border-radius:6px;background:white;color:var(--gray-400);cursor:pointer;">🔄 リセット</button>';
+      h += '</div>';
       h += '</div>';
       h += '</div>';
     }
@@ -33635,6 +33755,9 @@ function loadAllFromSupabase() {
             if(tm.taskHandler) taskHandler=tm.taskHandler;
             if(tm.taskDeadline){Object.keys(tm.taskDeadline).forEach(function(k){if(!taskDeadline[k])taskDeadline[k]=tm.taskDeadline[k];});}
             if(tm.taskMemo){Object.keys(tm.taskMemo).forEach(function(k){if(!taskMemo[k])taskMemo[k]=tm.taskMemo[k];});}
+            if(tm.taskAssigneeComment) taskAssigneeComment=tm.taskAssigneeComment;
+            if(tm.taskCheckerComment) taskCheckerComment=tm.taskCheckerComment;
+            if(tm.taskReviewState) taskReviewState=tm.taskReviewState;
             try{localStorage.setItem('ofusa_taskConfirm',JSON.stringify(taskConfirm));localStorage.setItem('ofusa_taskAssignee',JSON.stringify(taskAssignee));localStorage.setItem('ofusa_taskUrgent',JSON.stringify(taskUrgent));localStorage.setItem('ofusa_taskHandler',JSON.stringify(taskHandler));}catch(e){}
           }
         } catch(e) {}
