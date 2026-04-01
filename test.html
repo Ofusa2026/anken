@@ -27064,7 +27064,19 @@ function renderMailItem(m){
       h += '</div>';
       h += '<div style="font-size:12px;display:grid;gap:3px;">';
       h += '<div>' + (_gnameMatch ? '<b style="color:#16a34a;">&#9989;</b>' : '<span style="color:#94a3b8;">&#8212;</span>') + ' 申請人名: <b>' + esc(lc ? getDisplayName(lc) : m.linkedCase) + '</b></div>';
-      h += '<div>' + (_glcReceipt ? (_greceiptMatch ? '<b style="color:#16a34a;">&#9989;</b>' : '<b style="color:#f59e0b;">&#9888;</b>') : '<span style="color:#94a3b8;">&#8212;</span>') + ' 受付番号: ' + (_glcReceipt ? esc(lc.receiptNo||'') : '<span style="color:#94a3b8;">案件に未入力</span>') + '</div>';
+      var _receiptInputId = 'ri_' + m.id.replace(/[^a-z0-9]/gi,'');
+      if(_glcReceipt){
+        h += '<div>' + (_greceiptMatch ? '<b style="color:#16a34a;">&#9989;</b>' : '<b style="color:#f59e0b;">&#9888;</b>') + ' 受付番号: ' + esc(lc.receiptNo||'') + '</div>';
+      } else {
+        // 案件に未入力 → 入力欄を表示
+        var _suggested = m.caseNo || '';
+        h += '<div style="display:flex;align-items:center;gap:6px;">';
+        h += '<span style="color:#94a3b8;">&#8212;</span>';
+        h += '<span style="font-size:11px;color:#dc2626;font-weight:700;">受付番号未入力</span>';
+        h += '<input id="' + _receiptInputId + '" type="text" value="' + esc(_suggested) + '" placeholder="例：東オンＣＶ26000001" style="flex:1;font-size:11px;padding:3px 7px;border:1px solid #fca5a5;border-radius:5px;">';
+        h += '<button onclick="_saveReceiptFromMail(\'' + m.linkedCase + '\',\''+_receiptInputId+'\')" style="flex-shrink:0;font-size:10px;background:#2563eb;color:white;border:none;border-radius:5px;padding:3px 10px;cursor:pointer;font-weight:700;">転記</button>';
+        h += '</div>';
+      }
       h += '<div>' + (_glcCompany ? '<b style="color:#16a34a;">&#9989;</b>' : '<span style="color:#94a3b8;">&#8212;</span>') + ' 会社名: ' + (_glcCompany ? esc(_glcCompany) : '<span style="color:#94a3b8;">不明</span>') + '</div>';
       h += '</div>';
       if(m._autoType) h += '<div style="font-size:10px;color:#94a3b8;margin-top:4px;">&#129302; ' + m._autoType + 'で自動マッチ</div>';
@@ -27075,6 +27087,19 @@ function renderMailItem(m){
   }
   h += '</div>';
   return h;
+}
+
+function _saveReceiptFromMail(caseId, inputId) {
+  var input = document.getElementById(inputId);
+  if(!input) return;
+  var val = input.value.trim();
+  if(!val){ showToast('⚠️ 受付番号を入力してください'); return; }
+  var c = cData.find(function(x){ return x.id === caseId; });
+  if(!c){ showToast('❌ 案件が見つかりません'); return; }
+  c.receiptNo = val;
+  persistCasesToDB([c]);
+  showToast('✅ 受付番号を転記しました：' + val);
+  renderMails();
 }
 
 function selectMailsByBadge(badge, select){
