@@ -292,7 +292,6 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
 
 /* ===== DEADLINE BANNER ===== */
 /* ===== FOCUS MODE ===== */
-body.focus-mode #sidebar { display:none; }
 body.focus-mode .focus-hide { display:none !important; }
 .focus-mode-ms .milestone-step.ms-clickable { cursor:pointer; }
 .focus-mode-ms .milestone-step.ms-clickable:hover .ms-circle {
@@ -390,7 +389,7 @@ body.focus-mode .focus-hide { display:none !important; }
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.140</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.03.29.142</div>
   </div>
 
   <div class="nav-section">
@@ -1791,6 +1790,8 @@ function startFocusMode(name) {
   document.getElementById('focus-select-wrap').style.display = 'none';
   // マイルストーンを集中モード表示に
   document.getElementById('ms-track').classList.add('focus-mode-ms');
+  // 全リストを再描画（対象会社のみに絞り込み）
+  renderAll();
   // ダッシュボードに戻る
   switchPanel('dashboard', null);
   showToast('🎯 集中モード：'+name, 'info');
@@ -1966,7 +1967,7 @@ var _coSortKey = '', _coSortAsc = true, _coShowAll = false, _docShowAll = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.03.29.140%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.03.29.142%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -2322,6 +2323,8 @@ function renderCompanyTable() {
     }
     return true;
   });
+  // 集中モード: 対象会社のみ表示
+  list = _focusFilter(list);
   // ソート
   var THREE_YEAR_BASE_SORT = new Date('2023-04-01');
   if (_coSortKey) {
@@ -2429,6 +2432,10 @@ function renderForeignerTable() {
     })();
     return (!sf||normStatus(f)===sf)&&zfMatch&&(!q||[(f.nameEn||''),(f.companyName||'')].some(function(s){return s.toLowerCase().includes(q);}));
   });
+  // 集中モード: 対象会社の外国人のみ表示
+  if (focusCompany) {
+    list = list.filter(function(f){ return resolveCompanyName(f.companyName) === focusCompany.name; });
+  }
   if (!list.length) { document.getElementById('fg-table-body').innerHTML='<tr><td colspan="10"><div class="empty-state"><div class="empty-icon">👤</div><div class="empty-text">該当なし</div></div></td></tr>'; return; }
   document.getElementById('fg-table-body').innerHTML=list.map(function(f){
     var statusNorm = normStatus(f);
@@ -3917,16 +3924,8 @@ function switchPanel(id,el){
   var title = t[id]||id;
   if (focusCompany) title += '　🎯 ' + focusCompany.name;
   document.getElementById('topbar-title').textContent = title;
-  // 集中モード時：左ペインのリストを非表示、会社を自動選択
+  // 集中モード時：会社を自動選択
   if (focusCompany) {
-    var sideMap = {salary:'sal-co-list', calc:'calc-co-list', doccheck:'doc-co-list'};
-    var searchMap = {salary:'sal-co-search', calc:'calc-co-search', doccheck:'doc-co-search'};
-    Object.keys(sideMap).forEach(function(panel){
-      var listEl = document.getElementById(sideMap[panel]);
-      var searchEl = document.getElementById(searchMap[panel]);
-      if (listEl) listEl.closest('.table-wrapper') && (listEl.closest('.table-wrapper').style.display = (id===panel ? 'none' : ''));
-      if (searchEl) searchEl.style.display = (id===panel ? 'none' : '');
-    });
     if (id === 'salary') setTimeout(function(){ selectSalaryCompany(focusCompany.name); }, 60);
     if (id === 'calc')   setTimeout(function(){ selectCalcCompany(focusCompany.name); }, 60);
     if (id === 'doccheck') setTimeout(function(){ openDocCheck(focusCompany.name); }, 60);
