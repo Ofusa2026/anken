@@ -27727,6 +27727,8 @@ function renderListItems(type, data, borderColor){
     h+='</div>';
     // 申請受付番号：案件紐づきあればreceiptNo、なければd.caseNo
     var _dispCaseNo = linkedCase ? (linkedCase.receiptNo||d.caseNo||'') : (d.caseNo||'');
+    // 受付番号が案件に未転記かどうか判定（recタイプのみ）
+    var _receiptNotTransferred = (type==='rec') && linkedCase && d.caseNo && !linkedCase.receiptNo;
     // 担当者・支援機関：案件紐づきがあればそちらを優先
     var _dispStaff = linkedCase ? (linkedCase.staff||'') : '';
     var _dispOrg = linkedCase ? (linkedCase.org||linkedCase.company||d.org||'') : (d.org||'');
@@ -27749,6 +27751,10 @@ function renderListItems(type, data, borderColor){
       } else {
         h+='<button onclick="event.stopPropagation();linkListItemToCase(\''+type+'\',\''+d.id+'\')" style="flex-shrink:0;font-size:10px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:4px;padding:2px 6px;cursor:pointer;white-space:nowrap;">未紐づけ</button>';
       }
+    }
+    // 受付番号未転記バッジ（recタイプ＆紐づき案件あり＆未転記）
+    if(_receiptNotTransferred){
+      h+='<button onclick="event.stopPropagation();_transferReceiptFromRecord(\'' + d.id + '\')" style="flex-shrink:0;font-size:10px;background:#fef3c7;color:#92400e;border:1.5px solid #fcd34d;border-radius:4px;padding:2px 7px;cursor:pointer;font-weight:700;white-space:nowrap;" title="案件の受付番号欄に転記する">📋 受付番号未転記</button>';
     }
     // PDF済みバッジ
     if(d.pdfDone) h+='<span style="flex-shrink:0;font-size:10px;background:#ede9fe;color:#7c3aed;border:1px solid #c4b5fd;border-radius:4px;padding:2px 7px;font-weight:700;white-space:nowrap;">📄 PDF済</span>';
@@ -27828,6 +27834,19 @@ function _populateListFilter(staffSelId, orgSelId, listData) {
   orgSel.innerHTML='<option value="">全支援機関</option>';
   Object.keys(orgSet).sort().forEach(function(o){ var op=document.createElement('option');op.value=o;op.textContent=o.length>18?o.slice(0,18)+'…':o;if(o===curOrg)op.selected=true;orgSel.appendChild(op); });
 }
+// 申請記録から案件へ受付番号をワンクリック転記
+function _transferReceiptFromRecord(recordId) {
+  var d = receiptListData.find(function(x){ return x.id === recordId; });
+  if(!d || !d.caseId || !d.caseNo) return;
+  var c = cData.find(function(x){ return x.id === d.caseId; });
+  if(!c){ showToast('❌ 紐づき案件が見つかりません'); return; }
+  c.receiptNo = d.caseNo;
+  c.receiptDate = d.date ? d.date.slice(0,10) : '';
+  persistCasesToDB([c]);
+  showToast('✅ 受付番号を転記しました：' + esc(c.applicant||c.name||''));
+  renderRecords();
+}
+
 function renderRecords() {
   _populateListFilter('recordFilterStaff','recordFilterOrg',receiptListData);
   var q=((document.getElementById('recordSearchInput')||{}).value||'').toLowerCase();
