@@ -1256,6 +1256,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <span id="shinsaSelCount" style="font-size:11px;color:#16a34a;font-weight:600;">0件</span>
       <button onclick="listBulkReported('shinsa',true)" style="font-size:11px;padding:3px 10px;background:#d1fae5;color:#059669;border:1px solid #6ee7b7;border-radius:6px;cursor:pointer;font-weight:600;">✅ 一括対応済み</button>
       <button onclick="listBulkReported('shinsa',false)" style="font-size:11px;padding:3px 10px;background:#fef9c3;color:#92400e;border:1px solid #fde68a;border-radius:6px;cursor:pointer;font-weight:600;">⏳ 一括未対応</button>
+      <button onclick="bulkRemakePdf()" style="font-size:11px;padding:3px 10px;background:#ede9fe;color:#7c3aed;border:1px solid #c4b5fd;border-radius:6px;cursor:pointer;font-weight:600;">📄 PDF再作成</button>
       <button onclick="listBulkDelete('shinsa')" style="font-size:11px;padding:3px 10px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;cursor:pointer;font-weight:600;">🗑 一括削除</button>
     </div>
   </div>
@@ -1382,6 +1383,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <button id="reviewTabAll" onclick="reviewTab='all';renderReview()" style="font-size:12px;font-weight:700;padding:6px 16px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">全件</button>
     <button id="reviewTabCases" onclick="reviewTab='cases';renderReview()" style="font-size:12px;font-weight:700;padding:6px 16px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">案件一覧</button>
     <button id="reviewTabTasks" onclick="reviewTab='tasks';renderReview()" style="font-size:12px;font-weight:700;padding:6px 16px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">タスク一覧 <span id="reviewTasksBadge" style="background:#f97316;color:white;border-radius:99px;padding:0 5px;font-size:10px;margin-left:3px;">0</span></button>
+    <button id="reviewTabAnswerCheck" onclick="reviewTab='answerCheck';renderReview()" style="font-size:12px;font-weight:700;padding:6px 16px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">💬 回答確認 <span id="reviewAnswerCheckBadge" style="background:#e11d48;color:white;border-radius:99px;padding:0 5px;font-size:10px;margin-left:3px;display:none;">0</span></button>
     <button id="reviewTabReplied" onclick="reviewTab='replied';renderReview()" style="font-size:12px;font-weight:700;padding:6px 16px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">回答済 <span id="reviewRepliedBadge" style="background:var(--green);color:white;border-radius:99px;padding:0 5px;font-size:10px;margin-left:3px;display:none;">0</span></button>
     <button id="reviewTabMadoguchi" onclick="reviewTab='madoguchi';renderReview()" style="font-size:12px;font-weight:700;padding:6px 16px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">🏢 窓口 <span id="reviewMadoguchiB" style="background:#6366f1;color:white;border-radius:99px;padding:0 5px;font-size:10px;margin-left:3px;display:none;">0</span></button>
   </div>
@@ -5778,15 +5780,21 @@ var CELL_MAPPING_window = [
     TEMPLATE_CATEGORIES[ci].templates.push({name:bt.name, lang:'', filename:bt.filename, status:'登録済', uploadDate:ds, uploadTime:'自動'});
     tplData[ci+'_'+ti]={name:bt.filename, data:'data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,'+bt.b64};
     changed=true;
-    // Supabase Storageにもアップロード
+    // Supabase Storageにもアップロード（DB確認→未登録の場合のみ）
     if(DB_READY){
       var storagePath=sanitizeStoragePath(grpName+'/'+bt.filename);
       TEMPLATE_CATEGORIES[ci].templates[ti].storagePath=storagePath;
-      storageUploadBase64('templates',storagePath,bt.b64,'application/vnd.openxmlformats-officedocument.wordprocessingml.document',function(r,e){if(e)console.error('builtin tpl upload err:',e);});
-      _sb.from('templates').select('id').eq('storage_path',storagePath).then(function(chk){
-        if(chk.data&&chk.data.length>0)return; // 既に存在
-        _sb.from('templates').insert({group_name:grpName,name:bt.name,filename:bt.filename,lang:'',storage_path:storagePath,uploaded_by:'system'}).then(function(r){if(r.error&&r.error.code!=='23505')console.error('builtin tpl DB err:',r.error);});
-      });
+      // まずDBで存在確認し、未登録の場合のみStorageアップロード
+      (function(sp,btRef,grpNm){
+        _sb.from('templates').select('id').eq('storage_path',sp).then(function(chk){
+          if(chk.data&&chk.data.length>0) return; // 既にDB登録済み→スキップ
+          // 未登録：Storageアップロード→DB登録
+          storageUploadBase64('templates',sp,btRef.b64,'application/vnd.openxmlformats-officedocument.wordprocessingml.document',function(r,e){
+            if(e){ console.error('builtin tpl upload err:',e); return; }
+            _sb.from('templates').insert({group_name:grpNm,name:btRef.name,filename:btRef.filename,lang:'',storage_path:sp,uploaded_by:'system'}).then(function(r){if(r.error&&r.error.code!=='23505')console.error('builtin tpl DB err:',r.error);});
+          });
+        });
+      })(storagePath, bt, grpName);
     }
     // マッピングも適用
     var maps={'1-11':typeof CELL_MAPPING_111!=='undefined'?CELL_MAPPING_111:null,'1-16':typeof CELL_MAPPING_116!=='undefined'?CELL_MAPPING_116:null,'1-23':typeof CELL_MAPPING_123!=='undefined'?CELL_MAPPING_123:null,'1-25':typeof CELL_MAPPING_125!=='undefined'?CELL_MAPPING_125:null,'1-29':typeof CELL_MAPPING_129!=='undefined'?CELL_MAPPING_129:null,'窓口申請書':typeof CELL_MAPPING_window!=='undefined'?CELL_MAPPING_window:null};
@@ -5977,11 +5985,16 @@ function resolveAddrCode(addr){
 }
 function cleanAddressDetail(addr) {
   if (!addr) return '';
-  // 〒xxx-xxxx または 数字7桁 を先頭から除去
-  var s = addr.replace(/^[〒]?\s*\d{3}[-－]?\d{4}\s*/,'');
+  // 先頭の郵便番号（6〜8桁、ハイフンあり/なし）を除去
+  var s = addr.replace(/^[〒]?\s*\d{3}[-－]?\d{3,4}\s*/,'');
   // 残りから都道府県・市区町村を除去
   var sp = splitAddress(s);
   return sp.rest || s;
+}
+// 居住地用：郵便番号のみ除去し都道府県以降を全部残す
+function cleanAddressForResidence(addr) {
+  if (!addr) return '';
+  return addr.replace(/^[〒]?[\s\d\-－]+/,'');
 }
 // addressCodeが郵便番号（7桁）の場合は使わない
 function safeAddressCode(code, addr) {
@@ -9500,6 +9513,16 @@ function updateReviewBadge() {
       if((taskConfirm[tkey]||0)===1 && (taskAssignee[tkey+'_checker']||'')=== me) count++;
     }
   });
+  // 回答確認バッジ（自分が質問者でneedReviewCheck=trueのもの）
+  var acCount = 0;
+  Object.keys(caseNotes).forEach(function(id){
+    var n = caseNotes[id]; if(!n) return;
+    if((n.needConfirmCheck && (n.replyAssignee||'')=== me) || (n.needReviewCheck && (n.askBy||'')=== me)) acCount++;
+  });
+  var acBadge2=document.getElementById('reviewAnswerCheckBadge');
+  if(acBadge2){acBadge2.textContent=acCount;acBadge2.style.display=acCount?'inline':'none';}
+  // サイドバーバッジには回答確認も合算
+  count += acCount;
   var badge=document.getElementById('review-badge');
   if(badge){badge.textContent=count||'';badge.style.display=count?'inline':'none';}
   // 窓口バッジ更新
@@ -9519,7 +9542,7 @@ function renderReview() {
   var me = currentUser || '';
   var items = Object.keys(caseNotes).filter(function(id){ return caseNotes[id] && (caseNotes[id].confirm || caseNotes[id].confirmState === 1); });
   // Tab style update
-  ['Mine','All','Cases','Tasks','Replied','Madoguchi'].forEach(function(t){
+  ['Mine','All','Cases','Tasks','AnswerCheck','Replied','Madoguchi'].forEach(function(t){
     var btn=document.getElementById('reviewTab'+t);
     if(!btn) return;
     var active=(reviewTab===t.toLowerCase());
@@ -9547,6 +9570,18 @@ function renderReview() {
       if(n.replied) return false;
       // 回答依頼がタスクのステータス2（確認）から自動生成されたもの
       return true;
+    });
+  } else if (reviewTab === 'answerCheck') {
+    // 自分宛の通知を2種類まとめて表示
+    // (A) 自分がreplyAssigneeで回答確認依頼（needConfirmCheck）
+    // (B) 自分がaskByで回答済み通知（needReviewCheck）
+    filtered = [];
+    Object.keys(caseNotes).forEach(function(id){
+      var n=caseNotes[id];
+      if(!n) return;
+      var isA = n.needConfirmCheck && (n.replyAssignee===me);
+      var isB = n.needReviewCheck  && (n.askBy===me);
+      if((isA || isB) && filtered.indexOf(id)===-1) filtered.push(id);
     });
   } else if (reviewTab === 'replied') {
     filtered = items.filter(function(id){ return caseNotes[id].replied; });
@@ -9577,6 +9612,12 @@ function renderReview() {
   try{cData.forEach(function(c){if(c.status==='完了')return;for(var i=0;i<TASK_NAMES.length;i++){var tk=c.id+'_'+i;if((taskConfirm[tk]||0)===1&&(taskAssignee[tk+'_checker']||'')===me)myTaskConfirmCount++;}});}catch(e){console.error('[renderReview]',e);}
   var totalMine = mineCount + myTaskConfirmCount;
   var repliedCount = items.filter(function(id){ return caseNotes[id].replied; }).length;
+  var answerCheckCount = 0;
+  Object.keys(caseNotes).forEach(function(id){
+    var n=caseNotes[id]; if(!n) return;
+    if((n.needConfirmCheck && n.replyAssignee===me) || (n.needReviewCheck && n.askBy===me)) answerCheckCount++;
+  });
+  var acBadge=document.getElementById('reviewAnswerCheckBadge'); if(acBadge){acBadge.textContent=answerCheckCount;acBadge.style.display=answerCheckCount?'inline':'none';}
   var mb=document.getElementById('reviewMineBadge'); if(mb) mb.textContent=totalMine;
   // サイドバーバッジもmineCountと同期
   var sbBadge=document.getElementById('review-badge');
@@ -9636,10 +9677,24 @@ function renderReview() {
     if(note.taskName) h+='<div style="font-size:11px;color:#d97706;margin-top:4px;">📋 '+note.taskName+'</div>';
     if(note.text) h+='<div style="font-size:12px;margin-top:8px;padding:8px;background:var(--gray-100);border-radius:6px;">'+note.text+'</div>';
     if(note.replied && note.reply) h+='<div style="font-size:12px;margin-top:6px;padding:8px;background:#f0fdf4;border-radius:6px;border-left:3px solid var(--green);">💬 '+note.reply+(note.replyAssignee?' <small style="color:var(--gray-400);">— '+note.replyAssignee+'</small>':'')+'</div>';
+    // 回答確認タブ：種類別に表示
+    if(reviewTab==='answerCheck'){
+      var _isConfirmReq = note.needConfirmCheck && (note.replyAssignee===me); // A: 自分が確認依頼を受けた
+      var _isReplied    = note.needReviewCheck  && (note.askBy===me);          // B: 自分の質問に回答済み
+      if(_isConfirmReq){
+        h+='<div style="font-size:11px;margin-top:6px;padding:6px 10px;background:#fff7ed;border-radius:6px;border-left:3px solid #f97316;">📬 回答確認依頼が届いています'+(note.repliedBy?' — <b>'+esc(note.repliedBy)+'</b>':'')+(note.repliedAt?' <small style="color:var(--gray-400);">'+note.repliedAt+'</small>':'')+'</div>';
+      } else if(_isReplied){
+        h+='<div style="font-size:11px;margin-top:6px;padding:6px 10px;background:#f0fdf4;border-radius:6px;border-left:3px solid #16a34a;">✅ 回答済みになりました'+(note.repliedBy?' — <b>'+esc(note.repliedBy)+'</b>':'')+(note.repliedAt?' <small style="color:var(--gray-400);">'+note.repliedAt+'</small>':'')+'</div>';
+      }
+    }
     h+='<div style="display:flex;gap:6px;margin-top:8px;">';
     h+='<button onclick="openCase(this.dataset.id)" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:var(--blue);color:white;border:none;border-radius:6px;cursor:pointer;">案件を開く</button>';
-        if(note.replied){h+='<button data-action="markRepliedRead" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:var(--green);color:white;border:none;border-radius:6px;cursor:pointer;">✓ 既読にする</button>';}
-    if(!note.replied){h+='<button data-action="markConfirmDone" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;">✓ 確認済にする</button>';}
+    if(reviewTab==='answerCheck'){
+      h+='<button data-action="markAnswerChecked" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:#e11d48;color:white;border:none;border-radius:6px;cursor:pointer;">✓ 確認済にする</button>';
+    } else {
+      if(note.replied){h+='<button data-action="markRepliedRead" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:var(--green);color:white;border:none;border-radius:6px;cursor:pointer;">✓ 既読にする</button>';}
+      if(!note.replied){h+='<button data-action="markConfirmDone" data-id="'+id+'" style="font-size:12px;padding:5px 14px;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;">✓ 確認済にする</button>';}
+    }
     h+='</div></div>';
   });
   el.innerHTML=h;
@@ -9652,6 +9707,7 @@ function renderReview() {
     if(action==='openCase'){ openCase(id); }
     else if(action==='markRepliedRead'){ markRepliedRead(id); renderReview(); }
     else if(action==='markConfirmDone'){ markConfirmDone(id); }
+    else if(action==='markAnswerChecked'){ markAnswerChecked(id); renderReview(); }
   };
 }
 
@@ -17734,7 +17790,7 @@ function checkMappingFields(caseId, empSetIdx, mappingArr, onComplete) {
       }
     }
     var _dg_co = currentCase ? findCompanyByName(currentCase.company) : null;
-    if(_dg_co) persistCompanies(_dg_co.id); else persistCompanies();
+    if(_dg_co) persistCompanies(_dg_co.id); // currentCaseなし時は全件送信しない
     persistPersonData(currentCase ? currentCase.id : null);
     area.style.display='none';
     showToast('✅ データを保存しました');
@@ -17802,7 +17858,7 @@ function saveDgMissing(count, caseId, empSetIdx) {
     }
   }
   var _miss_co = currentCase ? findCompanyByName(currentCase.company) : null;
-  if(_miss_co) persistCompanies(_miss_co.id); else persistCompanies();
+  if(_miss_co) persistCompanies(_miss_co.id); // currentCaseなし時は全件送信しない
   persistPersonData(currentCase ? currentCase.id : null);
   document.getElementById('dg_missing_edit').style.display = 'none';
   showToast('✅ データを保存しました');
@@ -18342,6 +18398,27 @@ function markRepliedRead(caseId) {
   updateReviewBadge();
 }
 
+// 回答確認済みにする（種別対応）
+function markAnswerChecked(caseId) {
+  if (!caseNotes[caseId]) return;
+  var me = currentUser || '';
+  var n = caseNotes[caseId];
+  if(n.needConfirmCheck && n.replyAssignee === me){
+    // A: 自分が確認依頼を受けた → needConfirmCheckをクリア（ボタンで回答済に進む）
+    // ※ここでは「確認した」だけなのでreplyState=2へ進める
+    // 実際はreplyBtnで進めるのでここでは単純にフラグだけクリア
+    n.needConfirmCheck = false;
+  } else if(n.needReviewCheck && n.askBy === me){
+    // B: 自分の質問への回答済み通知を確認済に → 全クリア
+    n.needReviewCheck = false;
+    n.confirm = false;
+    n.confirmState = 0;
+    n.replied = false;
+  }
+  _persistOneNote(caseId);
+  updateReviewBadge();
+}
+
 // 確認事項を確認済にする（reply不要で閉じる）
 function markConfirmDone(caseId) {
   if (!caseNotes[caseId]) return;
@@ -18361,7 +18438,8 @@ function saveCaseReplyAssignee(caseId, val) {
 
 function toggleReply(caseId) {
   _skipCaseNotesRealtime = true;
-  if (!caseNotes[caseId]) caseNotes[caseId] = { text:'', confirm:false, assignee:'', reply:'', replied:false, replyAssignee:'', confirmState:0 };
+  if (!caseNotes[caseId]) caseNotes[caseId] = { text:'', confirm:false, assignee:'', reply:'', replied:false, replyAssignee:'', confirmState:0, replyState:0 };
+  // DOM値を保存
   var ta = document.getElementById('caseReply_' + caseId);
   if (ta) caseNotes[caseId].reply = ta.value;
   var asel = document.getElementById('replyAssignee_' + caseId);
@@ -18370,11 +18448,66 @@ function toggleReply(caseId) {
   if (qa) caseNotes[caseId].text = qa.value;
   var qasel = document.getElementById('noteAssignee_' + caseId);
   if (qasel) caseNotes[caseId].assignee = qasel.value;
-  caseNotes[caseId].replied = !caseNotes[caseId].replied;
+
+  // 3ステート遷移: 0→1→2
+  var cur = caseNotes[caseId].replyState || (caseNotes[caseId].replied ? 2 : (caseNotes[caseId].needReviewCheck ? 1 : 0));
+  var next = (cur >= 2) ? 2 : cur + 1;
+  caseNotes[caseId].replyState = next;
+
+  var askBy = caseNotes[caseId].askBy || '';
+  var replyTo = caseNotes[caseId].replyAssignee || ''; // 回答先（中谷など）
+  var now = new Date().toISOString().slice(0,16).replace('T',' ');
+
+  if(next === 1) {
+    // 回答→「回答確認依頼」：回答先（replyAssignee=中谷）の確認事項に通知
+    caseNotes[caseId].replied = false;
+    caseNotes[caseId].needReviewCheck = false; // askByへの通知はまだ立てない
+    caseNotes[caseId].needConfirmCheck = true;  // replyAssignee（中谷）への通知フラグ
+    caseNotes[caseId].repliedBy = currentUser || '';
+    caseNotes[caseId].repliedAt = now;
+    showToast('📬 回答確認依頼を送りました' + (replyTo ? '（' + replyTo + 'さんに通知）' : ''));
+  } else if(next === 2) {
+    // 「回答確認依頼」→「回答済」：質問者（askBy=亀谷）に回答済み通知
+    caseNotes[caseId].replied = true;
+    caseNotes[caseId].needConfirmCheck = false; // 自分（中谷）の通知をクリア
+    caseNotes[caseId].needReviewCheck = true;   // askBy（亀谷）への回答済み通知
+    caseNotes[caseId].repliedBy = currentUser || '';
+    caseNotes[caseId].repliedAt = now;
+    showToast('✅ 回答済みにしました' + (askBy ? '（' + askBy + 'さんに通知）' : ''));
+  }
+
+  _persistOneNote(caseId);
+  updateReviewBadge();
+  // ボタン表示を即時更新
+  var _rBtnBorder = next===2?'var(--green)':next===1?'#f97316':'var(--gray-200)';
+  var _rBtnBg     = next===2?'var(--green)':next===1?'#f97316':'white';
+  var _rBtnColor  = next>=1?'white':'var(--gray-400)';
+  var _rBtnLabel  = next===2?'✓ 回答済':next===1?'📬 回答確認依頼':'回答';
+  var btn = document.getElementById('replyBtn_' + caseId);
+  if(btn){ btn.style.borderColor=_rBtnBorder; btn.style.background=_rBtnBg; btn.style.color=_rBtnColor; btn.textContent=_rBtnLabel; }
+  setTimeout(function(){ _skipCaseNotesRealtime = false; }, 2000);
+}
+
+// 質問・回答・フラグを全クリア（質問者がリセットする）
+function resetNoteAndReply(caseId) {
+  if(!confirm('質問・回答の内容をすべてリセットしますか？')) return;
+  if (!caseNotes[caseId]) caseNotes[caseId] = {};
+  caseNotes[caseId].text = '';
+  caseNotes[caseId].assignee = '';
+  caseNotes[caseId].reply = '';
+  caseNotes[caseId].replyAssignee = '';
+  caseNotes[caseId].replied = false;
+  caseNotes[caseId].confirm = false;
+  caseNotes[caseId].confirmState = 0;
+  caseNotes[caseId].replyState = 0;
+  caseNotes[caseId].needReviewCheck = false;
+  caseNotes[caseId].askBy = '';
+  caseNotes[caseId].repliedBy = '';
+  caseNotes[caseId].repliedAt = '';
   _persistOneNote(caseId);
   updateReviewBadge();
   showTab('info');
-  setTimeout(function(){ _skipCaseNotesRealtime = false; }, 2000);
+  showToast('🔄 リセットしました');
 }
 
 function toggleNoteConfirm(caseId) {
@@ -18393,6 +18526,8 @@ function toggleNoteConfirm(caseId) {
   var next = (cur + 1) % 3;
   caseNotes[caseId].confirmState = next;
   caseNotes[caseId].confirm = (next === 1);
+  // 確認依頼時に質問者を記録
+  if(next === 1) caseNotes[caseId].askBy = currentUser || '';
   _persistOneNote(caseId);
   updateReviewBadge();
   // ボタンの表示だけ更新（タブ切り替え不要）
@@ -19090,6 +19225,67 @@ function shinsaSelectAll(checked){
   });
   updateShinsaBulkBar();
 }
+// PDF再作成（単体）
+function remakePdf(itemId) {
+  var d = shinsaListData.find(function(x){ return x.id === itemId; });
+  if(!d){ showToast('⚠️ データが見つかりません'); return; }
+  if(!confirm('"' + (d.name||'') + '" のPDFを再作成しますか？')) return;
+  _doRemakePdf([d], function(ok, err){
+    showToast(ok ? '✅ PDF再作成完了' : ('⚠️ PDF再作成失敗: ' + err));
+  });
+}
+// PDF再作成（一括）
+function bulkRemakePdf() {
+  var selIds = Object.keys(shinsaSel).filter(function(k){ return shinsaSel[k]; });
+  if(!selIds.length){ showToast('⚠️ チェックされている案件がありません'); return; }
+  var targets = shinsaListData.filter(function(d){ return !!shinsaSel[d.id]; });
+  if(!confirm(targets.length + '件のPDFを再作成しますか？')) return;
+  var done = 0, okCount = 0, errCount = 0;
+  showToast('📄 PDF再作成中... (0/' + targets.length + ')');
+  function next(i) {
+    if(i >= targets.length) {
+      showToast('✅ PDF再作成完了: ' + okCount + '件 / エラー: ' + errCount + '件');
+      renderShinsaList();
+      return;
+    }
+    _doRemakePdf([targets[i]], function(ok) {
+      if(ok) okCount++; else errCount++;
+      done++;
+      showToast('📄 PDF再作成中... (' + done + '/' + targets.length + ')');
+      setTimeout(function(){ next(i + 1); }, 500);
+    });
+  }
+  next(0);
+}
+// PDF再作成の実処理（GAS経由）
+function _doRemakePdf(items, callback) {
+  var item = items[0];
+  var linkedCase = item.caseId ? cData.find(function(c){ return c.id === item.caseId; }) : null;
+  var mForGAS = {
+    id: item.id,
+    badge: '審査完了',
+    name: item.name || '',
+    caseNo: (linkedCase ? (linkedCase.receiptNo || '') : '') || item.caseNo || '',
+    skipPdf: false
+  };
+  var timeout = new Promise(function(res){ setTimeout(function(){ res({status:'error',message:'タイムアウト'}); }, 50000); });
+  Promise.race([gasGmailPost('importMail', mForGAS), timeout])
+    .then(function(result){
+      if(result && result.status === 'ok'){
+        item.pdfDone = true;
+        persistShinsaList(item.id);
+        if(callback) callback(true);
+      } else {
+        console.error('remakePdf error:', result);
+        if(callback) callback(false, (result&&result.message)||JSON.stringify(result));
+      }
+    })
+    .catch(function(e){
+      console.error('remakePdf exception:', e);
+      if(callback) callback(false, e.message||String(e));
+    });
+}
+
 function updateShinsaBulkBar(){
   var count=0;
   document.querySelectorAll('.shinsa-cb').forEach(function(cb){
@@ -20643,6 +20839,12 @@ function showTab(tab) {
     var noteAssignee= (caseNotes[c.id] || {}).assignee || '';
     var noteReply   = (caseNotes[c.id] || {}).reply    || '';
     var noteReplied = (caseNotes[c.id] || {}).replied  || false;
+    var noteNeedCheck = (caseNotes[c.id] || {}).needReviewCheck || false;
+    // 回答ボタンのステート
+    // 0: 未回答（「回答」）
+    // 1: 回答確認依頼中（「回答確認依頼」）→ replied=false, needReviewCheck=true
+    // 2: 回答済（「✓ 回答済」）→ replied=true
+    var replyState = noteReplied ? 2 : (noteNeedCheck ? 1 : 0);
     var ncBorder=noteConfirmState===1?'#f59e0b':noteConfirmState===2?'var(--green)':'var(--gray-200)';
     var ncBg=noteConfirmState===1?'#f59e0b':noteConfirmState===2?'var(--green)':'white';
     var ncColor=noteConfirmState>=1?'white':'var(--gray-400)';
@@ -20672,7 +20874,15 @@ function showTab(tab) {
     h += '</select></div>';
     h += '<div style="display:flex;gap:8px;align-items:flex-start;">';
     h += '<textarea id="caseReply_' + c.id + '" oninput="saveCaseReply(\'' + c.id + '\')" style="flex:1;padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;resize:vertical;min-height:44px;font-family:inherit;" placeholder="回答を入力...">' + esc(noteReply) + '</textarea>';
-    h += '<button id="replyBtn_' + c.id + '" onclick="toggleReply(\'' + c.id + '\')" style="padding:6px 10px;border-radius:8px;border:2px solid ' + (noteReplied?'var(--green)':'var(--gray-200)') + ';background:' + (noteReplied?'var(--green)':'white') + ';color:' + (noteReplied?'white':'var(--gray-400)') + ';font-size:11px;font-weight:800;cursor:pointer;flex-shrink:0;">' + (noteReplied?'✓ 回答済':'回答') + '</button>';
+    // 回答ボタン（3ステート）
+    var _rBtnBorder = replyState===2?'var(--green)':replyState===1?'#f97316':'var(--gray-200)';
+    var _rBtnBg     = replyState===2?'var(--green)':replyState===1?'#f97316':'white';
+    var _rBtnColor  = replyState>=1?'white':'var(--gray-400)';
+    var _rBtnLabel  = replyState===2?'✓ 回答済':replyState===1?'📬 回答確認依頼':'回答';
+    h += '<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;">';
+    h += '<button id="replyBtn_' + c.id + '" onclick="toggleReply(\'' + c.id + '\')" style="padding:6px 10px;border-radius:8px;border:2px solid ' + _rBtnBorder + ';background:' + _rBtnBg + ';color:' + _rBtnColor + ';font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;">' + _rBtnLabel + '</button>';
+    h += '<button onclick="resetNoteAndReply(\'' + c.id + '\')" style="padding:4px 6px;border-radius:6px;border:1px solid var(--gray-200);background:white;color:var(--gray-400);font-size:10px;cursor:pointer;white-space:nowrap;">🔄 リセット</button>';
+    h += '</div>';
     h += '</div></div></div>';
     // 進捗バー
     h += '<div style="margin-bottom:12px;padding:10px 14px;background:white;border-radius:10px;border:1.5px solid var(--gray-200);">';
@@ -26612,7 +26822,8 @@ function listBulkDelete(type){
     });
   }
   for(var k in cfg.sel) delete cfg.sel[k];
-  cfg.persist();
+  // DB削除は上で個別実行済み→localStorage更新のみ
+  try{localStorage.setItem(type==='rec'?'ofusa_receiptList':type==='shinsa'?'ofusa_shinsaList':'ofusa_certList', JSON.stringify(cfg.data));}catch(e){}
   updateListSelBar(type);
   cfg.render();
   showToast('🗑 '+n+'件を削除しました');
@@ -26656,7 +26867,8 @@ function listDeleteItem(type,id){
   if(type==='shinsa') shinsaListData=shinsaListData.filter(function(d){return d.id!==id;});
   if(type==='cert') certListData=certListData.filter(function(d){return d.id!==id;});
   delete cfg.sel[id];
-  cfg.persist();
+  // DB削除は下で個別実行→localStorage更新のみ
+  try{localStorage.setItem(type==='rec'?'ofusa_receiptList':type==='shinsa'?'ofusa_shinsaList':'ofusa_certList', JSON.stringify(cfg.data));}catch(e){}
   // 専用テーブルからも削除
   if(DB_READY){
     var tbl = type==='rec'?'receipt_archive':type==='shinsa'?'shinsa_archive':'cert_archive';
@@ -27008,6 +27220,8 @@ function renderListItems(type, data, borderColor){
     }
     // PDF済みバッジ
     if(d.pdfDone) h+='<span style="flex-shrink:0;font-size:10px;background:#ede9fe;color:#7c3aed;border:1px solid #c4b5fd;border-radius:4px;padding:2px 7px;font-weight:700;white-space:nowrap;">📄 PDF済</span>';
+    // PDF再作成ボタン（審査完了のみ）
+    if(type==='shinsa') h+='<button onclick="event.stopPropagation();remakePdf(\'' + d.id + '\')" title="PDF再作成" style="flex-shrink:0;font-size:10px;background:#f5f3ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:4px;padding:2px 6px;cursor:pointer;white-space:nowrap;">📄 再作成</button>';
     h+='<button onclick="event.stopPropagation();toggleReported(\''+type+'\',\''+d.id+'\')" title="'+(isReported?'対応済み（クリックで解除）':'未対応（クリックで対応済みにする）')+'" style="flex-shrink:0;font-size:10px;background:'+(isReported?'#d1fae5':'#fef9c3')+';color:'+(isReported?'#059669':'#92400e')+';border:1px solid '+(isReported?'#6ee7b7':'#fde68a')+';border-radius:4px;padding:2px 7px;cursor:pointer;font-weight:700;white-space:nowrap;">'+(isReported?'✅ 対応済':'⏳ 未対応')+'</button>';
     h+='<button onclick="event.stopPropagation();listEditItem(\''+type+'\',\''+d.id+'\')" style="flex-shrink:0;font-size:10px;background:#eff6ff;color:#2563eb;border:none;border-radius:4px;padding:2px 6px;cursor:pointer;">✏️</button>';
     if(type==='rec'){
@@ -30982,8 +31196,16 @@ function exportCOEcsv(){
   D[7] = p.spouse==='有'?'1':p.spouse==='無'?'0':''; // 1=有,0=無
   D[8] = p.occupation||'会社員'; // 職業
   D[9] = p.homeCountryAddress||p.birthPlace||''; // 本国住所（出生地と同じ）
-  D[10] = safeAddressCode(p.addressCode, p.address); // 住所コード（市区町村6桁）
-  D[11] = p.jpDetailAddress||cleanAddressDetail(p.address)||''; // 番地以降
+  D[10] = safeAddressCode(p.addressCode, p.address) || safeAddressCode(co.addressCode, (co.pref||'')+(co.city||'')+(co.address||'')); // 住所コード（市区町村6桁）、人材データになければ所属機関から
+  // 9.2 日本における連絡先 居住地：都道府県＋市区町村＋番地を結合（85文字以内・全角）
+  var _jpAddr = '';
+  if(p.jpDetailAddress){ _jpAddr = cleanAddressForResidence(p.jpDetailAddress); }
+  else if(p.address){ _jpAddr = cleanAddressForResidence(p.address); }
+  else {
+    var _coAddrFull = (co.pref||'')+(co.city||'')+(co.address||'');
+    _jpAddr = cleanAddressForResidence(_coAddrFull);
+  }
+  D[11] = _jpAddr; // 居住地（都道府県＋市区町村＋番地）
   D[12] = p.telNum||p.phone||co.tel||''; // 電話番号（所属機関TELにフォールバック）
   D[13] = p.celPhone||''; // 携帯電話
   D[14] = 'mail@gyosei-cambo.com'; // 利用者メール（固定）
