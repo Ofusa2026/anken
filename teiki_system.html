@@ -490,7 +490,7 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
             <input type="text" class="input" placeholder="会社名で検索..." id="co-search" oninput="renderCompanyTable()">
           </div>
           <div class="table-actions">
-            <select class="input btn-sm" style="width:auto" id="co-status-filter" onchange="renderCompanyTable()">
+            <select class="input btn-sm" style="width:auto;font-size:10px;padding:2px 6px;height:24px" id="co-status-filter" onchange="renderCompanyTable()">
               <option value="">全ステータス</option>
               <option value="未着手">未着手</option>
               <option value="案内送信済み">案内送信済み</option>
@@ -503,26 +503,32 @@ select.input { cursor:pointer; background-image:url("data:image/svg+xml,%3Csvg x
               <option value="企業側対応">企業側対応</option>
               <option value="対象外">対象外</option>
             </select>
-            <select class="input btn-sm" style="width:auto" id="co-kijun2-filter" onchange="renderCompanyTable()">
+            <select class="input btn-sm" style="width:auto;font-size:10px;padding:2px 6px;height:24px" id="co-kijun2-filter" onchange="renderCompanyTable()">
               <option value="">電子届出：全て</option>
               <option value="ok">✓ 電子</option>
               <option value="ng">✗ 郵送</option>
               <option value="unset">未設定</option>
             </select>
-            <select class="input btn-sm" style="width:auto" id="co-kijun-filter" onchange="renderCompanyTable()">
+            <select class="input btn-sm" style="width:auto;font-size:10px;padding:2px 6px;height:24px" id="co-kijun-filter" onchange="renderCompanyTable()">
               <option value="">一定の基準：全て</option>
               <option value="ok">基準該当</option>
               <option value="ng">非該当</option>
             </select>
-            <select class="input btn-sm" style="width:auto" id="co-3yr-filter" onchange="renderCompanyTable()">
+            <select class="input btn-sm" style="width:auto;font-size:10px;padding:2px 6px;height:24px" id="co-3yr-filter" onchange="renderCompanyTable()">
               <option value="">3年雇用：全て</option>
               <option value="ok">⭕️ あり</option>
               <option value="ng">❌ なし</option>
             </select>
             <button class="btn btn-secondary btn-sm" onclick="openImportModal()">📥 インポート</button>
             <button class="btn btn-secondary btn-sm" onclick="bulkUpdateKijunExp()" title="全社の3年雇用実績を一括判定してスプシに保存">⚡ 3年雇用一括判定</button>
-            <button class="btn btn-secondary btn-sm" onclick="exportKijunCsv('ok')">📥 基準該当CSV</button>
-            <button class="btn btn-secondary btn-sm" onclick="exportKijunCsv('ng')">📥 非該当CSV</button>
+            <select class="input btn-sm" style="width:auto;font-size:10px;padding:2px 6px;height:24px" onchange="if(this.value){exportKijunCsv(this.value);this.value=''}">
+              <option value="">📥 CSV出力...</option>
+              <option value="ok">基準該当企業</option>
+              <option value="ng">基準非該当企業</option>
+              <option value="target">届出対象企業</option>
+              <option value="nontarget">届出非対象企業（支援終了・対象外）</option>
+              <option value="corp">届出企業側対応企業</option>
+            </select>
             <button id="btn-show-all-co" onclick="toggleShowAllCo()" style="font-size:10px;padding:2px 7px;border:1px solid var(--border2);background:var(--bg3);color:var(--text3);border-radius:5px;cursor:pointer;white-space:nowrap">全企業</button>
             <button class="btn btn-primary btn-sm" onclick="openModal('modal-company-add')">＋ 追加</button>
           </div>
@@ -1845,25 +1851,56 @@ async function bulkUpdateKijunExp() {
   showToast('一括判定完了：' + updated + '社更新、' + skipped + '社変更なし', 'success');
 }
 function exportKijunCsv(type) {
-  var rows = companies.filter(function(c){
-    if (c.status === '支援終了' || c.status === '企業側対応' || c.status === '対象外') return false;
-    var kr = c.kijun_result || calcKijunResult(c);
-    var isOk = kr && kr !== '非該当';
-    return type === 'ok' ? isOk : !isOk;
-  });
-  if (!rows.length) { showToast('該当する会社がありません', 'warn'); return; }
   var q = function(v){ return '"' + String(v||'').replace(/"/g, '""') + '"'; };
-  var lines = ['\uFEFF会社名,基準該当性,該当内容'];
+  var INACTIVE = ['支援終了','対象外','企業側対応'];
+  var rows;
+  var filename;
+  if (type === 'ok') {
+    // 基準該当企業（支援終了等を除く）
+    rows = companies.filter(function(c){
+      if (INACTIVE.indexOf(c.status) >= 0) return false;
+      var kr = c.kijun_result || calcKijunResult(c);
+      return kr && kr !== '非該当';
+    });
+    filename = '基準該当企業_一覧.csv';
+  } else if (type === 'ng') {
+    // 基準非該当企業（支援終了等を除く）
+    rows = companies.filter(function(c){
+      if (INACTIVE.indexOf(c.status) >= 0) return false;
+      var kr = c.kijun_result || calcKijunResult(c);
+      return !kr || kr === '非該当';
+    });
+    filename = '基準非該当企業_一覧.csv';
+  } else if (type === 'target') {
+    // 届出対象企業（支援終了・対象外・企業側対応を除く全社）
+    rows = companies.filter(function(c){ return INACTIVE.indexOf(c.status) < 0; });
+    filename = '届出対象企業_一覧.csv';
+  } else if (type === 'nontarget') {
+    // 届出非対象企業（支援終了・対象外）
+    rows = companies.filter(function(c){
+      return c.status === '支援終了' || c.status === '対象外';
+    });
+    filename = '届出非対象企業_一覧.csv';
+  } else if (type === 'corp') {
+    // 届出企業側対応企業
+    rows = companies.filter(function(c){ return c.status === '企業側対応'; });
+    filename = '届出企業側対応企業_一覧.csv';
+  } else {
+    return;
+  }
+  if (!rows.length) { showToast('該当する会社がありません', 'warn'); return; }
+  var lines = ['\uFEFF会社名,ステータス,基準該当性,該当内容,電子届出'];
   rows.forEach(function(c){
     var kr = c.kijun_result || calcKijunResult(c);
     var isOk = kr && kr !== '非該当';
     var detail = (isOk && c.kijun_3_type && c.kijun_3_type !== 'なし') ? c.kijun_3_type : '';
-    lines.push([q(c.name), q(isOk ? '基準該当' : '非該当'), q(detail)].join(','));
+    var kijun2 = c.kijun_2 === 'ok' ? '電子' : c.kijun_2 === 'ng' ? '郵送' : '';
+    lines.push([q(c.name), q(c.status||''), q(isOk ? '基準該当' : '非該当'), q(detail), q(kijun2)].join(','));
   });
   var blob = new Blob([lines.join('\r\n')], {type:'text/csv;charset=utf-8'});
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = (type==='ok' ? '基準該当' : '非該当') + '_一覧.csv';
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
 }
