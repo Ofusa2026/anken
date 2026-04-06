@@ -509,7 +509,7 @@ body.focus-mode .focus-hide { display:none !important; }
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.04.06.02</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.04.06.03</div>
   </div>
 
   <div class="nav-section">
@@ -1260,7 +1260,10 @@ body.focus-mode .focus-hide { display:none !important; }
               </div>
               <div id="kessan-ocr-status" style="margin-top:8px;font-size:11px;color:var(--blue);display:none"></div>
             </div>
-            <div style="font-size:11px;color:var(--text3);margin-bottom:8px">単位：円　※マイナスの場合は先頭に「-」を入力</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div style="font-size:11px;color:var(--text3)">単位：円　※マイナスの場合は先頭に「-」を入力</div>
+              <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="openKessanTextImport()">📋 テキスト取込</button>
+            </div>
             <table style="width:100%;font-size:11px;border-collapse:collapse">
               <thead>
                 <tr>
@@ -2229,7 +2232,7 @@ var _coSortKey = '', _coSortAsc = true, _coShowAll = false, _docShowAll = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.04.06.02%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.04.06.03%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -3303,6 +3306,60 @@ function insertMailTemplate(key) {
   ta.value = cur ? cur + '\n\n' + tpl : tpl;
   ta.dispatchEvent(new Event('input'));
 }
+
+// 財務情報テキスト取込
+function openKessanTextImport() {
+  var ex = document.getElementById('modal-kessan-text');
+  if (ex) ex.remove();
+  var modal = document.createElement('div');
+  modal.id = 'modal-kessan-text';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center';
+  modal.innerHTML =
+    '<div style="background:#fff;border-radius:12px;padding:0;max-width:520px;width:95%;box-shadow:0 8px 32px rgba(0,0,0,.2);display:flex;flex-direction:column">' +
+    '<div style="padding:14px 20px;border-bottom:1px solid var(--border);font-weight:700;font-size:14px">📋 財務情報テキスト取込</div>' +
+    '<div style="padding:14px 20px">' +
+      '<div style="font-size:11px;color:var(--text3);margin-bottom:8px">以下の形式で貼り付けてください（タブ区切り、前年/前々年/前々々年の順）：</div>' +
+      '<div style="font-size:11px;background:var(--bg3);padding:8px;border-radius:6px;font-family:monospace;margin-bottom:10px;white-space:pre">売上高	前年	前々年	前々々年
+経常損益	前年	前々年	前々々年
+純損益	前年	前々年	前々々年
+純資産	前年	前々年	前々々年</div>' +
+      '<textarea id="kessan-text-area" style="width:100%;height:120px;font-size:12px;font-family:monospace;padding:8px;border:1px solid var(--border);border-radius:6px;resize:vertical" placeholder="ここにテキストを貼り付け..."></textarea>' +
+    '</div>' +
+    '<div style="padding:10px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">' +
+      '<button id="kessan-text-cancel" class="btn btn-secondary">キャンセル</button>' +
+      '<button id="kessan-text-confirm" class="btn btn-primary">✅ 反映</button>' +
+    '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+  modal.querySelector('#kessan-text-cancel').onclick = function(){ modal.remove(); };
+  modal.querySelector('#kessan-text-confirm').onclick = function() {
+    var text = document.getElementById('kessan-text-area').value.trim();
+    if (!text) { showToast('テキストを貼り付けてください', 'warn'); return; }
+    applyKessanText(text);
+    modal.remove();
+  };
+}
+
+function applyKessanText(text) {
+  var keyMap = {'売上高':'salesY','経常損益':'ordinaryPLY','純損益':'netPLY','純資産':'netAssetsY'};
+  var lines = text.split(/\n/).map(function(l){ return l.trim(); }).filter(Boolean);
+  var applied = 0;
+  lines.forEach(function(line) {
+    var cols = line.split(/\t/);
+    if (cols.length < 2) return;
+    var label = cols[0].trim();
+    var key = keyMap[label];
+    if (!key) return;
+    [1,2,3].forEach(function(i) {
+      var val = (cols[i]||'').trim().replace(/,/g,'');
+      var el = document.getElementById('co-' + key + i);
+      if (el && val !== '') { el.value = val; applied++; }
+    });
+  });
+  if (applied > 0) showToast('財務情報を反映しました（' + applied + '項目）✅', 'success');
+  else showToast('反映できる項目がありませんでした', 'warn');
+}
+
 function autoCalcRaiseRate(nameEn, coName, yearKey, fid) {
   // 前年度キー: prev→prev2, prev2→なし（prev2は前年度なので前々年度データが必要→未対応）
   var prevKey = yearKey === 'prev' ? 'prev2' : null;
