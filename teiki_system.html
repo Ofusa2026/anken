@@ -509,7 +509,7 @@ body.focus-mode .focus-hide { display:none !important; }
     <div class="logo-badge"><span>KMT</span></div>
     <div class="sidebar-title">定期届出<br>管理システム</div>
     <div class="sidebar-sub">2025年度 対象</div>
-    <div class="sidebar-ver" id="sidebar-ver">v2026.04.02.204</div>
+    <div class="sidebar-ver" id="sidebar-ver">v2026.04.02.205</div>
   </div>
 
   <div class="nav-section">
@@ -2226,7 +2226,7 @@ var _coSortKey = '', _coSortAsc = true, _coShowAll = false, _docShowAll = false;
 
 document.addEventListener('DOMContentLoaded', function() {
   loadSettings(); calcDeadline();
-  console.log('%c定期届出管理システム v2026.04.02.204%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
+  console.log('%c定期届出管理システム v2026.04.02.205%c | companies:'+companies.length+' foreigners:'+foreigners.length, 'background:#1e3a5f;color:#fff;padding:2px 8px;border-radius:3px;font-weight:bold','color:#64748b');
   if (GAS_URL) loadAllData();
   else { showToast('設定画面でGAS URLを入力してください','warn'); switchPanel('settings',document.querySelector('[data-panel=settings]')); }
 });
@@ -5055,13 +5055,14 @@ function parseSalaryText(text) {
     var idx = text.indexOf(label);
     if (idx < 0) return null;
     var segment = text.slice(idx + label.length, idx + label.length + 600).split('\n')[0];
-    // HH:MM形式（例: 1938:00, 33:30）を先に検出して時間に変換
-    var timeMatch = segment.match(/(\d+):([0-5]\d)(?!\d)/);
-    if (timeMatch) {
-      var hours = parseInt(timeMatch[1]);
-      var mins  = parseInt(timeMatch[2]);
-      var val = Math.round((hours + mins / 60) * 10) / 10;
-      return isInt ? Math.round(val) : val;
+    // HH:MM形式（例: 1938:00, 33:30）を先に検出して時間に変換（金額フィールドは除外）
+    if (!isInt) {
+      var timeMatch = segment.match(/(\d+):([0-5]\d)(?!\d)/);
+      if (timeMatch) {
+        var hours = parseInt(timeMatch[1]);
+        var mins  = parseInt(timeMatch[2]);
+        return Math.round((hours + mins / 60) * 10) / 10;
+      }
     }
     var nums = segment.match(/[\d,]+\.?\d*/g) || [];
     var vals = nums.map(function(n){ return parseFloat(n.replace(/,/g,'')); }).filter(function(v){ return v > 0; });
@@ -5086,8 +5087,14 @@ function parseSalaryText(text) {
   var residentTax  = getTotal('住民税(控除)', true) || getTotal('住民税', true) || 0;
   var deductTaxAmt = socialIns + incomeTax + residentTax;
   var deductTotalAmt = getTotal('控除合計', true) || 0;
-  var deductOtherAmt = deductTotalAmt - deductFood - deductHousing - deductTaxAmt;
-  if (deductOtherAmt < 0) deductOtherAmt = 0;
+  // deductOtherは通常0（住宅費・食費・税社保以外の控除）
+  var deductOtherAmt = Math.max(0, deductTotalAmt - deductFood - deductHousing - deductTaxAmt);
+  // 住宅費が取れていない場合、deductOtherが住宅費相当になってしまうので上限を設ける
+  if (deductHousing === 0 && deductOtherAmt > 0) {
+    // 住宅費として使う（控除合計 - 税社保 - 食費 の残りを住宅費とみなす）
+    deductHousing = deductOtherAmt;
+    deductOtherAmt = 0;
+  }
 
   var data = {
     workDays:            getTotal('出勤日数（平日）', false) || getTotal('実労働日数', false) || getTotal('出勤基礎日数', false),
