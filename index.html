@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260407.02</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260407.03</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2334,7 +2334,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260407.02';
+var OFUSA_VERSION = 'ver.20260407.03';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -25461,8 +25461,9 @@ function openRequiredDocsCoEditor(fieldKey) {
   inner.style.cssText = 'background:white;border-radius:14px;width:100%;max-width:480px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;';
   modal.appendChild(inner);
   document.body.appendChild(modal);
-  window._reqDocsCoMode = fieldKey ? 'field' : 'base';
-  window._reqDocsCoFieldKey = fieldKey || null;
+  // 毎回 base（共通書類）からスタート。前セッションの状態を引き継がない。
+  window._reqDocsCoMode = 'base';
+  window._reqDocsCoFieldKey = null;
   _renderReqDocsCoModal(inner);
 }
 
@@ -25470,30 +25471,47 @@ function openRequiredDocsCoEditor(fieldKey) {
 function _renderReqDocsCoModal(inner) {
   var mode = window._reqDocsCoMode || 'base';
   var fieldKey = window._reqDocsCoFieldKey || null;
-  // 共通書類タブはRQUIRED_DOCS_CO（中小企業基準）を編集。分野タブはその分野の追加書類を編集。
-  var docs = (mode === 'field' && fieldKey) ? (REQUIRED_DOCS_CO_FIELD[fieldKey]||[]) : REQUIRED_DOCS_CO;
+  var isField = (mode === 'field' && !!fieldKey);
+  var docs = isField ? (REQUIRED_DOCS_CO_FIELD[fieldKey]||[]) : REQUIRED_DOCS_CO;
   var h = '';
-  // ヘッダ
+
+  // ─ ヘッダ ─
   h += '<div style="padding:14px 16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">';
   h += '<div style="font-size:14px;font-weight:800;">📋 所属機関 書類リスト編集</div>';
   h += '<button onclick="_saveReqDocsCoAndClose()" style="padding:5px 14px;background:#7c3aed;color:white;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;">💾 保存して閉じる</button>';
   h += '</div>';
-  // カテゴリタブ（分野のみ。大企業/中小企業/個人事業主はカテゴリーで管理するためタブ不要）
-  h += '<div style="padding:8px 12px;border-bottom:1px solid #f3f4f6;">';
-  h += '<div style="font-size:10px;color:#9ca3af;margin-bottom:6px;">📋 現在のリスト: ' + (mode==='field' && fieldKey ? '【'+fieldKey+'】分野追加書類' : '共通書類（カテゴリー連動）') + '</div>';
-  h += '<div style="display:flex;gap:4px;flex-wrap:wrap;">';
-  // 共通ボタン
-  h += '<button onclick="window._reqDocsCoMode=\'base\';window._reqDocsCoFieldKey=null;var _m=document.querySelector(\'#reqDocsCoModal>div\');if(_m)_renderReqDocsCoModal(_m)" style="font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid '+(mode==='base'||mode==='large'||mode==='kojin'?'#2563eb':'#e5e7eb')+';background:'+(mode==='base'||mode==='large'||mode==='kojin'?'#eff6ff':'white')+';color:'+(mode==='base'||mode==='large'||mode==='kojin'?'#2563eb':'#6b7280')+';cursor:pointer;font-weight:700;">📋 共通書類</button>';
-  // 分野タブ
-  Object.keys(REQUIRED_DOCS_CO_FIELD).forEach(function(fk){
-    var isActive = mode==='field' && fieldKey===fk;
-    h += '<button onclick="window._reqDocsCoMode=\'field\';window._reqDocsCoFieldKey=\''+fk+'\';var _m=document.querySelector(\'#reqDocsCoModal>div\');if(_m)_renderReqDocsCoModal(_m)" style="font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid '+(isActive?'#7c3aed':'#e5e7eb')+';background:'+(isActive?'#ede9fe':'white')+';color:'+(isActive?'#7c3aed':'#6b7280')+';cursor:pointer;font-weight:700;">🏭 '+fk+'</button>';
-  });
-  h += '<button onclick="_addCoFieldKeyPrompt()" style="font-size:10px;padding:3px 8px;border-radius:5px;border:1px solid #e5e7eb;background:white;color:#6b7280;cursor:pointer;font-weight:700;">＋ 分野追加</button>';
-  h += '</div></div>';
-  h += '<div style="font-size:10px;color:#6b7280;padding:6px 16px;">☰ ドラッグで並び替え　クリックで名前編集　✕ で削除</div>';
-  // リスト
-  h += '<div id="reqDocsSortList" style="flex:1;overflow-y:auto;padding:8px 12px;">';
+
+  // ─ セクション切り替えタブ ─
+  // 「📋 共通書類」と「🏭 分野別追加書類（各分野）」を明確に別セクションで表示
+  h += '<div style="border-bottom:1px solid #e5e7eb;">';
+  // セクションラベル
+  h += '<div style="display:flex;border-bottom:2px solid #f3f4f6;">';
+  h += '<button onclick="window._reqDocsCoMode=\'base\';window._reqDocsCoFieldKey=null;var _m=document.querySelector(\'#reqDocsCoModal>div\');if(_m)_renderReqDocsCoModal(_m)"'
+    + ' style="flex:1;padding:8px;font-size:11px;font-weight:700;border:none;border-bottom:2px solid '+(!isField?'#2563eb':'transparent')+';margin-bottom:-2px;background:none;color:'+(!isField?'#2563eb':'#9ca3af')+';cursor:pointer;">📋 共通書類</button>';
+  h += '<button onclick="if(!window._reqDocsCoFieldKey){var fks=Object.keys(REQUIRED_DOCS_CO_FIELD);if(fks.length){window._reqDocsCoMode=\'field\';window._reqDocsCoFieldKey=fks[0];var _m=document.querySelector(\'#reqDocsCoModal>div\');if(_m)_renderReqDocsCoModal(_m);}else{_addCoFieldKeyPrompt();}}else{var _m=document.querySelector(\'#reqDocsCoModal>div\');if(_m)_renderReqDocsCoModal(_m);}"'
+    + ' style="flex:1;padding:8px;font-size:11px;font-weight:700;border:none;border-bottom:2px solid '+(isField?'#7c3aed':'transparent')+';margin-bottom:-2px;background:none;color:'+(isField?'#7c3aed':'#9ca3af')+';cursor:pointer;">🏭 分野別追加書類</button>';
+  h += '</div>';
+
+  // 分野タブの場合：分野一覧を表示
+  if (isField) {
+    h += '<div style="padding:6px 12px;display:flex;gap:4px;flex-wrap:wrap;background:#fafafa;">';
+    Object.keys(REQUIRED_DOCS_CO_FIELD).forEach(function(fk){
+      var isActive = fieldKey===fk;
+      h += '<button onclick="window._reqDocsCoFieldKey=\''+fk+'\';var _m=document.querySelector(\'#reqDocsCoModal>div\');if(_m)_renderReqDocsCoModal(_m)"'
+        + ' style="font-size:10px;padding:2px 9px;border-radius:99px;border:1px solid '+(isActive?'#7c3aed':'#e5e7eb')+';background:'+(isActive?'#ede9fe':'white')+';color:'+(isActive?'#7c3aed':'#6b7280')+';cursor:pointer;font-weight:700;">'+fk+'</button>';
+    });
+    h += '<button onclick="_addCoFieldKeyPrompt()" style="font-size:10px;padding:2px 9px;border-radius:99px;border:1px solid #e5e7eb;background:white;color:#6b7280;cursor:pointer;">＋ 追加</button>';
+    h += '</div>';
+  }
+  h += '</div>';
+
+  h += '<div style="font-size:10px;color:#9ca3af;padding:5px 14px;">☰ ドラッグで並び替え　クリックで名前編集　✕ で削除</div>';
+
+  // ─ 書類リスト ─
+  h += '<div id="reqDocsSortList" style="flex:1;overflow-y:auto;padding:6px 12px;">';
+  if (docs.length === 0) {
+    h += '<div style="text-align:center;color:#9ca3af;padding:20px;font-size:12px;">書類がありません。下の入力欄から追加してください。</div>';
+  }
   docs.forEach(function(doc) {
     h += '<div class="req-doc-row" draggable="true" style="display:flex;align-items:center;gap:6px;padding:5px 6px;border:1px solid #e5e7eb;border-radius:7px;margin-bottom:4px;background:white;cursor:grab;user-select:none;">';
     h += '<span style="color:#9ca3af;font-size:14px;flex-shrink:0;">☰</span>';
@@ -25502,13 +25520,15 @@ function _renderReqDocsCoModal(inner) {
     h += '</div>';
   });
   h += '</div>';
-  h += '<div style="padding:10px 12px;border-top:1px solid #e5e7eb;display:flex;gap:6px;">';
-  h += '<input id="reqDocNewInput" type="text" placeholder="新しい書類名を入力..." style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:12px;">';
+
+  // ─ 入力・操作 ─
+  h += '<div style="padding:8px 12px;border-top:1px solid #e5e7eb;display:flex;gap:6px;">';
+  h += '<input id="reqDocNewInput" type="text" placeholder="'+(isField?fieldKey+'の追加書類を入力':'共通書類名を入力')+'..." style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:12px;">';
   h += '<button onclick="_addReqDocRow()" style="padding:7px 14px;background:#7c3aed;color:white;border:none;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;">＋ 追加</button>';
   h += '</div>';
-  h += '<div style="padding:6px 12px 10px;display:flex;justify-content:space-between;">';
+  h += '<div style="padding:4px 12px 10px;display:flex;justify-content:space-between;align-items:center;">';
   h += '<button onclick="_resetReqDocsCo()" style="font-size:10px;padding:4px 10px;background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">🔄 デフォルトに戻す</button>';
-  if (mode==='field' && fieldKey) h += '<button onclick="_deleteCoFieldKey()" style="font-size:10px;padding:4px 10px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;cursor:pointer;">🗑 この分野を削除</button>';
+  if (isField) h += '<button onclick="_deleteCoFieldKey()" style="font-size:10px;padding:4px 10px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;cursor:pointer;">🗑 この分野を削除</button>';
   h += '</div>';
   inner.innerHTML = h;
   // ドラッグ
