@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260406.20</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260407.01</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2334,7 +2334,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260406.20';
+var OFUSA_VERSION = 'ver.20260407.01';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -18900,6 +18900,20 @@ function _persistRequiredDocsCo(){
   if(typeof DB_READY!=='undefined' && DB_READY && typeof _sb!=='undefined')
     _sb.from('settings').upsert({key:'required_docs_co',value:JSON.stringify(REQUIRED_DOCS_CO)},{onConflict:'key'}).then(function(){});
 }
+// ===== 大企業（源泉徴収税額1,000万円以上）書類リスト =====
+var _REQUIRED_DOCS_CO_LARGE_DEFAULT = [
+  '四季報の写し、または上場証明書類',
+  '法定調書合計表の写し（税務署発行）'
+];
+var REQUIRED_DOCS_CO_LARGE = (function(){
+  try { var s=localStorage.getItem('ofusa_requiredDocsCoLarge'); if(s) return JSON.parse(s); } catch(e) {}
+  return _REQUIRED_DOCS_CO_LARGE_DEFAULT.slice();
+})();
+function _persistRequiredDocsCoLarge(){
+  try{localStorage.setItem('ofusa_requiredDocsCoLarge',JSON.stringify(REQUIRED_DOCS_CO_LARGE));}catch(e){}
+  if(typeof DB_READY!=='undefined'&&DB_READY&&typeof _sb!=='undefined')
+    _sb.from('settings').upsert({key:'required_docs_co_large',value:JSON.stringify(REQUIRED_DOCS_CO_LARGE)},{onConflict:'key'}).then(function(){});
+}
 // 分野別追加書類（デフォルト）
 var _REQUIRED_DOCS_CO_FIELD_DEFAULT = {
   '介護': ['介護分野 特定技能評価試験結果（施設）','介護日本語評価試験結果'],
@@ -24909,10 +24923,15 @@ function _getCoDocAlerts() {
   companies.forEach(function(co) {
     var dc = coDocCheck[co.id] || {};
     var _isKojin = co.corpType === '個人事業主';
+    var _isLarge = co.companyCategory && co.companyCategory.indexOf('大') === 0;
     var _fieldKeys = _getCoFieldKeys(co);
     var seen = {};
     var docList = [];
-    (_isKojin ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO).forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} });
+    if (_isLarge) {
+      REQUIRED_DOCS_CO_LARGE.forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} });
+    } else {
+      (_isKojin ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO).forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} });
+    }
     _fieldKeys.forEach(function(fk){ (REQUIRED_DOCS_CO_FIELD[fk]||[]).forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} }); });
     docList.forEach(function(docName) {
       if (dc['skip::'+docName]) return;
@@ -25014,9 +25033,14 @@ function _getCoDocList(co) {
   var tab = (window._coDocTabState && window._coDocTabState[co.id]) || 'immig';
   if (tab === 'kokko') return REQUIRED_DOCS_CO_KOKKO.slice();
   var isKojin = co.corpType === '個人事業主';
+  var isLarge = co.companyCategory && co.companyCategory.indexOf('大') === 0;
   var coFieldKeys = _getCoFieldKeys(co);
   var seen = {}; var docList = [];
-  (isKojin ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO).forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} });
+  if (isLarge) {
+    REQUIRED_DOCS_CO_LARGE.forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} });
+  } else {
+    (isKojin ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO).forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} });
+  }
   coFieldKeys.forEach(function(fk){
     (REQUIRED_DOCS_CO_FIELD[fk]||[]).forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} });
   });
@@ -25079,12 +25103,18 @@ function coBulkUncheckAll(coId, type) {
 
 function renderCoDocsTabHtml(co) {
   var h = '';
-  // 個人/法人で基本リストを切り替え＋分野別追加書類をマージ
+  // 個人/法人・大企業/小企業で基本リストを切り替え＋分野別追加書類をマージ
   var _isKojin = co.corpType === '個人事業主';
+  var _isLarge = co.companyCategory && co.companyCategory.indexOf('大') === 0; // 大（上場・独立行政法人等）
   var _coFieldKeys = _getCoFieldKeys(co);
   var _seen = {};
   var docListImmig = [];
-  (_isKojin ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO).forEach(function(d){ if(!_seen[d]){_seen[d]=1;docListImmig.push(d);} });
+  if (_isLarge) {
+    // 大企業は専用リストのみ（分野別は引き続き追加）
+    REQUIRED_DOCS_CO_LARGE.forEach(function(d){ if(!_seen[d]){_seen[d]=1;docListImmig.push(d);} });
+  } else {
+    (_isKojin ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO).forEach(function(d){ if(!_seen[d]){_seen[d]=1;docListImmig.push(d);} });
+  }
   _coFieldKeys.forEach(function(fk){
     (REQUIRED_DOCS_CO_FIELD[fk]||[]).forEach(function(d){ if(!_seen[d]){_seen[d]=1;docListImmig.push(d);} });
   });
@@ -25099,9 +25129,10 @@ function renderCoDocsTabHtml(co) {
   // ===== ヘッダー =====
   h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px;">';
   var _typeBadge = _isKojin ? '<span style="font-size:10px;background:#fef3c7;color:#d97706;border-radius:99px;padding:1px 8px;font-weight:700;">👤 個人事業主</span>' : '<span style="font-size:10px;background:#eff6ff;color:#2563eb;border-radius:99px;padding:1px 8px;font-weight:700;">🏢 法人</span>';
+  var _largeBadge = _isLarge ? '<span style="font-size:10px;background:#fef3c7;color:#b45309;border-radius:99px;padding:1px 8px;font-weight:700;margin-left:3px;">💹 大企業（1,000万円以上）</span>' : '';
   var _fieldBadges = '';
   _coFieldKeys.forEach(function(fk){ var cnt=(REQUIRED_DOCS_CO_FIELD[fk]||[]).length; if(cnt) _fieldBadges+=' <span style="font-size:10px;background:#ede9fe;color:#7c3aed;border-radius:99px;padding:1px 7px;font-weight:700;">＋'+fk+' '+cnt+'件</span>'; });
-  h += '<div style="font-size:12px;font-weight:700;color:var(--gray-400);">所属機関書類チェック '+_typeBadge+_fieldBadges+'</div>';
+  h += '<div style="font-size:12px;font-weight:700;color:var(--gray-400);">所属機関書類チェック '+_typeBadge+_largeBadge+_fieldBadges+'</div>';
   h += '<button onclick="openRequiredDocsCoEditor()" style="font-size:10px;padding:3px 10px;background:#f5f3ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:6px;cursor:pointer;font-weight:700;">✏️ 書類リスト編集</button>';
   if (driveUrls.length > 0) {
     h += '<div style="display:flex;gap:4px;">';
@@ -25439,7 +25470,7 @@ function openRequiredDocsCoEditor(fieldKey) {
 function _renderReqDocsCoModal(inner) {
   var mode = window._reqDocsCoMode || 'base';
   var fieldKey = window._reqDocsCoFieldKey || null;
-  var docs = mode === 'field' && fieldKey ? (REQUIRED_DOCS_CO_FIELD[fieldKey]||[]) : mode === 'kojin' ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO;
+  var docs = mode === 'field' && fieldKey ? (REQUIRED_DOCS_CO_FIELD[fieldKey]||[]) : mode === 'kojin' ? REQUIRED_DOCS_CO_KOJIN : mode === 'large' ? REQUIRED_DOCS_CO_LARGE : REQUIRED_DOCS_CO;
   var h = '';
   // ヘッダ
   h += '<div style="padding:14px 16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">';
@@ -25448,6 +25479,7 @@ function _renderReqDocsCoModal(inner) {
   h += '</div>';
   // カテゴリタブ
   h += '<div style="padding:8px 12px;border-bottom:1px solid #f3f4f6;display:flex;gap:4px;flex-wrap:wrap;">';
+  h += '<button onclick="window._reqDocsCoMode=\'large\';window._reqDocsCoFieldKey=null;var _m=document.querySelector(\'#reqDocsCoModal>div\');if(_m)_renderReqDocsCoModal(_m)" style="font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid '+(mode==='large'?'#b45309':'#e5e7eb')+';background:'+(mode==='large'?'#fef3c7':'white')+';color:'+(mode==='large'?'#b45309':'#6b7280')+';cursor:pointer;font-weight:700;">💹 大企業</button>';
   h += '<button onclick="window._reqDocsCoMode=\'base\';window._reqDocsCoFieldKey=null;var _m=document.querySelector(\'#reqDocsCoModal>div\');if(_m)_renderReqDocsCoModal(_m)" style="font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid '+(mode==='base'?'#2563eb':'#e5e7eb')+';background:'+(mode==='base'?'#eff6ff':'white')+';color:'+(mode==='base'?'#2563eb':'#6b7280')+';cursor:pointer;font-weight:700;">🏢 法人</button>';
   h += '<button onclick="window._reqDocsCoMode=\'kojin\';window._reqDocsCoFieldKey=null;var _m=document.querySelector(\'#reqDocsCoModal>div\');if(_m)_renderReqDocsCoModal(_m)" style="font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid '+(mode='kojin'?'#d97706':'#e5e7eb')+';background:'+(mode='kojin'?'#fef3c7':'white')+';color:'+(mode='kojin'?'#d97706':'#6b7280')+';cursor:pointer;font-weight:700;">👤 個人事業主</button>';
   Object.keys(REQUIRED_DOCS_CO_FIELD).forEach(function(fk){
@@ -25522,6 +25554,10 @@ function _saveReqDocsCoAndClose() {
       REQUIRED_DOCS_CO_KOJIN = newDocs;
       _persistRequiredDocsCoKojin();
       showToast('✅ 個人事業主書類リストを保存しました');
+    } else if (mode === 'large') {
+      REQUIRED_DOCS_CO_LARGE = newDocs;
+      _persistRequiredDocsCoLarge();
+      showToast('✅ 大企業書類リストを保存しました');
     } else {
       REQUIRED_DOCS_CO = newDocs;
       _persistRequiredDocsCo();
@@ -25546,6 +25582,9 @@ function _resetReqDocsCo() {
   } else if (mode === 'kojin') {
     REQUIRED_DOCS_CO_KOJIN = _REQUIRED_DOCS_CO_KOJIN_DEFAULT.slice();
     _persistRequiredDocsCoKojin();
+  } else if (mode === 'large') {
+    REQUIRED_DOCS_CO_LARGE = _REQUIRED_DOCS_CO_LARGE_DEFAULT.slice();
+    _persistRequiredDocsCoLarge();
   } else {
     REQUIRED_DOCS_CO = _REQUIRED_DOCS_CO_DEFAULT.slice();
     _persistRequiredDocsCo();
@@ -34936,6 +34975,9 @@ function loadAllFromSupabase() {
           if(s.key==='required_docs_co_kokko') {
             try { var _rck2=JSON.parse(s.value); if(Array.isArray(_rck2)){REQUIRED_DOCS_CO_KOKKO=_rck2;localStorage.setItem('ofusa_requiredDocsCoKokko',s.value);} } catch(e) {}
           }
+          if(s.key==='required_docs_co_large') {
+            try { var _rcl=JSON.parse(s.value); if(Array.isArray(_rcl)){REQUIRED_DOCS_CO_LARGE=_rcl;localStorage.setItem('ofusa_requiredDocsCoLarge',s.value);} } catch(e) {}
+          }
           if(s.key==='co_rename_cats_base') {
             try { var _b=JSON.parse(s.value); if(Array.isArray(_b)){_coRenameCategoriesBase=_b;localStorage.setItem('ofusa_coRenameCatsBase',s.value);} } catch(e) {}
           }
@@ -38586,4 +38628,3 @@ async function ocKnDelete(id){if(!confirm('この知識を削除しますか？'
 </script>
 </body>
 </html>
-
