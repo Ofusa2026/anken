@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260407.12</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260407.14</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2335,7 +2335,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260407.12';
+var OFUSA_VERSION = 'ver.20260407.14';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -3694,7 +3694,7 @@ function switchPanel(panelId, navId) {
 }
 
 function showCases() {
-  setTimeout(updateFiltersStickyHeight, 50); applyFilters(); switchPanel('casesScreen','nav-cases'); setTimeout(updateStickyTop,100); setTimeout(updateCoDocAlertBadge,300); setTimeout(updatePersonDocAlertBadge,300); setTimeout(loadCoFormBadges,500); setTimeout(updateUploadNotifyBadge,600);
+  setTimeout(updateFiltersStickyHeight, 50); applyFilters(); switchPanel('casesScreen','nav-cases'); setTimeout(updateStickyTop,100); setTimeout(updateCoDocAlertBadge,300); setTimeout(updatePersonDocAlertBadge,300); setTimeout(loadCoFormBadges,500); setTimeout(loadUploadNotifyBadge,700);
 }
 
 // ===== 個人タスク（Trello風カンバンボード）=====
@@ -35310,7 +35310,7 @@ function handleUploadNotification(row) {
   _uploadNotifyList.unshift(row);
   updateUploadNotifyBadge();
   // バッジ更新
-  updateUploadNotifyBadge();
+  loadUploadNotifyBadge();
   if (window.Notification && Notification.permission === 'granted') {
     new Notification('📤 書類アップロード', { body: label + ' から' + fileCount + 'ファイルがアップロードされました' });
   } else if (window.Notification && Notification.permission !== 'denied') {
@@ -35381,20 +35381,31 @@ function showUploadNotifyModal() {
     h += '<div style="text-align:center;color:#9ca3af;padding:30px;font-size:13px;">通知はありません</div>';
   } else {
     _uploadNotifyList.forEach(function(row) {
-      var coName = row.company_name || row.company_id || '（所属機関不明）';
-      var co = companies.find(function(x){ return x.id === row.company_id; });
-      if (co) coName = co.name;
+      var isZinzai = row.source === 'zinzai_dataup';
+      var label, subLabel = '';
+      if (isZinzai) {
+        var c = cData.find(function(x){ return x.id === row.case_id; });
+        label = '👤 ' + (c ? (c.applicant || c.name) : (row.case_id || '人材'));
+        if (c) subLabel = c.company || '';
+      } else {
+        var co = companies.find(function(x){ return x.id === row.company_id; });
+        label = '🏢 ' + (co ? co.name : (row.company_name || row.company_id || '所属機関'));
+      }
       var dt = row.created_at ? row.created_at.replace('T',' ').slice(0,16) : '';
       var driveUrl = row.folder_id ? 'https://drive.google.com/drive/folders/' + row.folder_id : '';
       h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 8px;border-bottom:1px solid #f3f4f6;gap:8px;">';
       h += '<div style="flex:1;min-width:0;">';
-      h += '<div style="font-size:13px;font-weight:700;color:#1e293b;">🏢 ' + esc(coName) + '</div>';
+      h += '<div style="font-size:13px;font-weight:700;color:#1e293b;">' + esc(label) + '</div>';
+      if (subLabel) h += '<div style="font-size:11px;color:#6b7280;">' + esc(subLabel) + '</div>';
       h += '<div style="font-size:11px;color:#9ca3af;margin-top:2px;">' + (row.file_count || 1) + 'ファイル　' + dt + '</div>';
       if (driveUrl) h += '<a href="' + driveUrl + '" target="_blank" style="font-size:11px;color:#1a73e8;font-weight:600;text-decoration:none;">📁 Driveで確認</a>';
       h += '</div>';
       h += '<div style="display:flex;gap:4px;flex-shrink:0;">';
-      if (co) {
-        h += '<button onclick="document.getElementById(&quot;uploadNotifyModal&quot;).remove();openCompanyDetail(&quot;' + co.id + '&quot;,&quot;coDocs&quot;)" style="font-size:10px;padding:3px 10px;background:#eff6ff;color:#1d4ed8;border:1px solid #93c5fd;border-radius:5px;cursor:pointer;font-weight:700;">書類チェックへ</button>';
+      if (isZinzai && row.case_id) {
+        h += '<button onclick="document.getElementById(&quot;uploadNotifyModal&quot;).remove();openCase(&quot;' + row.case_id + '&quot;)" style="font-size:10px;padding:3px 10px;background:#eff6ff;color:#1d4ed8;border:1px solid #93c5fd;border-radius:5px;cursor:pointer;font-weight:700;">案件へ</button>';
+      } else if (!isZinzai) {
+        var co2 = companies.find(function(x){ return x.id === row.company_id; });
+        if (co2) h += '<button onclick="document.getElementById(&quot;uploadNotifyModal&quot;).remove();openCompanyDetail(&quot;' + co2.id + '&quot;,&quot;coDocs&quot;)" style="font-size:10px;padding:3px 10px;background:#eff6ff;color:#1d4ed8;border:1px solid #93c5fd;border-radius:5px;cursor:pointer;font-weight:700;">書類チェックへ</button>';
       }
       h += '<button onclick="confirmUploadNotify(&quot;' + row.id + '&quot;,this)" style="font-size:10px;padding:3px 10px;background:#f0fdf4;color:#16a34a;border:1px solid #86efac;border-radius:5px;cursor:pointer;font-weight:700;">✓ 確認</button>';
       h += '</div></div>';
