@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260407.39</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260407.40</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -1700,7 +1700,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <input type="date" id="tsuikanDateTo" onchange="renderTsuikanMails()" style="font-size:12px;padding:4px 8px;border:1.5px solid var(--gray-200);border-radius:8px;">
     <button onclick="document.getElementById('tsuikanDateFrom').value='';document.getElementById('tsuikanDateTo').value='';renderTsuikanMails();" style="font-size:11px;padding:4px 10px;background:white;color:var(--gray-400);border:1.5px solid var(--gray-200);border-radius:8px;cursor:pointer;">クリア</button>
     <input type="text" id="tsuikanSearchBox" placeholder="🔍 氏名・受付番号で検索..." oninput="renderTsuikanMails()" style="font-size:12px;padding:5px 10px;border:1.5px solid var(--gray-200);border-radius:8px;width:200px;">
-    <button onclick="moveTsuikanMails()" style="margin-left:auto;padding:8px 20px;background:#dc2626;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">指摘カードに追加</button>
+    <button onclick="moveTsuikanMails()" style="margin-left:auto;padding:8px 20px;background:#dc2626;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">📂 要追完/指摘カードに移動</button>
   </div>
   <div id="tsuikanContent" style="flex:1;overflow-y:auto;padding:16px;"></div>
 </div>
@@ -2333,7 +2333,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260407.39';
+var OFUSA_VERSION = 'ver.20260407.40';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -36537,24 +36537,18 @@ async function saveLpRecord(){var sendNo=document.getElementById('lp_send_no').v
 // ===== 要追完/指摘メール =====
 var TSUIKAN_MAILS=(function(){try{return JSON.parse(localStorage.getItem('ofusa_tsuikanMails')||'[]');}catch(e){return[];}})();
 var tsuikanSel={};
-function openTsuikan(){switchPanel('tsuikanScreen','nav-tsuikan');renderTsuikanMails();}
+function openTsuikan(){TSUIKAN_MAILS=[];tsuikanSel={};switchPanel('tsuikanScreen','nav-tsuikan');renderTsuikanMails();}
 function fetchGmailTsuikan(){
   showToast('取得中...');
-  var known=['審査完了','受付番号','認定証明書'];
+  var _validTsuikan = {'追完依頼':1,'申請内容等':1};
   jsonpGet(GAS_GMAIL_URL+'?action=getGmail', function(res){
     if(!res||res.status!=='ok'){showToast('取得失敗（GAS再デプロイが必要な場合があります）');renderTsuikanMails();return;}
     var allMails=res.mails||[];
-    // badge が既知3種以外 または badge が空/undefined のものを対象
-    var newMails=allMails.filter(function(m){
-      return known.indexOf(m.badge)<0;
-    });
-    // 既存と重複しないものだけ追加
-    newMails.forEach(function(m){
-      if(!TSUIKAN_MAILS.find(function(x){return x.id===m.id;}))TSUIKAN_MAILS.push(m);
-    });
+    // キャッシュなし・毎回クリーンにセット（追完依頼・申請内容等のみ）
+    TSUIKAN_MAILS = allMails.filter(function(m){ return !!_validTsuikan[m.badge]; });
     tsuikanSel={};
     renderTsuikanMails();
-    showToast(newMails.length+'件取得 (全'+allMails.length+'件中)');
+    showToast('未読 '+TSUIKAN_MAILS.length+'件取得');
   });
 }
 var _tsuikanUnmatchedOnly = false;
@@ -36836,10 +36830,14 @@ function moveTsuikanMails(){
 
   function processNext() {
     if (!remaining.length) {
+      // 移動済みをTSUIKAN_MAILSから除去
+      var _movedIds = {};
+      selected.forEach(function(m){ _movedIds[m.id]=1; });
+      TSUIKAN_MAILS = TSUIKAN_MAILS.filter(function(m){ return !_movedIds[m.id]; });
       persistTsuikanMails();
       tsuikanSel={};
       renderTsuikanMails();
-      showToast(moved+'件の指摘カードに追加しました');
+      showToast(moved+'件を要追完/指摘カードに移動しました');
       return;
     }
     var m = remaining.shift();
