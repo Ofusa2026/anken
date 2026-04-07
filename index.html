@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260407.16</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260407.18</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2335,7 +2335,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260407.16';
+var OFUSA_VERSION = 'ver.20260407.18';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -13494,7 +13494,23 @@ function renderCompanyList(resetPage) {
     row+='</div></div>';
     rows.push(row);
   });
-  var el=document.getElementById('companyList'); if(el) el.innerHTML=rows.join('');
+  var guideHtml = '<div id="coListGuide" style="margin:8px 8px 0;">'
+    + '<button onclick="var b=document.getElementById(\'coListGuideBody\');var a=document.getElementById(\'coListGuideArrow\');if(b.style.display===\'none\'){b.style.display=\'block\';a.textContent=\'▲\';}else{b.style.display=\'none\';a.textContent=\'▼\';}" '
+    + 'style="width:100%;text-align:left;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;color:#64748b;cursor:pointer;display:flex;justify-content:space-between;align-items:center;">'
+    + '<span>📋 新規登録手順</span><span id="coListGuideArrow">▼</span>'
+    + '</button>'
+    + '<div id="coListGuideBody" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:0 0 8px 8px;padding:10px 12px;font-size:11px;color:#374151;line-height:1.9;">'
+    + '<div style="font-weight:700;color:#92400e;margin-bottom:6px;">■ 新規企業の流れ</div>'
+    + '<div><b>1.</b> 新規登録ボタンで最低限の情報を記入します。</div>'
+    + '<div><b>2.</b> 【基本情報】に以下の情報を入れてください。</div>'
+    + '<div style="padding-left:14px;color:#6b7280;">・ドライブフォルダURL（ない場合は作成）</div>'
+    + '<div style="padding-left:14px;color:#6b7280;">・個人/法人区分</div>'
+    + '<div style="padding-left:14px;color:#6b7280;">・カテゴリー</div>'
+    + '<div><b>3.</b> 【書類チェック】で【テキスト生成】</div>'
+    + '<div><b>4.</b> 作成したテキストを企業に送ります。</div>'
+    + '</div>'
+    + '</div>';
+  var el=document.getElementById('companyList'); if(el) el.innerHTML=guideHtml+rows.join('');
   if(window._selectedCompanyId){var found=companies.find(function(co){return co.id===window._selectedCompanyId;}); if(found) renderCompanyDetail(found);}
   // 所属機関フォーム未取込バッジを更新
   if(DB_READY) loadCoFormBadges();
@@ -25103,6 +25119,86 @@ function coBulkUncheckAll(coId, type) {
   showToast('✅ チェックを全解除しました');
 }
 
+function openCoDocTextGenerator(coId) {
+  var co = companies.find(function(c){ return c.id === coId; });
+  if (!co) { showToast('⚠️ 所属機関が見つかりません'); return; }
+
+  var rules = docTextRules.filter(function(r){ return r.category === '所属機関' || r.category === '共通'; });
+
+  var modal = document.getElementById('coDocTextGenModal');
+  if (modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'coDocTextGenModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
+  var inner = document.createElement('div');
+  inner.style.cssText = 'background:white;border-radius:16px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);padding:24px;';
+  modal.appendChild(inner);
+  document.body.appendChild(modal);
+
+  var h = '';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">';
+  h += '<div style="font-size:15px;font-weight:800;color:#0f2040;">📝 テキスト生成</div>';
+  h += '<button onclick="document.getElementById(&quot;coDocTextGenModal&quot;).remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#999;">×</button>';
+  h += '</div>';
+  h += '<div style="font-size:12px;color:#6b7280;margin-bottom:16px;">🏢 ' + esc(co.name || '') + '</div>';
+  h += '<div style="font-size:11px;font-weight:700;margin-bottom:8px;">生成するテキストの種類</div>';
+
+  if (rules.length === 0) {
+    h += '<div style="color:#9ca3af;font-size:12px;padding:20px;text-align:center;">所属機関カテゴリーのルールがありません</div>';
+  } else {
+    rules.forEach(function(rule) {
+      h += '<div style="border:1.5px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer;transition:.2s;"'
+        + ' onmouseover="this.style.borderColor=\'#059669\';this.style.background=\'#f0fdf4\'"'
+        + ' onmouseout="this.style.borderColor=\'#e5e7eb\';this.style.background=\'white\'"'
+        + ' onclick="generateCoDocText(&quot;' + coId + '&quot;,&quot;' + rule.id + '&quot;)">';
+      h += '<div style="font-size:13px;font-weight:700;">' + esc(rule.name) + '</div>';
+      h += '<div style="font-size:10px;color:#6b7280;margin-top:2px;">条件: ' + rule.conditions.length + '件</div>';
+      h += '</div>';
+    });
+  }
+  h += '<div id="coDocTextResult" style="margin-top:16px;display:none;"></div>';
+  inner.innerHTML = h;
+}
+
+function generateCoDocText(coId, ruleId) {
+  var co = companies.find(function(c){ return c.id === coId; }) || {};
+  var rule = docTextRules.find(function(r){ return r.id === ruleId; });
+  if (!rule) { showToast('⚠️ ルールが見つかりません'); return; }
+
+  var vars = {
+    company: co.name || '',
+    companyCategory: co.companyCategory || '',
+    docList: ''
+  };
+
+  // 条件で追加テキストを組み立て
+  var additions = [];
+  rule.conditions.forEach(function(cond) {
+    var matched = false;
+    if (cond.and && Array.isArray(cond.and)) {
+      matched = cond.and.every(function(sub){ var fv=vars[sub.field]||''; return fv && fv.indexOf(sub.contains) >= 0; });
+    } else if (cond.field) {
+      var fv = vars[cond.field] || '';
+      matched = fv && fv.indexOf(cond.contains) >= 0;
+    }
+    if (matched) additions.push(cond.append);
+  });
+
+  var text = rule.template;
+  for (var k in vars) { text = text.replace(new RegExp('\\{' + k + '\\}', 'g'), vars[k]); }
+  text = text.replace('{docList}', additions.join('\n'));
+
+  // 結果表示
+  var res = document.getElementById('coDocTextResult');
+  if (!res) return;
+  res.style.display = 'block';
+  res.innerHTML = '<div style="font-size:11px;font-weight:700;color:#059669;margin-bottom:8px;">✅ 生成完了</div>'
+    + '<textarea readonly style="width:100%;padding:12px;border:1.5px solid #d1fae5;border-radius:10px;font-size:12px;line-height:1.8;background:#f0fdf4;resize:vertical;box-sizing:border-box;min-height:200px;">'
+    + esc(text) + '</textarea>'
+    + '<button onclick="var t=this.previousSibling;t.select();document.execCommand(\'copy\');showToast(\'✅ コピーしました\')" style="margin-top:8px;padding:8px 20px;background:#059669;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;width:100%;">📋 コピー</button>';
+}
+
 function renderCoDocsTabHtml(co) {
   var h = '';
   // 個人/法人・大企業/小企業で基本リストを切り替え＋分野別追加書類をマージ
@@ -25153,9 +25249,16 @@ function renderCoDocsTabHtml(co) {
       h += '</select>';
     }
     h += '<button onclick="scanCoDriveDocuments(\'' + co.id + '\')" style="padding:8px 16px;background:#4f46e5;color:white;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">📂 スキャン</button>';
+    h += '<button onclick="openCoDocTextGenerator(\'' + co.id + '\')" style="padding:8px 16px;background:#059669;color:white;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">📝 テキスト生成</button>';
     h += '</div>';
   }
   h += '<div id="coScanResult_' + co.id + '"></div>';
+  // ドライブURLがない場合もテキスト生成ボタンを表示
+  if (driveUrls.length === 0) {
+    h += '<div style="margin-bottom:12px;">';
+    h += '<button onclick="openCoDocTextGenerator(\'' + co.id + '\')" style="padding:8px 16px;background:#059669;color:white;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;">📝 テキスト生成</button>';
+    h += '</div>';
+  }
 
   // ===== タブ切り替え =====
   var _coDocTab = (window._coDocTabState && window._coDocTabState[co.id]) || 'immig';
@@ -31900,9 +32003,9 @@ function openDocTextGenerator(caseId){
     h+='</div>';
   }
 
-  // テンプレート選択
+  // テンプレート選択（人材カテゴリーのみ）
   h+='<div style="font-size:11px;font-weight:700;margin-bottom:8px;">生成するテキストの種類</div>';
-  docTextRules.forEach(function(rule,idx){
+  docTextRules.filter(function(r){return r.category==='人材'||r.category==='共通';}).forEach(function(rule,idx){
     h+='<div style="border:1.5px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer;transition:.2s;" ';
     h+='onmouseover="this.style.borderColor=\'#059669\';this.style.background=\'#f0fdf4\'" ';
     h+='onmouseout="this.style.borderColor=\'#e5e7eb\';this.style.background=\'white\'" ';
