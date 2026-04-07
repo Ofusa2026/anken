@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260406.20</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260407.27</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -965,6 +965,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <button id="personDocAlertBtn" onclick="showPersonDocAlertModal()" title="人材書類回収アラート" style="display:none;padding:6px 12px;background:#fffbeb;color:#d97706;border:1.5px solid #fcd34d;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;" data-tip-target="tip-persondoc">👤書類 <span id="personDocAlertCount" style="background:#d97706;color:white;border-radius:99px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></button>
       <button id="coDocAlertBtn" onclick="showCoDocAlertModal()" title="法人書類回収アラート" style="display:none;padding:6px 12px;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;" data-tip-target="tip-codoc">🏢書類 <span id="coDocAlertCount" style="background:#dc2626;color:white;border-radius:99px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></button>
       <button id="caseFormGlobalBadge" onclick="filterUnimportedCaseForms()" title="未取込の人材フォーム回答" style="display:none;padding:6px 12px;background:#dcfce7;color:#16a34a;border:1.5px solid #86efac;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;" data-tip-target="tip-form">📝フォーム <span id="caseFormGlobalBadgeCount" style="background:#16a34a;color:white;border-radius:99px;padding:1px 6px;font-size:11px;margin-left:2px;"></span><span id="caseFormFilterBadge" onclick="event.stopPropagation();window._pendingFilterCaseIds=null;applyFilters(true);this.style.display='none';" style="display:none;margin-left:6px;font-size:10px;background:white;color:#16a34a;border-radius:99px;padding:1px 6px;cursor:pointer;">絞込中 ✕</span></button>
+      <button id="uploadNotifyBadge" onclick="showUploadNotifyModal()" title="書類アップロード通知" style="display:inline-flex;align-items:center;padding:6px 12px;background:#eff6ff;color:#1d4ed8;border:1.5px solid #93c5fd;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📤 書類UP <span id="uploadNotifyCount" style="background:#1d4ed8;color:white;border-radius:99px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></button>
       <button class="btn btn-outline" onclick="forceSync()" title="サーバーと同期" style="padding:6px 10px;" data-manual-tip="Supabaseサーバーと手動で同期&#10;データが反映されない時にクリック" data-tip-target="tip-sync">🔄</button>
       <button id="manualModeBtn" class="btn btn-manual" onclick="toggleManualMode()" data-manual-tip="各ボタンの説明を表示するマニュアルモードです" style="display:none;">📖 マニュアル</button>
     </div>
@@ -2334,7 +2335,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260406.20';
+var OFUSA_VERSION = 'ver.20260407.27';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -2371,6 +2372,7 @@ function initSupabase() {
       DB_READY = true;
       console.log('✅ Supabase 接続完了');
       _loadHassoBadges();
+      loadUploadNotifyBadge();
       setTimeout(loadTplTextsFromDB, 2000); // テキストテンプレートをDBから読み込み
       _loadMovedMailIds(); // 移動済みメールIDをDBから読み込み
       _loadMovedMailIds(); // 移動済みメールIDをDBから読み込み
@@ -3693,7 +3695,7 @@ function switchPanel(panelId, navId) {
 }
 
 function showCases() {
-  setTimeout(updateFiltersStickyHeight, 50); applyFilters(); switchPanel('casesScreen','nav-cases'); setTimeout(updateStickyTop,100); setTimeout(updateCoDocAlertBadge,300); setTimeout(updatePersonDocAlertBadge,300); setTimeout(loadCoFormBadges,500);
+  setTimeout(updateFiltersStickyHeight, 50); applyFilters(); switchPanel('casesScreen','nav-cases'); setTimeout(updateStickyTop,100); setTimeout(updateCoDocAlertBadge,300); setTimeout(updatePersonDocAlertBadge,300); setTimeout(loadCoFormBadges,500); setTimeout(loadUploadNotifyBadge,700);
 }
 
 // ===== 個人タスク（Trello風カンバンボード）=====
@@ -8823,12 +8825,14 @@ function _ensureRefreshToastStyle(){
   }
 }
 
-function showToast(msg) {
+function showToast(msg, duration, style) {
   var el = document.createElement('div');
-  el.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;padding:12px 18px;border-radius:10px;font-size:13px;font-weight:700;background:#f0fdf4;color:#16a34a;box-shadow:0 4px 16px rgba(0,0,0,.12);max-width:300px;';
+  var bg = (style === 'upload') ? '#eff6ff' : '#f0fdf4';
+  var color = (style === 'upload') ? '#1d4ed8' : '#16a34a';
+  el.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;padding:12px 18px;border-radius:10px;font-size:13px;font-weight:700;background:'+bg+';color:'+color+';box-shadow:0 4px 16px rgba(0,0,0,.18);max-width:320px;line-height:1.5;';
   el.textContent = msg;
   document.body.appendChild(el);
-  setTimeout(function(){ el.remove(); }, 3000);
+  setTimeout(function(){ el.remove(); }, duration || 3000);
 }
 
 function showImportResult(type, msg) {
@@ -11982,7 +11986,7 @@ var COMPANY_FIELDS = [
   {key:'industry',      label:'主たる業種',                   type:'text',  section:'基本情報', placeholder:'食品製造'},
   {key:'industryCode',  label:'業種コード（入管）',            type:'immSelect',section:'基本情報', immKey:'industry'},
   {key:'occupationCode',label:'職種コード（入管）',            type:'immSelect',section:'基本情報', immKey:'occ'},
-  {key:'companyCategory',label:'カテゴリー',                  type:'select',section:'基本情報', opts:['','大（上場・独立行政法人等）','小（中小企業等）']},
+  {key:'companyCategory',label:'カテゴリー',                  type:'select',section:'基本情報', opts:['','大企業（源泉1,000万円以上）','中小企業','個人事業主']},
   {key:'zip',           label:'郵便番号',                     type:'text',  section:'所在地', placeholder:'100-0001'},
   {key:'pref',          label:'都道府県',                     type:'pref',  section:'所在地', placeholder:''},
   {key:'city',          label:'市区町村',                     type:'text',  section:'所在地', placeholder:'新宿区'},
@@ -13490,7 +13494,24 @@ function renderCompanyList(resetPage) {
     row+='</div></div>';
     rows.push(row);
   });
-  var el=document.getElementById('companyList'); if(el) el.innerHTML=rows.join('');
+  var guideHtml = '<div id="coListGuide" style="margin:8px 8px 0;">'
+    + '<button onclick="var b=document.getElementById(\'coListGuideBody\');var a=document.getElementById(\'coListGuideArrow\');if(b.style.display===\'none\'){b.style.display=\'block\';a.textContent=\'▲\';}else{b.style.display=\'none\';a.textContent=\'▼\';}" '
+    + 'style="width:100%;text-align:left;background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;color:#92400e;cursor:pointer;display:flex;justify-content:space-between;align-items:center;">'
+    + '<span>📋 新規登録手順</span><span id="coListGuideArrow">▼</span>'
+    + '</button>'
+    + '<div id="coListGuideBody" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:0 0 8px 8px;padding:10px 12px;font-size:11px;color:#374151;line-height:1.9;">'
+    + '<div style="font-weight:700;color:#92400e;margin-bottom:6px;">■ 新規企業の流れ</div>'
+    + '<div><b>1.</b> 新規登録ボタンで最低限の情報を記入します。</div>'
+    + '<div><b>2.</b> 【基本情報】に以下の情報を入れてください。</div>'
+    + '<div style="padding-left:14px;color:#6b7280;">・ドライブフォルダURL（ない場合は作成）</div>'
+    + '<div style="padding-left:14px;color:#6b7280;">・個人/法人区分</div>'
+    + '<div style="padding-left:14px;color:#6b7280;">・カテゴリー</div>'
+    + '<div style="padding-left:14px;color:#6b7280;">・大房担当者</div>'
+    + '<div><b>3.</b> 【書類チェック】で【テキスト生成】</div>'
+    + '<div><b>4.</b> 作成したテキストを企業に送ります。</div>'
+    + '</div>'
+    + '</div>';
+  var el=document.getElementById('companyList'); if(el) el.innerHTML=guideHtml+rows.join('');
   if(window._selectedCompanyId){var found=companies.find(function(co){return co.id===window._selectedCompanyId;}); if(found) renderCompanyDetail(found);}
   // 所属機関フォーム未取込バッジを更新
   if(DB_READY) loadCoFormBadges();
@@ -18900,6 +18921,20 @@ function _persistRequiredDocsCo(){
   if(typeof DB_READY!=='undefined' && DB_READY && typeof _sb!=='undefined')
     _sb.from('settings').upsert({key:'required_docs_co',value:JSON.stringify(REQUIRED_DOCS_CO)},{onConflict:'key'}).then(function(){});
 }
+// ===== 大企業（源泉徴収税額1,000万円以上）書類リスト =====
+var _REQUIRED_DOCS_CO_LARGE_DEFAULT = [
+  '四季報の写し、または上場証明書類',
+  '法定調書合計表の写し'
+];
+var REQUIRED_DOCS_CO_LARGE = (function(){
+  try { var s=localStorage.getItem('ofusa_requiredDocsCoLarge'); if(s) return JSON.parse(s); } catch(e) {}
+  return _REQUIRED_DOCS_CO_LARGE_DEFAULT.slice();
+})();
+function _persistRequiredDocsCoLarge(){
+  try{localStorage.setItem('ofusa_requiredDocsCoLarge',JSON.stringify(REQUIRED_DOCS_CO_LARGE));}catch(e){}
+  if(typeof DB_READY!=='undefined'&&DB_READY&&typeof _sb!=='undefined')
+    _sb.from('settings').upsert({key:'required_docs_co_large',value:JSON.stringify(REQUIRED_DOCS_CO_LARGE)},{onConflict:'key'}).then(function(){});
+}
 // 分野別追加書類（デフォルト）
 var _REQUIRED_DOCS_CO_FIELD_DEFAULT = {
   '介護': ['介護分野 特定技能評価試験結果（施設）','介護日本語評価試験結果'],
@@ -20951,12 +20986,19 @@ function openCase(id) {
   var _coLinkHtml = (_co)
     ? '<span class="case-header-tag" onclick="openCompanyDetail(\'' + _co.id + '\')" style="cursor:pointer;color:#2563eb;text-decoration:underline;font-weight:700;">🏢 ' + esc(c.company||c.org||'') + '</span>'
     : '<span class="case-header-tag">🏢 ' + esc(c.company||c.org||'') + '</span>';
+  var _so = c.org ? supportOrgs.find(function(s){ return s.name === c.org; }) : null;
+  var _soLinkHtml = c.org
+    ? (_so
+        ? '<span class="case-header-tag" onclick="openSupport();selectSupport(\'' + _so.id + '\')" style="cursor:pointer;color:#7c3aed;text-decoration:underline;font-weight:700;">🤝 ' + esc(c.org) + '</span>'
+        : '<span class="case-header-tag">🤝 ' + esc(c.org) + '</span>')
+    : '';
   document.getElementById('caseDetailTags').innerHTML =
     '<span class="case-header-tag">● ' + c.status + '</span>' +
     '<span class="case-header-tag">🌏 ' + c.nationality + '</span>' +
     '<span class="case-header-tag">📋 ' + c.appType + '申請</span>' +
     '<span class="case-header-tag">👥 ' + c.team + '</span>' +
     _coLinkHtml +
+    _soLinkHtml +
     _lpBadgeHtml +
     _hassoBadge +
     '<span class="case-header-tag" data-action="trash-case" data-id="'+c.id+'" style="background:rgba(239,68,68,.15);color:#ef4444;cursor:pointer;margin-left:auto;font-weight:700;">🗑️ 削除</span>';
@@ -24908,12 +24950,17 @@ function _getCoDocAlerts() {
   var today = Date.now();
   companies.forEach(function(co) {
     var dc = coDocCheck[co.id] || {};
-    var _isKojin = co.corpType === '個人事業主';
+    var _isKojin = co.corpType === '個人事業主' || co.companyCategory === '個人事業主';
+    var _isLarge = co.companyCategory === '大企業（源泉1,000万円以上）';
     var _fieldKeys = _getCoFieldKeys(co);
     var seen = {};
     var docList = [];
-    (_isKojin ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO).forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} });
-    _fieldKeys.forEach(function(fk){ (REQUIRED_DOCS_CO_FIELD[fk]||[]).forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} }); });
+    if (_isLarge) {
+      REQUIRED_DOCS_CO_LARGE.forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} });
+    } else {
+      (_isKojin ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO).forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} });
+    }
+    // 分野別追加書類は廃止
     docList.forEach(function(docName) {
       if (dc['skip::'+docName]) return;
       if (dc['staff::'+docName]) return; // 担当確認済みはスキップ
@@ -25013,13 +25060,16 @@ function setCoDocTab(coId, tab) {
 function _getCoDocList(co) {
   var tab = (window._coDocTabState && window._coDocTabState[co.id]) || 'immig';
   if (tab === 'kokko') return REQUIRED_DOCS_CO_KOKKO.slice();
-  var isKojin = co.corpType === '個人事業主';
+  var isKojin = co.corpType === '個人事業主' || co.companyCategory === '個人事業主';
+  var isLarge = co.companyCategory === '大企業（源泉1,000万円以上）';
   var coFieldKeys = _getCoFieldKeys(co);
   var seen = {}; var docList = [];
-  (isKojin ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO).forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} });
-  coFieldKeys.forEach(function(fk){
-    (REQUIRED_DOCS_CO_FIELD[fk]||[]).forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} });
-  });
+  if (isLarge) {
+    REQUIRED_DOCS_CO_LARGE.forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} });
+  } else {
+    (isKojin ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO).forEach(function(d){ if(!seen[d]){seen[d]=1;docList.push(d);} });
+  }
+  // 分野別追加書類は廃止
   return docList;
 }
 
@@ -25077,17 +25127,117 @@ function coBulkUncheckAll(coId, type) {
   showToast('✅ チェックを全解除しました');
 }
 
+function openCoDocTextGenerator(coId) {
+  var co = companies.find(function(c){ return c.id === coId; });
+  if (!co) { showToast('⚠️ 所属機関が見つかりません'); return; }
+
+  var rules = docTextRules.filter(function(r){ return r.category === '所属機関' || r.category === '共通'; });
+
+  var modal = document.getElementById('coDocTextGenModal');
+  if (modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'coDocTextGenModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
+  var inner = document.createElement('div');
+  inner.style.cssText = 'background:white;border-radius:16px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);padding:24px;';
+  modal.appendChild(inner);
+  document.body.appendChild(modal);
+
+  var h = '';
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">';
+  h += '<div style="font-size:15px;font-weight:800;color:#0f2040;">📝 テキスト生成</div>';
+  h += '<button onclick="document.getElementById(&quot;coDocTextGenModal&quot;).remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#999;">×</button>';
+  h += '</div>';
+  h += '<div style="font-size:12px;color:#6b7280;margin-bottom:16px;">🏢 ' + esc(co.name || '') + '</div>';
+  h += '<div style="font-size:11px;font-weight:700;margin-bottom:8px;">生成するテキストの種類</div>';
+
+  if (rules.length === 0) {
+    h += '<div style="color:#9ca3af;font-size:12px;padding:20px;text-align:center;">所属機関カテゴリーのルールがありません</div>';
+  } else {
+    rules.forEach(function(rule) {
+      h += '<div style="border:1.5px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer;transition:.2s;"'
+        + ' onmouseover="this.style.borderColor=\'#059669\';this.style.background=\'#f0fdf4\'"'
+        + ' onmouseout="this.style.borderColor=\'#e5e7eb\';this.style.background=\'white\'"'
+        + ' onclick="generateCoDocText(&quot;' + coId + '&quot;,&quot;' + rule.id + '&quot;)">';
+      h += '<div style="font-size:13px;font-weight:700;">' + esc(rule.name) + '</div>';
+      h += '<div style="font-size:10px;color:#6b7280;margin-top:2px;">条件: ' + rule.conditions.length + '件</div>';
+      h += '</div>';
+    });
+  }
+  h += '<div id="coDocTextResult" style="margin-top:16px;display:none;"></div>';
+  inner.innerHTML = h;
+}
+
+function generateCoDocText(coId, ruleId) {
+  var co = companies.find(function(c){ return c.id === coId; }) || {};
+  var rule = docTextRules.find(function(r){ return r.id === ruleId; });
+  if (!rule) { showToast('⚠️ ルールが見つかりません'); return; }
+
+  // アップロードURL生成（ドライブURLがあれば）
+  var _coFolderId = '';
+  if (co.driveUrl) {
+    var _m = co.driveUrl.match(/[-\w]{25,}/);
+    if (_m) _coFolderId = _m[0];
+  }
+  var _coUploadUrl = _coFolderId
+    ? 'https://ofusa2026.github.io/upload/company_dataup.html?folder=' + _coFolderId + '&company=' + encodeURIComponent(co.id||'') + '&name=' + encodeURIComponent(co.name||'')
+    : '';
+
+  var vars = {
+    company: co.name || '',
+    companyCategory: co.companyCategory || '',
+    staff: co.ofusaStaff || '担当者名',
+    uploadUrl: _coUploadUrl,
+    docList: ''
+  };
+
+  // 条件で追加テキストを組み立て
+  var additions = [];
+  rule.conditions.forEach(function(cond) {
+    var matched = false;
+    if (cond.and && Array.isArray(cond.and)) {
+      matched = cond.and.every(function(sub){ var fv=vars[sub.field]||''; return fv && fv.indexOf(sub.contains) >= 0; });
+    } else if (cond.field) {
+      var fv = vars[cond.field] || '';
+      matched = fv && fv.indexOf(cond.contains) >= 0;
+    }
+    if (matched) additions.push(cond.append);
+  });
+
+  // {docList}はvarsから除外して最後に置換する
+  var text = rule.template;
+  for (var k in vars) {
+    if (k === 'docList') continue;
+    text = text.replace(new RegExp('\\{' + k + '\\}', 'g'), vars[k]);
+  }
+  text = text.replace('{docList}', additions.join('\n'));
+
+  // 結果表示
+  var res = document.getElementById('coDocTextResult');
+  if (!res) return;
+  res.style.display = 'block';
+  res.innerHTML = '<div style="font-size:11px;font-weight:700;color:#059669;margin-bottom:8px;">✅ 生成完了</div>'
+    + '<textarea readonly style="width:100%;padding:12px;border:1.5px solid #d1fae5;border-radius:10px;font-size:12px;line-height:1.8;background:#f0fdf4;resize:vertical;box-sizing:border-box;min-height:200px;">'
+    + esc(text) + '</textarea>'
+    + '<button onclick="var t=this.previousSibling;t.select();document.execCommand(\'copy\');showToast(\'✅ コピーしました\')" style="margin-top:8px;padding:8px 20px;background:#059669;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;width:100%;">📋 コピー</button>';
+}
+
 function renderCoDocsTabHtml(co) {
   var h = '';
-  // 個人/法人で基本リストを切り替え＋分野別追加書類をマージ
-  var _isKojin = co.corpType === '個人事業主';
+  // 個人/法人・大企業/小企業で基本リストを切り替え＋分野別追加書類をマージ
+  var _isKojin = co.corpType === '個人事業主' || co.companyCategory === '個人事業主';
+  var _isLarge = co.companyCategory === '大企業（源泉1,000万円以上）';
   var _coFieldKeys = _getCoFieldKeys(co);
   var _seen = {};
   var docListImmig = [];
-  (_isKojin ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO).forEach(function(d){ if(!_seen[d]){_seen[d]=1;docListImmig.push(d);} });
-  _coFieldKeys.forEach(function(fk){
-    (REQUIRED_DOCS_CO_FIELD[fk]||[]).forEach(function(d){ if(!_seen[d]){_seen[d]=1;docListImmig.push(d);} });
-  });
+  if (_isLarge) {
+    // 大企業は専用リストのみ（分野別は引き続き追加）
+    REQUIRED_DOCS_CO_LARGE.forEach(function(d){ if(!_seen[d]){_seen[d]=1;docListImmig.push(d);} });
+  } else {
+    (_isKojin ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO).forEach(function(d){ if(!_seen[d]){_seen[d]=1;docListImmig.push(d);} });
+  }
+  // 分野別追加書類は廃止・書類リストはすべて共通リストで自由管理
   var docListKokko = REQUIRED_DOCS_CO_KOKKO.slice();
   if (!coDocCheck[co.id]) coDocCheck[co.id] = {};
 
@@ -25099,9 +25249,8 @@ function renderCoDocsTabHtml(co) {
   // ===== ヘッダー =====
   h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px;">';
   var _typeBadge = _isKojin ? '<span style="font-size:10px;background:#fef3c7;color:#d97706;border-radius:99px;padding:1px 8px;font-weight:700;">👤 個人事業主</span>' : '<span style="font-size:10px;background:#eff6ff;color:#2563eb;border-radius:99px;padding:1px 8px;font-weight:700;">🏢 法人</span>';
-  var _fieldBadges = '';
-  _coFieldKeys.forEach(function(fk){ var cnt=(REQUIRED_DOCS_CO_FIELD[fk]||[]).length; if(cnt) _fieldBadges+=' <span style="font-size:10px;background:#ede9fe;color:#7c3aed;border-radius:99px;padding:1px 7px;font-weight:700;">＋'+fk+' '+cnt+'件</span>'; });
-  h += '<div style="font-size:12px;font-weight:700;color:var(--gray-400);">所属機関書類チェック '+_typeBadge+_fieldBadges+'</div>';
+  var _largeBadge = _isLarge ? '<span style="font-size:10px;background:#fef3c7;color:#b45309;border-radius:99px;padding:1px 8px;font-weight:700;margin-left:3px;">💹 大企業</span>' : '';
+  h += '<div style="font-size:12px;font-weight:700;color:var(--gray-400);">所属機関書類チェック '+_typeBadge+_largeBadge+'</div>';
   h += '<button onclick="openRequiredDocsCoEditor()" style="font-size:10px;padding:3px 10px;background:#f5f3ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:6px;cursor:pointer;font-weight:700;">✏️ 書類リスト編集</button>';
   if (driveUrls.length > 0) {
     h += '<div style="display:flex;gap:4px;">';
@@ -25124,9 +25273,16 @@ function renderCoDocsTabHtml(co) {
       h += '</select>';
     }
     h += '<button onclick="scanCoDriveDocuments(\'' + co.id + '\')" style="padding:8px 16px;background:#4f46e5;color:white;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">📂 スキャン</button>';
+    h += '<button onclick="openCoDocTextGenerator(\'' + co.id + '\')" style="padding:8px 16px;background:#059669;color:white;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">📝 テキスト生成</button>';
     h += '</div>';
   }
   h += '<div id="coScanResult_' + co.id + '"></div>';
+  // ドライブURLがない場合もテキスト生成ボタンを表示
+  if (driveUrls.length === 0) {
+    h += '<div style="margin-bottom:12px;">';
+    h += '<button onclick="openCoDocTextGenerator(\'' + co.id + '\')" style="padding:8px 16px;background:#059669;color:white;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;">📝 テキスト生成</button>';
+    h += '</div>';
+  }
 
   // ===== タブ切り替え =====
   var _coDocTab = (window._coDocTabState && window._coDocTabState[co.id]) || 'immig';
@@ -25141,6 +25297,14 @@ function renderCoDocsTabHtml(co) {
 
   // 現在のタブのdocListを選択
   var docList = tabImmigActive ? docListImmig : docListKokko;
+
+  // ===== 備考欄（一番上）=====
+  var _coMemo = coDocCheck[co.id]['memo::'] || '';
+  h += '<div style="margin-bottom:12px;">';
+  h += '<div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:4px;">📝 備考</div>';
+  h += '<div style="font-size:10px;color:#9ca3af;margin-bottom:5px;">2人目以降の依頼で事務所で保管がない場合はその旨と日付を記載してください</div>';
+  h += '<textarea id="coDocMemo_'+co.id+'" onchange="saveCoDocMemo(\'' + co.id + '\',this.value)" rows="2" placeholder="例：2人目 2025/04/01 事務所保管なし" style="width:100%;padding:7px 10px;border:1.5px solid #e5e7eb;border-radius:8px;font-size:12px;resize:vertical;box-sizing:border-box;line-height:1.6;">' + esc(_coMemo) + '</textarea>';
+  h += '</div>';
 
   // 進捗バー
   var doneCount = 0;
@@ -25225,6 +25389,12 @@ function renderCoDocsTabHtml(co) {
   return h;
 }
 
+
+function saveCoDocMemo(coId, val) {
+  if (!coDocCheck[coId]) coDocCheck[coId] = {};
+  coDocCheck[coId]['memo::'] = val;
+  persistCoDocCheck();
+}
 
 function toggleCoDocCheck(coId, fullKey) {
   if (!coDocCheck[coId]) coDocCheck[coId] = {};
@@ -25430,35 +25600,31 @@ function openRequiredDocsCoEditor(fieldKey) {
   inner.style.cssText = 'background:white;border-radius:14px;width:100%;max-width:480px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;';
   modal.appendChild(inner);
   document.body.appendChild(modal);
-  window._reqDocsCoMode = fieldKey ? 'field' : 'base';
-  window._reqDocsCoFieldKey = fieldKey || null;
+  // 毎回 base（共通書類）からスタート。前セッションの状態を引き継がない。
+  window._reqDocsCoMode = 'base';
+  window._reqDocsCoFieldKey = null;
   _renderReqDocsCoModal(inner);
 }
 
 
 function _renderReqDocsCoModal(inner) {
-  var mode = window._reqDocsCoMode || 'base';
-  var fieldKey = window._reqDocsCoFieldKey || null;
-  var docs = mode === 'field' && fieldKey ? (REQUIRED_DOCS_CO_FIELD[fieldKey]||[]) : mode === 'kojin' ? REQUIRED_DOCS_CO_KOJIN : REQUIRED_DOCS_CO;
+  // タブなし・1リスト・完全自由形式
+  var docs = REQUIRED_DOCS_CO.slice();
   var h = '';
-  // ヘッダ
+
+  // ─ ヘッダ ─
   h += '<div style="padding:14px 16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">';
   h += '<div style="font-size:14px;font-weight:800;">📋 所属機関 書類リスト編集</div>';
   h += '<button onclick="_saveReqDocsCoAndClose()" style="padding:5px 14px;background:#7c3aed;color:white;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;">💾 保存して閉じる</button>';
   h += '</div>';
-  // カテゴリタブ
-  h += '<div style="padding:8px 12px;border-bottom:1px solid #f3f4f6;display:flex;gap:4px;flex-wrap:wrap;">';
-  h += '<button onclick="window._reqDocsCoMode=\'base\';window._reqDocsCoFieldKey=null;var _m=document.querySelector(\'#reqDocsCoModal>div\');if(_m)_renderReqDocsCoModal(_m)" style="font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid '+(mode==='base'?'#2563eb':'#e5e7eb')+';background:'+(mode==='base'?'#eff6ff':'white')+';color:'+(mode==='base'?'#2563eb':'#6b7280')+';cursor:pointer;font-weight:700;">🏢 法人</button>';
-  h += '<button onclick="window._reqDocsCoMode=\'kojin\';window._reqDocsCoFieldKey=null;var _m=document.querySelector(\'#reqDocsCoModal>div\');if(_m)_renderReqDocsCoModal(_m)" style="font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid '+(mode='kojin'?'#d97706':'#e5e7eb')+';background:'+(mode='kojin'?'#fef3c7':'white')+';color:'+(mode='kojin'?'#d97706':'#6b7280')+';cursor:pointer;font-weight:700;">👤 個人事業主</button>';
-  Object.keys(REQUIRED_DOCS_CO_FIELD).forEach(function(fk){
-    var isActive = mode==='field' && fieldKey===fk;
-    h += '<button onclick="window._reqDocsCoMode=\'field\';window._reqDocsCoFieldKey=\''+fk+'\';var _m=document.querySelector(\'#reqDocsCoModal>div\');if(_m)_renderReqDocsCoModal(_m)" style="font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid '+(isActive?'#2563eb':'#e5e7eb')+';background:'+(isActive?'#dbeafe':'white')+';color:'+(isActive?'#1d4ed8':'#6b7280')+';cursor:pointer;font-weight:700;">🏭 '+fk+'</button>';
-  });
-  h += '<button onclick="_addCoFieldKeyPrompt()" style="font-size:10px;padding:3px 8px;border-radius:5px;border:1px solid #e5e7eb;background:white;color:#6b7280;cursor:pointer;font-weight:700;">＋ 分野追加</button>';
-  h += '</div>';
-  h += '<div style="font-size:10px;color:#6b7280;padding:6px 16px;">☰ ドラッグで並び替え　クリックで名前編集　✕ で削除</div>';
-  // リスト
-  h += '<div id="reqDocsSortList" style="flex:1;overflow-y:auto;padding:8px 12px;">';
+
+  h += '<div style="font-size:10px;color:#9ca3af;padding:6px 14px;">☰ ドラッグで並び替え　クリックで名前編集　✕ で削除</div>';
+
+  // ─ 書類リスト ─
+  h += '<div id="reqDocsSortList" style="flex:1;overflow-y:auto;padding:6px 12px;">';
+  if (docs.length === 0) {
+    h += '<div style="text-align:center;color:#9ca3af;padding:20px;font-size:12px;">書類がありません。下の入力欄から追加してください。</div>';
+  }
   docs.forEach(function(doc) {
     h += '<div class="req-doc-row" draggable="true" style="display:flex;align-items:center;gap:6px;padding:5px 6px;border:1px solid #e5e7eb;border-radius:7px;margin-bottom:4px;background:white;cursor:grab;user-select:none;">';
     h += '<span style="color:#9ca3af;font-size:14px;flex-shrink:0;">☰</span>';
@@ -25467,13 +25633,14 @@ function _renderReqDocsCoModal(inner) {
     h += '</div>';
   });
   h += '</div>';
-  h += '<div style="padding:10px 12px;border-top:1px solid #e5e7eb;display:flex;gap:6px;">';
-  h += '<input id="reqDocNewInput" type="text" placeholder="新しい書類名を入力..." style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:12px;">';
+
+  // ─ 自由追加 ─
+  h += '<div style="padding:8px 12px;border-top:1px solid #e5e7eb;display:flex;gap:6px;">';
+  h += '<input id="reqDocNewInput" type="text" placeholder="書類名を入力して追加..." style="flex:1;padding:7px 10px;border:1px solid #d1d5db;border-radius:7px;font-size:12px;">';
   h += '<button onclick="_addReqDocRow()" style="padding:7px 14px;background:#7c3aed;color:white;border:none;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;">＋ 追加</button>';
   h += '</div>';
-  h += '<div style="padding:6px 12px 10px;display:flex;justify-content:space-between;">';
+  h += '<div style="padding:4px 12px 10px;">';
   h += '<button onclick="_resetReqDocsCo()" style="font-size:10px;padding:4px 10px;background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">🔄 デフォルトに戻す</button>';
-  if (mode==='field' && fieldKey) h += '<button onclick="_deleteCoFieldKey()" style="font-size:10px;padding:4px 10px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;cursor:pointer;">🗑 この分野を削除</button>';
   h += '</div>';
   inner.innerHTML = h;
   // ドラッグ
@@ -25514,19 +25681,9 @@ function _saveReqDocsCoAndClose() {
   if (list) {
     var newDocs = [];
     list.querySelectorAll('input[type="text"]').forEach(function(inp){ var v=inp.value.trim(); if(v) newDocs.push(v); });
-    if (mode === 'field' && fieldKey) {
-      REQUIRED_DOCS_CO_FIELD[fieldKey] = newDocs;
-      _persistRequiredDocsCoField();
-      showToast('✅【'+fieldKey+'】分野追加書類を保存しました');
-    } else if (mode === 'kojin') {
-      REQUIRED_DOCS_CO_KOJIN = newDocs;
-      _persistRequiredDocsCoKojin();
-      showToast('✅ 個人事業主書類リストを保存しました');
-    } else {
-      REQUIRED_DOCS_CO = newDocs;
-      _persistRequiredDocsCo();
-      showToast('✅ 法人共通書類リストを保存しました');
-    }
+    REQUIRED_DOCS_CO = newDocs;
+    _persistRequiredDocsCo();
+    showToast('✅ 書類リストを保存しました');
     if (window._selectedCompanyId) {
       var co = companies.find(function(c){return c.id===window._selectedCompanyId;});
       if (co) { window._companyDetailTab='coDocs'; renderCompanyDetail(co); }
@@ -25543,9 +25700,6 @@ function _resetReqDocsCo() {
   if (mode === 'field' && fieldKey && _REQUIRED_DOCS_CO_FIELD_DEFAULT[fieldKey]) {
     REQUIRED_DOCS_CO_FIELD[fieldKey] = _REQUIRED_DOCS_CO_FIELD_DEFAULT[fieldKey].slice();
     _persistRequiredDocsCoField();
-  } else if (mode === 'kojin') {
-    REQUIRED_DOCS_CO_KOJIN = _REQUIRED_DOCS_CO_KOJIN_DEFAULT.slice();
-    _persistRequiredDocsCoKojin();
   } else {
     REQUIRED_DOCS_CO = _REQUIRED_DOCS_CO_DEFAULT.slice();
     _persistRequiredDocsCo();
@@ -31583,10 +31737,11 @@ function _initDefaultDocTextRules(){
        {field:'nationality',contains:'ベトナム',append:'\n□ 推薦者表（すいせんしゃひょう）'}
      ]},
     {id:'dt2',name:'所属機関必要書類リスト',category:'所属機関',
-     template:'【{company}】所属機関必要書類\nカテゴリー：{companyCategory}\n\n{docList}',
+     template:'【{company}】様\n\nお世話になっております。大房行政書士法人の{staff}と申します。\n特定技能の申請に必要な書類をご案内いたしますので、ご準備のほどよろしくお願い申し上げます。\n\n━━━━━━━━━━━━━━━\n📋 ご用意いただく書類\n━━━━━━━━━━━━━━━\n\n{docList}\n\n━━━━━━━━━━━━━━━\n📁 書類アップロード先\n{uploadUrl}\n\n上記URLよりアップロードをお願いいたします。\n（ドライブへのアクセスが難しい場合はメールまたは郵送でも対応可能です）\n\n━━━━━━━━━━━━━━━\nご不明な点はお気軽にご連絡ください。\n引き続きよろしくお願いいたします。\n\n大房行政書士法人\nTEL：03-6424-8849',
      conditions:[
-       {field:'companyCategory',contains:'大',append:'（カテゴリー大のため書類省略可）'},
-       {field:'companyCategory',contains:'小',append:'□ 決算書の写し（3期分）\n□ 登記事項証明書\n□ 役員の住民票\n□ 労働保険料等納付証明書\n□ 社会保険料納入状況照会回答票\n□ 納税証明書（その３）源泉所得税\n□ 納税証明書（その３）法人税\n□ 納税証明書（その３）消費税\n□ 納税証明書（地方税）法人住民税'}
+       {field:'companyCategory',contains:'大企業',append:'■ 大企業（源泉徴収税額1,000万円以上）\n□ 四季報の写し、または上場証明書類\n□ 法定調書合計表の写し（税務署発行）'},
+       {field:'companyCategory',contains:'中小企業',append:'■ 中小企業\n□ 決算文書の写し3期分（損益計算書及び貸借対照表）\n□ 登記事項証明書（履歴事項全部証明書）\n□ 業務に関わる役員（最低1名分）の住民票の写し\n□ 労働保険料等納付証明書（未納なし証明）\n□ 社会保険料納入状況照会回答票または領収書24ヶ月分\n□ 納税証明書（その３）＊税務署発行\n　税目）源泉所得税及び復興特別所得税、法人税、消費税及び地方消費税\n□ 納税証明書（地方税）法人住民税 ＊市町村発行\n□ 就業規則\n□ 賃金規定\n□ 36協定届出書\n□ 変形労働届出書\n□ 年間カレンダー\n□ 予定物件の間取り図、物件資料など\n\n※ 3年間継続した受入れ実績があり過去3年間債務超過なし（法人に限る）、または\n　 法務省告示の条件に該当する場合は事前にお申し出ください。'},
+       {field:'companyCategory',contains:'個人事業主',append:'■ 個人事業主\n□ 確定申告書（直近1年分）\n□ 所得税の納税証明書（その１・その２）\n□ 住民税の納税証明書\n□ 登記されていないことの証明書\n□ 役員の住民票（代表者）\n□ 役員の誓約書（代表者）\n□ 雇用保険適用事業所設置届\n□ 労働保険料等納付証明書\n□ 社会保険料納入状況照会回答票\n□ 就業規則\n□ 賃金規定\n□ 36協定届出書\n□ 変形労働届出書\n□ 年間カレンダー'}
      ]}
   ];
   persistDocTextRules();
@@ -31873,9 +32028,9 @@ function openDocTextGenerator(caseId){
     h+='</div>';
   }
 
-  // テンプレート選択
+  // テンプレート選択（人材カテゴリーのみ）
   h+='<div style="font-size:11px;font-weight:700;margin-bottom:8px;">生成するテキストの種類</div>';
-  docTextRules.forEach(function(rule,idx){
+  docTextRules.filter(function(r){return r.category==='人材'||r.category==='共通';}).forEach(function(rule,idx){
     h+='<div style="border:1.5px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer;transition:.2s;" ';
     h+='onmouseover="this.style.borderColor=\'#059669\';this.style.background=\'#f0fdf4\'" ';
     h+='onmouseout="this.style.borderColor=\'#e5e7eb\';this.style.background=\'white\'" ';
@@ -34853,6 +35008,18 @@ function loadAllFromSupabase() {
               var dbDTR = typeof s.value === 'string' ? JSON.parse(s.value) : s.value;
               if(dbDTR && Array.isArray(dbDTR) && dbDTR.length > 0) {
                 docTextRules = dbDTR;
+                // dt2（所属機関必要書類リスト）を最新テンプレートに強制更新
+                var _dt2idx = docTextRules.findIndex(function(r){return r.id==='dt2';});
+                var _dt2new = {id:'dt2',name:'所属機関必要書類リスト',category:'所属機関',
+                  template:'【{company}】様\n\nお世話になっております。大房行政書士法人の{staff}と申します。\n特定技能の申請に必要な書類をご案内いたしますので、ご準備のほどよろしくお願い申し上げます。\n\n━━━━━━━━━━━━━━━\n📋 ご用意いただく書類\n━━━━━━━━━━━━━━━\n\n{docList}\n\n━━━━━━━━━━━━━━━\n📁 書類アップロード先\n{uploadUrl}\n\n上記URLよりアップロードをお願いいたします。\n（ドライブへのアクセスが難しい場合はメールまたは郵送でも対応可能です）\n\n━━━━━━━━━━━━━━━\nご不明な点はお気軽にご連絡ください。\n引き続きよろしくお願いいたします。\n\n大房行政書士法人\nTEL：03-6424-8849',
+                  conditions:[
+                    {field:'companyCategory',contains:'大企業',append:'■ 大企業（源泉徴収税額1,000万円以上）\n□ 四季報の写し、または上場証明書類\n□ 法定調書合計表の写し（税務署発行）'},
+                    {field:'companyCategory',contains:'中小企業',append:'■ 中小企業\n□ 決算文書の写し3期分（損益計算書及び貸借対照表）\n□ 登記事項証明書（履歴事項全部証明書）\n□ 業務に関わる役員（最低1名分）の住民票の写し\n□ 労働保険料等納付証明書（未納なし証明）\n□ 社会保険料納入状況照会回答票または領収書24ヶ月分\n□ 納税証明書（その３）＊税務署発行\n　税目）源泉所得税及び復興特別所得税、法人税、消費税及び地方消費税\n□ 納税証明書（地方税）法人住民税 ＊市町村発行\n□ 就業規則\n□ 賃金規定\n□ 36協定届出書\n□ 変形労働届出書\n□ 年間カレンダー\n□ 予定物件の間取り図、物件資料など\n\n※ 3年間継続した受入れ実績があり過去3年間債務超過なし（法人に限る）、または\n　 法務省告示の条件に該当する場合は事前にお申し出ください。'},
+                    {field:'companyCategory',contains:'個人事業主',append:'■ 個人事業主\n□ 確定申告書（直近1年分）\n□ 所得税の納税証明書（その１・その２）\n□ 住民税の納税証明書\n□ 登記されていないことの証明書\n□ 役員の住民票（代表者）\n□ 役員の誓約書（代表者）\n□ 雇用保険適用事業所設置届\n□ 労働保険料等納付証明書\n□ 社会保険料納入状況照会回答票\n□ 就業規則\n□ 賃金規定\n□ 36協定届出書\n□ 変形労働届出書\n□ 年間カレンダー'}
+                  ]};
+                if(_dt2idx !== -1) docTextRules[_dt2idx] = _dt2new;
+                else docTextRules.push(_dt2new);
+                persistDocTextRules();
                 console.log('📦 docTextRules restored from DB ('+docTextRules.length+' rules)');
               } else {
                 // SBにデータなし → デフォルト注入してSBに保存
@@ -34935,6 +35102,9 @@ function loadAllFromSupabase() {
           }
           if(s.key==='required_docs_co_kokko') {
             try { var _rck2=JSON.parse(s.value); if(Array.isArray(_rck2)){REQUIRED_DOCS_CO_KOKKO=_rck2;localStorage.setItem('ofusa_requiredDocsCoKokko',s.value);} } catch(e) {}
+          }
+          if(s.key==='required_docs_co_large') {
+            try { var _rcl=JSON.parse(s.value); if(Array.isArray(_rcl)){REQUIRED_DOCS_CO_LARGE=_rcl;localStorage.setItem('ofusa_requiredDocsCoLarge',s.value);} } catch(e) {}
           }
           if(s.key==='co_rename_cats_base') {
             try { var _b=JSON.parse(s.value); if(Array.isArray(_b)){_coRenameCategoriesBase=_b;localStorage.setItem('ofusa_coRenameCatsBase',s.value);} } catch(e) {}
@@ -35242,6 +35412,7 @@ function initRealtime() {
       handleFormResponseInsert(payload.new);
     })
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'upload_notifications' }, function(payload) {
+      console.log('🔔 Realtime upload_notifications INSERT:', payload);
       handleUploadNotification(payload.new);
     })
     .subscribe(function(status) {
@@ -35259,19 +35430,160 @@ function initRealtime() {
 
 function handleUploadNotification(row) {
   if (!row) return;
-  var caseId = row.case_id || '';
-  var c = cData.find(function(x){ return x.id === caseId; });
-  var caseName = c ? (c.applicant || c.name || caseId) : caseId;
   var fileCount = row.file_count || 1;
-  var msg = '📤 ' + caseName + ' から書類アップロードがありました（' + fileCount + 'ファイル）';
-  showToast(msg);
+  var label = '';
+  // 所属機関アップロード（company_dataup）の場合
+  if (row.source === 'company_dataup') {
+    var co = companies.find(function(x){ return x.id === (row.company_id || ''); });
+    label = co ? co.name : (row.company_name || '所属機関');
+    label = '🏢 ' + label;
+  } else {
+    // 人材アップロード（zinzai_dataup）の場合
+    var caseId = row.case_id || '';
+    var c = cData.find(function(x){ return x.id === caseId; });
+    label = c ? (c.applicant || c.name || caseId) : caseId;
+    label = '👤 ' + label;
+  }
+  var msg = '📤 ' + label + ' から書類がアップロードされました（' + fileCount + 'ファイル）';
+  showToast(msg, 8000, 'upload');
+  console.log('🔔 handleUploadNotification fired:', msg);
+  // バッジにも追加
+  _uploadNotifyList.unshift(row);
+  updateUploadNotifyBadge();
+  // バッジ更新
+  loadUploadNotifyBadge();
   if (window.Notification && Notification.permission === 'granted') {
-    new Notification('📤 書類アップロード', { body: caseName + ' から' + fileCount + 'ファイルがアップロードされました' });
+    new Notification('📤 書類アップロード', { body: label + ' から' + fileCount + 'ファイルがアップロードされました' });
   } else if (window.Notification && Notification.permission !== 'denied') {
     Notification.requestPermission().then(function(perm) {
-      if (perm === 'granted') new Notification('📤 書類アップロード', { body: caseName + ' から' + fileCount + 'ファイルがアップロードされました' });
+      if (perm === 'granted') new Notification('📤 書類アップロード', { body: label + ' から' + fileCount + 'ファイルがアップロードされました' });
     });
   }
+}
+
+// ===== アップロード通知バッジ管理 =====
+var _uploadNotifyList = []; // 未確認のアップロード通知リスト
+
+function updateUploadNotifyBadge(rows) {
+  if (rows) _uploadNotifyList = rows;
+  var btn = document.getElementById('uploadNotifyBadge');
+  var cnt = document.getElementById('uploadNotifyCount');
+  if (!btn || !cnt) return;
+  var n = _uploadNotifyList.length;
+  cnt.textContent = n;
+  btn.style.display = 'inline-flex';
+  btn.style.alignItems = 'center';
+  // 件数に応じて色を変える（0件はグレー、あればブルー）
+  if (n > 0) {
+    btn.style.background = '#eff6ff';
+    btn.style.color = '#1d4ed8';
+    btn.style.borderColor = '#93c5fd';
+    cnt.style.background = '#1d4ed8';
+  } else {
+    btn.style.background = '#f8fafc';
+    btn.style.color = '#94a3b8';
+    btn.style.borderColor = '#e2e8f0';
+    cnt.style.background = '#94a3b8';
+  }
+}
+
+function loadUploadNotifyBadge() {
+  if (!DB_READY) return;
+  _sb.from('upload_notifications')
+    .select('*')
+    .is('confirmed_at', null)
+    .order('created_at', { ascending: false })
+    .then(function(res) {
+      if (!res.error && res.data) updateUploadNotifyBadge(res.data);
+    });
+}
+
+function showUploadNotifyModal() {
+  var modal = document.getElementById('uploadNotifyModal');
+  if (modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'uploadNotifyModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
+  var inner = document.createElement('div');
+  inner.style.cssText = 'background:white;border-radius:16px;width:100%;max-width:460px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;';
+  modal.appendChild(inner);
+  document.body.appendChild(modal);
+
+  var h = '';
+  h += '<div style="padding:14px 16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">';
+  h += '<div style="font-size:14px;font-weight:800;">📤 書類アップロード通知</div>';
+  h += '<div style="display:flex;gap:6px;">';
+  h += '<button onclick="confirmAllUploadNotify()" style="font-size:11px;padding:4px 12px;background:#eff6ff;color:#1d4ed8;border:1px solid #93c5fd;border-radius:6px;cursor:pointer;font-weight:700;">全て確認済みにする</button>';
+  h += '<button onclick="document.getElementById(&quot;uploadNotifyModal&quot;).remove()" style="font-size:11px;padding:4px 12px;background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">閉じる</button>';
+  h += '</div></div>';
+  h += '<div style="flex:1;overflow-y:auto;padding:8px 12px;">';
+  if (_uploadNotifyList.length === 0) {
+    h += '<div style="text-align:center;color:#9ca3af;padding:30px;font-size:13px;">通知はありません</div>';
+  } else {
+    _uploadNotifyList.forEach(function(row) {
+      var isZinzai = row.source === 'zinzai_dataup';
+      var label, subLabel = '';
+      if (isZinzai) {
+        var c = cData.find(function(x){ return x.id === row.case_id; });
+        label = '👤 ' + (c ? (c.applicant || c.name) : (row.case_id || '人材'));
+        if (c) subLabel = c.company || '';
+      } else {
+        var co = companies.find(function(x){ return x.id === row.company_id; });
+        label = '🏢 ' + (co ? co.name : (row.company_name || row.company_id || '所属機関'));
+      }
+      var dt = row.created_at ? row.created_at.replace('T',' ').slice(0,16) : '';
+      var driveUrl = row.folder_id ? 'https://drive.google.com/drive/folders/' + row.folder_id : '';
+      h += '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 8px;border-bottom:1px solid #f3f4f6;gap:8px;">';
+      h += '<div style="flex:1;min-width:0;">';
+      h += '<div style="font-size:13px;font-weight:700;color:#1e293b;">' + esc(label) + '</div>';
+      if (subLabel) h += '<div style="font-size:11px;color:#6b7280;">' + esc(subLabel) + '</div>';
+      h += '<div style="font-size:11px;color:#9ca3af;margin-top:2px;">' + (row.file_count || 1) + 'ファイル　' + dt + '</div>';
+      if (driveUrl) h += '<a href="' + driveUrl + '" target="_blank" style="font-size:11px;color:#1a73e8;font-weight:600;text-decoration:none;">📁 Driveで確認</a>';
+      if (row.message) h += '<div style="font-size:12px;color:#374151;background:#fafafa;border:1px solid #e5e7eb;border-radius:6px;padding:5px 8px;margin-top:4px;">💬 ' + esc(row.message) + '</div>';
+      h += '</div>';
+      h += '<div style="display:flex;gap:4px;flex-shrink:0;">';
+      if (isZinzai && row.case_id) {
+        h += '<button onclick="document.getElementById(&quot;uploadNotifyModal&quot;).remove();openCase(&quot;' + row.case_id + '&quot;)" style="font-size:10px;padding:3px 10px;background:#eff6ff;color:#1d4ed8;border:1px solid #93c5fd;border-radius:5px;cursor:pointer;font-weight:700;">案件へ</button>';
+      } else if (!isZinzai) {
+        var co2 = companies.find(function(x){ return x.id === row.company_id; });
+        if (co2) h += '<button onclick="document.getElementById(&quot;uploadNotifyModal&quot;).remove();openCompanyDetail(&quot;' + co2.id + '&quot;,&quot;coDocs&quot;)" style="font-size:10px;padding:3px 10px;background:#eff6ff;color:#1d4ed8;border:1px solid #93c5fd;border-radius:5px;cursor:pointer;font-weight:700;">書類チェックへ</button>';
+      }
+      h += '<button onclick="confirmUploadNotify(&quot;' + row.id + '&quot;,this)" style="font-size:10px;padding:3px 10px;background:#f0fdf4;color:#16a34a;border:1px solid #86efac;border-radius:5px;cursor:pointer;font-weight:700;">✓ 確認</button>';
+      h += '</div></div>';
+    });
+  }
+  h += '</div>';
+  inner.innerHTML = h;
+}
+
+function confirmUploadNotify(id, btn) {
+  if (!DB_READY) return;
+  _sb.from('upload_notifications').update({ confirmed_at: new Date().toISOString() }).eq('id', id).then(function(res) {
+    if (!res.error) {
+      _uploadNotifyList = _uploadNotifyList.filter(function(r){ return r.id !== id; });
+      updateUploadNotifyBadge();
+      if (btn) btn.closest('div[style*="border-bottom"]').remove();
+      if (_uploadNotifyList.length === 0) {
+        var modal = document.getElementById('uploadNotifyModal');
+        if (modal) modal.remove();
+      }
+    }
+  });
+}
+
+function confirmAllUploadNotify() {
+  if (!DB_READY || _uploadNotifyList.length === 0) return;
+  var now = new Date().toISOString();
+  var ids = _uploadNotifyList.map(function(r){ return r.id; });
+  _sb.from('upload_notifications').update({ confirmed_at: now }).in('id', ids).then(function(res) {
+    if (!res.error) {
+      _uploadNotifyList = [];
+      updateUploadNotifyBadge();
+      var modal = document.getElementById('uploadNotifyModal');
+      if (modal) modal.remove();
+    }
+  });
 }
 
 function handleFormResponseInsert(row) {
