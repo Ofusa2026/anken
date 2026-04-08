@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.01</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.03</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2337,7 +2337,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260409.01';
+var OFUSA_VERSION = 'ver.20260409.03';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -38239,6 +38239,48 @@ async function loadSignRequestsArea(caseId) {
   }
 }
 
+
+function showLangSelectModal(caseId) {
+  return new Promise(function(resolve) {
+    var langs = ['インドネシア語','ベトナム語','ネパール語','タイ語','ミャンマー語','英語','韓国語','中国語'];
+    // 国籍から初期値を推定
+    var _pd = personData[caseId] || {};
+    var _c = (cData||[]).find(function(x){return x.id===caseId;})||{};
+    var nat = (_pd.nationality||_c.nationality||'').trim();
+    var defaultLang = 'インドネシア語';
+    if(/ベトナム|Vietnam/.test(nat)) defaultLang='ベトナム語';
+    else if(/ネパール|Nepal/.test(nat)) defaultLang='ネパール語';
+    else if(/タイ|Thai/.test(nat)) defaultLang='タイ語';
+    else if(/ミャンマー|Myanmar/.test(nat)) defaultLang='ミャンマー語';
+    else if(/韓国|Korea/.test(nat)) defaultLang='韓国語';
+    else if(/中国|China/.test(nat)) defaultLang='中国語';
+    else if(/インドネシア|Indonesia/.test(nat)) defaultLang='インドネシア語';
+
+    var old = document.getElementById('_langSelectModal');
+    if (old) old.remove();
+    var modal = document.createElement('div');
+    modal.id = '_langSelectModal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    var btnHtml = langs.map(function(l) {
+      var isDefault = l === defaultLang;
+      return '<button onclick="(function(){'
+        + 'document.getElementById(\'_langSelectModal\').remove();'
+        + 'window._langSelectResolve(\''+l+'\');'
+        + '})()" style="padding:10px 14px;border-radius:8px;border:1.5px solid '+(isDefault?'#1a1a2e':'#e2e8f0')+';background:'+(isDefault?'#1a1a2e':'white')+';color:'+(isDefault?'white':'#374151')+';font-size:13px;font-weight:'+(isDefault?'800':'600')+';cursor:pointer;text-align:left;">'
+        + l + (isDefault ? ' ✓' : '')
+        + '</button>';
+    }).join('');
+    modal.innerHTML = '<div style="background:white;border-radius:16px;padding:24px;max-width:380px;width:100%;">'
+      + '<div style="font-size:15px;font-weight:800;margin-bottom:4px;">📄 言語を選択</div>'
+      + '<div style="font-size:12px;color:#6b7280;margin-bottom:16px;">雇用条件書の言語版を選んでください</div>'
+      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;">' + btnHtml + '</div>'
+      + '<button onclick="document.getElementById(\'_langSelectModal\').remove();window._langSelectResolve(null);" style="width:100%;padding:10px;background:none;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;color:#94a3b8;cursor:pointer;">キャンセル</button>'
+      + '</div>';
+    window._langSelectResolve = resolve;
+    document.body.appendChild(modal);
+  });
+}
+
 async function createSignRequest(caseId, docType) {
   if (!caseId || !_sb) { showToast('DB未接続', 'error'); return; }
 
@@ -38272,19 +38314,10 @@ async function createSignRequest(caseId, docType) {
   var _pdForSign = personData[caseId] || {};
   var _driveUrlForSign = _pdForSign.driveUrl || '';
   var _folderIdForSign = extractDriveFolderId(_driveUrlForSign) || '';
-  // 案件から言語を推定（国籍ベース）
-  var _cForSign = cData.find(function(x){return x.id===caseId;})||{};
-  var _natForSign = (_pdForSign.nationality||_cForSign.nationality||'').trim();
-  var _langForSign = (function(nat){
-    if(/インドネシア|インドネシア語|Indonesia/.test(nat)) return 'インドネシア語';
-    if(/ベトナム|Vietnam/.test(nat)) return 'ベトナム語';
-    if(/ネパール|Nepal/.test(nat)) return 'ネパール語';
-    if(/タイ|Thai/.test(nat)) return 'タイ語';
-    if(/ミャンマー|Myanmar/.test(nat)) return 'ミャンマー語';
-    if(/韓国|Korea/.test(nat)) return '韓国語';
-    if(/中国|China/.test(nat)) return '中国語';
-    return 'インドネシア語';
-  })(_natForSign);
+
+  // 言語選択モーダルを表示してから作成
+  var _langForSign = await showLangSelectModal(caseId);
+  if (!_langForSign) return; // キャンセル
 
   var ins = await _sb.from('sign_requests').insert({
     case_id: caseId,
@@ -38316,7 +38349,6 @@ function showSignLinkModal(token, docType, caseId) {
     + '<div style="background:#f1f5f9;border-radius:10px;padding:12px;font-size:11px;word-break:break-all;color:#334155;margin-bottom:16px;border:1px solid #e2e8f0;">' + url + '</div>'
     + '<div style="display:grid;gap:8px;">'
     + '<button id="signCopyBtn" onclick="copySignUrl(\'' + url + '\',this)" style="padding:13px;background:#1a1a2e;color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">📋 URLをコピー</button>'
-    + '<button onclick="openLineShare(\'' + url + '\',\'' + docType + '\')" style="padding:13px;background:#00B900;color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">💬 LINEで送る</button>'
     + '<button onclick="document.getElementById(\'signLinkModal\').remove()" style="padding:11px;background:none;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;color:#64748b;cursor:pointer;">閉じる</button>'
     + '</div>'
     + '<div style="margin-top:14px;font-size:11px;color:#94a3b8;text-align:center;">有効期限：30日間</div>'
