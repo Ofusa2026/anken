@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260408.11</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260408.13</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2337,7 +2337,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260408.11';
+var OFUSA_VERSION = 'ver.20260408.13';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -3452,15 +3452,32 @@ function persistSkippedFields(){ try{localStorage.setItem('ofusa_skippedFields',
 function toggleSkipField(scope, key){ if(!skippedFields[scope]) skippedFields[scope]=[]; var idx=skippedFields[scope].indexOf(key); if(idx===-1) skippedFields[scope].push(key); else skippedFields[scope].splice(idx,1); persistSkippedFields(); }
 function isFieldSkipped(scope, key){ return skippedFields[scope] && skippedFields[scope].indexOf(key)!==-1; }
 var shinsaData = JSON.parse(localStorage.getItem('ofusa_shinsaData') || '{}');
-function persistShinsaData(){try{localStorage.setItem('ofusa_shinsaData',JSON.stringify(shinsaData));}catch(e){}
-  if(DB_READY) {
-    Object.keys(shinsaData).forEach(function(caseId) {
-      // casesテーブルに存在するcase_idのみ同期（外部キー制約違反を防止）
-      if(!cData.find(function(c){return c.id===caseId;})) return;
-      var s = shinsaData[caseId]||{};
-      _sb.from('shinsa_data').upsert({case_id:caseId, done:s.done||false, date:s.date||null, items:s},{onConflict:'case_id'}).then(function(r){if(r.error)console.error('shinsa sync err:',r.error);});
-    });
+function persistShinsaData(specificCaseId){
+  try{localStorage.setItem('ofusa_shinsaData',JSON.stringify(shinsaData));}catch(e){}
+  if(!DB_READY) return;
+  // 特定case_idのみ同期（1件更新の場合）
+  if(specificCaseId) {
+    if(!cData.find(function(c){return c.id===specificCaseId;})) return;
+    var s = shinsaData[specificCaseId]||{};
+    _sb.from('shinsa_data').upsert({case_id:specificCaseId, done:s.done||false, date:s.date||null, items:s},{onConflict:'case_id'}).then(function(r){if(r.error)console.error('shinsa sync err:',r.error);});
+    return;
   }
+  // 全件同期が必要な場合は50件ずつ直列バッチ処理（ERR_INSUFFICIENT_RESOURCES防止）
+  var rows = Object.keys(shinsaData).filter(function(caseId){
+    return cData.find(function(c){return c.id===caseId;});
+  }).map(function(caseId){
+    var s = shinsaData[caseId]||{};
+    return {case_id:caseId, done:s.done||false, date:s.date||null, items:s};
+  });
+  if(!rows.length) return;
+  (function processBatch(start){
+    var batch = rows.slice(start, start+50);
+    if(!batch.length) return;
+    _sb.from('shinsa_data').upsert(batch,{onConflict:'case_id'}).then(function(r){
+      if(r.error) console.error('shinsa sync err:',r.error);
+      processBatch(start+50);
+    });
+  })(0);
 }
 var recordSort = 'receiptDate';
 var docsSort = 'default';
@@ -19898,7 +19915,7 @@ function toggleShinsa(el){
     var c=cData.find(function(x){return x.id===id;});
     if(c&&c.status==='審査完了'){c.status='審査中'; if(DB_READY)_sb.from('cases').update({status:'審査中', updated_at: new Date().toISOString()}).eq('id',id).then(function(){});persist();}
   }
-  persistShinsaData();
+  persistShinsaData(id);
   
   applyFilters();
 }
@@ -19906,7 +19923,7 @@ function setShinsaDate(el){
   var id=el.dataset.id;
   if(!shinsaData[id]) shinsaData[id]={};
   shinsaData[id].date=el.value;
-  persistShinsaData();
+  persistShinsaData(id);
   
 }
 // 一括審査完了
@@ -20954,7 +20971,7 @@ function toggleShinsaDone(el){
     var c=cData.find(function(x){return x.id===id;});
     if(c&&c.status==='審査完了'){c.status='審査中';}
   }
-  persistShinsaData();
+  persistShinsaData(id);
   
   applyDoneFilters();
 }
@@ -27970,7 +27987,7 @@ function moveMailData(skipPdf){
         var sd=shinsaData[m.linkedCase]||{};
         sd.done=true; if(m.date)sd.date=m.date.slice(0,10);
         shinsaData[m.linkedCase]=sd;
-        persistShinsaData();
+        persistShinsaData(m.linkedCase);
       }
     } else if(m.badge==='認定証明書'){
       if(!certListData.some(function(x){return x.id===m.id;})){
@@ -35594,6 +35611,10 @@ function loadListTables() {
         _shinsaTmp=_shinsaTmp.concat(res.data.map(_rowToListItem));
         if(res.data.length===1000){fetchAllShinsa(from+1000);}
         else{
+          // ローカルで移動済みだがDB未反映のものをマージ（非同期上書き消え防止）
+          var _dbIds = {};
+          _shinsaTmp.forEach(function(r){ _dbIds[r.id]=1; });
+          shinsaListData.forEach(function(r){ if(!_dbIds[r.id]) _shinsaTmp.push(r); });
           shinsaListData=_shinsaTmp;
           try{localStorage.setItem('ofusa_shinsaList',JSON.stringify(shinsaListData));}catch(e){}
           console.log('📥 shinsa_list loaded:',shinsaListData.length);
@@ -35611,6 +35632,10 @@ function loadListTables() {
         _certTmp=_certTmp.concat(res.data.map(_rowToListItem));
         if(res.data.length===1000){fetchAllCert(from+1000);}
         else{
+          // ローカルで移動済みだがDB未反映のものをマージ（非同期上書き消え防止）
+          var _dbCertIds = {};
+          _certTmp.forEach(function(r){ _dbCertIds[r.id]=1; });
+          certListData.forEach(function(r){ if(!_dbCertIds[r.id]) _certTmp.push(r); });
           certListData=_certTmp;
           try{localStorage.setItem('ofusa_certList',JSON.stringify(certListData));}catch(e){}
           console.log('📥 cert_list loaded:',certListData.length);
