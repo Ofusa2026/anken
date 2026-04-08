@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260408.15</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260408.16</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2337,7 +2337,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260408.15';
+var OFUSA_VERSION = 'ver.20260408.16';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -4497,6 +4497,13 @@ function _registerOneTplFile(file, n, g, l, onDone){
     }
     if(DB_READY){
       var storagePath=sanitizeStoragePath(g+'/'+file.name);
+      // ★ アップロード時に同グループのlocalStorageキャッシュを削除（古いテンプレが使われるのを防ぐ）
+      try{
+        var _cacheData=JSON.parse(localStorage.getItem('ofusa_templates')||'{}');
+        var _cacheChanged=false;
+        Object.keys(_cacheData).forEach(function(k){if(_cacheData[k]&&_cacheData[k].group===g){delete _cacheData[k];_cacheChanged=true;}});
+        if(_cacheChanged){localStorage.setItem('ofusa_templates',JSON.stringify(_cacheData));console.log('🗑️ localStorageキャッシュ削除: group='+g);}
+      }catch(e){}
       storageUploadBase64('templates',storagePath,base64,file.type||'application/octet-stream',function(res,err){
         if(err)console.error('tpl storage upload err:',err);
         else console.log('📦 template uploaded to Storage:',storagePath);
@@ -17907,49 +17914,10 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
   var tplData;
   try{tplData=JSON.parse(localStorage.getItem('ofusa_templates')||'{}');}catch(e){tplData={};}
   var entry=null;
-  // ★ _selectedTplRefで正確に解決（lsKey → name の順）
   var _ref=(typeof _selectedTplRef!=='undefined')?_selectedTplRef:null;
   console.log('📥 doGenerate ref.name:', _ref&&_ref.name, '| idx:', _selectedTplIdx, '| tplGroup:', tplGroup);
-  if(_ref&&_ref.lsKey&&tplData[_ref.lsKey]&&tplData[_ref.lsKey].data){
-    console.log('✅ resolved by lsKey:', _ref.lsKey);
-    entry=tplData[_ref.lsKey];
-  } else if(_ref&&_ref.name){
-    Object.keys(tplData).forEach(function(k){
-      var t=tplData[k];
-      if(!entry&&t&&t.group===tplGroup&&t.data&&(t.name===_ref.name||t.filename===_ref.name)) entry=t;
-    });
-  }
-  // refで解決できなければ_currentTplListのlsKeyで試みる
-  if(!entry||!entry.data){
-    if(_currentTplList&&_currentTplList[_selectedTplIdx]&&_currentTplList[_selectedTplIdx]._lsKey){
-      var _lk=_currentTplList[_selectedTplIdx]._lsKey;
-      if(tplData[_lk]&&tplData[_lk].data) entry=tplData[_lk];
-    }
-  }
-  // フォールバック: ci_N方式
-  if(!entry||!entry.data){
-    var tplKey=ci+'_'+_selectedTplIdx;
-    entry=tplData[tplKey];
-  }
-  // フォールバック: 同グループ内name一致
-  if(!entry||!entry.data){
-    var groupEntries=[];
-    Object.keys(tplData).forEach(function(k){
-      var t=tplData[k];
-      if(t&&t.group===tplGroup&&t.data) groupEntries.push({key:k,data:t});
-    });
-    groupEntries.sort(function(a,b){
-      var ai=parseInt((a.key.match(/_(\d+)$/)||[0,0])[1],10);
-      var bi=parseInt((b.key.match(/_(\d+)$/)||[0,0])[1],10);
-      return ai-bi;
-    });
-    // UIリストとのオフセット計算
-    var catTplCnt=0;
-    TEMPLATE_CATEGORIES.forEach(function(cat){if(cat.name===tplGroup)catTplCnt+=cat.templates.length;});
-    var lsOff=_selectedTplIdx-catTplCnt;
-    var targetEntry=(lsOff>=0?groupEntries[lsOff]:null)||groupEntries[0];
-    if(targetEntry) entry=targetEntry.data;
-  }
+
+  // ★ DB_READY時は常にSupabaseを優先（localStorageの古いキャッシュを使わない）
   if(!entry||!entry.data){
     // Supabase Storageから取得（_selectedTplRef.storagePathまたはname一致で）
     if(DB_READY){
