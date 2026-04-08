@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.06</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.07</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2338,7 +2338,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260409.06';
+var OFUSA_VERSION = 'ver.20260409.07';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -38190,6 +38190,19 @@ async function loadSignedBadge() {
       .order('signed_at', {ascending: false})
       .limit(50);
     var rows = res.data || [];
+    // casesテーブルから案件名・所属機関を取得
+    var caseIds = rows.map(function(r){return r.case_id;}).filter(Boolean);
+    if (caseIds.length > 0) {
+      try {
+        var cRes = await _sb.from('cases').select('id,applicant,company').in('id', caseIds);
+        var cMap = {};
+        (cRes.data||[]).forEach(function(c){ cMap[c.id]=c; });
+        rows = rows.map(function(r){
+          var c = cMap[r.case_id]||{};
+          return Object.assign({}, r, {_applicant: c.applicant||'', _company: c.company||''});
+        });
+      } catch(ce){ console.warn('cases取得エラー:', ce); }
+    }
     var badge = document.getElementById('signedBadge');
     var count = document.getElementById('signedBadgeCount');
     if (badge) {
@@ -38238,10 +38251,10 @@ async function showSignedModal() {
     info.style.flex = '1';
     var n = document.createElement('div');
     n.style.cssText = 'font-size:13px;font-weight:700;';
-    n.textContent = r.signer_name||'—';
+    n.textContent = (r._applicant||r.signer_name||'—') + (r.signer_name&&r._applicant?' （'+r.signer_name+'）':'');
     var sub = document.createElement('div');
     sub.style.cssText = 'font-size:11px;color:#6b7280;';
-    sub.textContent = (r.doc_lang||'—');
+    sub.textContent = (r._company||'—') + ' ／ ' + (r.doc_lang||'—');
     var dt = document.createElement('div');
     dt.style.cssText = 'font-size:11px;color:#94a3b8;margin-top:2px;';
     dt.textContent = '署名日時：' + signedDate;
@@ -38253,7 +38266,7 @@ async function showSignedModal() {
       saveBtn.id = 'saveDriveBtn_' + r.id;
       saveBtn.textContent = '📂 Drive保存';
       saveBtn.style.cssText = 'padding:6px 10px;background:#1a1a2e;color:white;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;';
-      (function(rid, rname, rfolder){ saveBtn.onclick = function(){ saveSigToDrive(rid, rname, rfolder); }; })(r.id, r.signer_name||c.applicant||'', r.drive_folder_id);
+      (function(rid, rname, rfolder){ saveBtn.onclick = function(){ saveSigToDrive(rid, rname, rfolder); }; })(r.id, r.signer_name||r._applicant||'', r.drive_folder_id);
       btns.appendChild(saveBtn);
     }
     row.appendChild(info); row.appendChild(btns);
