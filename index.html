@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260408.13</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260408.14</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -1733,7 +1733,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <!-- 取込元 -->
     <div style="background:white;border-radius:10px;padding:12px 14px;margin-bottom:10px;border:1px solid var(--gray-200);">
       <div style="font-size:10px;color:var(--gray-400);font-weight:700;margin-bottom:2px;">取込元アカウント</div>
-      <div style="font-size:13px;font-weight:600;">ofusa.cambodia1@gmail.com</div>
+      <div style="font-size:13px;font-weight:600;"><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="97f8f1e2e4f6b9f4f6faf5f8f3fef6a6d7f0faf6fefbb9f4f8fa">[email&#160;protected]</a></div>
       <div style="font-size:10px;color:var(--gray-400);margin-top:4px;">📧 審査完了 / 申請受付番号 / 認定証明書 / 郵送交付 / 追完依頼 / 申請内容等（未読）</div>
     </div>
     <!-- メール一覧 -->
@@ -2323,7 +2323,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
 // グローバルエラーハンドラー（iOS WKWebViewでのScript error抑制）
 window.onerror = function(msg, src, line, col, err) {
@@ -2337,7 +2337,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260408.13';
+var OFUSA_VERSION = 'ver.20260408.14';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -22622,6 +22622,21 @@ function showTab(tab) {
     h += '<button onclick="showLineSendMenu(\''+c.id+'\')" style="padding:10px 20px;background:#06b6d4;color:white;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">送信メニュー</button>';
     h += '</div></div>';
     h += '</div>';
+    // === 電子署名セクション ===
+    h += '<div style="margin-bottom:20px;">';
+    h += '<div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:12px;padding-bottom:6px;border-bottom:2px solid var(--navy);">✍️ 電子署名</div>';
+    h += '<div id="signRequestsArea_'+c.id+'" style="display:flex;flex-direction:column;gap:10px;">';
+    h += '<div style="text-align:center;padding:12px;font-size:12px;color:#94a3b8;">読み込み中...</div>';
+    h += '</div>';
+    h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">';
+    var _signDocTypes = ['雇用条件書','重要事項説明書','支援計画書','その他'];
+    _signDocTypes.forEach(function(dt) {
+      h += '<button onclick="createSignRequest(\''+c.id+'\',\''+dt+'\')" style="padding:7px 14px;border-radius:20px;border:1.5px solid #1a1a2e;background:white;color:#1a1a2e;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;transition:.15s;" onmouseover="this.style.background=\'#1a1a2e\';this.style.color=\'white\'" onmouseout="this.style.background=\'white\';this.style.color=\'#1a1a2e\'">＋ '+dt+'</button>';
+    });
+    h += '</div>';
+    h += '</div>';
+    // 署名一覧を非同期読み込み
+    setTimeout(function(){ loadSignRequestsArea(c.id); }, 100);
   } else if (tab === 'line') {
     renderLineTab(c);
     renderEditHistorySection(c);
@@ -38200,6 +38215,149 @@ function toggleManualMode() {
   }
 }
 // ===== /MANUAL MODE =====
+
+// =============================================
+// ✍️ 電子署名 (sign_requests)
+// =============================================
+var SIGN_BASE_URL = 'https://ofusa2026.github.io/anken/sign.html';
+
+async function loadSignRequestsArea(caseId) {
+  var area = document.getElementById('signRequestsArea_' + caseId);
+  if (!area) return;
+  if (!_sb) { area.innerHTML = '<div style="font-size:12px;color:#94a3b8;text-align:center;padding:10px;">DB未接続</div>'; return; }
+  try {
+    var res = await _sb.from('sign_requests')
+      .select('id,doc_type,status,signed_at,signer_name,created_at,token,expires_at')
+      .eq('case_id', caseId)
+      .order('created_at', { ascending: false });
+    var rows = res.data || [];
+    if (rows.length === 0) {
+      area.innerHTML = '<div style="font-size:12px;color:#94a3b8;text-align:center;padding:12px;background:#f8fafc;border-radius:8px;border:1px dashed #cbd5e1;">署名依頼はまだありません</div>';
+      return;
+    }
+    var html = '';
+    rows.forEach(function(r) {
+      var isSigned = r.status === 'signed';
+      var isExpired = r.status === 'expired' || (r.expires_at && new Date(r.expires_at) < new Date() && !isSigned);
+      var bgColor = isSigned ? '#f0fdf4' : isExpired ? '#f8fafc' : '#fffbf0';
+      var borderColor = isSigned ? '#86efac' : isExpired ? '#e2e8f0' : '#fcd34d';
+      var statusLabel = isSigned ? '✅ 署名済' : isExpired ? '⌛ 期限切れ' : '⏳ 待機中';
+      var statusColor = isSigned ? '#16a34a' : isExpired ? '#94a3b8' : '#d97706';
+      var signedInfo = isSigned && r.signer_name ? '署名者：' + r.signer_name + ' ／ ' + new Date(r.signed_at).toLocaleDateString('ja-JP') : '';
+      var url = SIGN_BASE_URL + '?token=' + r.token;
+      html += '<div style="background:' + bgColor + ';border:1.5px solid ' + borderColor + ';border-radius:10px;padding:12px 14px;">';
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">';
+      html += '<div style="flex:1;min-width:0;">';
+      html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">';
+      html += '<span style="font-size:13px;font-weight:800;color:#1a1a2e;">' + (r.doc_type || '書類') + '</span>';
+      html += '<span style="font-size:11px;font-weight:700;color:' + statusColor + ';">' + statusLabel + '</span>';
+      html += '</div>';
+      if (signedInfo) html += '<div style="font-size:11px;color:#6b7280;margin-top:3px;">' + signedInfo + '</div>';
+      if (!isSigned && !isExpired) {
+        html += '<div style="font-size:10px;color:#9ca3af;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + url + '</div>';
+      }
+      html += '</div>';
+      if (!isSigned && !isExpired) {
+        html += '<div style="display:flex;gap:6px;flex-shrink:0;">';
+        html += '<button onclick="copySignUrl(\'' + url + '\',this)" style="padding:6px 10px;background:#1a1a2e;color:white;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">📋</button>';
+        html += '<button onclick="openLineShare(\'' + url + '\',\'' + (r.doc_type||'書類') + '\')" style="padding:6px 10px;background:#00B900;color:white;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">💬</button>';
+        html += '</div>';
+      }
+      html += '</div>';
+      html += '</div>';
+    });
+    area.innerHTML = html;
+  } catch(e) {
+    console.error('loadSignRequestsArea error:', e);
+    area.innerHTML = '<div style="font-size:12px;color:#ef4444;padding:8px;">読み込みエラー</div>';
+  }
+}
+
+async function createSignRequest(caseId, docType) {
+  if (!caseId || !_sb) { showToast('DB未接続', 'error'); return; }
+
+  // 既存pending確認
+  var exRes = await _sb.from('sign_requests')
+    .select('id,token,created_at')
+    .eq('case_id', caseId)
+    .eq('doc_type', docType)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (exRes.data && exRes.data.length > 0) {
+    var ex = exRes.data[0];
+    var reuse = confirm('「' + docType + '」の署名依頼がすでに存在します。\n作成日：' + new Date(ex.created_at).toLocaleDateString('ja-JP') + '\n\n既存のリンクを使いますか？\n（キャンセルで新しいリンクを作成）');
+    if (reuse) {
+      showSignLinkModal(ex.token, docType, caseId);
+      return;
+    }
+  }
+
+  // 新規作成
+  var token = (crypto.randomUUID ? crypto.randomUUID().replace(/-/g,'') : Array.from(crypto.getRandomValues(new Uint8Array(20))).map(function(b){return b.toString(16).padStart(2,'0');}).join(''));
+  var expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 30);
+
+  var staffName = '';
+  try { staffName = document.querySelector('#sidebar-user-name')?.textContent || ''; } catch(e) {}
+
+  var ins = await _sb.from('sign_requests').insert({
+    case_id: caseId,
+    token: token,
+    doc_type: docType,
+    status: 'pending',
+    expires_at: expiresAt.toISOString(),
+    created_by: staffName
+  }).select().single();
+
+  if (ins.error) { showToast('署名依頼の作成に失敗: ' + ins.error.message, 'error'); return; }
+  showToast('✍️ 署名依頼を作成しました', 'success');
+  loadSignRequestsArea(caseId);
+  showSignLinkModal(token, docType, caseId);
+}
+
+function showSignLinkModal(token, docType, caseId) {
+  var url = SIGN_BASE_URL + '?token=' + token;
+  var old = document.getElementById('signLinkModal');
+  if (old) old.remove();
+  var modal = document.createElement('div');
+  modal.id = 'signLinkModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML = '<div style="background:white;border-radius:16px;padding:28px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);">'
+    + '<div style="font-size:17px;font-weight:800;margin-bottom:4px;">✍️ 署名依頼リンク</div>'
+    + '<div style="font-size:13px;color:#6b7280;margin-bottom:18px;">「' + docType + '」の署名URLを作成しました</div>'
+    + '<div style="background:#f1f5f9;border-radius:10px;padding:12px;font-size:11px;word-break:break-all;color:#334155;margin-bottom:16px;border:1px solid #e2e8f0;">' + url + '</div>'
+    + '<div style="display:grid;gap:8px;">'
+    + '<button id="signCopyBtn" onclick="copySignUrl(\'' + url + '\',this)" style="padding:13px;background:#1a1a2e;color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">📋 URLをコピー</button>'
+    + '<button onclick="openLineShare(\'' + url + '\',\'' + docType + '\')" style="padding:13px;background:#00B900;color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">💬 LINEで送る</button>'
+    + '<button onclick="document.getElementById(\'signLinkModal\').remove()" style="padding:11px;background:none;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;color:#64748b;cursor:pointer;">閉じる</button>'
+    + '</div>'
+    + '<div style="margin-top:14px;font-size:11px;color:#94a3b8;text-align:center;">有効期限：30日間</div>'
+    + '</div>';
+  modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+  document.body.appendChild(modal);
+}
+
+function copySignUrl(url, btn) {
+  navigator.clipboard.writeText(url).then(function() {
+    var orig = btn.textContent;
+    btn.textContent = '✅ コピーしました！';
+    btn.style.background = '#16a34a';
+    setTimeout(function(){ btn.textContent = orig; btn.style.background = '#1a1a2e'; }, 2000);
+  }).catch(function() {
+    // フォールバック
+    var ta = document.createElement('textarea');
+    ta.value = url; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    showToast('📋 URLをコピーしました');
+  });
+}
+
+function openLineShare(url, docType) {
+  var text = '【署名のお願い】\n\n' + docType + 'の電子署名をお願いします。\n以下のURLにアクセスして、内容をご確認の上署名してください。\n\n' + url + '\n\n※有効期限：30日間';
+  window.open('https://line.me/R/msg/text/?' + encodeURIComponent(text), '_blank');
+}
+// ===== /電子署名 =====
 </script>
 
 <!-- ===== AIチャット ===== -->
@@ -39201,7 +39359,4 @@ async function ocKnSave(){
   try{var res=await _sb.from('ai_knowledge').insert({category:cat,title:title,content:content,author:author,status:'pending'});if(res.error)throw res.error;showToast('💾 保存しました（承認待ち）');ocKnCloseForm();document.getElementById('oc-kn-title').value='';document.getElementById('oc-kn-content').value='';document.getElementById('oc-kn-author').value='';await ocKnLoad();}catch(e){showToast('❌ 保存失敗: '+e.message);}
 }
 async function ocKnApprove(id){if(!DB_READY)return;try{var res=await _sb.from('ai_knowledge').update({status:'approved'}).eq('id',id);if(res.error)throw res.error;showToast('✅ 承認しました');await ocKnLoad();}catch(e){showToast('❌ 失敗: '+e.message);}}
-async function ocKnDelete(id){if(!confirm('この知識を削除しますか？'))return;if(!DB_READY)return;try{var res=await _sb.from('ai_knowledge').delete().eq('id',id);if(res.error)throw res.error;showToast('🗑️ 削除しました');await ocKnLoad();}catch(e){showToast('❌ 失敗: '+e.message);}}
-</script>
-</body>
-</html>
+async function ocKnDelete(id){if(!confirm('この知識を削除しますか？'))return;if(!DB_READY)
