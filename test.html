@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.03</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.05</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -966,6 +966,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <button id="coDocAlertBtn" onclick="showCoDocAlertModal()" title="法人書類回収アラート" style="display:none;padding:6px 12px;background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;" data-tip-target="tip-codoc">🏢書類 <span id="coDocAlertCount" style="background:#dc2626;color:white;border-radius:99px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></button>
       <button id="caseFormGlobalBadge" onclick="filterUnimportedCaseForms()" title="未取込の人材フォーム回答" style="display:none;padding:6px 12px;background:#dcfce7;color:#16a34a;border:1.5px solid #86efac;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;" data-tip-target="tip-form">📝フォーム <span id="caseFormGlobalBadgeCount" style="background:#16a34a;color:white;border-radius:99px;padding:1px 6px;font-size:11px;margin-left:2px;"></span><span id="caseFormFilterBadge" onclick="event.stopPropagation();window._pendingFilterCaseIds=null;applyFilters(true);this.style.display='none';" style="display:none;margin-left:6px;font-size:10px;background:white;color:#16a34a;border-radius:99px;padding:1px 6px;cursor:pointer;">絞込中 ✕</span></button>
       <button id="uploadNotifyBadge" onclick="showUploadNotifyModal()" title="書類アップロード通知" style="display:inline-flex;align-items:center;padding:6px 12px;background:#eff6ff;color:#1d4ed8;border:1.5px solid #93c5fd;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📤 書類UP <span id="uploadNotifyCount" style="background:#1d4ed8;color:white;border-radius:99px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></button>
+      <button id="signedBadge" onclick="showSignedModal()" title="署名完了一覧" style="display:none;align-items:center;padding:6px 12px;background:#f0fdf4;color:#16a34a;border:1.5px solid #86efac;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">✍️ 署名 <span id="signedBadgeCount" style="background:#16a34a;color:white;border-radius:99px;padding:1px 6px;font-size:11px;margin-left:2px;">0</span></button>
       <button class="btn btn-outline" onclick="forceSync()" title="サーバーと同期" style="padding:6px 10px;" data-manual-tip="Supabaseサーバーと手動で同期&#10;データが反映されない時にクリック" data-tip-target="tip-sync">🔄</button>
       <button id="manualModeBtn" class="btn btn-manual" onclick="toggleManualMode()" data-manual-tip="各ボタンの説明を表示するマニュアルモードです" style="display:none;">📖 マニュアル</button>
     </div>
@@ -2337,7 +2338,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260409.03';
+var OFUSA_VERSION = 'ver.20260409.05';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -2373,6 +2374,7 @@ function initSupabase() {
     if (_sb) {
       DB_READY = true;
       console.log('✅ Supabase 接続完了');
+      setTimeout(loadSignedBadge, 3000);
       _loadHassoBadges();
       loadUploadNotifyBadge();
       setTimeout(loadTplTextsFromDB, 2000); // テキストテンプレートをDBから読み込み
@@ -38175,6 +38177,138 @@ function toggleManualMode() {
 // ===== /MANUAL MODE =====
 
 // =============================================
+
+// =============================================
+// ✍️ 署名完了モーダル（担当者用）
+// =============================================
+async function loadSignedBadge() {
+  if (!_sb) return;
+  try {
+    var res = await _sb.from('sign_requests')
+      .select('id,case_id,doc_type,doc_lang,signer_name,signed_at,signature_image,drive_folder_id,cases(applicant,company)')
+      .eq('status','signed')
+      .order('signed_at', {ascending: false})
+      .limit(50);
+    var rows = res.data || [];
+    var badge = document.getElementById('signedBadge');
+    var count = document.getElementById('signedBadgeCount');
+    if (badge) {
+      badge.style.display = rows.length > 0 ? 'inline-flex' : 'none';
+      if (count) count.textContent = rows.length;
+    }
+    window._signedRows = rows;
+  } catch(e) { console.warn('署名バッジ取得エラー:', e); }
+}
+
+async function showSignedModal() {
+  var rows = window._signedRows || [];
+  if (rows.length === 0) { showToast('署名済みデータがありません'); return; }
+  var existing = document.getElementById('_signedModal');
+  if (existing) existing.remove();
+
+  var modal = document.createElement('div');
+  modal.id = '_signedModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto;';
+
+  var wrap = document.createElement('div');
+  wrap.style.cssText = 'background:white;border-radius:16px;padding:24px;max-width:560px;width:100%;margin:auto;';
+
+  var header = document.createElement('div');
+  header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;';
+  var title = document.createElement('div');
+  title.style.cssText = 'font-size:16px;font-weight:800;';
+  title.textContent = '✍️ 署名完了一覧（' + rows.length + '件）';
+  var closeBtn = document.createElement('button');
+  closeBtn.textContent = '✕';
+  closeBtn.style.cssText = 'background:none;border:none;font-size:20px;cursor:pointer;color:#94a3b8;';
+  closeBtn.onclick = function(){ modal.remove(); };
+  header.appendChild(title); header.appendChild(closeBtn);
+  wrap.appendChild(header);
+
+  var list = document.createElement('div');
+  list.style.cssText = 'display:flex;flex-direction:column;gap:10px;';
+
+  rows.forEach(function(r) {
+    var c = r.cases || {};
+    var signedDate = r.signed_at ? new Date(r.signed_at).toLocaleString('ja-JP') : '—';
+    var card = document.createElement('div');
+    card.style.cssText = 'border:1.5px solid #e2e8f0;border-radius:10px;padding:12px 14px;';
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;';
+    var info = document.createElement('div');
+    info.style.flex = '1';
+    var n = document.createElement('div');
+    n.style.cssText = 'font-size:13px;font-weight:700;';
+    n.textContent = c.applicant||r.signer_name||'—';
+    var sub = document.createElement('div');
+    sub.style.cssText = 'font-size:11px;color:#6b7280;';
+    sub.textContent = (c.company||'—') + ' ／ ' + (r.doc_lang||'—');
+    var dt = document.createElement('div');
+    dt.style.cssText = 'font-size:11px;color:#94a3b8;margin-top:2px;';
+    dt.textContent = '署名日時：' + signedDate;
+    info.appendChild(n); info.appendChild(sub); info.appendChild(dt);
+    var btns = document.createElement('div');
+    btns.style.cssText = 'display:flex;gap:6px;flex-shrink:0;';
+    if (r.signature_image && r.drive_folder_id) {
+      var saveBtn = document.createElement('button');
+      saveBtn.id = 'saveDriveBtn_' + r.id;
+      saveBtn.textContent = '📂 Drive保存';
+      saveBtn.style.cssText = 'padding:6px 10px;background:#1a1a2e;color:white;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;';
+      (function(rid, rname, rfolder){ saveBtn.onclick = function(){ saveSigToDrive(rid, rname, rfolder); }; })(r.id, r.signer_name||c.applicant||'', r.drive_folder_id);
+      btns.appendChild(saveBtn);
+    }
+    row.appendChild(info); row.appendChild(btns);
+    card.appendChild(row); list.appendChild(card);
+  });
+
+  wrap.appendChild(list);
+  modal.appendChild(wrap);
+  modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+  document.body.appendChild(modal);
+}
+
+async function saveSigToDrive(signId, signerName, folderId) {
+  var btn = document.getElementById('saveDriveBtn_' + signId);
+  if (btn) { btn.disabled=true; btn.textContent='保存中...'; }
+  try {
+    // Supabaseから署名データを取得
+    var res = await _sb.from('sign_requests').select('signature_image,doc_lang').eq('id', signId).single();
+    if (res.error || !res.data) throw new Error('データ取得失敗');
+    var sigDataUrl = res.data.signature_image;
+    if (!sigDataUrl) throw new Error('署名画像がありません');
+    var b64 = sigDataUrl.split(',')[1];
+    var fname = '署名_' + signerName + '_' + new Date().toISOString().slice(0,10) + '.png';
+    // GASのJSONPで保存
+    var result = await callGasJsonpFromIndex({action:'saveSignedPdf', data:{
+      folderId: folderId, signerName: signerName,
+      base64: b64, filename: fname, mimeType: 'image/png'
+    }});
+    if (result && result.status === 'ok') {
+      if (btn) { btn.textContent='✅ 保存済'; btn.style.background='#16a34a'; }
+      showToast('✍️ Driveに保存しました：' + fname);
+    } else {
+      throw new Error((result&&result.msg)||'保存失敗');
+    }
+  } catch(e) {
+    if (btn) { btn.disabled=false; btn.textContent='📂 Drive保存'; }
+    showToast('❌ 保存失敗: ' + e.message, 'error');
+  }
+}
+
+// 担当者ブラウザからGASをJSONPで呼ぶ
+function callGasJsonpFromIndex(params) {
+  var GAS_DATAUP_URL = 'https://script.google.com/macros/s/AKfycbzqddeEti71WWCR9CanUR5zFf1ikUywHs-ES2CyqTucmaRfYaevz4yBqNHJx-_LIf3JCQ/exec';
+  return new Promise(function(resolve, reject) {
+    var cb = '_gasIdxCb' + Date.now();
+    var s = document.createElement('script');
+    s.src = GAS_DATAUP_URL + '?jsonpPost=' + encodeURIComponent(JSON.stringify(params)) + '&callback=' + cb;
+    var timer = setTimeout(function(){ delete window[cb]; try{document.body.removeChild(s);}catch(e){} reject(new Error('タイムアウト')); }, 30000);
+    window[cb] = function(data){ clearTimeout(timer); delete window[cb]; try{document.body.removeChild(s);}catch(e){} resolve(data); };
+    document.body.appendChild(s);
+  });
+}
+
+
 // ✍️ 電子署名 (sign_requests)
 // =============================================
 var SIGN_BASE_URL = 'https://ofusa2026.github.io/upload/sign.html';
@@ -38243,7 +38377,6 @@ async function loadSignRequestsArea(caseId) {
 function showLangSelectModal(caseId) {
   return new Promise(function(resolve) {
     var langs = ['インドネシア語','ベトナム語','ネパール語','タイ語','ミャンマー語','英語','韓国語','中国語'];
-    // 国籍から初期値を推定
     var _pd = personData[caseId] || {};
     var _c = (cData||[]).find(function(x){return x.id===caseId;})||{};
     var nat = (_pd.nationality||_c.nationality||'').trim();
@@ -38256,27 +38389,53 @@ function showLangSelectModal(caseId) {
     else if(/中国|China/.test(nat)) defaultLang='中国語';
     else if(/インドネシア|Indonesia/.test(nat)) defaultLang='インドネシア語';
 
-    var old = document.getElementById('_langSelectModal');
-    if (old) old.remove();
+    var existing = document.getElementById('_langSelectModal');
+    if (existing) existing.remove();
+
     var modal = document.createElement('div');
     modal.id = '_langSelectModal';
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
-    var btnHtml = langs.map(function(l) {
-      var isDefault = l === defaultLang;
-      return '<button onclick="(function(){'
-        + 'document.getElementById(\'_langSelectModal\').remove();'
-        + 'window._langSelectResolve(\''+l+'\');'
-        + '})()" style="padding:10px 14px;border-radius:8px;border:1.5px solid '+(isDefault?'#1a1a2e':'#e2e8f0')+';background:'+(isDefault?'#1a1a2e':'white')+';color:'+(isDefault?'white':'#374151')+';font-size:13px;font-weight:'+(isDefault?'800':'600')+';cursor:pointer;text-align:left;">'
-        + l + (isDefault ? ' ✓' : '')
-        + '</button>';
-    }).join('');
-    modal.innerHTML = '<div style="background:white;border-radius:16px;padding:24px;max-width:380px;width:100%;">'
-      + '<div style="font-size:15px;font-weight:800;margin-bottom:4px;">📄 言語を選択</div>'
-      + '<div style="font-size:12px;color:#6b7280;margin-bottom:16px;">雇用条件書の言語版を選んでください</div>'
-      + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;">' + btnHtml + '</div>'
-      + '<button onclick="document.getElementById(\'_langSelectModal\').remove();window._langSelectResolve(null);" style="width:100%;padding:10px;background:none;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;color:#94a3b8;cursor:pointer;">キャンセル</button>'
-      + '</div>';
-    window._langSelectResolve = resolve;
+
+    var inner = document.createElement('div');
+    inner.style.cssText = 'background:white;border-radius:16px;padding:24px;max-width:380px;width:100%;';
+
+    var title = document.createElement('div');
+    title.style.cssText = 'font-size:15px;font-weight:800;margin-bottom:4px;';
+    title.textContent = '📄 言語を選択';
+    inner.appendChild(title);
+
+    var sub = document.createElement('div');
+    sub.style.cssText = 'font-size:12px;color:#6b7280;margin-bottom:16px;';
+    sub.textContent = '雇用条件書の言語版を選んでください';
+    inner.appendChild(sub);
+
+    var grid = document.createElement('div');
+    grid.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;';
+
+    langs.forEach(function(lang) {
+      var isDefault = lang === defaultLang;
+      var btn = document.createElement('button');
+      btn.textContent = lang + (isDefault ? ' ✓' : '');
+      btn.style.cssText = 'padding:10px 14px;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;'
+        + 'border:1.5px solid ' + (isDefault ? '#1a1a2e' : '#e2e8f0') + ';'
+        + 'background:' + (isDefault ? '#1a1a2e' : 'white') + ';'
+        + 'color:' + (isDefault ? 'white' : '#374151') + ';'
+        + 'font-weight:' + (isDefault ? '800' : '600') + ';';
+      btn.addEventListener('click', function() {
+        modal.remove();
+        resolve(lang);
+      });
+      grid.appendChild(btn);
+    });
+    inner.appendChild(grid);
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'キャンセル';
+    cancelBtn.style.cssText = 'width:100%;padding:10px;background:none;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;color:#94a3b8;cursor:pointer;';
+    cancelBtn.addEventListener('click', function() { modal.remove(); resolve(null); });
+    inner.appendChild(cancelBtn);
+
+    modal.appendChild(inner);
     document.body.appendChild(modal);
   });
 }
