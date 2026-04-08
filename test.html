@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.07</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.08</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2338,7 +2338,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260409.07';
+var OFUSA_VERSION = 'ver.20260409.08';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -38281,43 +38281,20 @@ async function showSignedModal() {
 
 async function saveSigToDrive(signId, signerName, folderId) {
   var btn = document.getElementById('saveDriveBtn_' + signId);
-  if (btn) { btn.disabled=true; btn.textContent='保存中...'; }
+  if (btn) { btn.disabled=true; btn.textContent='送信中...'; }
   try {
-    // Supabaseから署名データを取得
-    var res = await _sb.from('sign_requests').select('signature_image,doc_lang').eq('id', signId).single();
-    if (res.error || !res.data) throw new Error('データ取得失敗');
-    var sigDataUrl = res.data.signature_image;
-    if (!sigDataUrl) throw new Error('署名画像がありません');
-    var b64 = sigDataUrl.split(',')[1];
-    var fname = '署名_' + signerName + '_' + new Date().toISOString().slice(0,10) + '.png';
-    // GASのJSONPで保存
-    var result = await callGasJsonpFromIndex({action:'saveSignedPdf', data:{
-      folderId: folderId, signerName: signerName,
-      base64: b64, filename: fname, mimeType: 'image/png'
-    }});
-    if (result && result.status === 'ok') {
-      if (btn) { btn.textContent='✅ 保存済'; btn.style.background='#16a34a'; }
-      showToast('✍️ Driveに保存しました：' + fname);
-    } else {
-      throw new Error((result&&result.msg)||'保存失敗');
-    }
+    // Supabaseのdrive_pendingをtrueにするだけ
+    // GASのタイマートリガーが自動でDriveに保存する
+    var res = await _sb.from('sign_requests')
+      .update({drive_pending: true})
+      .eq('id', signId);
+    if (res.error) throw new Error(res.error.message);
+    if (btn) { btn.textContent='✅ 依頼済'; btn.style.background='#16a34a'; }
+    showToast('✍️ Drive保存を依頼しました（数分以内に保存されます）');
   } catch(e) {
     if (btn) { btn.disabled=false; btn.textContent='📂 Drive保存'; }
-    showToast('❌ 保存失敗: ' + e.message, 'error');
+    showToast('❌ 失敗: ' + e.message, 'error');
   }
-}
-
-// 担当者ブラウザからGASをJSONPで呼ぶ
-function callGasJsonpFromIndex(params) {
-  var GAS_DATAUP_URL = 'https://script.google.com/macros/s/AKfycbzqddeEti71WWCR9CanUR5zFf1ikUywHs-ES2CyqTucmaRfYaevz4yBqNHJx-_LIf3JCQ/exec';
-  return new Promise(function(resolve, reject) {
-    var cb = '_gasIdxCb' + Date.now();
-    var s = document.createElement('script');
-    s.src = GAS_DATAUP_URL + '?jsonpPost=' + encodeURIComponent(JSON.stringify(params)) + '&callback=' + cb;
-    var timer = setTimeout(function(){ delete window[cb]; try{document.body.removeChild(s);}catch(e){} reject(new Error('タイムアウト')); }, 30000);
-    window[cb] = function(data){ clearTimeout(timer); delete window[cb]; try{document.body.removeChild(s);}catch(e){} resolve(data); };
-    document.body.appendChild(s);
-  });
 }
 
 
