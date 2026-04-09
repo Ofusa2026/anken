@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.25</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.27</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2338,7 +2338,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260409.25';
+var OFUSA_VERSION = 'ver.20260409.27';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -11694,7 +11694,8 @@ function autoSaveInfo(key, value) {
       acceptExp:'accept_exp', personOrder:'person_order', memo:'memo',
       shortageMemo:'shortage_memo', companyNote:'company_note', priority:'priority',
       driveUrl:'drive_url', folderNo:'folder_no', industry:'industry',
-      followupNote:'followup_note', hasJobPlacement:'has_job_placement'
+      followupNote:'followup_note', hasJobPlacement:'has_job_placement',
+      companyId:'company_id'
     };
     var colName = _COL_MAP[key] || key;
     var patchVal = value;
@@ -11779,7 +11780,15 @@ function saveInfoEdit() {
 function onInfoCompanyChange() {
   var c = currentCase; if (!c) return;
   var compEl = document.getElementById('ei-company');
-  if (compEl) c.company = compEl.value;
+  if (compEl) {
+    var coId = compEl.value;
+    var co = companies.find(function(x){ return x.id === coId; });
+    c.companyId = coId;
+    c.company = co ? co.name : compEl.value;
+    // DBにも保存
+    autoSaveInfo('company', c.company);
+    autoSaveInfo('companyId', coId);
+  }
   c.empSetIdx = ''; // リセット
   showTab('info');
 }
@@ -22010,7 +22019,11 @@ function showTab(tab) {
           h += '<option value="">— 選択 —</option>';
           linkedCompanies.forEach(function(co){
             var label = (co.folderNo ? '['+co.folderNo+'] ' : '') + co.name;
-            h += '<option value="'+co.name+'"'+(co.name===c.company?' selected':'')+'>'+label+'</option>';
+            // 同名企業が複数ある場合はラベルに登録支援機関名を付与
+            var sameNames = companies.filter(function(x){ return x.name === co.name; });
+            if (sameNames.length > 1 && co.supportOrgName) label += '（' + co.supportOrgName + '）';
+            var isSelected = (co.id && co.id === c.companyId) || (!c.companyId && co.name === c.company);
+            h += '<option value="'+co.id+'"'+(isSelected?' selected':'')+'>'+label+'</option>';
           });
           h += '</select>';
 
@@ -22895,15 +22908,24 @@ function showTab(tab) {
             _compEl.innerHTML = '<option value="">— 選択 —</option>';
             linked.forEach(function(co){
               var o = document.createElement('option');
-              o.value = co.name; o.textContent = co.name;
-              if (co.name === cc.company) o.selected = true;
+              var label = co.name;
+              // 同名企業が複数ある場合はラベルに登録支援機関名を付与
+              var sameNames = companies.filter(function(x){ return x.name === co.name; });
+              if (sameNames.length > 1 && co.supportOrgName) label += '（' + co.supportOrgName + '）';
+              o.value = co.id; o.textContent = label;
+              if (co.id === cc.companyId || (!cc.companyId && co.name === cc.company)) o.selected = true;
               _compEl.appendChild(o);
             });
           }
         };
       }
       if (_compEl) {
-        _compEl.onchange = function(){ autoSaveInfo('company', this.value); };
+        _compEl.onchange = function(){
+          var coId = this.value;
+          var co = companies.find(function(x){ return x.id === coId; });
+          autoSaveInfo('company', co ? co.name : coId);
+          autoSaveInfo('companyId', coId);
+        };
       }
       // 言語セレクト：国籍に基づくデフォルト
       var _langEl = document.getElementById('ei-fieldLang');
@@ -35500,19 +35522,27 @@ function loadAllFromSupabase() {
   
   // 6. 書類タスク: casesロード完了後に開始（上記cases完了コールバック内）
   
-  // 7. 確認事項
-  _sb.from('case_notes').select('*').then(function(res) {
-    if (!res.error && res.data) {
-      res.data.forEach(function(r) {
-        var note = r.note;
-        if (typeof note === 'string') { try { note = JSON.parse(note); } catch(e) { note = {text: note}; } }
-        caseNotes[r.case_id] = note;
-      });
-      try{localStorage.setItem('ofusa_caseNotes',JSON.stringify(caseNotes));}catch(e){}
+  // 7. 確認事項（1000行制限対策：ページネーションで全件取得）
+  (function loadAllCaseNotes(){
+    var _page = 0, _size = 1000, _total = 0;
+    function _fetchNext(){
+      _sb.from('case_notes').select('*').range(_page*_size, _page*_size + _size - 1).then(function(res){
+        if (res.error) { console.error('case_notes load err:', res.error.message); console.log("✅ caseNotes done (err)"); done(); return; }
+        var rows = res.data || [];
+        rows.forEach(function(r){
+          var note = r.note;
+          if (typeof note === 'string') { try { note = JSON.parse(note); } catch(e) { note = {text: note}; } }
+          caseNotes[r.case_id] = note;
+        });
+        _total += rows.length;
+        if (rows.length === _size) { _page++; _fetchNext(); return; }
+        try{localStorage.setItem('ofusa_caseNotes',JSON.stringify(caseNotes));}catch(e){}
+        console.log("✅ caseNotes done: " + _total + "件");
+        done();
+      }).catch(function(e){ console.error('caseNotes load err:', e); done(); });
     }
-    console.log("✅ caseNotes done");
-    done();
-  }).catch(function(e) { console.error('caseNotes load err:', e); done(); });
+    _fetchNext();
+  })();
 
   // 8. テンプレート一覧
   _sb.from('templates').select('*').then(function(res) {
