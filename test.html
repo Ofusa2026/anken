@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.12</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.18</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2338,7 +2338,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260409.12';
+var OFUSA_VERSION = 'ver.20260409.18';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -2544,8 +2544,22 @@ function sbFetchCases(opts, callback) {
   if (opts.search) {
     var sq = '%' + opts.search + '%';
     var searchFilter = 'applicant.ilike.' + sq + ',company.ilike.' + sq + ',org.ilike.' + sq + ',name.ilike.' + sq + ',team.ilike.' + sq + ',staff.ilike.' + sq + ',receipt_no.ilike.' + sq;
-    countQuery = countQuery.or(searchFilter);
-    dataQuery = dataQuery.or(searchFilter);
+    // personsテーブルの英語氏名でも検索（case_id取得後にOR条件追加）
+    var _personCaseIds = Object.keys(personData).filter(function(cid) {
+      var pd = personData[cid] || {};
+      var nameEn = (pd.applicantNameEn || '').toLowerCase();
+      var nameJa = (pd.applicantName || '').toLowerCase();
+      var sq2 = opts.search.toLowerCase();
+      return nameEn.indexOf(sq2) >= 0 || nameJa.indexOf(sq2) >= 0;
+    });
+    if (_personCaseIds.length > 0) {
+      var _idFilter = 'id.in.(' + _personCaseIds.join(',') + ')';
+      countQuery = countQuery.or(searchFilter + ',' + _idFilter);
+      dataQuery = dataQuery.or(searchFilter + ',' + _idFilter);
+    } else {
+      countQuery = countQuery.or(searchFilter);
+      dataQuery = dataQuery.or(searchFilter);
+    }
   }
   
   // ソート
@@ -18445,6 +18459,12 @@ function checkMappingFields(caseId, empSetIdx, mappingArr, onComplete) {
       } else if(field==='applicantNameEn'){
         if(!personData[caseId]) personData[caseId]={};
         personData[caseId].applicantNameEn=val;
+        // cases.applicantにも同期
+        if(DB_READY && val) {
+          _sb.from('cases').update({applicant: val, updated_at: new Date().toISOString()}).eq('id', caseId).then(function(){});
+          var _sc = cData.find(function(x){ return x.id === caseId; });
+          if(_sc) _sc.applicant = val;
+        }
       } else if(field.indexOf('co.')===0){
         co[field.substring(3)]=val;
       } else if(field.indexOf('es.')===0){
@@ -36371,9 +36391,16 @@ function savePersonField(caseId, key, value) {
   if (!personData[caseId]) personData[caseId] = {};
   personData[caseId][key] = value;
   persistPersonData(caseId);
-  // cases.updated_at も更新
+  // cases.updated_at も更新、applicantNameEnの場合はcases.applicantも同期
   if (DB_READY && caseId) {
-    _sb.from('cases').update({updated_at: new Date().toISOString()}).eq('id', caseId).then(function(){});
+    var patch = {updated_at: new Date().toISOString()};
+    if (key === 'applicantNameEn' && value) patch.applicant = value;
+    _sb.from('cases').update(patch).eq('id', caseId).then(function(){});
+    // ローカルのcDataも更新
+    if (key === 'applicantNameEn' && value) {
+      var _c = cData.find(function(x){ return x.id === caseId; });
+      if (_c) _c.applicant = value;
+    }
   }
 }
 
@@ -38408,6 +38435,254 @@ async function loadSignRequestsArea(caseId) {
 }
 
 
+
+// =============================================
+// ✍️ 署名座標確認モーダル
+// =============================================
+function showSigCoordModal(lang, folderId, caseId) {
+  // デフォルト座標（sign.htmlのSIG_COORDS_DEFAULTと同じ値）
+  var SIG_DEFAULTS = {
+    'インドネシア語':{page:4,x:60,y:120,w:473,h:60},
+    'ベトナム語':    {page:4,x:28,y:120,w:534,h:60},
+    'ネパール語':    {page:4,x:36,y:120,w:464,h:60},
+    'タイ語':        {page:4,x:61,y:120,w:455,h:60},
+    'ミャンマー語':  {page:4,x:60,y:120,w:477,h:60},
+    '英語':          {page:4,x:30,y:120,w:529,h:60},
+    '韓国語':        {page:4,x:61,y:120,w:452,h:60},
+  };
+  var def = SIG_DEFAULTS[lang] || SIG_DEFAULTS['インドネシア語'];
+
+  return new Promise(function(resolve) {
+    var existing = document.getElementById('_sigCoordModal');
+    if (existing) existing.remove();
+
+    var modal = document.createElement('div');
+    modal.id = '_sigCoordModal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+
+    var inner = document.createElement('div');
+    inner.style.cssText = 'background:white;border-radius:16px;padding:20px;max-width:680px;width:100%;max-height:90vh;overflow-y:auto;';
+
+    var title = document.createElement('div');
+    title.style.cssText = 'font-size:15px;font-weight:800;margin-bottom:4px;';
+    title.textContent = '✍️ 署名位置の確認・調整';
+    inner.appendChild(title);
+
+    var sub = document.createElement('div');
+    sub.style.cssText = 'font-size:12px;color:#6b7280;margin-bottom:12px;';
+    sub.textContent = 'PDFをプレビューして署名欄をドラッグで指定してください。スキップすると標準位置で送信します。';
+    inner.appendChild(sub);
+
+    // PDF表示エリア
+    var pdfWrap = document.createElement('div');
+    pdfWrap.style.cssText = 'position:relative;width:100%;background:#f3f4f6;border-radius:8px;overflow:hidden;margin-bottom:12px;min-height:200px;';
+    var pdfMsg = document.createElement('div');
+    pdfMsg.style.cssText = 'text-align:center;padding:40px;font-size:13px;color:#9ca3af;';
+    pdfMsg.textContent = '📄 PDFを読み込み中...';
+    pdfWrap.appendChild(pdfMsg);
+
+    var pdfCanvas = document.createElement('canvas');
+    pdfCanvas.id = '_sigPreviewCanvas';
+    pdfCanvas.style.cssText = 'width:100%;display:none;cursor:crosshair;';
+    pdfWrap.appendChild(pdfCanvas);
+
+    // 署名エリア表示オーバーレイ
+    var overlay = document.createElement('canvas');
+    overlay.id = '_sigOverlayCanvas';
+    overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;cursor:crosshair;display:none;';
+    pdfWrap.appendChild(overlay);
+
+    inner.appendChild(pdfWrap);
+
+    // 座標入力欄
+    var coordRow = document.createElement('div');
+    coordRow.style.cssText = 'display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:12px;';
+    var fields = [
+      {label:'ページ', key:'page', val:def.page, min:1},
+      {label:'X（左端）', key:'x', val:def.x, min:0},
+      {label:'Y（下端）', key:'y', val:def.y, min:0},
+      {label:'幅', key:'w', val:def.w, min:10},
+      {label:'高さ', key:'h', val:def.h, min:5}
+    ];
+    var inputs = {};
+    fields.forEach(function(f) {
+      var div = document.createElement('div');
+      var lbl = document.createElement('div');
+      lbl.style.cssText = 'font-size:10px;color:#6b7280;margin-bottom:2px;';
+      lbl.textContent = f.label;
+      var inp = document.createElement('input');
+      inp.type = 'number'; inp.min = f.min; inp.value = f.val;
+      inp.style.cssText = 'width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:12px;box-sizing:border-box;';
+      inp.id = '_sigCoord_' + f.key;
+      inputs[f.key] = inp;
+      div.appendChild(lbl); div.appendChild(inp);
+      coordRow.appendChild(div);
+    });
+    inner.appendChild(coordRow);
+
+    // プレビュー更新ボタン
+    var previewBtn = document.createElement('button');
+    previewBtn.textContent = '🔄 プレビュー更新';
+    previewBtn.style.cssText = 'padding:7px 14px;border:1.5px solid #e2e8f0;background:white;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:12px;margin-right:8px;';
+    previewBtn.addEventListener('click', function() { drawSigOverlay(pdfCanvas, overlay, inputs); });
+    inner.appendChild(previewBtn);
+
+    // ヒントテキスト
+    var hint = document.createElement('div');
+    hint.style.cssText = 'font-size:11px;color:#9ca3af;margin-bottom:12px;';
+    hint.textContent = '💡 PDFをドラッグして署名エリアを指定できます。Y座標はpdf-lib形式（左下原点）で、小さいほど下になります。';
+    inner.appendChild(hint);
+
+    // ボタン行
+    var btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:8px;';
+
+    var skipBtn = document.createElement('button');
+    skipBtn.textContent = 'スキップ（標準位置）';
+    skipBtn.style.cssText = 'flex:1;padding:10px;border:1.5px solid #e2e8f0;background:white;border-radius:8px;font-size:13px;cursor:pointer;color:#6b7280;';
+    skipBtn.addEventListener('click', function() { modal.remove(); resolve(def); });
+
+    var okBtn = document.createElement('button');
+    okBtn.textContent = '✅ この位置で送信';
+    okBtn.style.cssText = 'flex:2;padding:10px;background:#1a1a2e;color:white;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;';
+    okBtn.addEventListener('click', function() {
+      modal.remove();
+      resolve({
+        page: parseInt(inputs.page.value)||def.page,
+        x: parseFloat(inputs.x.value)||def.x,
+        y: parseFloat(inputs.y.value)||def.y,
+        w: parseFloat(inputs.w.value)||def.w,
+        h: parseFloat(inputs.h.value)||def.h
+      });
+    });
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'キャンセル';
+    cancelBtn.style.cssText = 'padding:10px 14px;border:1px solid #e2e8f0;background:none;border-radius:8px;font-size:13px;color:#9ca3af;cursor:pointer;';
+    cancelBtn.addEventListener('click', function() { modal.remove(); resolve(null); });
+
+    btnRow.appendChild(cancelBtn);
+    btnRow.appendChild(skipBtn);
+    btnRow.appendChild(okBtn);
+    inner.appendChild(btnRow);
+
+    modal.appendChild(inner);
+    document.body.appendChild(modal);
+
+    // PDF読み込み（GAS経由）
+    if (folderId && typeof GAS_URL !== 'undefined' && GAS_URL) {
+      var gasUrl = GAS_URL + '?action=getEmploymentPdf&folderId=' + encodeURIComponent(folderId) + '&caseId=' + encodeURIComponent(caseId||'');
+      fetch(gasUrl).then(function(r){ return r.json(); }).then(function(json) {
+        if (json.status==='ok' && json.base64) {
+          var raw = atob(json.base64);
+          var bytes = new Uint8Array(raw.length);
+          for (var i=0;i<raw.length;i++) bytes[i]=raw.charCodeAt(i);
+          var pageNum = parseInt(inputs.page.value)||def.page;
+          renderSigPreview(bytes, pageNum, pdfCanvas, overlay, pdfMsg, inputs, def);
+
+          // ページ変更時に再レンダリング
+          inputs.page.addEventListener('change', function() {
+            renderSigPreview(bytes, parseInt(inputs.page.value)||1, pdfCanvas, overlay, pdfMsg, inputs, def);
+          });
+        } else {
+          pdfMsg.textContent = '⚠️ PDFを取得できませんでした（座標を手動入力してください）';
+        }
+      }).catch(function() {
+        pdfMsg.textContent = '⚠️ PDF取得エラー（座標を手動入力してください）';
+      });
+    } else {
+      pdfMsg.textContent = 'GAS未設定 — 座標を手動で入力してください';
+    }
+  });
+}
+
+function renderSigPreview(pdfBytes, pageNum, pdfCanvas, overlay, pdfMsg, inputs, def) {
+  if (!window.pdfjsLib) { pdfMsg.textContent = 'pdf.jsが利用できません'; return; }
+  pdfMsg.style.display = 'none';
+  pdfCanvas.style.display = 'block';
+  overlay.style.display = 'block';
+
+  pdfjsLib.getDocument({data: pdfBytes}).promise.then(function(doc) {
+    var page = Math.min(pageNum, doc.numPages);
+    doc.getPage(page).then(function(p) {
+      var vp = p.getViewport({scale: 1.5});
+      pdfCanvas.width = vp.width; pdfCanvas.height = vp.height;
+      overlay.width = vp.width; overlay.height = vp.height;
+      p.render({canvasContext: pdfCanvas.getContext('2d'), viewport: vp}).promise.then(function() {
+        drawSigOverlay(pdfCanvas, overlay, inputs);
+        // ドラッグで署名エリア指定
+        setupDragOnOverlay(overlay, pdfCanvas, inputs, vp);
+      });
+    });
+  }).catch(function(e) { pdfMsg.textContent = 'PDF描画エラー: ' + e.message; pdfMsg.style.display='block'; });
+}
+
+function drawSigOverlay(pdfCanvas, overlay, inputs) {
+  if (!pdfCanvas || pdfCanvas.style.display==='none') return;
+  var ctx = overlay.getContext('2d');
+  ctx.clearRect(0,0,overlay.width,overlay.height);
+  // pdf-lib座標→canvas座標変換
+  var scaleX = pdfCanvas.width / 595; // A4幅（pt）
+  var scaleY = pdfCanvas.height / 842; // A4高さ（pt）
+  var pdfH = 842;
+  var x = parseFloat(inputs.x.value)||0;
+  var y = parseFloat(inputs.y.value)||0;
+  var w = parseFloat(inputs.w.value)||100;
+  var h = parseFloat(inputs.h.value)||40;
+  // pdf-libはy=0が左下、canvasはy=0が左上
+  var cx = x * scaleX;
+  var cy = (pdfH - y - h) * scaleY;
+  var cw = w * scaleX;
+  var ch = h * scaleY;
+  ctx.strokeStyle = 'rgba(255,0,0,0.8)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([5,3]);
+  ctx.strokeRect(cx, cy, cw, ch);
+  ctx.fillStyle = 'rgba(255,0,0,0.1)';
+  ctx.fillRect(cx, cy, cw, ch);
+  ctx.fillStyle = 'rgba(255,0,0,0.9)';
+  ctx.font = '11px sans-serif';
+  ctx.fillText('署名エリア', cx+4, cy+14);
+}
+
+function setupDragOnOverlay(overlay, pdfCanvas, inputs, vp) {
+  var dragging = false, startX, startY;
+  var pdfH = 842;
+  var scaleX = vp.width / 595;
+  var scaleY = vp.height / pdfH;
+
+  function getPos(e) {
+    var rect = overlay.getBoundingClientRect();
+    var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return {
+      x: (clientX - rect.left) * (overlay.width / rect.width),
+      y: (clientY - rect.top) * (overlay.height / rect.height)
+    };
+  }
+
+  overlay.addEventListener('mousedown', function(e) {
+    dragging = true; var p = getPos(e); startX = p.x; startY = p.y;
+  });
+  overlay.addEventListener('mousemove', function(e) {
+    if (!dragging) return;
+    var p = getPos(e);
+    var cx = Math.min(startX, p.x), cy = Math.min(startY, p.y);
+    var cw = Math.abs(p.x - startX), ch = Math.abs(p.y - startY);
+    // canvas→pdf-lib座標変換
+    var px = cx / scaleX;
+    var ph = ch / scaleY;
+    var py = pdfH - (cy / scaleY) - ph;
+    inputs.x.value = Math.round(px);
+    inputs.y.value = Math.round(py);
+    inputs.w.value = Math.round(cw / scaleX);
+    inputs.h.value = Math.round(ph);
+    drawSigOverlay(pdfCanvas, overlay, inputs);
+  });
+  overlay.addEventListener('mouseup', function() { dragging = false; });
+  overlay.addEventListener('mouseleave', function() { dragging = false; });
+}
+
 function showLangSelectModal(caseId) {
   return new Promise(function(resolve) {
     var langs = ['インドネシア語','ベトナム語','ネパール語','タイ語','ミャンマー語','英語','韓国語','中国語'];
@@ -38512,6 +38787,10 @@ async function createSignRequest(caseId, docType) {
   var _langForSign = await showLangSelectModal(caseId);
   if (!_langForSign) return; // キャンセル
 
+  // 署名座標確認モーダル
+  var _sigCoord = await showSigCoordModal(_langForSign, _folderIdForSign, caseId);
+  if (!_sigCoord) return; // キャンセル
+
   var ins = await _sb.from('sign_requests').insert({
     case_id: caseId,
     token: token,
@@ -38520,7 +38799,12 @@ async function createSignRequest(caseId, docType) {
     expires_at: expiresAt.toISOString(),
     created_by: staffName,
     doc_lang: _langForSign,
-    drive_folder_id: _folderIdForSign
+    drive_folder_id: _folderIdForSign,
+    sig_page: _sigCoord.page,
+    sig_x: _sigCoord.x,
+    sig_y: _sigCoord.y,
+    sig_w: _sigCoord.w,
+    sig_h: _sigCoord.h
   }).select().single();
 
   if (ins.error) { showToast('署名依頼の作成に失敗: ' + ins.error.message, 'error'); return; }
@@ -38542,6 +38826,7 @@ function showSignLinkModal(token, docType, caseId) {
     + '<div style="background:#f1f5f9;border-radius:10px;padding:12px;font-size:11px;word-break:break-all;color:#334155;margin-bottom:16px;border:1px solid #e2e8f0;">' + url + '</div>'
     + '<div style="display:grid;gap:8px;">'
     + '<button id="signCopyBtn" onclick="copySignUrl(\'' + url + '\',this)" style="padding:13px;background:#1a1a2e;color:white;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">📋 URLをコピー</button>'
+    + '<button onclick="showSigCoordModal(\'' + token + '\')" style="padding:11px;background:#f0f4ff;border:1.5px solid #6366f1;border-radius:10px;font-size:13px;font-weight:700;color:#4338ca;cursor:pointer;">📐 署名位置を調整</button>'
     + '<button onclick="document.getElementById(\'signLinkModal\').remove()" style="padding:11px;background:none;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;color:#64748b;cursor:pointer;">閉じる</button>'
     + '</div>'
     + '<div style="margin-top:14px;font-size:11px;color:#94a3b8;text-align:center;">有効期限：30日間</div>'
@@ -38549,6 +38834,156 @@ function showSignLinkModal(token, docType, caseId) {
   modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
   document.body.appendChild(modal);
 }
+
+// =============================================
+// 📐 署名位置調整モーダル
+// =============================================
+async function showSigCoordModal(signToken) {
+  // sign_requestsからdrive_folder_idとdoc_langを取得
+  var res = await _sb.from('sign_requests')
+    .select('id,drive_folder_id,doc_lang,sig_x,sig_y,sig_w,sig_h,sig_page')
+    .eq('token', signToken).single();
+  if (res.error || !res.data) { showToast('データ取得失敗', 'error'); return; }
+  var rec = res.data;
+  var folderId = rec.drive_folder_id;
+  if (!folderId) { showToast('DriveフォルダIDが未設定です', 'error'); return; }
+
+  // モーダルを表示してPDF取得中表示
+  var old = document.getElementById('sigCoordModal');
+  if (old) old.remove();
+  var modal = document.createElement('div');
+  modal.id = 'sigCoordModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10000;display:flex;align-items:center;justify-content:center;padding:12px;';
+  modal.innerHTML = '<div style="background:white;border-radius:16px;padding:20px;max-width:700px;width:100%;max-height:90vh;overflow-y:auto;">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
+    + '<div style="font-size:15px;font-weight:800;">📐 署名位置を調整</div>'
+    + '<button onclick="document.getElementById(\'sigCoordModal\').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#94a3b8;">✕</button>'
+    + '</div>'
+    + '<div style="font-size:12px;color:#6b7280;margin-bottom:10px;">PDFの署名欄をドラッグして指定してください（最終ページ表示）</div>'
+    + '<div id="sigCoordStatus" style="font-size:12px;color:#6366f1;margin-bottom:8px;">PDFを読み込み中...</div>'
+    + '<div style="position:relative;border:2px solid #e2e8f0;border-radius:8px;overflow:hidden;cursor:crosshair;">'
+    + '<canvas id="sigCoordCanvas" style="display:block;width:100%;"></canvas>'
+    + '<div id="sigCoordRect" style="position:absolute;border:3px solid #6366f1;background:rgba(99,102,241,0.15);display:none;pointer-events:none;"></div>'
+    + '</div>'
+    + '<div id="sigCoordInfo" style="margin-top:8px;font-size:11px;color:#6b7280;"></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;">'
+    + '<button onclick="saveSigCoord(\'' + rec.id + '\',\'' + signToken + '\')" style="padding:12px;background:#6366f1;color:white;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;">💾 この位置で保存</button>'
+    + '<button onclick="document.getElementById(\'sigCoordModal\').remove()" style="padding:12px;background:none;border:1.5px solid #e2e8f0;border-radius:10px;font-size:13px;color:#64748b;cursor:pointer;">キャンセル</button>'
+    + '</div>'
+    + '</div>';
+  modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+  document.body.appendChild(modal);
+
+  // GASからPDF取得
+  var GAS_SIGN_URL = 'https://script.google.com/macros/s/AKfycbzqddeEti71WWCR9CanUR5zFf1ikUywHs-ES2CyqTucmaRfYaevz4yBqNHJx-_LIf3JCQ/exec';
+  try {
+    var gasUrl = GAS_SIGN_URL + '?action=getEmploymentPdf&folderId=' + encodeURIComponent(folderId);
+    var resp = await fetch(gasUrl);
+    var json = await resp.json();
+    if (json.status === 'error') throw new Error(json.msg);
+    var raw = atob(json.base64);
+    var pdfData = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) pdfData[i] = raw.charCodeAt(i);
+
+    // pdf.jsで最終ページをレンダリング
+    var pdfDoc2 = await pdfjsLib.getDocument({data: pdfData.slice()}).promise;
+    var sigPage = pdfDoc2.numPages; // 最終ページ
+    var page = await pdfDoc2.getPage(sigPage);
+    var vp = page.getViewport({scale: 1.5});
+    var cvs = document.getElementById('sigCoordCanvas');
+    cvs.width = vp.width; cvs.height = vp.height;
+    await page.render({canvasContext: cvs.getContext('2d'), viewport: vp}).promise;
+
+    // ページ情報を保存
+    cvs._pdfPageWidth = page.getViewport({scale:1}).width;
+    cvs._pdfPageHeight = page.getViewport({scale:1}).height;
+    cvs._sigPage = sigPage - 1; // 0-indexed
+    cvs._scale = 1.5;
+
+    // 既存座標があれば初期表示
+    var docLang2 = rec.doc_lang || 'インドネシア語';
+    var defaults = {
+      'インドネシア語':{x:60,y:120,w:473,h:60},
+      'ベトナム語':{x:28,y:120,w:534,h:60},
+      'ネパール語':{x:36,y:120,w:464,h:60},
+      'タイ語':{x:61,y:120,w:455,h:60},
+      'ミャンマー語':{x:60,y:120,w:477,h:60},
+      '英語':{x:30,y:120,w:529,h:60},
+      '韓国語':{x:61,y:120,w:452,h:60}
+    };
+    var initCoord = {
+      x: rec.sig_x != null ? rec.sig_x : (defaults[docLang2]||defaults['インドネシア語']).x,
+      y: rec.sig_y != null ? rec.sig_y : (defaults[docLang2]||defaults['インドネシア語']).y,
+      w: rec.sig_w != null ? rec.sig_w : (defaults[docLang2]||defaults['インドネシア語']).w,
+      h: rec.sig_h != null ? rec.sig_h : (defaults[docLang2]||defaults['インドネシア語']).h
+    };
+    // pdf-lib座標(左下原点)→canvas座標(左上原点)に変換して表示
+    var pageH = cvs._pdfPageHeight;
+    var sc = cvs._scale;
+    var rect = document.getElementById('sigCoordRect');
+    rect.style.display = 'block';
+    rect.style.left = (initCoord.x * sc) + 'px';
+    rect.style.top = ((pageH - initCoord.y - initCoord.h) * sc) + 'px';
+    rect.style.width = (initCoord.w * sc) + 'px';
+    rect.style.height = (initCoord.h * sc) + 'px';
+    cvs._currentCoord = initCoord;
+    updateSigCoordInfo(initCoord);
+
+    document.getElementById('sigCoordStatus').textContent = 'ドラッグで署名欄を指定 | 言語: ' + docLang2;
+
+    // ドラッグ操作
+    var dragging = false, startX, startY;
+    cvs.addEventListener('mousedown', function(e) {
+      var r = cvs.getBoundingClientRect();
+      startX = e.clientX - r.left;
+      startY = e.clientY - r.top;
+      dragging = true;
+    });
+    window.addEventListener('mousemove', function(e) {
+      if (!dragging) return;
+      var r = cvs.getBoundingClientRect();
+      var curX = e.clientX - r.left;
+      var curY = e.clientY - r.top;
+      var x = Math.min(startX, curX), y = Math.min(startY, curY);
+      var w = Math.abs(curX - startX), h = Math.abs(curY - startY);
+      rect.style.left = x + 'px'; rect.style.top = y + 'px';
+      rect.style.width = w + 'px'; rect.style.height = h + 'px';
+      rect.style.display = 'block';
+      // canvas座標→pdf-lib座標(左下原点)に変換
+      var pdfX = x / sc;
+      var pdfY = pageH - (y / sc) - (h / sc);
+      var pdfW = w / sc;
+      var pdfH = h / sc;
+      cvs._currentCoord = {x: pdfX, y: pdfY, w: pdfW, h: pdfH};
+      updateSigCoordInfo(cvs._currentCoord);
+    });
+    window.addEventListener('mouseup', function() { dragging = false; });
+
+  } catch(e) {
+    document.getElementById('sigCoordStatus').textContent = 'PDF取得失敗: ' + e.message;
+  }
+}
+
+function updateSigCoordInfo(coord) {
+  var el = document.getElementById('sigCoordInfo');
+  if (el) el.textContent = 'x:' + Math.round(coord.x) + ' y:' + Math.round(coord.y) + ' w:' + Math.round(coord.w) + ' h:' + Math.round(coord.h);
+}
+
+async function saveSigCoord(signId, signToken) {
+  var cvs = document.getElementById('sigCoordCanvas');
+  if (!cvs || !cvs._currentCoord) { showToast('座標が指定されていません', 'error'); return; }
+  var coord = cvs._currentCoord;
+  if (coord.w < 10 || coord.h < 10) { showToast('範囲が小さすぎます', 'error'); return; }
+  var res = await _sb.from('sign_requests').update({
+    sig_x: Math.round(coord.x), sig_y: Math.round(coord.y),
+    sig_w: Math.round(coord.w), sig_h: Math.round(coord.h),
+    sig_page: cvs._sigPage
+  }).eq('id', signId);
+  if (res.error) { showToast('保存失敗: ' + res.error.message, 'error'); return; }
+  showToast('✅ 署名位置を保存しました');
+  document.getElementById('sigCoordModal').remove();
+}
+
 
 function copySignUrl(url, btn) {
   navigator.clipboard.writeText(url).then(function() {
