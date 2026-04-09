@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.18</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.19</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2338,7 +2338,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260409.18';
+var OFUSA_VERSION = 'ver.20260409.19';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -21059,8 +21059,28 @@ function openCase(id) {
     }).catch(function(){});
   }
   var pd = personData[c.id] || {};
-  var headerName = pd.applicantNameEn || pd.applicantName || c.applicant || c.name || c.id;
-  document.getElementById('caseDetailName').textContent = headerName;
+  var headerName = c.applicant || pd.applicantNameEn || pd.applicantName || c.name || c.id;
+  var nameEl = document.getElementById('caseDetailName');
+  nameEl.textContent = headerName;
+  nameEl.title = 'クリックして氏名を編集';
+  nameEl.style.cursor = 'pointer';
+  nameEl.onclick = function() {
+    var cur = c.applicant || pd.applicantNameEn || pd.applicantName || '';
+    var val = prompt('申請者氏名（英語）を入力', cur);
+    if (val === null) return;
+    val = val.trim();
+    if (!val) return;
+    // casesのapplicantを更新
+    c.applicant = val;
+    nameEl.textContent = val;
+    if (DB_READY) {
+      _sb.from('cases').update({applicant: val, updated_at: new Date().toISOString()}).eq('id', c.id).then(function(){});
+    }
+    // personsのapplicantNameEnも同期
+    if (!personData[c.id]) personData[c.id] = {};
+    personData[c.id].applicantNameEn = val;
+    persistPersonData(c.id);
+  };
   var _lpBadgeHtml = c.letterpackId ? '<span class="case-header-tag" onclick="openLetterpackFromCase(\'' + c.letterpackId + '\')" style="background:#dbeafe;color:#1e40af;cursor:pointer;font-weight:700;">📮 郵送交付</span>' : '';
   var _hassoBadge = HASSO_BADGES[c.id] ? '<span class="case-header-tag" style="background:#0c4a6e;color:white;font-weight:700;">📮 発送中</span>' : '';
   var _co = findCompanyByName(c.company);
