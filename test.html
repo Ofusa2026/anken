@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.20</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.21</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2338,7 +2338,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260409.20';
+var OFUSA_VERSION = 'ver.20260409.21';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -7094,7 +7094,7 @@ async function insertCardIntoExcel(caseId, frontData, backData) {
     w.document.write('.box p{font-size:9.5px;line-height:1.5;margin:0 0 4px;}');
     w.document.write('.box .en{font-size:9px;}');
     w.document.write('.sig{text-align:right;margin-top:14px;font-size:10.5px;line-height:1.8;}');
-    w.document.write('@media print{.box{background:#f5f7fa !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}}');
+    w.document.write('@media print{.box{background:#f5f7fa !important;-webkit-print-color-adjust:exact;print-color-adjust:exact;} img{-webkit-print-color-adjust:exact;print-color-adjust:exact;image-rendering:auto;} .sig img{display:block !important;}}');
     w.document.write('</style></head><body>');
 
     // ===== ページ1: 日本語 =====
@@ -7296,10 +7296,30 @@ async function insertCardIntoExcel(caseId, frontData, backData) {
     w.document.close();
 
 
-    // 印刷ダイアログを開く
-    setTimeout(function(){
-      try{ w.print(); }catch(e){ console.error(e); }
-    }, 800);
+    // 印影画像など全ての画像がデコード完了してから印刷する（印影が消える対策）
+    var _printCert = function(){
+      try{ w.focus(); w.print(); }catch(e){ console.error(e); }
+    };
+    var _waitImgs = function(){
+      try{
+        var imgs = w.document.images;
+        if(!imgs || imgs.length===0){ setTimeout(_printCert, 300); return; }
+        var remaining = imgs.length;
+        var done = function(){ remaining--; if(remaining<=0) setTimeout(_printCert, 400); };
+        for (var i=0; i<imgs.length; i++){
+          var im = imgs[i];
+          if (im.complete && im.naturalWidth>0){
+            if (im.decode) { im.decode().then(done).catch(done); } else { done(); }
+          } else {
+            im.addEventListener('load', function(){ if(this.decode){ this.decode().then(done).catch(done); } else { done(); } });
+            im.addEventListener('error', done);
+          }
+        }
+        // 保険：5秒経ったら強制印刷
+        setTimeout(function(){ if(remaining>0){ remaining=0; _printCert(); } }, 5000);
+      }catch(e){ setTimeout(_printCert, 1500); }
+    };
+    setTimeout(_waitImgs, 300);
     showToast('📄 印刷画面が開きます → 「PDFに保存」を選んでください');
   } catch(e) {
     alert('申請中証明 生成エラー: ' + e.toString());
@@ -7474,10 +7494,29 @@ function renderAzukari(caseId, frontData, backData, passportData) {
     w.document.write('</div></body></html>');
     w.document.close();
 
-    // 印刷ダイアログを開く
-    setTimeout(function(){
-      try{ w.print(); }catch(e){ console.error(e); }
-    }, 800);
+    // 印影画像など全ての画像がデコード完了してから印刷する（印影が消える対策）
+    var _printKsh = function(){
+      try{ w.focus(); w.print(); }catch(e){ console.error(e); }
+    };
+    var _waitImgsK = function(){
+      try{
+        var imgs = w.document.images;
+        if(!imgs || imgs.length===0){ setTimeout(_printKsh, 300); return; }
+        var remaining = imgs.length;
+        var done = function(){ remaining--; if(remaining<=0) setTimeout(_printKsh, 400); };
+        for (var i=0; i<imgs.length; i++){
+          var im = imgs[i];
+          if (im.complete && im.naturalWidth>0){
+            if (im.decode) { im.decode().then(done).catch(done); } else { done(); }
+          } else {
+            im.addEventListener('load', function(){ if(this.decode){ this.decode().then(done).catch(done); } else { done(); } });
+            im.addEventListener('error', done);
+          }
+        }
+        setTimeout(function(){ if(remaining>0){ remaining=0; _printKsh(); } }, 5000);
+      }catch(e){ setTimeout(_printKsh, 1500); }
+    };
+    setTimeout(_waitImgsK, 300);
     showToast('📋 印刷画面が開きます → 「PDFに保存」を選んでください');
 
   } catch(e) {
