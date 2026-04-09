@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.27</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260409.28</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2338,7 +2338,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260409.27';
+var OFUSA_VERSION = 'ver.20260409.28';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -2771,7 +2771,7 @@ function dbRowToCase(r) {
     toritsugisha: r.toritsugisha||'', introFee: r.intro_fee||'', otherSupportNote: r.other_support_note||'', expire: r.expire||'',
     tokureiDate: r.tokurei_date||'', tempReturn: r.temp_return||'',
     shinsaDate: r.shinsa_date||'',
-    status: (r.status==='書類作成中'||!r.status)?'未着手':(r.status||'未着手'), empSetIdx: r.emp_set_idx||'', soOfficeIdx: r.so_office_idx!=null?r.so_office_idx:null,
+    status: (r.status==='書類作成中'||!r.status)?'未着手':(r.status||'未着手'), empSetIdx: r.emp_set_idx||'', soOfficeIdx: r.so_office_idx!=null?r.so_office_idx:null, milestoneStep: r.milestone_step!=null?parseInt(r.milestone_step):-1, companyId: r.company_id||'',
     supportFee: r.support_fee||'', applicantField: r.applicant_field||'',
     jobCategory: r.job_category||'', receiptNo: r.receipt_no||'',
     receiptDate: r.receipt_date||'', docCreateDate: r.doc_create_date||'', letterpackId: r.letterpack_id||null,
@@ -2949,7 +2949,7 @@ function loadCasesFromDB(callback) {
         toritsugisha: r.toritsugisha || '',
         expire: r.expire || '',
         status: (r.status==='書類作成中'||!r.status) ? '未着手' : r.status,
-        empSetIdx: r.emp_set_idx || '',
+        empSetIdx: r.emp_set_idx || '', milestoneStep: r.milestone_step!=null?parseInt(r.milestone_step):-1, companyId: r.company_id||'',
         supportFee: r.support_fee || '',
         applicantField: r.applicant_field || '',
         jobCategory: r.job_category || '',
@@ -11598,6 +11598,20 @@ function importFormResponse(responseId, caseId, formType) {
       showTab('info');
     });
   });
+}
+
+function setMilestoneStep(caseId, stepIdx) {
+  var c = cases.find(function(x){ return x.id === caseId; });
+  if (!c) return;
+  // 同じステップをクリックしたらリセット
+  var newStep = (c.milestoneStep === stepIdx) ? -1 : stepIdx;
+  c.milestoneStep = newStep;
+  if (DB_READY) {
+    _sb.from('cases').update({ milestone_step: newStep < 0 ? null : newStep, updated_at: new Date().toISOString() }).eq('id', caseId).then(function(r) {
+      if (r && r.error) console.error('milestone patch error:', r.error);
+    });
+  }
+  showTab('info');
 }
 
 function autoSaveInfo(key, value) {
@@ -21859,7 +21873,49 @@ function showTab(tab) {
     var ncBg=noteConfirmState===1?'#f59e0b':noteConfirmState===2?'var(--green)':'white';
     var ncColor=noteConfirmState>=1?'white':'var(--gray-400)';
     var ncLabel=noteConfirmState===1?'📩 確認依頼':noteConfirmState===2?'✓ 確認済':'👁 確認';
-    h = '<div style="margin-bottom:12px;background:white;border-radius:10px;padding:14px;border:1.5px solid #6366f1;">';
+    // ===== 申請マイルストーンバー =====
+    var MS_STEPS = [
+      { label: '雇用条件\n確認', icon: '📋' },
+      { label: '人材データ\n確認', icon: '👤' },
+      { label: '所属機関\n情報確認', icon: '🏢' },
+      { label: 'スキャン\nPDF確認', icon: '📄' },
+      { label: '顔写真\n確認', icon: '📷' },
+      { label: 'CSV\n出力', icon: '📊' },
+      { label: '申請', icon: '✅' }
+    ];
+    var msCurrent = (c.milestoneStep != null) ? parseInt(c.milestoneStep) : -1;
+    h = '<div style="margin-bottom:12px;background:white;border-radius:12px;padding:14px 16px;border:1px solid #e2e8f0;">';
+    h += '<div style="font-size:11px;font-weight:700;color:#64748b;margin-bottom:12px;">🚀 申請マイルストーン</div>';
+    h += '<div style="display:flex;align-items:center;gap:0;overflow-x:auto;padding-bottom:4px;">';
+    MS_STEPS.forEach(function(step, idx) {
+      var isDone = idx < msCurrent;
+      var isCurrent = idx === msCurrent;
+      var dotBg = isDone ? '#2563eb' : isCurrent ? '#eff6ff' : '#f8fafc';
+      var dotBorder = isDone ? '#2563eb' : isCurrent ? '#2563eb' : '#cbd5e1';
+      var dotColor = isDone ? 'white' : isCurrent ? '#2563eb' : '#94a3b8';
+      var labelColor = isDone ? '#2563eb' : isCurrent ? '#1e40af' : '#94a3b8';
+      var labelWeight = isCurrent ? '800' : isDone ? '700' : '500';
+      // ドット
+      h += '<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0;min-width:60px;">';
+      h += '<div onclick="setMilestoneStep(' + c.id + ',' + idx + ')" style="width:36px;height:36px;border-radius:50%;background:' + dotBg + ';border:2px solid ' + dotBorder + ';display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.15s;font-size:' + (isDone?'14px':'16px') + ';box-shadow:' + (isCurrent?'0 0 0 3px #bfdbfe':'none') + ';" onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'">';
+      h += isDone ? '<span style="font-size:14px;color:white;">✓</span>' : '<span>' + step.icon + '</span>';
+      h += '</div>';
+      h += '<div style="font-size:9px;font-weight:' + labelWeight + ';color:' + labelColor + ';text-align:center;line-height:1.3;white-space:pre-line;">' + esc(step.label) + '</div>';
+      h += '</div>';
+      // コネクタ
+      if (idx < MS_STEPS.length - 1) {
+        var lineColor = idx < msCurrent ? '#2563eb' : '#e2e8f0';
+        h += '<div style="flex:1;min-width:8px;height:2px;background:' + lineColor + ';margin-top:-20px;"></div>';
+      }
+    });
+    h += '</div>';
+    // リセットボタン
+    h += '<div style="text-align:right;margin-top:8px;">';
+    h += '<span onclick="setMilestoneStep(' + c.id + ',-1)" style="font-size:10px;color:#94a3b8;cursor:pointer;text-decoration:underline;">リセット</span>';
+    h += '</div>';
+    h += '</div>';
+    // ===== /申請マイルストーンバー =====
+    h += '<div style="margin-bottom:12px;background:white;border-radius:10px;padding:14px;border:1.5px solid #6366f1;">';
     h += '<div style="font-size:11px;font-weight:700;color:#6366f1;margin-bottom:8px;">📝 進捗状況</div>';
     setTimeout(function(){ loadOrgCommentForCase(c.id); }, 300);
     h += '<textarea id="progressMemo_' + c.id + '" oninput="_debounceProgressMemo(\'' + c.id + '\')" style="width:100%;padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;resize:vertical;min-height:70px;font-family:inherit;box-sizing:border-box;" placeholder="現在の進捗・対応状況を自由に記入...">' + esc(progressMemoVal) + '</textarea>';
