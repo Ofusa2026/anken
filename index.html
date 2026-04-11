@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260412.02</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260412.03</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2373,7 +2373,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260412.02';
+var OFUSA_VERSION = 'ver.20260412.03';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -3611,7 +3611,7 @@ function rebuildLoginSelect() {
 
 function buildStaffFilter(){
   var dd = document.getElementById('fStaffDD'); if(!dd) { buildOrgFilter(); return; }
-  var checked = getCheckedValues('fStaffDD');
+  var checked = (_pendingFilterRestore && _pendingFilterRestore.staff) ? _pendingFilterRestore.staff : getCheckedValues('fStaffDD');
   dd.innerHTML = '';
   USERS.forEach(function(u){
     if(!u.name) return;
@@ -3623,7 +3623,7 @@ function buildStaffFilter(){
 
 function buildOrgFilter(){
   var dd = document.getElementById('fOrgDD'); if(!dd) return;
-  var checked = getCheckedValues('fOrgDD');
+  var checked = (_pendingFilterRestore && _pendingFilterRestore.org) ? _pendingFilterRestore.org : getCheckedValues('fOrgDD');
   dd.innerHTML = '';
   var orgs = supportOrgs.slice().sort(function(a,b){
     var fA=a.folderNo||'', fB=b.folderNo||'';
@@ -3640,6 +3640,11 @@ function buildOrgFilter(){
       dd.innerHTML += '<label style="display:flex;align-items:center;gap:6px;padding:3px 6px;cursor:pointer;font-size:12px;white-space:nowrap;"><input type="checkbox" value="'+o.name.replace(/"/g,'&quot;')+'"'+(isChecked?' checked':'')+' onchange="applyMultiFilter(&quot;fOrgDD&quot;,&quot;fOrgBtn&quot;,&quot;全機関&quot;)"> '+label+'</label>';
     }
   });
+  // pendingRestoreがあればラベルを更新してクリア
+  if(_pendingFilterRestore){
+    _updateFilterBtnLabels(_pendingFilterRestore);
+    _pendingFilterRestore = null;
+  }
 }
 
 // チーム管理のデータからUSERSを同期
@@ -21038,6 +21043,9 @@ function applyAgencyFilter(){
   applyFilters(true);
 }
 function applyTypeFilter(){var keys=['nintei','koshin','henkou','shinsei','empty'];var labels={nintei:'認定',koshin:'更新',henkou:'変更',shinsei:'申請済',empty:'未入力'};var checked=keys.filter(function(k){var el=document.getElementById('fType_'+k);return el&&el.checked;});var btn=document.getElementById('fTypeBtn');if(btn)btn.textContent=(checked.length===0||checked.length===5)?'全種別 ▾':checked.map(function(k){return labels[k];}).join('・')+' ▾';applyFilters(true);}
+// リロード復元用フィルタ保存（buildStaff/OrgFilterがDOM構築時に参照）
+var _pendingFilterRestore = null;
+
 function _saveFilterState() {
   try {
     var state = {
@@ -21062,11 +21070,13 @@ function _restoreFilterState() {
   try {
     var state = JSON.parse(localStorage.getItem('ofusa_filterState')||'{}');
     if (!state || !Object.keys(state).length) return;
-    // チェックボックス系
-    var ddMap = {team:'fTeamDD', status:'fStatusDD', staff:'fStaffDD', org:'fOrgDD', field:'fFieldDD', ball:'fBallDD', agency:'fAgencyDD'};
-    Object.keys(ddMap).forEach(function(key) {
+    // staff/orgは動的生成のため_pendingFilterRestoreに保存してbuild時に適用
+    _pendingFilterRestore = state;
+    // 静的チェックボックス（team/status/ball/field/agency/type）は即座にDOM適用
+    var staticDdMap = {team:'fTeamDD', status:'fStatusDD', ball:'fBallDD', field:'fFieldDD', agency:'fAgencyDD'};
+    Object.keys(staticDdMap).forEach(function(key) {
       var vals = state[key] || [];
-      var dd = document.getElementById(ddMap[key]);
+      var dd = document.getElementById(staticDdMap[key]);
       if (!dd) return;
       dd.querySelectorAll('input[type="checkbox"]').forEach(function(cb) {
         cb.checked = vals.indexOf(cb.value) >= 0;
