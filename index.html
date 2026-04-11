@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260411.04</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260411.05</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2353,7 +2353,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260411.04';
+var OFUSA_VERSION = 'ver.20260411.05';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -20670,7 +20670,7 @@ function renderKanbanV() {
     var rowId = 'kanbanV_row_' + s.replace(/[^a-z0-9]/gi,'_');
     var isOpen = localStorage.getItem('kanbanV_open_'+s) !== '0';
 
-    h += '<div style="border-bottom:1px solid #e2e8f0;">';
+    h += '<div class="kanban-v-group" data-status="'+esc(s)+'" style="border-bottom:1px solid #e2e8f0;">';
     // ヘッダー行（クリックで折り畳み）
     h += '<div onclick="(function(){var o=localStorage.getItem(\'kanbanV_open_'+esc(s)+'\')!==\'0\';localStorage.setItem(\'kanbanV_open_'+esc(s)+'\',o?\'0\':\'1\');renderKanban();})()"';
     h += ' style="display:flex;align-items:center;gap:10px;padding:8px 14px;cursor:pointer;background:'+color+'10;user-select:none;">';
@@ -20684,7 +20684,9 @@ function renderKanbanV() {
     if (isOpen) {
       h += '<table style="width:100%;border-collapse:collapse;">';
       items.forEach(function(c){
-        h += buildCaseRow(c, today, false);
+        var rowHtml = buildCaseRow(c, today, false);
+        rowHtml = rowHtml.replace('<tr ', '<tr draggable="true" data-cid="'+c.id+'" data-status="'+esc(s)+'" ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)" ');
+        h += rowHtml;
       });
       h += '</table>';
     }
@@ -20701,6 +20703,28 @@ function renderKanbanV() {
       _kanbanDragCid = this.dataset.cid;
       _kanbanDragStatus = (cData.find(function(x){return x.id===_kanbanDragCid;})||{}).status;
       e.dataTransfer.effectAllowed='move';
+      this.style.opacity='0.5';
+    });
+    card.addEventListener('dragend', function(){
+      this.style.opacity='';
+      _kanbanDragCid=null; _kanbanDragStatus=null;
+      el.querySelectorAll('.kanban-v-group').forEach(function(g){ g.style.outline=''; g.style.background=''; });
+    });
+  });
+  // ステータスグループへのドロップ
+  el.querySelectorAll('.kanban-v-group').forEach(function(grp){
+    grp.addEventListener('dragover', function(e){
+      e.preventDefault();
+      if(_kanbanDragStatus !== this.dataset.status){ this.style.outline='2px dashed #2563eb'; this.style.background='#eff6ff'; }
+    });
+    grp.addEventListener('dragleave', function(e){
+      if(!this.contains(e.relatedTarget)){ this.style.outline=''; this.style.background=''; }
+    });
+    grp.addEventListener('drop', function(e){
+      e.preventDefault(); this.style.outline=''; this.style.background='';
+      var newStatus=this.dataset.status;
+      if(!_kanbanDragCid || newStatus===_kanbanDragStatus) return;
+      kanbanUpdateStatus(_kanbanDragCid, newStatus);
     });
   });
 }
