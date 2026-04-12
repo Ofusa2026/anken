@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260412.05</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260412.09</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2373,7 +2373,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260412.05';
+var OFUSA_VERSION = 'ver.20260412.09';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -10599,7 +10599,7 @@ function setDocTaskStatus(caseId, taskIdx, status) {
       ]).then(function(results){
         var errs = results.filter(function(r){return r.error;});
         if(errs.length) { console.error('DB save err:', errs); showToast('⚠️ 保存に失敗しました'); }
-        else { showToast('✅ 保存しました'); }
+        else { showToast('✅ 保存しました'); logCaseAction(caseId, 'info_save', 'タスク更新'); }
       }).catch(function(e){ console.error('DB save err:', e); showToast('⚠️ 保存に失敗しました'); });
     }
   }
@@ -15849,6 +15849,9 @@ function saveEmpSet(coId, idx) {
   // 該当1社だけDBに保存（全件送らない）
   persistCompaniesToDB([co]);
   showToast('✅ 雇用条件セットを保存しました');
+  // 紐づく案件に記録
+  var _empCases = cData.filter(function(c){ return c.company === (co.name||'') || c.companyId === coId; });
+  _empCases.forEach(function(c){ logCaseAction(c.id, 'info_save', '雇用条件セット保存'); });
 }
 
 // 雇用条件 AI整合性チェック（チャット対応）
@@ -19489,7 +19492,10 @@ function saveProgressMemo(caseId) {
   if (DB_READY) {
     _sb.from('case_notes').upsert({case_id: caseId, note: caseNotes[caseId]}, {onConflict:'case_id'}).then(function(r){
       if (r.error) console.error('❌ [OFUSA] progressMemo DB err:', r.error.message);
-      else console.info('✅ [OFUSA] progressMemo saved to DB:', caseId, ta.value.length + '文字');
+      else {
+        console.info('✅ [OFUSA] progressMemo saved to DB:', caseId, ta.value.length + '文字');
+        logCaseAction(caseId, 'info_save', '進捗状況');
+      }
     });
   }
 }
@@ -19502,6 +19508,7 @@ function _persistOneNote(caseId) {
   setTimeout(function(){ _skipCaseNotesRealtime = false; }, 3000);
   _sb.from('case_notes').upsert({case_id: caseId, note: caseNotes[caseId]}, {onConflict:'case_id'}).then(function(r){
     if (r.error) console.error('❌ [OFUSA] caseNote DB err:', r.error.message);
+    else logCaseAction(caseId, 'info_save', '案件メモ更新');
   });
 }
 var _saveCaseNoteTimer = {};
@@ -22394,7 +22401,7 @@ function saveOtherAgencies(cid, data) {
   if(!DB_READY) return;
   _sb.from('cases').update({other_agencies: data}).eq('id', cid).then(function(r){
     if(r&&r.error) console.error('other_agencies保存失敗:', r.error);
-    else console.log('✅ other_agencies保存:', cid);
+    else { console.log('✅ other_agencies保存:', cid); logCaseAction(cid, 'info_save', '他機関申請更新'); }
   });
 }
 // ===== /他機関申請 =====
@@ -24283,6 +24290,7 @@ function toggleDocCheck2(caseId, fullKey) {
   var val = docCheck[caseId][fullKey];
   showToast((val ? '✅' : '⬜') + ' ' + fullKey.replace('ai::','🤖 ').replace('staff::','👤 '));
   persistDocCheck();
+  logCaseAction(caseId, 'info_save', '書類チェック ' + fullKey.replace(/^[^:]+::/,''));
   if (currentCase) renderDocsTab(currentCase);
 }
 
@@ -29243,7 +29251,10 @@ function applyLinkItem(caseId){
         if(item.date) _patch.receipt_date=item.date.slice(0,10);
         _sb.from('cases').update(_patch).eq('id',caseId).then(function(r){
           if(r&&r.error) console.error('❌ cases receiptNo patch err:',r.error);
-          else console.log('✅ cases receiptNo/receiptDate patched → caseId:',caseId,'receiptNo:',item.caseNo);
+          else {
+            console.log('✅ cases receiptNo/receiptDate patched → caseId:',caseId,'receiptNo:',item.caseNo);
+            logCaseAction(caseId, 'info_save', '受付番号自動転記 ' + item.caseNo);
+          }
         });
       }
     }
@@ -37532,7 +37543,7 @@ function lpSearchCases(q){var el=document.getElementById('lpCaseResults');if(!q)
 function lpLinkCase(cid){if(lpLinkedIds.indexOf(cid)<0)lpLinkedIds.push(cid);document.getElementById('lpCaseSearch').value='';document.getElementById('lpCaseResults').style.display='none';renderLpLinkedChips();}
 function lpUnlinkCase(cid){lpLinkedIds=lpLinkedIds.filter(function(id){return id!==cid;});renderLpLinkedChips();}
 function renderLpLinkedChips(){var el=document.getElementById('lpLinkedCases');if(!el)return;if(!lpLinkedIds.length){el.innerHTML='<span style="font-size:12px;color:var(--gray-400);">紐付き案件なし</span>';return;}el.innerHTML=lpLinkedIds.map(function(cid){var c=cData.find(function(x){return x.id===cid;});return'<span style="display:inline-flex;align-items:center;gap:4px;background:#eff6ff;color:#1e40af;font-size:12px;padding:4px 10px;border-radius:99px;font-weight:600;">'+(c?getDisplayName(c):cid)+'<span onclick="lpUnlinkCase(\''+cid+'\')" style="cursor:pointer;color:#94a3b8;font-size:14px;margin-left:2px;">x</span></span>';}).join('');}
-async function saveLpRecord(){var sendNo=document.getElementById('lp_send_no').value.trim(),recvNo=document.getElementById('lp_recv_no').value.trim(),sendDate=document.getElementById('lp_send_date').value,recvDate=document.getElementById('lp_recv_date').value,memo=document.getElementById('lp_memo').value.trim();if(!sendNo&&!recvNo){showToast('番号を入力してください');return;}var rec={id:lpEditingId||null,sendNo:sendNo,recvNo:recvNo,sendDate:sendDate,recvDate:recvDate,memo:memo,caseIds:lpLinkedIds.slice()};showToast('保存中...');var savedId=await lpSaveRecord(rec);if(!savedId)return;rec.id=savedId;var idx=lpRecords.findIndex(function(r){return r.id===savedId;});if(idx>=0)lpRecords[idx]=rec;else lpRecords.unshift(rec);if(lpLinkedIds.length){await _sb.from('cases').update({letterpack_id:savedId}).in('id',lpLinkedIds);lpLinkedIds.forEach(function(cid){var c=cData.find(function(x){return x.id===cid;});if(c)c.letterpackId=savedId;});}closeLpModal();renderLetterpackList();showToast('保存しました');}
+async function saveLpRecord(){var sendNo=document.getElementById('lp_send_no').value.trim(),recvNo=document.getElementById('lp_recv_no').value.trim(),sendDate=document.getElementById('lp_send_date').value,recvDate=document.getElementById('lp_recv_date').value,memo=document.getElementById('lp_memo').value.trim();if(!sendNo&&!recvNo){showToast('番号を入力してください');return;}var rec={id:lpEditingId||null,sendNo:sendNo,recvNo:recvNo,sendDate:sendDate,recvDate:recvDate,memo:memo,caseIds:lpLinkedIds.slice()};showToast('保存中...');var savedId=await lpSaveRecord(rec);if(!savedId)return;rec.id=savedId;var idx=lpRecords.findIndex(function(r){return r.id===savedId;});if(idx>=0)lpRecords[idx]=rec;else lpRecords.unshift(rec);if(lpLinkedIds.length){await _sb.from('cases').update({letterpack_id:savedId}).in('id',lpLinkedIds);lpLinkedIds.forEach(function(cid){var c=cData.find(function(x){return x.id===cid;});if(c){c.letterpackId=savedId;logCaseAction(cid,'info_save','郵送交付登録');}});}closeLpModal();renderLetterpackList();showToast('保存しました');}
 // ===== /郵送交付管理 =====
 
 // ===== 要追完/指摘メール =====
@@ -39229,7 +39240,7 @@ async function loadSignRequestsArea(caseId) {
 // =============================================
 // ✍️ 署名座標確認モーダル
 // =============================================
-function showSigCoordModal(lang, folderId, caseId) {
+function showSigCoordModalNew(lang, folderId, caseId) {
   // デフォルト座標（sign.htmlのSIG_COORDS_DEFAULTと同じ値）
   var SIG_DEFAULTS = {
     'インドネシア語':{page:4,x:60,y:120,w:473,h:60},
@@ -39578,7 +39589,7 @@ async function createSignRequest(caseId, docType) {
   if (!_langForSign) return; // キャンセル
 
   // 署名座標確認モーダル
-  var _sigCoord = await showSigCoordModal(_langForSign, _folderIdForSign, caseId);
+  var _sigCoord = await showSigCoordModalNew(_langForSign, _folderIdForSign, caseId);
   if (!_sigCoord) return; // キャンセル
 
   logCaseAction(caseId, 'sign_request', '電子署名依頼 ' + (docType||''));
