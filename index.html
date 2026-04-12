@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260413.02</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260413.03</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2373,7 +2373,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260413.02';
+var OFUSA_VERSION = 'ver.20260413.03';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -39368,7 +39368,13 @@ function showSigCoordModalNew(lang, folderId, caseId) {
     var previewBtn = document.createElement('button');
     previewBtn.textContent = '🔄 プレビュー更新';
     previewBtn.style.cssText = 'padding:7px 14px;border:1.5px solid #e2e8f0;background:white;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;margin-bottom:12px;margin-right:8px;';
-    previewBtn.addEventListener('click', function() { drawSigOverlay(pdfCanvas, overlay, inputs); });
+    previewBtn.addEventListener('click', function() {
+      if (window._currentSigPdfBytes) {
+        renderSigPreview(window._currentSigPdfBytes, parseInt(inputs.page.value)||1, pdfCanvas, overlay, pdfMsg, inputs, def);
+      } else {
+        drawSigOverlay(pdfCanvas, overlay, inputs);
+      }
+    });
     inner.appendChild(previewBtn);
 
     // ヒントテキスト
@@ -39428,10 +39434,11 @@ function showSigCoordModalNew(lang, folderId, caseId) {
         pdfWrap.style.display = 'block';
         uploadArea.innerHTML = '<div style="font-size:12px;color:#16a34a;font-weight:700;">✅ ' + file.name + ' 読み込み済み</div>';
         uploadArea.style.cursor = 'default';
+        window._currentSigPdfBytes = bytes; // プレビュー更新用にグローバル保持
         var pageNum = parseInt(inputs.page.value)||def.page;
         renderSigPreview(bytes, pageNum, pdfCanvas, overlay, pdfMsg, inputs, def);
         inputs.page.addEventListener('change', function() {
-          renderSigPreview(bytes, parseInt(inputs.page.value)||1, pdfCanvas, overlay, pdfMsg, inputs, def);
+          renderSigPreview(window._currentSigPdfBytes, parseInt(inputs.page.value)||1, pdfCanvas, overlay, pdfMsg, inputs, def);
         });
       };
       reader.readAsArrayBuffer(file);
@@ -39440,8 +39447,10 @@ function showSigCoordModalNew(lang, folderId, caseId) {
 }
 
 function renderSigPreview(pdfBytes, pageNum, pdfCanvas, overlay, pdfMsg, inputs, def) {
-  if (!window.pdfjsLib) { pdfMsg.textContent = 'pdf.jsが利用できません'; return; }
+  if (!window.pdfjsLib) { pdfMsg.textContent = 'pdf.jsが利用できません'; pdfMsg.style.display='block'; return; }
   pdfMsg.style.display = 'none';
+  // pdfWrapを確実に表示（非表示だとCanvas描画が機能しない）
+  if (pdfCanvas.parentElement) pdfCanvas.parentElement.style.display = 'block';
   pdfCanvas.style.display = 'block';
   overlay.style.display = 'block';
 
