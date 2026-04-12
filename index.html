@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260413.07</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260413.09</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2373,7 +2373,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260413.07';
+var OFUSA_VERSION = 'ver.20260413.09';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -39365,7 +39365,7 @@ function showSigCoordModalNew(lang, folderId, caseId) {
       + '</div>'
       // 座標入力
       + '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:10px;">'
-      + '<div><div style="font-size:10px;color:#6b7280;margin-bottom:2px;">\u30da\u30fc\u30b8</div><input id="_sigPage" type="number" min="1" value="' + def.page + '" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:12px;box-sizing:border-box;"></div>'
+      + '<div><div style="font-size:10px;color:#6b7280;margin-bottom:2px;">\u30da\u30fc\u30b8</div><input id="_sigPage" type="number" min="1" value="' + def.page + '" onchange="sigModalRender()" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:12px;box-sizing:border-box;"></div>'
       + '<div><div style="font-size:10px;color:#6b7280;margin-bottom:2px;">X\uff08\u5de6\u7aef\uff09</div><input id="_sigX" type="number" min="0" value="' + def.x + '" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:12px;box-sizing:border-box;"></div>'
       + '<div><div style="font-size:10px;color:#6b7280;margin-bottom:2px;">Y\uff08\u4e0b\u7aef\uff09</div><input id="_sigY" type="number" min="0" value="' + def.y + '" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:12px;box-sizing:border-box;"></div>'
       + '<div><div style="font-size:10px;color:#6b7280;margin-bottom:2px;">\u5e45</div><input id="_sigW" type="number" min="10" value="' + def.w + '" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px;font-size:12px;box-sizing:border-box;"></div>'
@@ -39419,40 +39419,55 @@ function sigModalLoadFile(file) {
   reader.readAsArrayBuffer(file);
 }
 
+function sigModalLoadFile(file) {
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var bytes = new Uint8Array(e.target.result);
+    window._sigModalState.pdfBytes = bytes;
+    var bin = ''; bytes.forEach(function(b){ bin += String.fromCharCode(b); });
+    window._sigModalState.pdfBase64 = btoa(bin);
+    var ua = document.getElementById('_sigUploadArea');
+    if (ua) ua.innerHTML = '<div style="font-size:12px;color:#16a34a;font-weight:700;">✅ ' + file.name + ' 読み込み済み</div>';
+    var wrap = document.getElementById('_sigPdfWrap');
+    if (wrap) wrap.style.display = 'block';
+    sigModalRender();
+  };
+  reader.readAsArrayBuffer(file);
+}
+
 function sigModalRender() {
   var st = window._sigModalState;
   if (!st || !st.pdfBytes) return;
-  var pdfCanvas = document.getElementById('_sigPdfCanvas');
-  var overlay = document.getElementById('_sigOverlayCanvas');
   var page = parseInt(document.getElementById('_sigPage').value) || 1;
-  if (!pdfCanvas || !overlay) return;
+  var wrap = document.getElementById('_sigPdfWrap');
+  if (wrap) wrap.style.display = 'block';
 
   pdfjsLib.getDocument({data: st.pdfBytes.slice()}).promise.then(function(doc) {
+    st._pdfDoc = doc;
     var p = Math.min(page, doc.numPages);
-    console.log('[sigModal] doc pages:', doc.numPages, 'rendering page:', p);
     doc.getPage(p).then(function(pg) {
-      var vp = pg.getViewport({scale: 1.5});
+      var scale = 1.0; // 小さく表示
+      var vp = pg.getViewport({scale: scale});
+      var pdfCanvas = document.getElementById('_sigPdfCanvas');
+      var overlay = document.getElementById('_sigOverlayCanvas');
+      if (!pdfCanvas || !overlay) return;
       pdfCanvas.width = vp.width;
       pdfCanvas.height = vp.height;
       overlay.width = vp.width;
       overlay.height = vp.height;
-      console.log('[sigModal] canvas size:', vp.width, vp.height);
       pg.render({canvasContext: pdfCanvas.getContext('2d'), viewport: vp}).promise.then(function() {
-        console.log('[sigModal] render done, drawing overlay');
         sigModalDrawOverlay();
-        sigModalSetupDrag();
       });
     });
-  }).catch(function(e) { console.error('[sigModal] PDF render error:', e); });
+  }).catch(function(e) { console.error('[sigModal] render error:', e); });
 }
 
 function sigModalDrawOverlay() {
   var pdfCanvas = document.getElementById('_sigPdfCanvas');
   var overlay = document.getElementById('_sigOverlayCanvas');
-  if (!pdfCanvas || !overlay) return;
-  // widthがなければoverlay自身のサイズを使う
-  if (!overlay.width && pdfCanvas.width) { overlay.width = pdfCanvas.width; overlay.height = pdfCanvas.height; }
-  if (!overlay.width) return;
+  if (!pdfCanvas || !overlay || !pdfCanvas.width) return;
+  overlay.width = pdfCanvas.width;
+  overlay.height = pdfCanvas.height;
   var ctx = overlay.getContext('2d');
   ctx.clearRect(0, 0, overlay.width, overlay.height);
   var scaleX = pdfCanvas.width / 595;
@@ -39465,15 +39480,16 @@ function sigModalDrawOverlay() {
   var cy = (842 - y - h) * scaleY;
   var cw = w * scaleX;
   var ch = h * scaleY;
-  ctx.strokeStyle = 'rgba(255,0,0,0.9)';
+  ctx.strokeStyle = 'rgba(220,38,38,0.9)';
   ctx.lineWidth = 2;
   ctx.setLineDash([5,3]);
   ctx.strokeRect(cx, cy, cw, ch);
-  ctx.fillStyle = 'rgba(255,0,0,0.1)';
+  ctx.fillStyle = 'rgba(220,38,38,0.08)';
   ctx.fillRect(cx, cy, cw, ch);
-  ctx.fillStyle = 'rgba(255,0,0,0.9)';
-  ctx.font = '11px sans-serif';
-  ctx.fillText('\u7f72\u540d\u30a8\u30ea\u30a2', cx+4, cy+14);
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(220,38,38,0.9)';
+  ctx.font = 'bold 10px sans-serif';
+  ctx.fillText('署名エリア', cx+4, cy+13);
 }
 
 function sigModalPreview() {
@@ -39481,43 +39497,111 @@ function sigModalPreview() {
 }
 
 function sigModalSetupDrag() {
-  var overlay = document.getElementById('_sigOverlayCanvas');
-  var pdfCanvas = document.getElementById('_sigPdfCanvas');
-  if (!overlay || !pdfCanvas) return;
-  if (overlay._dragSetup) return; // 重複防止
-  overlay._dragSetup = true;
+  if (window._sigDragSetup) return;
+  window._sigDragSetup = true;
 
-  var dragging = false, sx, sy;
-  function getPos(e) {
+  var dragging = false, dragMode = null; // 'move' or 'resize'
+  var sx, sy, origX, origY, origW, origH;
+
+  function getPt(e) {
+    var overlay = document.getElementById('_sigOverlayCanvas');
+    var pdfCanvas = document.getElementById('_sigPdfCanvas');
+    if (!overlay || !pdfCanvas) return null;
     var rect = overlay.getBoundingClientRect();
-    var cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
-    var cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
-    return {x: cx * (overlay.width / rect.width), y: cy * (overlay.height / rect.height)};
+    var cx = ((e.touches ? e.touches[0].clientX : e.clientX) - rect.left) * (overlay.width / rect.width);
+    var cy = ((e.touches ? e.touches[0].clientY : e.clientY) - rect.top) * (overlay.height / rect.height);
+    var scaleX = pdfCanvas.width / 595;
+    var scaleY = pdfCanvas.height / 842;
+    return {
+      canvasX: cx, canvasY: cy,
+      pdfX: cx / scaleX,
+      pdfY: 842 - cy / scaleY
+    };
   }
-  overlay.addEventListener('mousedown', function(e) { dragging=true; var p=getPos(e); sx=p.x; sy=p.y; });
-  overlay.addEventListener('mousemove', function(e) {
+
+  function isOnOverlay(e) {
+    var overlay = document.getElementById('_sigOverlayCanvas');
+    return overlay && e.target === overlay;
+  }
+
+  function isNearHandle(pt) {
+    // 右下コーナー付近ならリサイズ
+    var x = parseFloat(document.getElementById('_sigX').value)||0;
+    var y = parseFloat(document.getElementById('_sigY').value)||0;
+    var w = parseFloat(document.getElementById('_sigW').value)||100;
+    var h = parseFloat(document.getElementById('_sigH').value)||40;
+    var pdfCanvas = document.getElementById('_sigPdfCanvas');
+    if (!pdfCanvas) return false;
+    var scaleX = pdfCanvas.width / 595;
+    var scaleY = pdfCanvas.height / 842;
+    var handleX = (x + w) * scaleX;
+    var handleY = (842 - y) * scaleY;
+    return Math.abs(pt.canvasX - handleX) < 16 && Math.abs(pt.canvasY - handleY) < 16;
+  }
+
+  document.addEventListener('mousedown', function(e) {
+    if (!isOnOverlay(e)) return;
+    e.preventDefault();
+    var pt = getPt(e);
+    if (!pt) return;
+    dragging = true;
+    sx = pt.canvasX; sy = pt.canvasY;
+    origX = parseFloat(document.getElementById('_sigX').value)||0;
+    origY = parseFloat(document.getElementById('_sigY').value)||0;
+    origW = parseFloat(document.getElementById('_sigW').value)||100;
+    origH = parseFloat(document.getElementById('_sigH').value)||40;
+    dragMode = isNearHandle(pt) ? 'resize' : 'draw';
+  });
+
+  document.addEventListener('mousemove', function(e) {
     if (!dragging) return;
-    var p = getPos(e);
-    var ov = document.getElementById('_sigOverlayCanvas');
-    var pc = document.getElementById('_sigPdfCanvas');
-    if (!ov || !pc) return;
-    var scaleX = (pc.width||892) / 595;
-    var scaleY = (pc.height||1263) / 842;
-    var cx = Math.min(sx,p.x), cy = Math.min(sy,p.y);
-    var cw = Math.abs(p.x-sx), ch = Math.abs(p.y-sy);
-    document.getElementById('_sigX').value = Math.round(cx/scaleX);
-    document.getElementById('_sigY').value = Math.round(842 - (cy/scaleY) - (ch/scaleY));
-    document.getElementById('_sigW').value = Math.round(cw/scaleX);
-    document.getElementById('_sigH').value = Math.round(ch/scaleY);
+    var pt = getPt(e);
+    if (!pt) return;
+    var pdfCanvas = document.getElementById('_sigPdfCanvas');
+    if (!pdfCanvas) return;
+    var scaleX = pdfCanvas.width / 595;
+    var scaleY = pdfCanvas.height / 842;
+    var dx = (pt.canvasX - sx) / scaleX;
+    var dy = -(pt.canvasY - sy) / scaleY;
+
+    if (dragMode === 'draw') {
+      // 新しくエリアを描く
+      var nx = Math.min(sx, pt.canvasX) / scaleX;
+      var ny = 842 - Math.max(sy, pt.canvasY) / scaleY;
+      var nw = Math.abs(pt.canvasX - sx) / scaleX;
+      var nh = Math.abs(pt.canvasY - sy) / scaleY;
+      document.getElementById('_sigX').value = Math.round(nx);
+      document.getElementById('_sigY').value = Math.round(ny);
+      document.getElementById('_sigW').value = Math.round(nw);
+      document.getElementById('_sigH').value = Math.round(nh);
+    } else if (dragMode === 'resize') {
+      // 右下ハンドルでリサイズ
+      document.getElementById('_sigW').value = Math.max(20, Math.round(origW + dx));
+      document.getElementById('_sigH').value = Math.max(10, Math.round(origH - dy));
+    }
     sigModalDrawOverlay();
   });
-  overlay.addEventListener('mouseup', function() { dragging=false; });
-  overlay.addEventListener('mouseleave', function() { dragging=false; });
+
+  document.addEventListener('mouseup', function() { dragging = false; dragMode = null; });
+
+  // カーソル変更
+  document.addEventListener('mousemove', function(e) {
+    var overlay = document.getElementById('_sigOverlayCanvas');
+    if (!overlay || e.target !== overlay) return;
+    var pt = getPt(e);
+    if (pt && isNearHandle(pt)) {
+      overlay.style.cursor = 'se-resize';
+    } else {
+      overlay.style.cursor = 'crosshair';
+    }
+  });
 }
+
 
 function sigModalOk() {
   var st = window._sigModalState;
   if (!st || !st.resolve) return;
+  window._sigDragSetup = false; // ドラッグフラグリセット
   var result = {
     page: parseInt(document.getElementById('_sigPage').value) || st.def.page,
     x: parseFloat(document.getElementById('_sigX').value) || st.def.x,
@@ -39536,6 +39620,7 @@ function sigModalSkip() {
   if (!st || !st.resolve) return;
   var modal = document.getElementById('_sigCoordModal');
   if (modal) modal.remove();
+  window._sigDragSetup = false; // ドラッグフラグリセット
   st.resolve(Object.assign({}, st.def, {pdf_base64: st.pdfBase64 || null}));
 }
 
@@ -39544,6 +39629,7 @@ function sigModalCancel() {
   if (!st || !st.resolve) return;
   var modal = document.getElementById('_sigCoordModal');
   if (modal) modal.remove();
+  window._sigDragSetup = false; // ドラッグフラグリセット
   st.resolve(null);
 }
 
