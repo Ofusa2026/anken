@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260412.09</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260412.12</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2373,7 +2373,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260412.09';
+var OFUSA_VERSION = 'ver.20260412.12';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -19254,6 +19254,15 @@ function logCaseAction(caseId, actionType, actionLabel) {
     created_at: new Date().toISOString()
   };
   caseActions[caseId] = _actRow; // ローカルキャッシュ即時更新
+  // 一覧の該当行を即時再描画
+  var _actTr = document.querySelector('tr[data-case-id="'+caseId+'"]');
+  if (_actTr) {
+    var _actC = cData.find(function(x){return x.id===caseId;});
+    if (_actC) {
+      var _today = new Date(); _today.setHours(0,0,0,0);
+      _actTr.outerHTML = buildCaseRow(_actC, _today, false);
+    }
+  }
   _sb.from('case_actions').insert(_actRow).then(function(r) {
     if (r && r.error) console.error('logCaseAction error:', r.error);
   });
@@ -19884,7 +19893,7 @@ function buildCaseRow(c, today, inGroup) {
   var priOpts = '<option value="">—</option>';
   for(var pi=1;pi<=priMax;pi++){ priOpts += '<option value="'+pi+'"'+(priVal==pi?' selected':'')+'>'+(pi<=3?['🥇','🥈','🥉'][pi-1]+' ':'')+pi+'位</option>'; }
 
-  var h = '<tr onclick="openCase(\'' + c.id + '\')" style="' + rowStyle + '">';
+  var h = '<tr onclick="openCase(\'' + c.id + '\')" data-case-id="' + c.id + '" style="' + rowStyle + '">';
   h += '<td onclick="event.stopPropagation()" style="text-align:center;'+cs+'padding:4px 2px;">'
     + '<span id="pri_badge_'+c.id+'" style="display:'+priBadgeShow+';align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:'+priBadgeBg+';color:'+priBadgeCol+';font-size:9px;font-weight:800;margin:0 auto 2px;">'+( priVal||'—')+'</span>'
     + '<select id="pri_sel_'+c.id+'" onclick="event.stopPropagation()" onchange="setCasePriority(\'' + c.id + '\',this.value)" style="font-size:9px;padding:1px 2px;border:1px solid #e5e7eb;border-radius:4px;background:white;width:28px;cursor:pointer;">'
@@ -39271,15 +39280,30 @@ function showSigCoordModalNew(lang, folderId, caseId) {
 
     var sub = document.createElement('div');
     sub.style.cssText = 'font-size:12px;color:#6b7280;margin-bottom:12px;';
-    sub.textContent = 'PDFをプレビューして署名欄をドラッグで指定してください。スキップすると標準位置で送信します。';
+    sub.textContent = 'PDFをアップロードして署名欄をドラッグで指定してください。スキップすると標準位置で送信します。';
     inner.appendChild(sub);
+
+    // ファイルアップロードエリア
+    var uploadArea = document.createElement('div');
+    uploadArea.style.cssText = 'border:2px dashed #c0cfe0;border-radius:10px;padding:16px 12px;text-align:center;cursor:pointer;background:#f8fafc;margin-bottom:10px;transition:.2s;';
+    uploadArea.innerHTML = '<div style="font-size:20px;margin-bottom:4px;">📄</div><div style="font-size:13px;font-weight:700;color:#374151;">PDFをドロップ または クリックして選択</div><div style="font-size:11px;color:#9ca3af;margin-top:2px;">署名欄を含むPDFをアップロードしてください</div>';
+    var fileInput = document.createElement('input');
+    fileInput.type = 'file'; fileInput.accept = 'application/pdf';
+    fileInput.style.cssText = 'display:none;';
+    uploadArea.appendChild(fileInput);
+    uploadArea.addEventListener('click', function(){ fileInput.click(); });
+    uploadArea.addEventListener('dragover', function(e){ e.preventDefault(); uploadArea.style.borderColor='#6366f1'; uploadArea.style.background='#ede9fe'; });
+    uploadArea.addEventListener('dragleave', function(){ uploadArea.style.borderColor='#c0cfe0'; uploadArea.style.background='#f8fafc'; });
+    uploadArea.addEventListener('drop', function(e){ e.preventDefault(); uploadArea.style.borderColor='#c0cfe0'; uploadArea.style.background='#f8fafc'; var f=e.dataTransfer.files[0]; if(f&&f.type==='application/pdf') loadPdfFile(f); });
+    fileInput.addEventListener('change', function(){ if(fileInput.files[0]) loadPdfFile(fileInput.files[0]); });
+    inner.appendChild(uploadArea);
 
     // PDF表示エリア
     var pdfWrap = document.createElement('div');
-    pdfWrap.style.cssText = 'position:relative;width:100%;background:#f3f4f6;border-radius:8px;overflow:hidden;margin-bottom:12px;min-height:200px;';
+    pdfWrap.style.cssText = 'position:relative;width:100%;background:#f3f4f6;border-radius:8px;overflow:hidden;margin-bottom:12px;min-height:80px;display:none;';
     var pdfMsg = document.createElement('div');
-    pdfMsg.style.cssText = 'text-align:center;padding:40px;font-size:13px;color:#9ca3af;';
-    pdfMsg.textContent = '📄 PDFを読み込み中...';
+    pdfMsg.style.cssText = 'text-align:center;padding:20px;font-size:13px;color:#9ca3af;';
+    pdfMsg.textContent = '';
     pdfWrap.appendChild(pdfMsg);
 
     var pdfCanvas = document.createElement('canvas');
@@ -39341,7 +39365,7 @@ function showSigCoordModalNew(lang, folderId, caseId) {
     var skipBtn = document.createElement('button');
     skipBtn.textContent = 'スキップ（標準位置）';
     skipBtn.style.cssText = 'flex:1;padding:10px;border:1.5px solid #e2e8f0;background:white;border-radius:8px;font-size:13px;cursor:pointer;color:#6b7280;';
-    skipBtn.addEventListener('click', function() { modal.remove(); resolve(def); });
+    skipBtn.addEventListener('click', function() { modal.remove(); resolve(Object.assign({}, def, {pdf_base64: _uploadedPdfBase64})); });
 
     var okBtn = document.createElement('button');
     okBtn.textContent = '✅ この位置で送信';
@@ -39353,7 +39377,8 @@ function showSigCoordModalNew(lang, folderId, caseId) {
         x: parseFloat(inputs.x.value)||def.x,
         y: parseFloat(inputs.y.value)||def.y,
         w: parseFloat(inputs.w.value)||def.w,
-        h: parseFloat(inputs.h.value)||def.h
+        h: parseFloat(inputs.h.value)||def.h,
+        pdf_base64: _uploadedPdfBase64
       });
     });
 
@@ -39370,29 +39395,27 @@ function showSigCoordModalNew(lang, folderId, caseId) {
     modal.appendChild(inner);
     document.body.appendChild(modal);
 
-    // PDF読み込み（GAS経由）
-    if (folderId && typeof GAS_URL !== 'undefined' && GAS_URL) {
-      var gasUrl = GAS_URL + '?action=getEmploymentPdf&folderId=' + encodeURIComponent(folderId) + '&caseId=' + encodeURIComponent(caseId||'');
-      fetch(gasUrl).then(function(r){ return r.json(); }).then(function(json) {
-        if (json.status==='ok' && json.base64) {
-          var raw = atob(json.base64);
-          var bytes = new Uint8Array(raw.length);
-          for (var i=0;i<raw.length;i++) bytes[i]=raw.charCodeAt(i);
-          var pageNum = parseInt(inputs.page.value)||def.page;
-          renderSigPreview(bytes, pageNum, pdfCanvas, overlay, pdfMsg, inputs, def);
-
-          // ページ変更時に再レンダリング
-          inputs.page.addEventListener('change', function() {
-            renderSigPreview(bytes, parseInt(inputs.page.value)||1, pdfCanvas, overlay, pdfMsg, inputs, def);
-          });
-        } else {
-          pdfMsg.textContent = '⚠️ PDFを取得できませんでした（座標を手動入力してください）';
-        }
-      }).catch(function() {
-        pdfMsg.textContent = '⚠️ PDF取得エラー（座標を手動入力してください）';
-      });
-    } else {
-      pdfMsg.textContent = 'GAS未設定 — 座標を手動で入力してください';
+    // ファイル読み込み関数
+    var _uploadedPdfBase64 = null; // アップロードされたPDFのbase64
+    function loadPdfFile(file) {
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        var arrayBuf = e.target.result;
+        var bytes = new Uint8Array(arrayBuf);
+        // base64に変換して保持
+        var binary = '';
+        bytes.forEach(function(b){ binary += String.fromCharCode(b); });
+        _uploadedPdfBase64 = btoa(binary);
+        pdfWrap.style.display = 'block';
+        uploadArea.innerHTML = '<div style="font-size:12px;color:#16a34a;font-weight:700;">✅ ' + file.name + ' 読み込み済み</div>';
+        uploadArea.style.cursor = 'default';
+        var pageNum = parseInt(inputs.page.value)||def.page;
+        renderSigPreview(bytes, pageNum, pdfCanvas, overlay, pdfMsg, inputs, def);
+        inputs.page.addEventListener('change', function() {
+          renderSigPreview(bytes, parseInt(inputs.page.value)||1, pdfCanvas, overlay, pdfMsg, inputs, def);
+        });
+      };
+      reader.readAsArrayBuffer(file);
     }
   });
 }
@@ -39606,7 +39629,9 @@ async function createSignRequest(caseId, docType) {
     sig_x: _sigCoord.x,
     sig_y: _sigCoord.y,
     sig_w: _sigCoord.w,
-    sig_h: _sigCoord.h
+    sig_h: _sigCoord.h,
+    pdf_base64: _sigCoord.pdf_base64 || null,
+    drive_pending: false
   }).select().single();
 
   if (ins.error) { showToast('署名依頼の作成に失敗: ' + ins.error.message, 'error'); return; }
