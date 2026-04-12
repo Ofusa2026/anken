@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260412.12</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260412.13</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2373,7 +2373,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260412.12';
+var OFUSA_VERSION = 'ver.20260412.13';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -19212,6 +19212,7 @@ function _updateImmBadge(caseId) {
 
 // ===== case_actions ログ =====
 var caseActions = {}; // caseId → {action_type, action_label, user_name, created_at}
+var _uploadNotifiedCaseIds = {}; // upload_received重複防止
 
 function loadCaseActions() {
   if (!DB_READY) return;
@@ -19223,8 +19224,13 @@ function loadCaseActions() {
       if (res.error) { console.error('loadCaseActions error:', res.error); return; }
       caseActions = {};
       (res.data || []).forEach(function(row) {
-        // 案件ごとに最新1件だけ保持
-        if (!caseActions[row.case_id]) caseActions[row.case_id] = row;
+        // 案件ごとに最新1件だけ保持（upload_receivedより他のアクションを優先）
+        var existing = caseActions[row.case_id];
+        if (!existing) {
+          caseActions[row.case_id] = row;
+        } else if (existing.action_type === 'upload_received' && row.action_type !== 'upload_received') {
+          caseActions[row.case_id] = row;
+        }
       });
       console.log('📥 case_actions loaded:', Object.keys(caseActions).length, '件');
       applyFilters(false);
@@ -36584,9 +36590,10 @@ function loadUploadNotifyBadge() {
     .then(function(res) {
       if (!res.error && res.data) {
         updateUploadNotifyBadge(res.data);
-        // 新規通知をcase_actionsに記録
+        // 新規通知（初回ロード済みでないもの）のみcase_actionsに記録
         res.data.forEach(function(row) {
-          if (row.case_id && !row._logged) {
+          if (row.case_id && !_uploadNotifiedCaseIds[row.id]) {
+            _uploadNotifiedCaseIds[row.id] = true;
             logCaseAction(row.case_id, 'upload_received', '書類アップロード受信 ' + (row.file_count||'') + '件');
           }
         });
