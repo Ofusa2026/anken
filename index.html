@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260413.05</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260413.07</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2373,7 +2373,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260413.05';
+var OFUSA_VERSION = 'ver.20260413.07';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -11931,7 +11931,13 @@ function autoSaveInfo(key, value) {
   if (key === 'status' && DB_READY) {
     // ステータスだけ軽量update
     var _prevStatus = c._prevStatus || '';
-    _sb.from('cases').update({status: value, updated_at: new Date().toISOString()}).eq('id', c.id).then(function(r) {
+    // 審査中に変わったら申請期限をクリア
+    var _deadlinePatch = {};
+    if (value === '審査中' && c.applicationDeadline) {
+      c.applicationDeadline = '';
+      _deadlinePatch.application_deadline = null;
+    }
+    _sb.from('cases').update(Object.assign({status: value, updated_at: new Date().toISOString()}, _deadlinePatch)).eq('id', c.id).then(function(r) {
       if (r && r.error) {
         showToast('❌ ステータス保存失敗: ' + r.error.message, 'error');
         console.error('status save err:', r.error);
@@ -39423,24 +39429,30 @@ function sigModalRender() {
 
   pdfjsLib.getDocument({data: st.pdfBytes.slice()}).promise.then(function(doc) {
     var p = Math.min(page, doc.numPages);
+    console.log('[sigModal] doc pages:', doc.numPages, 'rendering page:', p);
     doc.getPage(p).then(function(pg) {
       var vp = pg.getViewport({scale: 1.5});
       pdfCanvas.width = vp.width;
       pdfCanvas.height = vp.height;
       overlay.width = vp.width;
       overlay.height = vp.height;
+      console.log('[sigModal] canvas size:', vp.width, vp.height);
       pg.render({canvasContext: pdfCanvas.getContext('2d'), viewport: vp}).promise.then(function() {
+        console.log('[sigModal] render done, drawing overlay');
         sigModalDrawOverlay();
         sigModalSetupDrag();
       });
     });
-  }).catch(function(e) { console.error('PDF render error:', e); });
+  }).catch(function(e) { console.error('[sigModal] PDF render error:', e); });
 }
 
 function sigModalDrawOverlay() {
   var pdfCanvas = document.getElementById('_sigPdfCanvas');
   var overlay = document.getElementById('_sigOverlayCanvas');
-  if (!pdfCanvas || !overlay || !pdfCanvas.width) return;
+  if (!pdfCanvas || !overlay) return;
+  // widthがなければoverlay自身のサイズを使う
+  if (!overlay.width && pdfCanvas.width) { overlay.width = pdfCanvas.width; overlay.height = pdfCanvas.height; }
+  if (!overlay.width) return;
   var ctx = overlay.getContext('2d');
   ctx.clearRect(0, 0, overlay.width, overlay.height);
   var scaleX = pdfCanvas.width / 595;
@@ -39472,10 +39484,8 @@ function sigModalSetupDrag() {
   var overlay = document.getElementById('_sigOverlayCanvas');
   var pdfCanvas = document.getElementById('_sigPdfCanvas');
   if (!overlay || !pdfCanvas) return;
-  // 既存イベントを除去して再設定
-  var newOverlay = overlay.cloneNode(true);
-  overlay.parentNode.replaceChild(newOverlay, overlay);
-  overlay = newOverlay;
+  if (overlay._dragSetup) return; // 重複防止
+  overlay._dragSetup = true;
 
   var dragging = false, sx, sy;
   function getPos(e) {
@@ -39488,8 +39498,11 @@ function sigModalSetupDrag() {
   overlay.addEventListener('mousemove', function(e) {
     if (!dragging) return;
     var p = getPos(e);
-    var scaleX = (pdfCanvas.width||595*1.5) / 595;
-    var scaleY = (pdfCanvas.height||842*1.5) / 842;
+    var ov = document.getElementById('_sigOverlayCanvas');
+    var pc = document.getElementById('_sigPdfCanvas');
+    if (!ov || !pc) return;
+    var scaleX = (pc.width||892) / 595;
+    var scaleY = (pc.height||1263) / 842;
     var cx = Math.min(sx,p.x), cy = Math.min(sy,p.y);
     var cw = Math.abs(p.x-sx), ch = Math.abs(p.y-sy);
     document.getElementById('_sigX').value = Math.round(cx/scaleX);
