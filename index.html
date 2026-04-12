@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260413.04</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260413.05</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2373,7 +2373,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260413.04';
+var OFUSA_VERSION = 'ver.20260413.05';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -20845,13 +20845,38 @@ function renderKanbanV() {
 
   var _stColor = {'未着手':'#64748b','★ヒアリングフォーム送付':'#7c3aed','ヒアリングフォーム回答待ち(送付済)':'#94a3b8','1-6作成':'#2563eb','★1-6企業送付':'#7c3aed','1-6企業確認待ち(送付済)':'#94a3b8','1-6修正':'#ea580c','★1-6修正送付':'#7c3aed','サイン書類作成':'#2563eb','★サイン書類送付':'#7c3aed','サイン書類返送待ち(送付済)':'#94a3b8','企業書類作成':'#2563eb','★企業押印送付':'#7c3aed','企業押印返送待ち(送付済)':'#94a3b8','スキャン書類作成':'#2563eb','★申請':'#16a34a','申請済(番号待)':'#059669','審査中':'#d97706','特活審査中':'#d97706','★要追完':'#ea580c','要追完 企業不足書類待ち':'#ea580c','要追完 人材不足書類待ち':'#ea580c','許可済 受取方法調整中':'#0369a1','入管受取ステータス変更中':'#0284c7','★郵送交付':'#0369a1','郵送交付中':'#0369a1','郵送交付':'#0369a1','★窓口受取':'#0369a1','窓口受取':'#0369a1','窓口受取（本人）':'#0369a1','完了':'#16a34a','審査完了':'#16a34a'};
 
-  // ステータス別に仕分け
+  // グループマップ構築（一覧と同様）
+  var caseToGroup = {}, groupCaseMap = {}, groupHasVisible = {};
+  caseGroups.forEach(function(g){
+    groupCaseMap[g.id] = [];
+    (g.caseIds||[]).forEach(function(cid){ caseToGroup[cid] = g.id; });
+  });
+  data.forEach(function(c){
+    var gid = caseToGroup[c.id];
+    if(gid) groupHasVisible[gid] = true;
+  });
+  caseGroups.forEach(function(g){
+    if(!groupHasVisible[g.id]) return;
+    (g.caseIds||[]).forEach(function(cid){
+      var c = cData.find(function(x){return x.id===cid;});
+      if(c) groupCaseMap[g.id].push(c);
+    });
+  });
+
+  // ステータス別に仕分け（グループも含む）
   var statusGroups = {};
   STATUS_LIST.forEach(function(s){ statusGroups[s] = []; });
+  var placedGroups = {};
   data.forEach(function(c){
     var st = c.status || '未着手';
     if (!statusGroups[st]) statusGroups[st] = [];
-    statusGroups[st].push(c);
+    var gid = caseToGroup[c.id];
+    if(gid && groupHasVisible[gid]) {
+      // グループはまだ未配置なら代表として追加
+      if(!placedGroups[gid]) { placedGroups[gid]=true; statusGroups[st].push({type:'group',groupId:gid,status:st}); }
+    } else {
+      statusGroups[st].push({type:'case',c:c});
+    }
   });
 
   var h = '<div style="display:flex;flex-direction:column;gap:0;">';
@@ -20864,11 +20889,9 @@ function renderKanbanV() {
     if (!items || !items.length) return;
     found = true;
     var color = _stColor[s] || '#64748b';
-    var rowId = 'kanbanV_row_' + s.replace(/[^a-z0-9]/gi,'_');
     var isOpen = localStorage.getItem('kanbanV_open_'+s) !== '0';
 
     h += '<div class="kanban-v-group" data-status="'+esc(s)+'" style="border-bottom:1px solid #e2e8f0;">';
-    // ヘッダー行（クリックで折り畳み）
     h += '<div onclick="(function(){var o=localStorage.getItem(\'kanbanV_open_'+esc(s)+'\')!==\'0\';localStorage.setItem(\'kanbanV_open_'+esc(s)+'\',o?\'0\':\'1\');renderKanban();})()"';
     h += ' style="display:flex;align-items:center;gap:10px;padding:8px 14px;cursor:pointer;background:'+color+'10;user-select:none;">';
     h += '<div style="width:10px;height:10px;border-radius:50%;background:'+color+';flex-shrink:0;"></div>';
@@ -20877,13 +20900,36 @@ function renderKanbanV() {
     h += '<span style="font-size:11px;color:#94a3b8;">'+(isOpen?'▲':'▼')+'</span>';
     h += '</div>';
 
-    // カード一覧
     if (isOpen) {
       h += '<table style="width:100%;border-collapse:collapse;">';
-      items.forEach(function(c){
-        var rowHtml = buildCaseRow(c, today, false);
-        rowHtml = rowHtml.replace('<tr ', '<tr draggable="true" data-cid="'+c.id+'" data-status="'+esc(s)+'" ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)" ');
-        h += rowHtml;
+      items.forEach(function(item){
+        if(item.type === 'case'){
+          var rowHtml = buildCaseRow(item.c, today, false);
+          rowHtml = rowHtml.replace('<tr ', '<tr draggable="true" data-cid="'+item.c.id+'" data-status="'+esc(s)+'" ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)" ');
+          h += rowHtml;
+        } else {
+          // グループ行
+          var grp = caseGroups.find(function(g){return g.id===item.groupId;});
+          var gcases = groupCaseMap[item.groupId] || [];
+          if(!grp || !gcases.length) return;
+          var COLS = 12;
+          var grpOpen = localStorage.getItem('kanbanV_grp_'+grp.id) !== '0';
+          h += '<tr style="background:linear-gradient(90deg,#eff6ff,#f8faff);"><td colspan="'+COLS+'" style="padding:6px 14px;border-left:4px solid #2563eb;border-bottom:1px solid #bfdbfe;">';
+          h += '<div style="display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="(function(){var o=localStorage.getItem(\'kanbanV_grp_'+grp.id+'\')!==\'0\';localStorage.setItem(\'kanbanV_grp_'+grp.id+'\',o?\'0\':\'1\');renderKanban();})()">';
+          h += '<span style="font-size:13px;">📁</span>';
+          h += '<span style="font-weight:800;font-size:12px;color:#1e40af;">'+esc(grp.name)+'</span>';
+          h += '<span style="background:#dbeafe;color:#1e40af;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;">'+gcases.length+'件</span>';
+          h += '<span style="font-size:10px;color:#94a3b8;margin-left:4px;">'+(grpOpen?'▲':'▼')+'</span>';
+          h += '<button onclick="event.stopPropagation();removeGroup(\''+grp.id+'\')" style="margin-left:auto;font-size:10px;color:#94a3b8;background:none;border:1px solid #e2e8f0;border-radius:6px;cursor:pointer;padding:2px 8px;">✕ 解除</button>';
+          h += '</div></td></tr>';
+          if(grpOpen){
+            gcases.forEach(function(c){
+              var rowHtml = buildCaseRow(c, today, true);
+              rowHtml = rowHtml.replace('<tr ', '<tr draggable="true" data-cid="'+c.id+'" data-status="'+esc(s)+'" ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)" ');
+              h += rowHtml;
+            });
+          }
+        }
       });
       h += '</table>';
     }
