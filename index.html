@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260413.34</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260413.37</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2526,7 +2526,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260413.34';
+var OFUSA_VERSION = 'ver.20260413.37';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -2710,8 +2710,9 @@ function sbFetchCases(opts, callback) {
     else if(_sArr.length>1){ countQuery=countQuery.in('status',_sArr); dataQuery=dataQuery.in('status',_sArr); }
   } else if (!opts.includeDone) {
     // デフォルトで完了・審査完了を除外
-    countQuery = countQuery.not('status', 'in', '("完了","審査完了")');
-    dataQuery = dataQuery.not('status', 'in', '("完了","審査完了")');
+    // NOT INはNULLを除外するため、statusがNULLの案件も表示されるようorフィルタを使用
+    countQuery = countQuery.or('status.not.in.("完了","審査完了"),status.is.null');
+    dataQuery = dataQuery.or('status.not.in.("完了","審査完了"),status.is.null');
   }
   if (opts.staff && opts.staff !== '全担当者') {
     var _sfArr = Array.isArray(opts.staff) ? opts.staff : [opts.staff];
@@ -2778,7 +2779,7 @@ function sbFetchCases(opts, callback) {
     if (opts.status && opts.status !== '全ステータス') {
       idQuery = idQuery.eq('status', opts.status);
     } else if (!opts.includeDone) {
-      idQuery = idQuery.not('status', 'in', '("完了","審査完了")');
+      idQuery = idQuery.or('status.not.in.("完了","審査完了"),status.is.null');
     }
     if (opts.staff && opts.staff !== '全担当者') idQuery = idQuery.eq('staff', opts.staff);
     if (opts.search) {
@@ -3023,7 +3024,8 @@ function persistCasesToDB(casesArray, callback) {
       toritsugisha: c.toritsugisha || null,
       expire: safeDate(c.expire),
       // statusは新規案件(_isNew)のみ送る。既存案件はautoSaveInfoの個別PATCHで更新するため除外
-      status: c._isNew ? (c.status || '未着手') : undefined,
+      // ただしstatusが存在する場合はundefinedにしない（NULLで上書きされて案件が消えるのを防ぐ）
+      status: c._isNew ? (c.status || '未着手') : (c.status || undefined),
       emp_set_idx: c.empSetIdx != null ? String(c.empSetIdx) : null,
       so_office_idx: c.soOfficeIdx != null ? parseInt(c.soOfficeIdx) : null,
       support_fee: c.supportFee || null,
@@ -12292,6 +12294,18 @@ function autoSaveInfo(key, value) {
         console.info('✅ [OFUSA] cases patch: status =', value);
         showToast('✅ ' + value + ' で保存しました');
         logCaseAction(c.id, 'status_change', (_prevStatus ? _prevStatus + ' → ' : '') + value);
+        // share通知：対象ステータスへの変更時にshare_notificationsへinsert
+        var _shareNotifyStatuses = ['申請済(番号待)', '審査中', '審査完了', '★要追完', '要追完 企業不足書類待ち', '要追完 人材不足書類待ち'];
+        if (_shareNotifyStatuses.indexOf(value) >= 0 && c.org) {
+          _sb.from('share_notifications').insert({
+            case_id: c.id,
+            org: c.org,
+            status: value,
+            receipt_no: c.receiptNo || null
+          }).then(function(nr) {
+            if (nr && nr.error) console.error('share_notifications insert error:', nr.error);
+          });
+        }
       }
     });
     applyFilters();
@@ -22094,12 +22108,25 @@ function loadOrgCommentForCase(caseId) {
       if (!tokenRow) return;
       var token = tokenRow.key.replace('org_view_token_', '');
       var cmtKey = 'org_comment_' + token + '_' + caseId;
+      var sideCmtKey = 'org_side_comment_' + token + '_' + caseId;
+      // 大房→支援機関コメント
       _sb.from('settings').select('value').eq('key', cmtKey).then(function(r3){
         if (r3.error || !r3.data || !r3.data.length) return;
         var comment = r3.data[0].value || '';
         if (!comment) return;
         var ta = document.getElementById('orgCommentInput_' + caseId);
         if (ta) ta.value = comment;
+      });
+      // 支援機関→大房コメント
+      _sb.from('settings').select('value').eq('key', sideCmtKey).then(function(r4){
+        if (r4.error || !r4.data || !r4.data.length) return;
+        var sideComment = r4.data[0].value || '';
+        var area = document.getElementById('orgSideCommentArea_' + caseId);
+        var text = document.getElementById('orgSideCommentText_' + caseId);
+        if (area && text && sideComment) {
+          text.textContent = sideComment;
+          area.style.display = 'block';
+        }
       });
     });
   });
@@ -22884,8 +22911,12 @@ function showTab(tab) {
     h += '</div>';
     // 登録支援機関向けコメント（入力・保存・share.htmlに反映）
     h += '<div style="margin-bottom:12px;background:#f0fdf4;border-radius:10px;padding:12px 14px;border:1px solid #86efac;">';
-    h += '<div style="font-size:11px;font-weight:700;color:#15803d;margin-bottom:6px;">💬 登録支援機関向けコメント <span style="font-size:10px;font-weight:400;color:#6b7280;">（share.htmlに表示されます）</span></div>';
+    h += '<div style="font-size:11px;font-weight:700;color:#15803d;margin-bottom:6px;">💬 大房→支援機関コメント <span style="font-size:10px;font-weight:400;color:#6b7280;">（share.htmlに表示されます）</span></div>';
     h += '<textarea id="orgCommentInput_' + c.id + '" oninput="saveOrgCommentFromCase(\'' + c.id + '\')" style="width:100%;padding:8px 10px;border:1px solid #86efac;border-radius:8px;font-size:13px;resize:vertical;min-height:60px;font-family:inherit;box-sizing:border-box;background:white;" placeholder="登録支援機関に伝えたいコメントを入力..."></textarea>';
+    h += '</div>';
+    h += '<div id="orgSideCommentArea_' + c.id + '" style="margin-bottom:12px;background:#fefce8;border-radius:10px;padding:12px 14px;border:1px solid #fde68a;display:none;">';
+    h += '<div style="font-size:11px;font-weight:700;color:#92400e;margin-bottom:6px;">💬 支援機関→大房コメント</div>';
+    h += '<div id="orgSideCommentText_' + c.id + '" style="font-size:13px;color:#374151;white-space:pre-wrap;line-height:1.6;"></div>';
     h += '</div>';
     h += '<div style="margin-bottom:12px;background:white;border-radius:10px;padding:14px;border:1px solid var(--gray-200);">';
     h += '<div style="font-size:11px;font-weight:700;color:var(--gray-400);margin-bottom:8px;">❓ 質問</div>';
