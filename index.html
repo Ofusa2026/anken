@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260413.41</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260413.43</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2526,7 +2526,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260413.41';
+var OFUSA_VERSION = 'ver.20260413.43';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -7415,39 +7415,39 @@ function generateUploadUrl(driveUrl, caseId) {
     showToast('⚠️ ドライブURLからフォルダIDを取得できませんでました');
     return;
   }
-  // appType・nationalityをURLに付与して書類を絞り込む
   var _c = cData.find(function(x){ return x.id===caseId; }) || {};
   var _p = personData[caseId] || {};
   var _appType = _c.appType || '';
   var _nat = _p.nationality || _c.nationality || '';
-  // 留学生フラグ（現在の在留資格が留学）
-  // personData.residenceStatus → c.currentStatus（現在の在留資格）の順でフォールバック
-  var _currentResidence = _p.residenceStatus || _c.currentStatus || '';
-  var _isRyugaku = _currentResidence.indexOf('留学') >= 0 ? '1' : '';
-  // appTypeを更新/変更/認定に正規化
-  var _appTypeNorm = _appType.indexOf('更新') >= 0 ? '更新' : _appType.indexOf('変更') >= 0 ? '変更' : _appType.indexOf('認定') >= 0 ? '認定' : '';
-  var uploadUrl = 'https://ofusa2026.github.io/upload/zinzai_dataup.html?folder=' + folderId
-    + (caseId ? '&case=' + encodeURIComponent(caseId) : '')
-    + (_appTypeNorm ? '&appType=' + encodeURIComponent(_appTypeNorm) : '')
-    + (_nat ? '&nationality=' + encodeURIComponent(_nat) : '')
-    + (_isRyugaku ? '&ryugaku=1' : '');
-  // クリップボードにコピー
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(uploadUrl).then(function() {
+  // 留学生フラグ：personsテーブルから直接取得して確実に判定
+  function _doGenerateUrl(residenceStr) {
+    var _currentResidence = residenceStr || _p.residenceStatus || _p.residence_status || _c.currentStatus || '';
+    var _isRyugaku = _currentResidence.indexOf('留学') >= 0 ? '1' : '';
+    var _appTypeNorm = _appType.indexOf('更新') >= 0 ? '更新' : _appType.indexOf('変更') >= 0 ? '変更' : _appType.indexOf('認定') >= 0 ? '認定' : '';
+    var uploadUrl = 'https://ofusa2026.github.io/upload/zinzai_dataup.html?folder=' + folderId
+      + (caseId ? '&case=' + encodeURIComponent(caseId) : '')
+      + (_appTypeNorm ? '&appType=' + encodeURIComponent(_appTypeNorm) : '')
+      + (_nat ? '&nationality=' + encodeURIComponent(_nat) : '')
+      + (_isRyugaku ? '&ryugaku=1' : '');
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(uploadUrl).then(function() { showToast('📋 アップロードURLをコピーしました'); });
+    } else {
+      var ta = document.createElement('textarea'); ta.value = uploadUrl;
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
       showToast('📋 アップロードURLをコピーしました');
-    });
-  } else {
-    var ta = document.createElement('textarea');
-    ta.value = uploadUrl;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-    showToast('📋 アップロードURLをコピーしました');
+    }
+    alert('アップロード用URL:\n\n' + uploadUrl + '\n\nクリップボードにコピーしました。LINEで送ってください。');
   }
-  // ダイアログで表示
-  var msg = 'アップロード用URL:\n\n' + uploadUrl + '\n\nクリップボードにコピーしました。LINEで送ってください。';
-  alert(msg);
+  // personsテーブルから最新のresidence_statusを取得
+  if (DB_READY) {
+    _sb.from('persons').select('residence_status').eq('case_id', caseId).then(function(r) {
+      var rs = (r.data && r.data.length > 0) ? (r.data[0].residence_status || '') : '';
+      _doGenerateUrl(rs);
+    });
+    return;
+  }
+  // DBが使えない場合はメモリから直接生成
+  _doGenerateUrl('');
 }
 
 function extractDriveFolderId(url) {
@@ -36133,7 +36133,14 @@ openCase = function(id) {
   if (!personData[id] && DB_READY) {
     _sb.from('persons').select('*').eq('case_id', id).then(function(res) {
       if (res.data && res.data.length > 0) {
-        personData[id] = res.data[0].data || res.data[0];
+        var _pd = res.data[0].data || res.data[0];
+        // snake_case → camelCase 変換（主要フィールド）
+        if (_pd.residence_status && !_pd.residenceStatus) _pd.residenceStatus = _pd.residence_status;
+        if (_pd.applicant_name_en && !_pd.applicantNameEn) _pd.applicantNameEn = _pd.applicant_name_en;
+        if (_pd.passport_expiry && !_pd.passportExpiry) _pd.passportExpiry = _pd.passport_expiry;
+        if (_pd.birth_place && !_pd.birthPlace) _pd.birthPlace = _pd.birth_place;
+        if (_pd.temp_return && !_pd.tempReturn) _pd.tempReturn = _pd.temp_return;
+        personData[id] = _pd;
       }
     });
   }
