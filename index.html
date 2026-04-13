@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260413.37</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260413.41</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2526,7 +2526,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260413.37';
+var OFUSA_VERSION = 'ver.20260413.41';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -7420,8 +7420,10 @@ function generateUploadUrl(driveUrl, caseId) {
   var _p = personData[caseId] || {};
   var _appType = _c.appType || '';
   var _nat = _p.nationality || _c.nationality || '';
-  // 留学生フラグ（在留資格が留学）
-  var _isRyugaku = (_p.residenceStatus||'').indexOf('留学') >= 0 ? '1' : '';
+  // 留学生フラグ（現在の在留資格が留学）
+  // personData.residenceStatus → c.currentStatus（現在の在留資格）の順でフォールバック
+  var _currentResidence = _p.residenceStatus || _c.currentStatus || '';
+  var _isRyugaku = _currentResidence.indexOf('留学') >= 0 ? '1' : '';
   // appTypeを更新/変更/認定に正規化
   var _appTypeNorm = _appType.indexOf('更新') >= 0 ? '更新' : _appType.indexOf('変更') >= 0 ? '変更' : _appType.indexOf('認定') >= 0 ? '認定' : '';
   var uploadUrl = 'https://ofusa2026.github.io/upload/zinzai_dataup.html?folder=' + folderId
@@ -14402,10 +14404,14 @@ function renderCompanyDetail(co){
   h+='<div style="display:flex;align-items:center;gap:6px;">';
   // 大房担当者（右上小さめ表示）
   h+='<span style="font-size:10px;color:var(--gray-400);">担当:</span>';
-  h+='<select onchange="autoSaveCompanyField(\''+co.id+'\',\'ofusaStaff\',this.value)" style="font-size:11px;padding:2px 6px;border:1px solid var(--gray-200);border-radius:4px;background:white;color:var(--navy);font-weight:600;cursor:pointer;outline:none;">';
-  h+='<option value="">—</option>';
-  USERS.forEach(function(u){h+='<option value="'+u.name+'"'+(u.name===(co.ofusaStaff||'')?' selected':'')+'>'+u.name+'</option>';});
-  h+='</select>';
+  h+='<div style="position:relative;display:inline-block;">';
+  h+='<input type="text" id="coStaffAC_'+co.id+'" value="'+esc(co.ofusaStaff||'')+'" placeholder="担当者..." autocomplete="off"';
+  h+=' oninput="_coHeaderStaffAC(this,\''+co.id+'\')"';
+  h+=' onfocus="_coHeaderStaffAC(this,\''+co.id+'\')"';
+  h+=' onblur="setTimeout(function(){var d=document.getElementById(\'coStaffAC_'+co.id+'_dd\');if(d)d.remove();},200)"';
+  h+=' style="font-size:11px;padding:2px 6px;border:1px solid var(--gray-200);border-radius:4px;background:white;color:var(--navy);font-weight:600;outline:none;width:80px;">';
+  h+='<div id="coStaffAC_'+co.id+'_dd"></div>';
+  h+='</div>';
   h+='<label ondragover="event.preventDefault();this.style.background=\'#dbeafe\';this.style.borderColor=\'var(--blue)\'" ondragleave="this.style.background=\'#f0fdf4\';this.style.borderColor=\'var(--green)\'" ondrop="event.preventDefault();this.style.background=\'#f0fdf4\';this.style.borderColor=\'var(--green)\';handleCompanyDropInto(\''+co.id+'\',event)" style="font-size:11px;padding:5px 12px;background:#f0fdf4;color:var(--green);border:1.5px dashed var(--green);border-radius:6px;cursor:pointer;font-weight:700;display:inline-flex;align-items:center;gap:3px;transition:.15s;">📥 Excel / ドラッグ<input type="file" accept=".xlsx,.xls" onchange="importCompanyExcelInto(\''+co.id+'\',this)" style="display:none;"></label>';
   h+='<button onclick="duplicateCompany(\''+co.id+'\')" style="font-size:11px;padding:5px 12px;background:white;color:var(--blue);border:1.5px solid var(--blue);border-radius:6px;cursor:pointer;font-weight:700;">📋 複製</button>';
   h+='<button onclick="deleteCompany(\''+co.id+'\')" style="font-size:11px;padding:5px 12px;background:white;color:#dc2626;border:1.5px solid #fca5a5;border-radius:6px;cursor:pointer;font-weight:700;">🗑 削除</button>';
@@ -14561,6 +14567,31 @@ function renderCompanyDetail(co){
         h+='</div>';
       });
       h+='</div></div>';
+      // 決算情報（3期分）の直後に国交省ログイン情報を挿入
+      if(sec==='決算情報（3期分）'){
+        var _kokkoOpen = localStorage.getItem('kokko_open_'+co.id) !== '0';
+        h+='<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:0;margin-top:10px;margin-bottom:4px;">';
+        h+='<div onclick="(function(){var o=localStorage.getItem(\'kokko_open_'+co.id+'\')!==\'0\';localStorage.setItem(\'kokko_open_'+co.id+'\',o?\'0\':\'1\');renderCompanyDetail(companies.find(function(x){return x.id===\''+co.id+'\'}));})()" style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;cursor:pointer;user-select:none;">';
+        h+='<div style="font-size:11px;font-weight:700;color:#0369a1;">🏗 国交省ログイン情報</div>';
+        h+='<div style="display:flex;align-items:center;gap:8px;">';
+        h+='<a href="https://gaikokujin-shuro.keg.jp/gjsk_1.0.0/GK1010_0010?systemKbnFlag=1&time='+Date.now()+'" target="_blank" onclick="event.stopPropagation()" style="font-size:10px;padding:3px 10px;background:#0369a1;color:white;border-radius:5px;text-decoration:none;font-weight:700;">🔗 ログイン画面</a>';
+        h+='<span style="font-size:11px;color:#94a3b8;">'+(_kokkoOpen?'▲':'▼')+'</span>';
+        h+='</div></div>';
+        if(_kokkoOpen){
+          h+='<div style="padding:0 14px 14px;border-top:1px solid #e2e8f0;">';
+          h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;">';
+          h+='<div>';
+          h+='<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:3px;">ログインID</div>';
+          h+='<input type="text" id="cf_kokkoId_'+co.id+'" value="'+esc(co.kokkoId||'')+'" placeholder="ID入力..." style="width:100%;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;box-sizing:border-box;" onchange="autoSaveCompanyField(\''+co.id+'\',\'kokkoId\',this.value)">';
+          h+='</div>';
+          h+='<div>';
+          h+='<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:3px;">パスワード <button onclick="(function(){var i=document.getElementById(\'cf_kokkoPw_'+co.id+'\');i.type=i.type===\'password\'?\'text\':\'password\'})()" style="font-size:9px;padding:1px 5px;border:1px solid #e2e8f0;border-radius:3px;background:white;cursor:pointer;">表示</button></div>';
+          h+='<input type="password" id="cf_kokkoPw_'+co.id+'" value="'+esc(co.kokkoPw||'')+'" placeholder="PW入力..." style="width:100%;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;box-sizing:border-box;" onchange="autoSaveCompanyField(\''+co.id+'\',\'kokkoPw\',this.value)">';
+          h+='</div>';
+          h+='</div></div>';
+        }
+        h+='</div>';
+      }
       // 基本情報セクションの直後に役員一覧を挿入
       if(sec==='基本情報'){
         if (!co.officers) co.officers = [];
@@ -14887,6 +14918,33 @@ function importCompanyEmpSetCsv(coId, input) {
   input.value = '';
 }
 
+
+function _coHeaderStaffAC(input, coId) {
+  var q = (input.value || '').toLowerCase();
+  var ddId = 'coStaffAC_' + coId + '_dd';
+  var old = document.getElementById(ddId);
+  if (old) old.remove();
+  var matches = USERS.filter(function(u){ return !q || u.name.toLowerCase().indexOf(q) >= 0; });
+  if (!matches.length) return;
+  var dd = document.createElement('div');
+  dd.id = ddId;
+  dd.style.cssText = 'position:absolute;top:100%;left:0;background:white;border:1.5px solid var(--gray-200);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.12);z-index:9999;max-height:200px;overflow-y:auto;min-width:120px;';
+  matches.forEach(function(u) {
+    var item = document.createElement('div');
+    item.textContent = u.name;
+    item.style.cssText = 'padding:7px 12px;font-size:12px;cursor:pointer;font-weight:600;color:var(--navy);white-space:nowrap;';
+    item.onmouseover = function(){ this.style.background='#eff6ff'; };
+    item.onmouseout  = function(){ this.style.background=''; };
+    item.onmousedown = function(e) {
+      e.preventDefault();
+      input.value = u.name;
+      dd.remove();
+      autoSaveCompanyField(coId, 'ofusaStaff', u.name);
+    };
+    dd.appendChild(item);
+  });
+  input.parentNode.appendChild(dd);
+}
 function _coUserAC(input, coId, fieldKey) {
   var q = (input.value || '').toLowerCase();
   var ddId = input.id + '_dd';
@@ -27141,7 +27199,7 @@ var _coRenameCategoriesBase = (function(){
 })();
 var _coRenameCategoriesExtra = (function(){ try{ return JSON.parse(localStorage.getItem('ofusa_coRenameCats')||'[]'); }catch(e){ return []; } })();
 function getAllCoRenameCategories(coId) {
-  // REQUIRED_DOCS_CO（法人）or REQUIRED_DOCS_CO_KOJIN（個人）+ 分野別追加 + ユーザー追加分
+  // REQUIRED_DOCS_CO（法人）or REQUIRED_DOCS_CO_KOJIN（個人）+ 分野別追加 + 国交省 + ユーザー追加分
   var seen = {};
   var cats = [];
   var co = coId ? companies.find(function(c){return c.id===coId;}) : null;
@@ -27153,11 +27211,18 @@ function getAllCoRenameCategories(coId) {
     _getCoFieldKeys(co).forEach(function(fk){
       (REQUIRED_DOCS_CO_FIELD[fk]||[]).forEach(function(d){ if(!seen[d]){seen[d]=1;cats.push(d);} });
     });
+    // 建設分野の場合は国交省書類も追加
+    var _coFields = _getCoFieldKeys(co);
+    if (_coFields.some(function(fk){ return fk.indexOf('建設')>=0; })) {
+      REQUIRED_DOCS_CO_KOKKO.forEach(function(d){ if(!seen[d]){seen[d]=1;cats.push(d);} });
+    }
   } else {
     // coId不明時は全分野を含める
     Object.keys(REQUIRED_DOCS_CO_FIELD).forEach(function(fk){
       (REQUIRED_DOCS_CO_FIELD[fk]||[]).forEach(function(d){ if(!seen[d]){seen[d]=1;cats.push(d);} });
     });
+    // 全件の場合は国交省書類も含める
+    REQUIRED_DOCS_CO_KOKKO.forEach(function(d){ if(!seen[d]){seen[d]=1;cats.push(d);} });
   }
   // 旧来のユーザー追加分（後方互換）
   _coRenameCategoriesExtra.forEach(function(d){ if(!seen[d]){seen[d]=1;cats.push(d);} });
@@ -27198,7 +27263,24 @@ function startCoRename(coId) {
     '照会回答': ['納入状況'],
     '登記されていない': ['成年被後見'],
     '履歴書': ['resume','cv'],
-    '誓約書': ['oath']
+    '誓約書': ['oath'],
+    // 国交省書類エイリアス
+    '履歴事項全部証明書': ['登記','履歴事項','全部証明'],
+    '建設業許可': ['建設業許可証','建設許可'],
+    '標準報酬決定通知書': ['標準報酬','報酬決定'],
+    'キャリアアップID': ['キャリアアップ','CCUS','careerUp'],
+    '会員証明書': ['会員証'],
+    '委任状': ['委任'],
+    '求人票': ['求人'],
+    '同等の技能を有する日本人と同等額以上の報酬であることの説明書': ['同等額','同等の技能','報酬説明'],
+    '就業規則および賃金規程': ['就業規則','賃金規程'],
+    '賃金台帳': ['賃金台帳','台帳'],
+    '経歴書': ['経歴'],
+    '雇用契約書': ['雇用契約','contract'],
+    '36協定': ['三六協定','36協定','時間外'],
+    '年間カレンダー': ['年間カレンダー','カレンダー'],
+    '重要事項説明書': ['重要事項'],
+    '技能者ID': ['技能者ID','技能者登録']
   };
   var kwMap = {};
   coCats.forEach(function(cat){
