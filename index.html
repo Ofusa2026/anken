@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260414.13</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260414.14</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -38386,6 +38386,46 @@ function renderTsuikanMails(){
   }
   // 定期届出ルール変更案内メールを除外
   pending=pending.filter(function(m){ return !(m.body||'').includes('特定技能制度における定期届出のルールが大幅に変更されておりますので、ご案内申し上げます。'); });
+  // ─── プルダウン選択肢を毎回再生成（自動マッチ後のデータで更新）───
+  (function(){
+    // まず全メールの自動マッチを完了させる
+    TSUIKAN_MAILS.forEach(function(m){
+      if(!m.linkedCase&&!m._autoMatched){
+        m._autoMatched=true;
+        var mn=(m.name||'').replace(/ /g,'').toUpperCase();
+        var mcn=(m.caseNo||'').replace(/ /g,'');
+        if(mcn){var mc1=cData.find(function(c){return c.receiptNo&&c.receiptNo.replace(/ /g,'')===mcn;});if(mc1)m.linkedCase=mc1.id;}
+        if(!m.linkedCase&&mn){var mc2=cData.find(function(c){return (c.applicant||'').replace(/ /g,'').toUpperCase()===mn;});if(mc2)m.linkedCase=mc2.id;}
+      }
+    });
+    var staffSel2=document.getElementById('tsuikanFilterStaff');
+    if(staffSel2){
+      var curS=staffSel2.value;
+      var staffs2=[];
+      TSUIKAN_MAILS.forEach(function(m){
+        var lc=m.linkedCase?cData.find(function(c){return c.id===m.linkedCase;}):null;
+        if(lc&&lc.staff&&staffs2.indexOf(lc.staff)<0) staffs2.push(lc.staff);
+      });
+      staffs2.sort();
+      staffSel2.innerHTML='<option value="">全担当者</option>'+staffs2.map(function(s){return '<option value="'+esc(s)+'"'+(s===curS?' selected':'')+'>'+esc(s)+'</option>';}).join('');
+    }
+    var orgSel2=document.getElementById('tsuikanFilterOrg');
+    if(orgSel2){
+      var curO=orgSel2.value;
+      var orgNames2=[];
+      TSUIKAN_MAILS.forEach(function(m){
+        var lc=m.linkedCase?cData.find(function(c){return c.id===m.linkedCase;}):null;
+        if(lc&&lc.org&&orgNames2.indexOf(lc.org)<0) orgNames2.push(lc.org);
+      });
+      var orgItems2=orgNames2.map(function(name){
+        var so=supportOrgs.find(function(o){return o.name===name;});
+        var folderNo=so?(parseInt(so.folderNo)||99999):99999;
+        var label=so&&so.folderNo?so.folderNo+' '+name:name;
+        return {name:name,folderNo:folderNo,label:label};
+      }).sort(function(a,b){return a.folderNo-b.folderNo;});
+      orgSel2.innerHTML='<option value="">全支援機関</option>'+orgItems2.map(function(o){return '<option value="'+esc(o.name)+'"'+(o.name===curO?' selected':'')+'>'+esc(o.label)+'</option>';}).join('');
+    }
+  })();
   // 担当者フィルター
   var filterStaff = (document.getElementById('tsuikanFilterStaff')||{}).value||'';
   if(filterStaff){
@@ -38409,6 +38449,16 @@ function renderTsuikanMails(){
     // 日付フィルターを追加済にも適用
     if(fromVal && (m.date||'') < fromVal) return false;
     if(toVal && (m.date||'').slice(0,10) > toVal) return false;
+    // 担当者フィルター（追加済にも適用）
+    if(filterStaff){
+      var lc2=m.linkedCase?cData.find(function(c){return c.id===m.linkedCase;}):null;
+      if(!lc2||lc2.staff!==filterStaff) return false;
+    }
+    // 支援機関フィルター（追加済にも適用）
+    if(filterOrg){
+      var lc3=m.linkedCase?cData.find(function(c){return c.id===m.linkedCase;}):null;
+      if(!lc3||lc3.org!==filterOrg) return false;
+    }
     return true;
   }).slice().sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); });
   var count=document.getElementById('tsuikanCount');
