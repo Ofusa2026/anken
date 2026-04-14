@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260414.07</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260414.13</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -1908,13 +1908,19 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <span class="page-title">⚠️ 要追完/指摘</span>
 
   </div>
-  <div style="padding:8px 16px;background:white;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:10px;">
+  <div style="padding:8px 16px;background:white;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
     <span id="tsuikanCount" style="font-size:12px;color:var(--gray-400);"></span>
     <button id="tsuikanUnmatchedBtn" onclick="toggleTsuikanUnmatched()" style="font-size:12px;padding:5px 14px;background:white;color:#dc2626;border:1.5px solid #fca5a5;border-radius:8px;cursor:pointer;font-weight:700;">⚠️ 未登録のみ</button>
     <input type="date" id="tsuikanDateFrom" onchange="renderTsuikanMails()" style="font-size:12px;padding:5px 8px;border:1.5px solid var(--gray-200);border-radius:8px;">
     <span style="font-size:12px;color:var(--gray-400);">〜</span>
     <input type="date" id="tsuikanDateTo" onchange="renderTsuikanMails()" style="font-size:12px;padding:5px 8px;border:1.5px solid var(--gray-200);border-radius:8px;">
-    <input type="text" id="tsuikanSearchBox" placeholder="🔍 氏名・受付番号で検索..." oninput="renderTsuikanMails()" style="font-size:12px;padding:5px 10px;border:1.5px solid var(--gray-200);border-radius:8px;width:200px;">
+    <input type="text" id="tsuikanSearchBox" placeholder="🔍 氏名・受付番号で検索..." oninput="renderTsuikanMails()" style="font-size:12px;padding:5px 10px;border:1.5px solid var(--gray-200);border-radius:8px;width:160px;">
+    <select id="tsuikanFilterStaff" onchange="renderTsuikanMails()" style="font-size:12px;padding:5px 8px;border:1.5px solid var(--gray-200);border-radius:8px;max-width:110px;">
+      <option value="">全担当者</option>
+    </select>
+    <select id="tsuikanFilterOrg" onchange="renderTsuikanMails()" style="font-size:12px;padding:5px 8px;border:1.5px solid var(--gray-200);border-radius:8px;max-width:130px;">
+      <option value="">全支援機関</option>
+    </select>
   </div>
   <div id="tsuikanContent" style="flex:1;overflow-y:auto;padding:16px;"></div>
 </div>
@@ -2373,7 +2379,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div style="background:white;border-radius:16px;width:480px;max-width:95vw;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e2e8f0;">
       <div id="alertModalTitle" style="font-size:16px;font-weight:900;"></div>
-      <button onclick="closeAlertModal()" style="font-size:20px;background:none;border:none;cursor:pointer;color:#94a3b8;padding:0 4px;">✕</button>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <button id="alertModalCsvBtn" onclick="exportAlertModalCsv()" style="display:none;font-size:12px;font-weight:700;padding:4px 12px;background:#16a34a;color:white;border:none;border-radius:7px;cursor:pointer;">📥 CSV</button>
+        <button onclick="closeAlertModal()" style="font-size:20px;background:none;border:none;cursor:pointer;color:#94a3b8;padding:0 4px;">✕</button>
+      </div>
     </div>
     <div id="alertModalList" style="flex:1;overflow-y:auto;"></div>
   </div>
@@ -2996,6 +3005,7 @@ function dbRowToCase(r) {
     sharedCaseNo: r.shared_case_no||'',
     members: (function(){try{return r.members?(typeof r.members==='string'?JSON.parse(r.members):r.members):[];}catch(e){return [];}}())
     ,priority: (r.priority != null ? r.priority : null)
+    ,mailThreadUrl: r.mail_thread_url||''
   };
 }
 
@@ -9767,6 +9777,9 @@ function renderStats() {
 
 
 function openAlertModal(type) {
+  var csvBtn = document.getElementById('alertModalCsvBtn');
+  if (csvBtn) csvBtn.style.display = 'none';
+  window._alertModalItems = null;
   var today = new Date(); today.setHours(0,0,0,0);
   var modal = document.getElementById('alertModal');
   var title = document.getElementById('alertModalTitle');
@@ -9811,6 +9824,9 @@ function openAlertModal(type) {
       var d=new Date(cas.applicationDeadline); d.setHours(0,0,0,0);
       return Math.ceil((d-today)/86400000)<=7;
     }).sort(function(a,b){return new Date(a.applicationDeadline)-new Date(b.applicationDeadline);});
+    window._alertModalItems = items;
+    var csvBtn = document.getElementById('alertModalCsvBtn');
+    if (csvBtn) csvBtn.style.display = 'inline-block';
     list.innerHTML = '';
     items.forEach(function(cas){
       var d=new Date(cas.applicationDeadline); d.setHours(0,0,0,0);
@@ -9897,7 +9913,31 @@ function openAlertModal(type) {
   modal.style.display = 'flex';
 }
 
-function closeAlertModal(){ var m=document.getElementById('alertModal'); if(m) m.style.display='none'; }
+function exportAlertModalCsv() {
+  var items = window._alertModalItems;
+  if (!items || !items.length) { showToast('データがありません'); return; }
+  var today2 = new Date(); today2.setHours(0,0,0,0);
+  var header = ['\u6c0f\u540d','\u6848\u4ef6\u540d','\u7533\u8acb\u7a2e\u5225','\u30c1\u30fc\u30e0','\u62c5\u5f53\u8005','\u4f1a\u793e\u540d','\u767b\u9332\u652f\u63f4\u6a5f\u95a2','\u30b9\u30c6\u30fc\u30bf\u30b9','\u7533\u8acb\u671f\u9650','\u6b8b\u65e5\u6570'];
+  var rows = items.map(function(c) {
+    var d = new Date(c.applicationDeadline); d.setHours(0,0,0,0);
+    var days = Math.ceil((d - today2) / 86400000);
+    return [
+      c.applicant||'', c.name||'', c.appType||'', c.team||'', c.staff||'',
+      c.company||'', c.org||'', c.status||'', c.applicationDeadline||'',
+      days <= 0 ? '\u671f\u9650\u5207\u308c' : '\u3042\u3068'+days+'\u65e5'
+    ];
+  });
+  var csv = [header].concat(rows).map(function(r){
+    return r.map(function(v){ return '"'+String(v||'').replace(/"/g,'""')+'"'; }).join(',');
+  }).join('\r\n');
+  var blob = new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8;'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = '\u7533\u8acb\u671f\u9650\u30a2\u30e9\u30fc\u30c8_'+new Date().toISOString().slice(0,10)+'.csv';
+  a.click(); URL.revokeObjectURL(url);
+  showToast('\u2705 CSV\u51fa\u529b\u3057\u307e\u3057\u305f\uff08'+items.length+'\u4ef6\uff09');
+}
+function closeAlertModal(){ var m=document.getElementById('alertModal'); if(m) m.style.display='none'; var csvBtn=document.getElementById('alertModalCsvBtn'); if(csvBtn) csvBtn.style.display='none'; window._alertModalItems=null; }
 
 // ===== DOCS CONTENT =====
 function renderDocsContent() {
@@ -12401,6 +12441,7 @@ function autoSaveInfo(key, value) {
       shortageMemo:'shortage_memo', companyNote:'company_note', priority:'priority',
       driveUrl:'drive_url', folderNo:'folder_no', industry:'industry',
       followupNote:'followup_note', hasJobPlacement:'has_job_placement',
+      mailThreadUrl:'mail_thread_url',
       companyId:'company_id'
     };
     var colName = _COL_MAP[key] || key;
@@ -38244,7 +38285,45 @@ function switchGmailTab(tab) {
     renderTsuikanMails();
   }
 }
-function openTsuikan(){ tsuikanSel={}; switchPanel('tsuikanScreen','nav-tsuikan'); renderTsuikanMails(); }
+function openTsuikan(){
+  tsuikanSel={};
+  switchPanel('tsuikanScreen','nav-tsuikan');
+  // 担当者プルダウンを更新
+  var staffSel = document.getElementById('tsuikanFilterStaff');
+  if(staffSel){
+    var staffs = [];
+    TSUIKAN_MAILS.forEach(function(m){
+      if(!m.linkedCase) return;
+      var lc=cData.find(function(c){return c.id===m.linkedCase;});
+      if(lc&&lc.staff&&staffs.indexOf(lc.staff)<0) staffs.push(lc.staff);
+    });
+    staffs.sort();
+    var cur = staffSel.value;
+    staffSel.innerHTML = '<option value="">全担当者</option>'
+      + staffs.map(function(s){return '<option value="'+esc(s)+'"'+(s===cur?' selected':'')+'>'+esc(s)+'</option>';}).join('');
+  }
+  // 支援機関プルダウンを更新（フォルダ番号順）
+  var orgSel = document.getElementById('tsuikanFilterOrg');
+  if(orgSel){
+    var orgNames = [];
+    TSUIKAN_MAILS.forEach(function(m){
+      if(!m.linkedCase) return;
+      var lc=cData.find(function(c){return c.id===m.linkedCase;});
+      if(lc&&lc.org&&orgNames.indexOf(lc.org)<0) orgNames.push(lc.org);
+    });
+    // supportOrgsからfolderNoを引いてソート
+    var orgItems = orgNames.map(function(name){
+      var so = supportOrgs.find(function(o){return o.name===name;});
+      var folderNo = so ? (parseInt(so.folderNo)||99999) : 99999;
+      var label = so && so.folderNo ? so.folderNo+' '+name : name;
+      return {name:name, folderNo:folderNo, label:label};
+    }).sort(function(a,b){return a.folderNo-b.folderNo;});
+    var curOrg = orgSel.value;
+    orgSel.innerHTML = '<option value="">全支援機関</option>'
+      + orgItems.map(function(o){return '<option value="'+esc(o.name)+'"'+(o.name===curOrg?' selected':'')+'>'+esc(o.label)+'</option>';}).join('');
+  }
+  renderTsuikanMails();
+}
 function fetchGmailTsuikan(){
   showToast('取得中...');
   var _validTsuikan = {'追完依頼':1,'申請内容等':1};
@@ -38307,6 +38386,22 @@ function renderTsuikanMails(){
   }
   // 定期届出ルール変更案内メールを除外
   pending=pending.filter(function(m){ return !(m.body||'').includes('特定技能制度における定期届出のルールが大幅に変更されておりますので、ご案内申し上げます。'); });
+  // 担当者フィルター
+  var filterStaff = (document.getElementById('tsuikanFilterStaff')||{}).value||'';
+  if(filterStaff){
+    pending=pending.filter(function(m){
+      var lc=m.linkedCase?cData.find(function(c){return c.id===m.linkedCase;}):null;
+      return lc && lc.staff === filterStaff;
+    });
+  }
+  // 支援機関フィルター
+  var filterOrg = (document.getElementById('tsuikanFilterOrg')||{}).value||'';
+  if(filterOrg){
+    pending=pending.filter(function(m){
+      var lc=m.linkedCase?cData.find(function(c){return c.id===m.linkedCase;}):null;
+      return lc && lc.org === filterOrg;
+    });
+  }
   // 追加順（TSUIKAN_MAILSの配列順を維持）
   // ※日付ではなく取込・追加された順
   var added=TSUIKAN_MAILS.filter(function(m){
