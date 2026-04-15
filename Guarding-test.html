@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_ADMIN ver.20260414.05 -->
+<!-- OFUSA_ADMIN ver.20260414.07 -->
 <html lang="ja"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -216,7 +216,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
       <div class="logo-badge">OFUSA</div>
       <div class="logo-title">大房行政書士法人</div>
       <div class="logo-sub">管理ダッシュボード</div>
-      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260414.05</div>
+      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260414.07</div>
     </div>
     <div class="sidebar-section">概要</div>
     <div class="nav-item active" onclick="nav('dashboard')">📊 ダッシュボード</div>
@@ -229,6 +229,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
     <div class="nav-item" onclick="nav('forms')">📝 ヒアリング対応 <span class="nbadge orange" id="bdg-forms">0</span></div>
     <div class="nav-item" onclick="nav('intake')">📥 案件登録確認 <span class="nbadge blue" id="bdg-intake">0</span></div>
     <div class="sidebar-section">システム</div>
+    <div class="nav-item" onclick="nav('records')">📋 申請記録 未対応 <span class="nbadge red" id="bdg-records">0</span></div>
     <div class="nav-item" onclick="nav('receiptcheck')">🔍 要追完対応漏れチェック</div>
     <div class="nav-item" onclick="nav('coecheck')">🔍 COE・審査完了対応漏れチェック</div>
     <div class="nav-item" onclick="nav('users')">👥 ユーザー管理</div>
@@ -253,7 +254,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
     <div class="topbar">
       <div class="page-title" id="pageTitle">ダッシュボード</div>
       <div class="topbar-right">
-        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260414.05</span>
+        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260414.07</span>
         <span class="last-updated" id="lastUpdated"></span>
         <button class="btn btn-primary" onclick="refreshAll()">🔄 データ更新</button>
       </div>
@@ -634,6 +635,45 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
         </div>
       </div>
 
+      <!-- ══ RECORDS ══ -->
+      <div class="section" id="sec-records">
+        <div class="filters-section">
+          <div class="filters">
+            <input class="search-input" id="recordsSearch" placeholder="🔍 氏名・受付番号・登録支援機関で検索..." oninput="renderRecordsSection()">
+            <select class="filter-select" id="recordsStaff" onchange="renderRecordsSection()">
+              <option value="">全担当</option>
+            </select>
+            <select class="filter-select" id="recordsOrg" onchange="renderRecordsSection()" style="min-width:140px;">
+              <option value="">全登録支援機関</option>
+            </select>
+            <select class="filter-select" id="recordsReported" onchange="renderRecordsSection()">
+              <option value="0">未対応のみ</option>
+              <option value="">全件</option>
+              <option value="1">対応済みのみ</option>
+            </select>
+            <span class="filter-count" id="recordsCount">—件</span>
+          </div>
+        </div>
+        <!-- 担当別通知バナー -->
+        <div id="recordsStaffBanner" style="display:none;padding:0 24px 12px;">
+          <div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:10px 14px;">
+            <div style="font-size:11px;font-weight:700;color:#dc2626;margin-bottom:6px;">📱 担当別一括通知（申請記録 未対応）</div>
+            <div id="recordsStaffBtns" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+          </div>
+        </div>
+        <div class="table-section" style="padding-top:0;">
+          <div class="table-wrap">
+            <table>
+              <thead><tr>
+                <th>申請日</th><th>申請人氏名</th><th>受付番号</th><th>登録支援機関</th>
+                <th>案件名</th><th>担当</th><th>チーム</th><th>ステータス</th><th>対応状況</th>
+              </tr></thead>
+              <tbody id="recordsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- ══ RECEIPT CHECK ══ -->
       <div class="section" id="sec-receiptcheck">
         <div class="filters-section">
@@ -852,7 +892,7 @@ function normalizeStatus(s){
   return (s||'').replace(/^[★\s]+/,'').trim()
     .replace(/（/g,'(').replace(/）/g,')').replace(/\(番号待ち\)/,'(番号待)');
 }
-function isExcluded(status){ return EXCLUDE_STATUSES.indexOf(normalizeStatus(status))!==-1 || EXCLUDE_STATUSES.indexOf(status)!==-1; }
+function isExcluded(status){ return EXCLUDE_STATUSES.indexOf(status||'')!==-1; }
 function getTokureiDate(c){
   if(c.tokurei_date) return c.tokurei_date;
   if(c.expire){
@@ -953,7 +993,7 @@ function loadCfg(){ try{ return JSON.parse(localStorage.getItem(CFG_KEY)||'{}');
 // ═══════════════════════════════════════════════
 // NAVIGATION
 // ═══════════════════════════════════════════════
-var TITLES = { dashboard:'ダッシュボード', alerts:'期限アラート', cases:'案件一覧', tasks:'タスクアラート', shinsa:'審査完了・認定証', forms:'ヒアリングフォーム対応', intake:'案件登録確認', users:'ユーザー管理', settings:'設定', receiptcheck:'要追完対応漏れチェック', coecheck:'COE・審査完了対応漏れチェック' };
+var TITLES = { dashboard:'ダッシュボード', alerts:'期限アラート', cases:'案件一覧', tasks:'タスクアラート', shinsa:'審査完了・認定証', forms:'ヒアリングフォーム対応', intake:'案件登録確認', records:'申請記録 未対応', users:'ユーザー管理', settings:'設定', receiptcheck:'要追完対応漏れチェック', coecheck:'COE・審査完了対応漏れチェック' };
 function nav(sec){
   document.querySelectorAll('.section').forEach(function(s){ s.classList.remove('active'); });
   document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
@@ -1119,6 +1159,7 @@ function renderAll(){
   renderShinsa();
   renderForms();
   renderIntake();
+  renderRecordsSection();
 }
 
 // ── BADGES ──
@@ -1133,6 +1174,10 @@ function updateBadges(){
   var both     = DATA.cases.filter(function(c){ return (c.app_type==='更新'||c.app_type==='変更') && !c.expire && !isExcluded(c.status) && !hasDrive(c.id); });
   var noExpire = DATA.cases.filter(function(c){ return (c.app_type==='更新'||c.app_type==='変更') && !c.expire && !isExcluded(c.status) && hasDrive(c.id); });
   var noDrive  = DATA.cases.filter(function(c){ return !isExcluded(c.status) && !hasDrive(c.id) && !!c.expire; });
+
+  // 申請記録未対応バッジ
+  var recordsPending = DATA.receiptArchive.filter(function(r){ return !r.reported; });
+  setBadge('bdg-records', recordsPending.length);
 
   setBadge('bdg-alerts', expiring.length);
   setBadge('bdg-shinsa', totalShinsa);
@@ -1172,7 +1217,7 @@ function updateBadges(){
   setTxt('st-both',      both.length);
 
   // 特例期限：対象ステータス絞り込み・14日以内・expire+2ヶ月フォールバック
-  var TOKUREI_TARGET = ['審査中','申請済(番号待)','郵送交付','★郵送交付','郵送交付中','窓口受取','★窓口受取','窓口受取（本人）','要追完','★要追完'];
+  var TOKUREI_TARGET = ['審査中','申請済(番号待)','郵送交付','窓口受取','★要追完'];
   var tokureiAlert = DATA.cases.filter(function(c){
     var st=normalizeStatus(c.status);
     if(TOKUREI_TARGET.indexOf(st)===-1) return false;
@@ -1820,7 +1865,7 @@ function renderTokureiAlerts(){
   var staff = document.getElementById('tokureiStaff').value||'';
   var so    = document.getElementById('tokureiSupportOrg').value||'';
   var co    = document.getElementById('tokureiCompany').value||'';
-  var TOKUREI_ST = ['審査中','申請済(番号待)','郵送交付','★郵送交付','郵送交付中','窓口受取','★窓口受取','窓口受取（本人）','要追完','★要追完'];
+  var TOKUREI_ST = ['審査中','申請済(番号待)','郵送交付','窓口受取','★要追完'];
   var validNames = DATA.users.map(function(u){ return (u.name||'').trim(); }).filter(Boolean);
   var teams  = [...new Set(DATA.cases.map(function(c){ return c.team; }).filter(Boolean))];
   var staffs = [...new Set(DATA.cases.filter(function(c){
@@ -2219,7 +2264,7 @@ function renderCases(){
     }
     if(_caseTokureiFilter){
       var st2=normalizeStatus(c.status);
-      if(['審査中','申請済(番号待)','郵送交付','★郵送交付','郵送交付中','窓口受取','★窓口受取','窓口受取（本人）','要追完','★要追完'].indexOf(st2)===-1) return false;
+      if(['審査中','申請済(番号待)','郵送交付','窓口受取','★要追完'].indexOf(st2)===-1) return false;
       var td2=daysLeft(getTokureiDate(c));
       if(td2===null||td2>14||td2<0) return false;
     }
@@ -2277,13 +2322,13 @@ function renderCases(){
     var trDate = getTempReturn(c);
     var rd = daysLeft(trDate);
     var tokSt=normalizeStatus(c.status);
-    var isTokureiAlert   = td!==null && td<=14 && td>=0 && ['審査中','申請済(番号待)','郵送交付','★郵送交付','郵送交付中','窓口受取','★窓口受取','窓口受取（本人）','要追完','★要追完'].indexOf(tokSt)!==-1;
+    var isTokureiAlert   = td!==null && td<=14 && td>=0 && ['審査中','申請済(番号待)','郵送交付','窓口受取','★要追完'].indexOf(tokSt)!==-1;
     var trSt=normalizeStatus(c.status);
     var isTempReturnAlert= rd!==null && rd<=10 && rd>=0 && ['申請済(番号待)','審査中','要追完','郵送交付','窓口受取','完了','審査完了'].indexOf(trSt)===-1;
     var expireCell = isNoExpireAlert
       ? '<span class="st-badge st-red" style="border:1.5px solid #dc2626;">⚠️ 未入力</span>'
       : '<span class="st-badge '+expCls+'">'+fmtDate(c.expire)+'</span>';
-    var isTokureiOverdue = td!==null && td<0 && ['審査中','申請済(番号待)','郵送交付','★郵送交付','郵送交付中','窓口受取','★窓口受取','窓口受取（本人）','要追完','★要追完'].indexOf(tokSt)!==-1;
+    var isTokureiOverdue = td!==null && td<0 && ['審査中','申請済(番号待)','郵送交付','窓口受取','★要追完'].indexOf(tokSt)!==-1;
     var tokureiCell = getTokureiDate(c)
       ? isTokureiOverdue
         ? '<span class="st-badge st-red" style="border:2px solid #dc2626;font-weight:800;">🚨 超過'+(Math.abs(td))+'日 '+fmtDate(getTokureiDate(c))+'</span>'
@@ -2865,6 +2910,139 @@ document.addEventListener('click', function(e){
   }
 });
 
+function getRecordCase(r){
+  if(!r.case_id) return null;
+  return DATA.cases.find(function(c){ return c.id===r.case_id; })||null;
+}
+function getRecordStaff(r){
+  var c = getRecordCase(r);
+  return c ? (c.staff||'') : '';
+}
+function getRecordTeam(r){
+  var c = getRecordCase(r);
+  return c ? (c.team||'') : '';
+}
+function getRecordStatus(r){
+  var c = getRecordCase(r);
+  return c ? (c.status||'') : '';
+}
+function getRecordCaseName(r){
+  var c = getRecordCase(r);
+  return c ? (c.name||'') : '';
+}
+
+function renderRecordsSection(){
+  var q   = (document.getElementById('recordsSearch').value||'').toLowerCase();
+  var sf  = document.getElementById('recordsStaff').value||'';
+  var org = document.getElementById('recordsOrg').value||'';
+  var rep = document.getElementById('recordsReported').value;
+
+  // 担当セレクト更新
+  var validNames = DATA.users.map(function(u){ return (u.name||'').trim(); }).filter(Boolean);
+  var staffs = [...new Set(DATA.receiptArchive.map(function(r){ return getRecordStaff(r); }).filter(function(s){
+    return s && (validNames.length===0 || validNames.indexOf(s)!==-1);
+  }))].sort();
+  var orgs = [...new Set(DATA.receiptArchive.map(function(r){ return r.org||''; }).filter(Boolean))].sort();
+  var staffEl = document.getElementById('recordsStaff');
+  if(staffEl){ staffEl.innerHTML='<option value="">全担当</option>'; staffs.forEach(function(s){ var o=document.createElement('option'); o.value=s; o.textContent=s; staffEl.appendChild(o); }); staffEl.value=sf; }
+  var orgEl = document.getElementById('recordsOrg');
+  if(orgEl){ orgEl.innerHTML='<option value="">全登録支援機関</option>'; orgs.forEach(function(o){ var opt=document.createElement('option'); opt.value=o; opt.textContent=o; orgEl.appendChild(opt); }); orgEl.value=org; }
+
+  var items = DATA.receiptArchive.filter(function(r){
+    if(rep==='0' && r.reported) return false;
+    if(rep==='1' && !r.reported) return false;
+    if(sf && getRecordStaff(r)!==sf) return false;
+    if(org && (r.org||'')!==org) return false;
+    if(q){ var s=(r.name||'')+(r.case_no||'')+(r.org||'')+(getRecordCaseName(r)); if(!s.toLowerCase().includes(q)) return false; }
+    return true;
+  });
+
+  setTxt('recordsCount', items.length+'件');
+
+  // 未対応の担当別バナー
+  var pending = items.filter(function(r){ return !r.reported; });
+  var staffGroups = {};
+  pending.forEach(function(r){
+    var s = getRecordStaff(r)||'（担当なし）';
+    if(!staffGroups[s]) staffGroups[s]=[];
+    staffGroups[s].push(r);
+  });
+  var banner = document.getElementById('recordsStaffBanner');
+  var btnsEl = document.getElementById('recordsStaffBtns');
+  if(banner && btnsEl){
+    var keys = Object.keys(staffGroups).sort();
+    if(keys.length && pending.length){
+      btnsEl.innerHTML = keys.map(function(s){
+        return '<button onclick="showRecordsLineModal(\''+esc(s)+'\')" style="font-size:11px;padding:4px 10px;background:#dc2626;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">'+esc(s)+'（'+staffGroups[s].length+'件）</button>';
+      }).join('');
+      banner.style.display = '';
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+
+  var tbody = document.getElementById('recordsBody');
+  if(!items.length){ tbody.innerHTML='<tr><td colspan="9" class="empty">該当なし</td></tr>'; return; }
+  tbody.innerHTML = items.map(function(r){
+    var staff = getRecordStaff(r);
+    var team  = getRecordTeam(r);
+    var st    = getRecordStatus(r);
+    var cname = getRecordCaseName(r);
+    return '<tr style="'+(r.reported?'':'background:#fff5f5;')+'">'
+      +'<td style="font-size:11px;color:var(--gray-400);">'+esc(r.date||'—')+'</td>'
+      +'<td class="td-name">'+esc(r.name||'—')+'</td>'
+      +'<td style="font-size:11px;font-weight:700;">'+esc(r.case_no||'—')+'</td>'
+      +'<td style="font-size:12px;">'+esc(r.org||'—')+'</td>'
+      +'<td style="font-size:11px;color:var(--gray-400);">'+esc(cname||'—')+'</td>'
+      +'<td style="font-size:12px;">'+esc(staff||'—')+'</td>'
+      +'<td style="font-size:11px;color:var(--gray-400);">'+esc(team||'—')+'</td>'
+      +'<td>'+(st?stBadge(st):'<span style="color:var(--gray-400);font-size:11px;">—</span>')+'</td>'
+      +'<td>'+(r.reported
+        ?'<span class="st-badge st-green">✓ 対応済</span>'
+        :'<span class="st-badge st-red">未対応</span>')
+        +((!r.reported && staff)?'<button onclick="showRecordsLineModal(\''+esc(staff)+'\',[''+r.id+''])" style="margin-left:4px;font-size:10px;padding:2px 6px;background:#dc2626;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:700;">📱</button>':'')
+      +'</td>'
+      +'</tr>';
+  }).join('');
+}
+
+function showRecordsLineModal(staffName, ids){
+  var targets;
+  if(ids && ids.length){
+    targets = DATA.receiptArchive.filter(function(r){ return ids.indexOf(r.id)!==-1; });
+  } else {
+    targets = DATA.receiptArchive.filter(function(r){
+      if(r.reported) return false;
+      var s = getRecordStaff(r)||'（担当なし）';
+      return s===staffName;
+    });
+  }
+  if(!targets.length){ showToast('対象データなし'); return; }
+  var today = new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
+  var displayName = staffName==='（担当なし）'?'担当者':staffName;
+  var lines = [];
+  lines.push('@' + displayName + ' さん');
+  lines.push('');
+  lines.push('お疲れ様です。');
+  lines.push('以下の申請記録について、案シスのステータス更新をお願いします。');
+  lines.push('');
+  targets.forEach(function(r, i){
+    var cname = getRecordCaseName(r);
+    var st    = getRecordStatus(r);
+    lines.push((i+1)+'. '+(r.name||'—'));
+    lines.push('   受付番号: '+(r.case_no||'—'));
+    lines.push('   申請日: '+(r.date||'—'));
+    lines.push('   登録支援機関: '+(r.org||'—'));
+    if(cname) lines.push('   案件名: '+cname);
+    if(st)    lines.push('   現ステータス: '+st);
+    lines.push('');
+  });
+  lines.push('よろしくお願いいたします。');
+  document.getElementById('lineModalMeta').textContent = displayName+' 担当 ／ 申請記録未対応 '+targets.length+'件（'+today+'）';
+  document.getElementById('lineModalText').value = lines.join('\n');
+  document.getElementById('lineModal').style.display = 'flex';
+}
+
 function showIntakeLineModal(staffName, ids){
   // ids指定なし→その担当者の未処理全件 / ids指定→その案件のみ
   var targets;
@@ -2944,7 +3122,7 @@ function showAlertLineModal(staff, alertType){
       return (c.staff||'').trim()===(staff==='（担当なし）'?'':staff) || (staff==='（担当なし）' && !(c.staff||'').trim());
     }).sort(function(a,b){ return (daysLeft(a.expire)??999)-(daysLeft(b.expire)??999); });
   } else if(alertType==='tokurei'){
-    var TOKUREI_ST2=['審査中','申請済(番号待)','郵送交付','★郵送交付','郵送交付中','窓口受取','★窓口受取','窓口受取（本人）','要追完','★要追完'];
+    var TOKUREI_ST2=['審査中','申請済(番号待)','郵送交付','窓口受取','★要追完'];
     var so2 = document.getElementById('tokureiSupportOrg').value||'';
     var co2 = document.getElementById('tokureiCompany').value||'';
     items = DATA.cases.filter(function(c){
