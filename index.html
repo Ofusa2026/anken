@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260414.21</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260414.23</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -19849,6 +19849,25 @@ function _persistRequiredDocsNationality(){
 }
 // 有効な国籍追加書類の国リストを返す
 function getExtraNatKeys(){ return Object.keys(REQUIRED_DOCS_NATIONALITY); }
+// 技人国デフォルト書類
+var _REQUIRED_DOCS_GIJI_DEFAULT = {
+  '認定': ['源泉徴収票等の法定調書合計票の写し','雇用契約書','履歴事項全部証明書','卒業証明書','成績証明書','決算文書の写し','所属機関の代表者に関する申告書','日本語能力証明書'],
+  '更新': ['源泉徴収票等の法定調書合計票の写し','雇用契約書','履歴事項全部証明書','卒業証明書','成績証明書','決算文書の写し','所属機関の代表者に関する申告書','日本語能力証明書'],
+  '変更': ['源泉徴収票等の法定調書合計票の写し','雇用契約書','履歴事項全部証明書','卒業証明書','成績証明書','決算文書の写し','所属機関の代表者に関する申告書','日本語能力証明書']
+};
+var REQUIRED_DOCS_GIJI = (function(){
+  try { var s=localStorage.getItem('ofusa_requiredDocsGiji'); if(s) return JSON.parse(s); } catch(e) {}
+  return {
+    '更新': _REQUIRED_DOCS_GIJI_DEFAULT['更新'].slice(),
+    '変更': _REQUIRED_DOCS_GIJI_DEFAULT['変更'].slice(),
+    '認定': _REQUIRED_DOCS_GIJI_DEFAULT['認定'].slice()
+  };
+})();
+function _persistRequiredDocsGiji(){
+  try{localStorage.setItem('ofusa_requiredDocsGiji',JSON.stringify(REQUIRED_DOCS_GIJI));}catch(e){}
+  if(typeof DB_READY!=='undefined'&&DB_READY&&typeof _sb!=='undefined')
+    _sb.from('settings').upsert({key:'required_docs_giji',value:JSON.stringify(REQUIRED_DOCS_GIJI)},{onConflict:'key'}).then(function(){});
+}
 var REQUIRED_DOCS = (function(){
   try { var s = localStorage.getItem('ofusa_requiredDocs'); if(s) return JSON.parse(s); } catch(e) {}
   return {
@@ -20400,8 +20419,20 @@ function buildCaseRow(c, today, inGroup) {
     else if (days <= 14) expStyle = 'background:#fff7ed;color:#ea580c;font-weight:700;';
     else if (days <= 30) expStyle = 'color:#d97706;font-weight:700;';
   }
-  var rowStyle = inGroup ? 'background:#f8faff;border-left:4px solid #93c5fd;' : '';
-  var rowBg = inGroup ? '#f8faff' : 'white';
+  // 優先度が設定されている場合は行に色をつける
+  var priVal0 = c.priority || '';
+  var priRowBg = '';
+  if (priVal0) {
+    var _n = parseInt(priVal0);
+    if (_n === 1)      priRowBg = '#fff1f2'; // 赤
+    else if (_n === 2) priRowBg = '#fff7ed'; // オレンジ
+    else if (_n === 3) priRowBg = '#fefce8'; // 黄
+    else               priRowBg = '#f0fdf4'; // 薄緑（4位以下）
+  }
+  var rowStyle = inGroup
+    ? 'background:#f8faff;border-left:4px solid #93c5fd;'
+    : (priRowBg ? 'background:'+priRowBg+';border-left:3px solid '+(parseInt(priVal0)===1?'#fca5a5':parseInt(priVal0)===2?'#fed7aa':parseInt(priVal0)===3?'#fde68a':'#bbf7d0')+';' : '');
+  var rowBg = inGroup ? '#f8faff' : (priRowBg || 'white');
   var cs = 'font-size:11px;';
   // 案件番号 YY-NNN形式
   var caseNo = c._caseNo || '';
@@ -24382,6 +24413,14 @@ function bulkUncheckAll(caseId, type) {
   showToast('✅ チェックを全解除しました');
 }
 
+function _isGijinkoku(cas) {
+  var rs = (personData[cas.id]||{}).residenceStatus || cas.residenceStatus || '';
+  var desired = (personData[cas.id]||{}).desiredStatus || '';
+  var visa = cas.visa || '';
+  return rs.indexOf('技術')>=0 || rs.indexOf('技人国')>=0 || rs.indexOf('人文')>=0 || rs.indexOf('国際業務')>=0
+      || desired.indexOf('技人国')>=0 || visa.indexOf('技人国')>=0
+      || cas.appType && (cas.appType.indexOf('技人国')>=0);
+}
 function _getDocList(cas) {
   var appType = cas.appType || '';
   var listKey = null;
@@ -24392,12 +24431,14 @@ function _getDocList(cas) {
   var pd = personData[cas.id] || {};
   var prevStatus = pd.residenceStatus || cas.residenceStatus || '';
   var isRyugaku = prevStatus.indexOf('留学') !== -1;
+  var isGiji = _isGijinkoku(cas);
   var natRaw = pd.nationality || cas.nationality || '';
   var natKey = null;
   Object.keys(REQUIRED_DOCS_NATIONALITY).forEach(function(k){ if(natRaw.indexOf(k)!==-1) natKey=k; });
   var seen = {}; var docList = [];
-  (REQUIRED_DOCS[listKey]||[]).forEach(function(d){if(!seen[d]){seen[d]=1;docList.push(d);}});
-  if (isRyugaku) (REQUIRED_DOCS_RYUGAKU[listKey]||[]).forEach(function(d){if(!seen[d]){seen[d]=1;docList.push(d);}});
+  var baseList = isGiji ? (REQUIRED_DOCS_GIJI[listKey]||[]) : (REQUIRED_DOCS[listKey]||[]);
+  baseList.forEach(function(d){if(!seen[d]){seen[d]=1;docList.push(d);}});
+  if (!isGiji && isRyugaku) (REQUIRED_DOCS_RYUGAKU[listKey]||[]).forEach(function(d){if(!seen[d]){seen[d]=1;docList.push(d);}});
   if (natKey) ((REQUIRED_DOCS_NATIONALITY[natKey]||{})[listKey]||[]).forEach(function(d){if(!seen[d]){seen[d]=1;docList.push(d);}});
   return docList;
 }
@@ -24409,16 +24450,15 @@ function renderDocsTab(cas) {
   else if (appType.indexOf('変更') !== -1) listKey = '変更';
   else if (appType.indexOf('認定') !== -1) listKey = '認定';
 
-  var _baseDocList = listKey ? REQUIRED_DOCS[listKey] : null;
-  // 留学生追加書類
   var _pd_nat = personData[cas.id] || {};
   var _prevStatus = _pd_nat.residenceStatus || cas.residenceStatus || '';
   var _isRyugaku = _prevStatus.indexOf('留学') !== -1;
+  var _isGiji = _isGijinkoku(cas);
   var _natRaw = _pd_nat.nationality || cas.nationality || '';
-  // 国籍マッチ（ベトナム・ミャンマー・カンボジア）
   var _natKey = null;
   Object.keys(REQUIRED_DOCS_NATIONALITY).forEach(function(k){ if(_natRaw.indexOf(k)!==-1) _natKey=k; });
-  var _extraRyugaku = (_isRyugaku && listKey) ? (REQUIRED_DOCS_RYUGAKU[listKey]||[]) : [];
+  var _baseDocList = listKey ? (_isGiji ? (REQUIRED_DOCS_GIJI[listKey]||[]) : (REQUIRED_DOCS[listKey]||[])) : null;
+  var _extraRyugaku = (!_isGiji && _isRyugaku && listKey) ? (REQUIRED_DOCS_RYUGAKU[listKey]||[]) : [];
   var _extraNat = (_natKey && listKey) ? ((REQUIRED_DOCS_NATIONALITY[_natKey]||{})[listKey]||[]) : [];
   // 重複除去して結合
   var docList = null;
@@ -24434,7 +24474,8 @@ function renderDocsTab(cas) {
   // ヘッダー：申請種別 + ドライブボタン
   h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">';
   var _badgeHtml = '';
-  if(_isRyugaku && _extraRyugaku.length) _badgeHtml += '<span style="margin-left:6px;font-size:10px;background:#fef3c7;color:#d97706;border-radius:99px;padding:1px 7px;font-weight:700;">＋留学生'+_extraRyugaku.length+'件</span>';
+  if(_isGiji) _badgeHtml += '<span style="margin-left:6px;font-size:10px;background:#dbeafe;color:#2563eb;border-radius:99px;padding:1px 7px;font-weight:700;">技人国</span>';
+  if(!_isGiji && _isRyugaku && _extraRyugaku.length) _badgeHtml += '<span style="margin-left:6px;font-size:10px;background:#fef3c7;color:#d97706;border-radius:99px;padding:1px 7px;font-weight:700;">＋留学生'+_extraRyugaku.length+'件</span>';
   if(_natKey && _extraNat.length) _badgeHtml += '<span style="margin-left:4px;font-size:10px;background:#ede9fe;color:#7c3aed;border-radius:99px;padding:1px 7px;font-weight:700;">＋'+_natKey+_extraNat.length+'件</span>';
   h += '<div style="font-size:12px;color:var(--gray-400);font-weight:700;">申請種別：<span style="color:var(--navy);">' + (appType||'未設定') + '</span>' + (listKey ? '　→　<b>' + listKey + '</b>用リスト' : '　（リスト未定義）') + _badgeHtml + '</div>';
   var pd_d = personData[cas.id] || {};
