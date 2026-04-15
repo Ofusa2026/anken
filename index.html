@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260414.23</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260414.24</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -20749,18 +20749,27 @@ function setCasePriority(caseId, newPriority) {
 function _updatePriorityBadge(caseId, priority, staff) {
   var badge = document.getElementById('pri_badge_' + caseId);
   if (!badge) return;
+  var colors = ['','#dc2626','#ea580c','#d97706','#ca8a04','#65a30d',
+                '#16a34a','#059669','#0891b2','#0284c7','#2563eb',
+                '#4f46e5','#7c3aed','#9333ea','#c026d3','#db2777',
+                '#e11d48','#64748b','#64748b','#64748b','#64748b'];
   if (priority) {
     badge.textContent = priority;
     badge.style.display = 'inline-flex';
-    var colors = ['','#dc2626','#ea580c','#d97706','#ca8a04','#65a30d',
-                  '#16a34a','#059669','#0891b2','#0284c7','#2563eb',
-                  '#4f46e5','#7c3aed','#9333ea','#c026d3','#db2777',
-                  '#e11d48','#64748b','#64748b','#64748b','#64748b'];
-    var col = colors[priority] || '#6b7280';
-    badge.style.background = col;
+    badge.style.background = colors[priority] || '#6b7280';
   } else {
     badge.textContent = '—';
     badge.style.display = 'none';
+  }
+  // 行の背景色・ボーダーも更新
+  var row = document.querySelector('tr[data-case-id="' + caseId + '"]');
+  if (row) {
+    var n = parseInt(priority) || 0;
+    if (n === 1)      { row.style.background='#fff1f2'; row.style.borderLeft='3px solid #fca5a5'; }
+    else if (n === 2) { row.style.background='#fff7ed'; row.style.borderLeft='3px solid #fed7aa'; }
+    else if (n === 3) { row.style.background='#fefce8'; row.style.borderLeft='3px solid #fde68a'; }
+    else if (n >= 4)  { row.style.background='#f0fdf4'; row.style.borderLeft='3px solid #bbf7d0'; }
+    else              { row.style.background=''; row.style.borderLeft=''; }
   }
 }
 
@@ -24435,6 +24444,9 @@ function _getDocList(cas) {
   var natRaw = pd.nationality || cas.nationality || '';
   var natKey = null;
   Object.keys(REQUIRED_DOCS_NATIONALITY).forEach(function(k){ if(natRaw.indexOf(k)!==-1) natKey=k; });
+  // 案件個別カスタムが設定されている場合はそれを優先
+  var _custom = window._caseCustomDocs && window._caseCustomDocs[cas.id] && window._caseCustomDocs[cas.id][listKey];
+  if (_custom) return _custom.slice();
   var seen = {}; var docList = [];
   var baseList = isGiji ? (REQUIRED_DOCS_GIJI[listKey]||[]) : (REQUIRED_DOCS[listKey]||[]);
   baseList.forEach(function(d){if(!seen[d]){seen[d]=1;docList.push(d);}});
@@ -24460,9 +24472,13 @@ function renderDocsTab(cas) {
   var _baseDocList = listKey ? (_isGiji ? (REQUIRED_DOCS_GIJI[listKey]||[]) : (REQUIRED_DOCS[listKey]||[])) : null;
   var _extraRyugaku = (!_isGiji && _isRyugaku && listKey) ? (REQUIRED_DOCS_RYUGAKU[listKey]||[]) : [];
   var _extraNat = (_natKey && listKey) ? ((REQUIRED_DOCS_NATIONALITY[_natKey]||{})[listKey]||[]) : [];
+  // 案件個別カスタムが設定されている場合はそれを優先
+  var _casCustom = window._caseCustomDocs && window._caseCustomDocs[cas.id] && window._caseCustomDocs[cas.id][listKey];
   // 重複除去して結合
   var docList = null;
-  if (_baseDocList) {
+  if (_casCustom) {
+    docList = _casCustom.slice();
+  } else if (_baseDocList) {
     var _seen = {};
     docList = [];
     _baseDocList.concat(_extraRyugaku).concat(_extraNat).forEach(function(d){ if(!_seen[d]){_seen[d]=1;docList.push(d);} });
@@ -24512,7 +24528,8 @@ function renderDocsTab(cas) {
   }
   // テキスト生成ボタン
   h += '<button onclick="openDocTextGenerator(\'' + cas.id + '\')" style="padding:8px 16px;background:#059669;color:white;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">📝 テキスト生成</button>';
-  if (listKey) h += '<button onclick="openRequiredDocsEditor(\'' + listKey + '\')" style="padding:8px 16px;background:#f5f3ff;color:#7c3aed;border:1.5px solid #c4b5fd;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">✏️ リスト編集</button>';
+  if (listKey) h += '<button onclick="openCaseDocsEditor(\''+cas.id+'\',\''+listKey+'\')" style="margin-right:4px;font-size:11px;padding:4px 10px;background:'+(window._caseCustomDocs&&window._caseCustomDocs[cas.id]&&window._caseCustomDocs[cas.id][listKey]?'#ede9fe':'#f3f4f6')+';color:'+(window._caseCustomDocs&&window._caseCustomDocs[cas.id]&&window._caseCustomDocs[cas.id][listKey]?'#7c3aed':'#6b7280')+';border:1px solid '+(window._caseCustomDocs&&window._caseCustomDocs[cas.id]&&window._caseCustomDocs[cas.id][listKey]?'#c4b5fd':'#e5e7eb')+';border-radius:7px;font-weight:700;cursor:pointer;">✏️ 個別編集'+(window._caseCustomDocs&&window._caseCustomDocs[cas.id]&&window._caseCustomDocs[cas.id][listKey]?' ★':'')+'</button>';
+  h += '<button onclick="openRequiredDocsEditor(\'' + listKey + '\')" style="padding:8px 16px;background:#f5f3ff;color:#7c3aed;border:1.5px solid #c4b5fd;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">✏️ リスト編集</button>';
   h += '</div>';
 
   // Driveスキャン結果表示エリア
@@ -26970,6 +26987,32 @@ function toggleCoDocSkip(coId, docName) {
 }
 
 // ===== 案件必要書類リスト編集 =====
+// ===== 案件個別カスタム書類 =====
+var _caseCustomDocs = (function(){
+  try { var s=localStorage.getItem('ofusa_caseCustomDocs'); if(s) return JSON.parse(s); } catch(e) {}
+  return {};
+})();
+window._caseCustomDocs = _caseCustomDocs;
+function _persistCaseCustomDocs(){
+  try{localStorage.setItem('ofusa_caseCustomDocs',JSON.stringify(window._caseCustomDocs||{}));}catch(e){}
+  if(typeof DB_READY!=='undefined'&&DB_READY&&typeof _sb!=='undefined')
+    _sb.from('settings').upsert({key:'case_custom_docs',value:JSON.stringify(window._caseCustomDocs||{})},{onConflict:'key'}).then(function(){});
+}
+function openCaseDocsEditor(caseId, listKey) {
+  window._reqDocsEditCaseId = caseId;
+  var modal = document.getElementById('reqDocsModal');
+  if (modal) modal.remove();
+  modal = document.createElement('div');
+  modal.id = 'reqDocsModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.onclick = function(e){ if(e.target===modal) _saveReqDocsAndClose(listKey); };
+  var inner = document.createElement('div');
+  inner.style.cssText = 'background:white;border-radius:14px;width:100%;max-width:480px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;';
+  modal.appendChild(inner);
+  document.body.appendChild(modal);
+  window._reqDocsEditKey = listKey;
+  _renderReqDocsModal(inner, listKey, 'case');
+}
 function openRequiredDocsEditor(listKey) {
   var modal = document.getElementById('reqDocsModal');
   if (modal) modal.remove();
@@ -26989,7 +27032,18 @@ function _renderReqDocsModal(inner, listKey, mode, natKey) {
   mode = mode || 'base';
   var docs;
   if (mode === 'ryugaku') docs = REQUIRED_DOCS_RYUGAKU[listKey] || [];
+  else if (mode === 'giji') docs = REQUIRED_DOCS_GIJI[listKey] || [];
   else if (mode === 'nat' && natKey) docs = (REQUIRED_DOCS_NATIONALITY[natKey]||{})[listKey] || [];
+  else if (mode === 'case' && window._reqDocsEditCaseId) {
+    var _cid = window._reqDocsEditCaseId;
+    if (!window._caseCustomDocs) window._caseCustomDocs = {};
+    if (!window._caseCustomDocs[_cid]) window._caseCustomDocs[_cid] = {};
+    docs = window._caseCustomDocs[_cid][listKey] || null;
+    if (docs === null) { // 未カスタマイズ→テンプレから継承
+      var _cas = cData.find(function(c){return c.id===_cid;})||{};
+      docs = (_isGijinkoku(_cas) ? (REQUIRED_DOCS_GIJI[listKey]||[]) : (REQUIRED_DOCS[listKey]||[])).slice();
+    }
+  }
   else docs = REQUIRED_DOCS[listKey] || [];
   window._reqDocsEditMode = mode;
   window._reqDocsEditNatKey = natKey || null;
@@ -27007,6 +27061,7 @@ function _renderReqDocsModal(inner, listKey, mode, natKey) {
   // カテゴリタブ（基本 / 留学生追加 / 国籍別追加）
   h += '<div style="display:flex;gap:4px;flex-wrap:wrap;">';
   h += '<button onclick="var _m=document.querySelector(\'#reqDocsModal>div\');if(_m)_renderReqDocsModal(_m,window._reqDocsEditKey,\'base\')" style="font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid '+(mode==='base'?'#2563eb':'#e5e7eb')+';background:'+(mode==='base'?'#2563eb':'white')+';color:'+(mode==='base'?'white':'#6b7280')+';cursor:pointer;font-weight:700;">📋 基本</button>';
+  h += '<button onclick="var _m=document.querySelector(\'#reqDocsModal>div\');if(_m)_renderReqDocsModal(_m,window._reqDocsEditKey,\'giji\')" style="font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid '+(mode==='giji'?'#2563eb':'#e5e7eb')+';background:'+(mode==='giji'?'#dbeafe':'white')+';color:'+(mode==='giji'?'#2563eb':'#6b7280')+';cursor:pointer;font-weight:700;">🏢 技人国</button>';
   h += '<button onclick="var _m=document.querySelector(\'#reqDocsModal>div\');if(_m)_renderReqDocsModal(_m,window._reqDocsEditKey,\'ryugaku\')" style="font-size:10px;padding:3px 10px;border-radius:5px;border:1px solid '+(mode==='ryugaku'?'#d97706':'#e5e7eb')+';background:'+(mode==='ryugaku'?'#fef3c7':'white')+';color:'+(mode==='ryugaku'?'#d97706':'#6b7280')+';cursor:pointer;font-weight:700;">🎓 留学生追加</button>';
   getExtraNatKeys().forEach(function(nk){
     var isActive = mode==='nat' && natKey===nk;
@@ -27082,11 +27137,22 @@ function _saveReqDocsAndClose(listKey) {
       REQUIRED_DOCS_RYUGAKU[listKey] = newDocs;
       _persistRequiredDocsRyugaku();
       showToast('✅【' + listKey + '】留学生追加書類を保存しました');
+    } else if (mode === 'giji') {
+      REQUIRED_DOCS_GIJI[listKey] = newDocs;
+      _persistRequiredDocsGiji();
+      showToast('✅【' + listKey + '】技人国書類リストを保存しました');
     } else if (mode === 'nat' && natKey) {
       if (!REQUIRED_DOCS_NATIONALITY[natKey]) REQUIRED_DOCS_NATIONALITY[natKey] = {};
       REQUIRED_DOCS_NATIONALITY[natKey][listKey] = newDocs;
       _persistRequiredDocsNationality();
       showToast('✅【' + listKey + '】' + natKey + '追加書類を保存しました');
+    } else if (mode === 'case' && window._reqDocsEditCaseId) {
+      var _cid2 = window._reqDocsEditCaseId;
+      if (!window._caseCustomDocs) window._caseCustomDocs = {};
+      if (!window._caseCustomDocs[_cid2]) window._caseCustomDocs[_cid2] = {};
+      window._caseCustomDocs[_cid2][listKey] = newDocs;
+      _persistCaseCustomDocs();
+      showToast('✅【' + listKey + '】この案件の書類リストを保存しました');
     } else {
       REQUIRED_DOCS[listKey] = newDocs;
       _persistRequiredDocs();
@@ -27106,10 +27172,18 @@ function _resetReqDocs() {
   if (mode === 'ryugaku') {
     REQUIRED_DOCS_RYUGAKU[listKey] = (_REQUIRED_DOCS_RYUGAKU_DEFAULT[listKey]||[]).slice();
     _persistRequiredDocsRyugaku();
+  } else if (mode === 'giji') {
+    REQUIRED_DOCS_GIJI[listKey] = (_REQUIRED_DOCS_GIJI_DEFAULT[listKey]||[]).slice();
+    _persistRequiredDocsGiji();
   } else if (mode === 'nat' && natKey && _REQUIRED_DOCS_NATIONALITY_DEFAULT[natKey]) {
     if (!REQUIRED_DOCS_NATIONALITY[natKey]) REQUIRED_DOCS_NATIONALITY[natKey] = {};
     REQUIRED_DOCS_NATIONALITY[natKey][listKey] = (_REQUIRED_DOCS_NATIONALITY_DEFAULT[natKey][listKey]||[]).slice();
     _persistRequiredDocsNationality();
+  } else if (mode === 'case' && window._reqDocsEditCaseId) {
+    var _cid3 = window._reqDocsEditCaseId;
+    if (!window._caseCustomDocs) window._caseCustomDocs = {};
+    if (window._caseCustomDocs[_cid3]) delete window._caseCustomDocs[_cid3][listKey];
+    _persistCaseCustomDocs();
   } else {
     REQUIRED_DOCS[listKey] = _REQUIRED_DOCS_DEFAULT[listKey].slice();
     _persistRequiredDocs();
