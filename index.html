@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260414.17</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260414.21</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -9820,7 +9820,7 @@ function openAlertModal(type) {
         +'<div style="font-size:11px;color:#6b7280;margin-bottom:1px;">'+esc(cas.name||'')+'</div>'
         +'<div style="font-size:11px;color:#94a3b8;">'+esc(cas.appType||'')+'　'+esc(cas.team||'')+'　'+esc(cas.staff||'')+'</div>'
         +'<div style="font-size:11px;color:'+col+';font-weight:700;">期限 '+cas.expire+'</div>'
-        +(cas.applicationDeadline?'<div style="font-size:11px;color:#dc2626;font-weight:700;">📅 申請期限 '+cas.applicationDeadline+'</div>':'')
+        +'<div style="font-size:11px;color:'+(cas.applicationDeadline?'#dc2626':'#94a3b8')+';font-weight:700;">📅 '+(cas.applicationDeadline?'申請期限 '+cas.applicationDeadline:'申請期限未入力')+'</div>'
         +(_prog?'<div style="font-size:11px;color:#374151;margin-top:4px;padding:4px 8px;background:#f8fafc;border-radius:5px;border-left:2px solid #94a3b8;">📝 '+esc(_prog)+'</div>':'')
         +'</div>'
         +'<div style="color:#cbd5e1;font-size:16px;">›</div>';
@@ -9913,7 +9913,7 @@ function openAlertModal(type) {
         +'<div style="font-size:11px;color:#94a3b8;">'+esc(cas.appType||'')+'　'+esc(cas.team||'')+'　'+esc(cas.staff||'')+'</div>'
         +'<div style="font-size:11px;color:#ea580c;font-weight:700;">帰国予定 '+personData[cas.id].tempReturn+'</div>'
         +(cas.expire?'<div style="font-size:11px;color:#94a3b8;">在留期限 '+cas.expire+'</div>':'')
-        +(cas.applicationDeadline?'<div style="font-size:11px;color:#dc2626;font-weight:700;">📅 申請期限 '+cas.applicationDeadline+'</div>':'')
+        +'<div style="font-size:11px;color:'+(cas.applicationDeadline?'#dc2626':'#94a3b8')+';font-weight:700;">📅 '+(cas.applicationDeadline?'申請期限 '+cas.applicationDeadline:'申請期限未入力')+'</div>'
         +(_prog?'<div style="font-size:11px;color:#374151;margin-top:4px;padding:4px 8px;background:#f8fafc;border-radius:5px;border-left:2px solid #94a3b8;">📝 '+esc(_prog)+'</div>':'')
         +'</div>'
         +'<div style="color:#cbd5e1;font-size:16px;">›</div>';
@@ -31245,23 +31245,26 @@ function renderMadoguchiScreen() {
   var showPast = document.getElementById('madoguchiShowPast') && document.getElementById('madoguchiShowPast').checked;
   var teamFilter = (document.getElementById('madoguchiTeamFilter') || {}).value || 'all';
 
-  var items = [];
+  var shinseiItems = [], uketoriItems = [], pastItems = [];
   cData.forEach(function(c) {
     if (c.status === '完了') return;
     if (teamFilter !== 'all' && c.team !== teamFilter) return;
     var md = c.madoguchiDate || '';
     var mr = c.madoguchiReceiveDate || '';
-    if (md && (showPast || md >= today)) items.push({c:c, date:md, type:'★申請', label:'🏢 窓口申請'});
-    if (mr && (showPast || mr >= today)) items.push({c:c, date:mr, type:'受取', label:'📦 窓口受取'});
+    if (md) {
+      var item = {c:c, date:md, type:'★申請', label:'🏢 窓口申請'};
+      if (md >= today) shinseiItems.push(item);
+      else if (showPast) pastItems.push(item);
+    }
+    if (mr) {
+      var item2 = {c:c, date:mr, type:'受取', label:'📦 窓口受取'};
+      if (mr >= today) uketoriItems.push(item2);
+      else if (showPast) pastItems.push(item2);
+    }
   });
-  // 独立した窓口記録（案件非紐付け）も追加
-  (window._madoguchiRecords||[]).forEach(function(r){
-    if(!r.date) return;
-    var _rdate = String(r.date).replace(/\//g,'-');
-    if(!showPast && _rdate < today) return;
-    items.push({date:r.date, type:r.type, label:(r.type==='★申請'?'🏢 窓口申請':'📦 窓口受取'), requester:r.requester, memo:r.memo, recordId:r.id, standalone:true});
-  });
-  items.sort(function(a,b){ return a.date.localeCompare(b.date); });
+  shinseiItems.sort(function(a,b){ return a.date.localeCompare(b.date); });
+  uketoriItems.sort(function(a,b){ return a.date.localeCompare(b.date); });
+  pastItems.sort(function(a,b){ return b.date.localeCompare(a.date); });
 
   // バッジ更新
   var allItems = [];
@@ -31273,68 +31276,84 @@ function renderMadoguchiScreen() {
   });
   var badge = document.getElementById('madoguchi-badge');
   if (badge) { badge.textContent = allItems.length; badge.style.display = allItems.length ? 'inline' : 'none'; }
+  var totalCount = shinseiItems.length + uketoriItems.length + (showPast ? pastItems.length : 0);
   var cnt = document.getElementById('madoguchiCount');
-  if (cnt) cnt.textContent = items.length + '件';
+  if (cnt) cnt.textContent = totalCount + '件';
+
+  function buildRow(item, hideDate) {
+    var c = item.c;
+    var isShinsei = item.type === '★申請';
+    var row = '<tr class="madoguchi-card" data-id="'+c.id+'" style="cursor:pointer;border-bottom:1px solid #f3f4f6;">';
+    if (!hideDate) {
+      var isToday = item.date === today;
+      var isSoon = !isToday && item.date > today && item.date <= new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+      var badgeHtml = isToday ? '<span style="font-size:10px;font-weight:800;color:white;background:#6366f1;border-radius:99px;padding:1px 8px;margin-left:4px;">本日</span>' : isSoon ? '<span style="font-size:10px;font-weight:800;color:#d97706;background:#fef3c7;border-radius:99px;padding:1px 8px;margin-left:4px;">まもなく</span>' : '';
+      row += '<td style="padding:8px 12px;white-space:nowrap;font-size:12px;font-weight:700;color:#374151;">'+item.date.slice(5).replace('-','/')+badgeHtml+'</td>';
+    }
+    row += '<td style="padding:8px 6px;"><span style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:5px;background:'+(isShinsei?'#fee2e2':'#fef9c3')+';color:'+(isShinsei?'#dc2626':'#a16207')+';border:1px solid '+(isShinsei?'#fca5a5':'#fde68a')+';">'+item.label+'</span></td>';
+    row += '<td style="padding:8px 6px;font-size:13px;font-weight:800;color:var(--navy);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(c.name||c.applicant||'')+'</td>';
+    row += '<td style="padding:8px 6px;font-size:11px;color:#6b7280;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(c.applicant||'')+'</td>';
+    row += '<td style="padding:8px 6px;font-size:11px;color:#9ca3af;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(c.company||'')+'</td>';
+    row += '<td style="padding:8px 6px;font-size:11px;color:#9ca3af;">'+esc(c.appType||'')+'</td>';
+    row += '<td style="padding:8px 6px;font-size:11px;color:#9ca3af;">'+esc(c.team||'')+'</td>';
+    row += '<td style="padding:8px 6px;font-size:11px;color:#9ca3af;">'+esc(c.staff||'')+'</td>';
+    row += '<td style="padding:8px 12px;font-size:18px;color:#d1d5db;">›</td>';
+    row += '</tr>';
+    return row;
+  }
+
+  function buildSection(title, color, items2) {
+    if (!items2.length) return '';
+    // 日付でグループ化
+    var groups = {};
+    var groupDates = [];
+    items2.forEach(function(item) {
+      if (!groups[item.date]) { groups[item.date] = []; groupDates.push(item.date); }
+      groups[item.date].push(item);
+    });
+    groupDates.sort();
+    var h = '<div style="margin-bottom:20px;">';
+    h += '<div style="font-size:12px;font-weight:800;color:'+color+';margin-bottom:8px;padding:5px 12px;background:'+color+'1a;border-radius:6px;border-left:3px solid '+color+';">'+title+' ('+items2.length+'件)</div>';
+    groupDates.forEach(function(date) {
+      var groupItems = groups[date];
+      var isToday = date === today;
+      var isSoon = !isToday && date > today && date <= new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+      var dateLabel = date.slice(5).replace('-','/');
+      var dateBadge = isToday
+        ? '<span style="font-size:10px;font-weight:800;color:white;background:#6366f1;border-radius:99px;padding:1px 8px;margin-left:6px;">本日</span>'
+        : isSoon ? '<span style="font-size:10px;font-weight:800;color:#d97706;background:#fef3c7;border-radius:99px;padding:1px 8px;margin-left:6px;">まもなく</span>' : '';
+      h += '<div style="margin-bottom:10px;">';
+      h += '<div style="font-size:12px;font-weight:800;color:'+(isToday?'#6366f1':isSoon?'#d97706':'#374151')+';padding:4px 10px;background:'+(isToday?'#f5f3ff':isSoon?'#fffbeb':'#f9fafb')+';border-radius:6px;margin-bottom:4px;display:flex;align-items:center;">'+dateLabel+dateBadge+'<span style="font-size:10px;font-weight:400;color:#9ca3af;margin-left:auto;">'+groupItems.length+'件</span></div>';
+      h += '<div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;"><table style="width:100%;border-collapse:collapse;">';
+      h += '<colgroup><col style="width:90px"><col><col style="width:100px"><col style="width:110px"><col style="width:50px"><col style="width:60px"><col style="width:70px"><col style="width:24px"></colgroup>';
+      groupItems.forEach(function(item){ h += buildRow(item, true); });
+      h += '</table></div></div>';
+    });
+    h += '</div>';
+    return h;
+  }
+
+  var items = shinseiItems; // dummy for old code compat
 
   if (!items.length) {
     el.innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--gray-400);">窓口日程が登録されている案件はありません<br><span style="font-size:11px;">「＋ 新規作成」で追加できます</span></div>';
     return;
   }
+  if (!shinseiItems.length && !uketoriItems.length && !(showPast && pastItems.length)) {
+    el.innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--gray-400);">窓口日程が登録されている案件はありません<br><span style="font-size:11px;">「＋ 新規作成」で追加できます</span></div>';
+    return;
+  }
   var h = '';
-  var lastMonth = '';
-  items.forEach(function(item) {
-    // 独立記録（案件非紐付け）の表示
-    if(item.standalone){
-      var month0=item.date.slice(0,7);
-      if(month0!==lastMonth){lastMonth=month0;h+='<div style="font-size:11px;font-weight:800;color:var(--gray-400);margin:14px 0 6px;padding:5px 12px;background:var(--gray-100);border-radius:6px;">'+month0.replace('-','年')+'月</div>';}
-      var isPast0=item.date<today,isToday0=item.date===today,isSoon0=!isPast0&&item.date<=new Date(Date.now()+7*86400000).toISOString().slice(0,10);
-      var bCol0=isToday0?'#6366f1':isSoon0?'#f59e0b':isPast0?'#d1d5db':'var(--gray-200)';
-      var bgCol0=isToday0?'#f5f3ff':isSoon0?'#fffbeb':isPast0?'#f9fafb':'white';
-      var badge0=isToday0?'<span style="font-size:10px;font-weight:800;color:white;background:#6366f1;border-radius:99px;padding:1px 8px;">本日</span>':isSoon0?'<span style="font-size:10px;font-weight:800;color:#d97706;background:#fef3c7;border-radius:99px;padding:1px 8px;">まもなく</span>':isPast0?'<span style="font-size:10px;color:#9ca3af;">済</span>':'';
-      h+='<div style="background:'+bgCol0+';border:1.5px solid '+bCol0+';border-radius:12px;padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;gap:14px;">';
-      h+='<div style="text-align:center;min-width:48px;"><div style="font-size:22px;font-weight:900;color:'+(isToday0?'#6366f1':isPast0?'#9ca3af':'var(--navy)')+';">'+item.date.slice(8,10)+'</div>';
-      h+='<div style="font-size:10px;color:var(--gray-400);">'+item.date.slice(5,7)+'/'+item.date.slice(8,10)+'</div></div>';
-      h+='<div style="width:1px;height:42px;background:var(--gray-200);flex-shrink:0;"></div>';
-      h+='<div style="flex:1;min-width:0;">';
-      h+='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:3px;"><span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:5px;background:'+(item.type==='★申請'?'#ede9fe':'#f0fdf4')+';color:'+(item.type==='★申請'?'#7c3aed':'#16a34a')+';border:1px solid '+(item.type==='★申請'?'#c4b5fd':'#86efac')+';">'+item.label+'</span>'+badge0+'</div>';
-      if(item.requester)h+='<div style="font-size:14px;font-weight:700;color:var(--navy);">'+esc(item.requester)+'</div>';
-      if(item.memo)h+='<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">'+esc(item.memo)+'</div>';
-      h+='</div>';
-      h+='<button data-rid="'+item.recordId+'" onclick="event.stopPropagation();deleteMadoguchiRecord(this.dataset.rid)" style="padding:5px 12px;background:none;color:#d1d5db;border:1px solid var(--gray-200);border-radius:6px;font-size:11px;cursor:pointer;">削除</button>';
-      h+='</div>';
-      return;
-    }
-    var c = item.c;
-    var month = item.date.slice(0,7);
-    var isPast = item.date < today;
-    var isToday = item.date === today;
-    var isSoon = !isPast && item.date <= new Date(Date.now()+7*86400000).toISOString().slice(0,10);
-    if (month !== lastMonth) {
-      lastMonth = month;
-      h += '<div style="font-size:11px;font-weight:800;color:var(--gray-400);margin:14px 0 6px;padding:5px 12px;background:var(--gray-100);border-radius:6px;">' + month.replace('-','年') + '月</div>';
-    }
-    var borderCol = isToday ? '#6366f1' : isSoon ? '#f59e0b' : isPast ? '#d1d5db' : 'var(--gray-200)';
-    var bgCol = isToday ? '#f5f3ff' : isSoon ? '#fffbeb' : isPast ? '#f9fafb' : 'white';
-    var badge2 = isToday ? '<span style="font-size:10px;font-weight:800;color:white;background:#6366f1;border-radius:99px;padding:1px 8px;">本日</span>'
-              : isSoon  ? '<span style="font-size:10px;font-weight:800;color:#d97706;background:#fef3c7;border-radius:99px;padding:1px 8px;">まもなく</span>'
-              : isPast  ? '<span style="font-size:10px;color:#9ca3af;">済</span>' : '';
-    h += '<div class="madoguchi-card" data-id="'+c.id+'" style="background:'+bgCol+';border:1.5px solid '+borderCol+';border-radius:12px;padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;gap:14px;cursor:pointer;">' ;
-    h += '<div style="text-align:center;min-width:48px;">';
-    h += '<div style="font-size:22px;font-weight:900;color:'+(isToday?'#6366f1':isPast?'#9ca3af':'var(--navy)')+';">'+item.date.slice(8,10)+'</div>';
-    h += '<div style="font-size:10px;color:var(--gray-400);">'+item.date.slice(5,7)+'/'+item.date.slice(8,10)+'</div>';
-    h += '</div>';
-    h += '<div style="width:1px;height:42px;background:var(--gray-200);flex-shrink:0;"></div>';
-    h += '<div style="flex:1;min-width:0;">';
-    h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:3px;">';
-    h += '<span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:5px;background:'+(item.type==='★申請'?'#ede9fe':'#f0fdf4')+';color:'+(item.type==='★申請'?'#7c3aed':'#16a34a')+';border:1px solid '+(item.type==='★申請'?'#c4b5fd':'#86efac')+';">' + item.label + '</span>';
-    h += badge2;
-    h += '</div>';
-    h += '<div style="font-size:14px;font-weight:700;color:var(--navy);">' + getDisplayName(c) + '</div>';
-    h += '<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">' + (c.company||'') + (c.team?' · '+c.team:'') + (c.staff?' · 👤'+c.staff:'') + '</div>';
-    h += '</div>';
-    h += '<div style="font-size:20px;color:var(--gray-200);">›</div>';
-    h += '</div>';
-  });
+  h += buildSection('🏢 窓口申請', '#dc2626', shinseiItems);
+  h += buildSection('📦 窓口受取', '#d97706', uketoriItems);
+  if (showPast && pastItems.length) {
+    h += '<div style="margin-top:8px;border-top:2px dashed #e5e7eb;padding-top:12px;">';
+    h += '<div style="font-size:11px;font-weight:800;color:#9ca3af;margin-bottom:8px;padding:4px 12px;background:#f9fafb;border-radius:6px;">📁 過去分 ('+pastItems.length+'件)</div>';
+    h += '<div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;opacity:0.65;"><table style="width:100%;border-collapse:collapse;">';
+    h += '<colgroup><col style="width:90px"><col style="width:90px"><col><col style="width:100px"><col style="width:110px"><col style="width:50px"><col style="width:60px"><col style="width:70px"><col style="width:24px"></colgroup>';
+    pastItems.forEach(function(item){ h += buildRow(item); });
+    h += '</table></div></div>';
+  }
   el.innerHTML = h;
   el.querySelectorAll('.madoguchi-card').forEach(function(d){d.addEventListener('click',function(){openCase(this.dataset.id);});});
 }
