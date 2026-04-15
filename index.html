@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260415.27</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260416.28</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -16189,6 +16189,7 @@ function editEmpSet(coId, idx) {
   h += '<button onclick="checkEmpSetConsistency(\'' + coId + '\',' + idx + ')" style="flex:1;padding:12px;background:#f59e0b;color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">🤖 AI整合性チェック</button>';
   h += '<button onclick="aiTranslateAllEmp(\'' + coId + '\',' + idx + ')" style="flex:1;padding:12px;background:#7c3aed;color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">🤖 AI翻訳</button>';
   h += '</div>';
+  h += '<button onclick="openEmpShortageCheck(\'' + coId + '\',' + idx + ')" style="width:100%;margin-top:8px;padding:10px;background:#ecfdf5;color:#059669;border:1.5px solid #6ee7b7;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">📋 不足項目チェック → ヒアリングフォーム</button>';
   // 最下部にも戻るボタンと言語プルダウンを表示
   h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--gray-200);">';
   h += '<button onclick="renderCompanyDetail(companies.find(function(x){return x.id===\'' + coId + '\'}))" style="font-size:11px;padding:5px 12px;background:var(--gray-200);color:var(--gray-600);border:none;border-radius:6px;cursor:pointer;font-weight:700;">← 戻る</button>';
@@ -16401,6 +16402,136 @@ function saveEmpSet(coId, idx) {
   // 紐づく案件に記録
   var _empCases = cData.filter(function(c){ return c.company === (co.name||'') || c.companyId === coId; });
   _empCases.forEach(function(c){ logCaseAction(c.id, 'info_save', '雇用条件セット保存'); });
+}
+
+
+// ===== 雇用条件 不足項目チェック → ヒアリングフォーム =====
+// フォームに存在する項目とEMP_SET_FIELDSのマッピング
+var EMP_SHORTAGE_FIELDS = [
+  {k:'officeName',      l:'事業所名',              fKey:'officeName'},
+  {k:'officeAddr',      l:'事業所住所',             fKey:'officeAddr'},
+  {k:'foreignerJobDesc',l:'外国人の職務内容',        fKey:'foreignerJobDesc'},
+  {k:'salaryMonthly',   l:'基本給（月給）',          fKey:'salaryMonthly'},
+  {k:'salaryHourly',    l:'時間給',                 fKey:'salaryHourly'},
+  {k:'totalMonthly',    l:'支払概算額',              fKey:'totalMonthly'},
+  {k:'payCutoffDay',    l:'締め日',                 fKey:'payCutoffDay'},
+  {k:'payDay',          l:'支払日',                 fKey:'payDay'},
+  {k:'payMethod',       l:'支払方法',               fKey:'payMethod'},
+  {k:'startTime',       l:'始業時刻',               fKey:'startTime'},
+  {k:'endTime',         l:'終業時刻',               fKey:'endTime'},
+  {k:'breakTime',       l:'休憩時間（分）',           fKey:'breakTime'},
+  {k:'weeklyDays',      l:'週所定労働日数',           fKey:'weeklyDays'},
+  {k:'weeklyH',         l:'週所定労働時間',           fKey:'weeklyH'},
+  {k:'monthlyH',        l:'月所定労働時間',           fKey:'monthlyH'},
+  {k:'overtimeFlg',     l:'時間外労働の有無',         fKey:'overtimeFlg'},
+  {k:'shiftFlg',        l:'シフト制の有無',           fKey:'shiftFlg'},
+  {k:'salaryRaise',     l:'昇給',                   fKey:'salaryRaise'},
+  {k:'bonus',           l:'賞与',                   fKey:'bonus'},
+  {k:'retirement',      l:'退職金',                 fKey:'retirement'},
+  {k:'insKenpo',        l:'健康保険',               fKey:'insKenpo'},
+  {k:'insPension',      l:'厚生年金',               fKey:'insPension'},
+  {k:'insEmp',          l:'雇用保険',               fKey:'insEmp'},
+  {k:'insLabor',        l:'労災保険',               fKey:'insLabor'},
+  {k:'paidLeaveCount',  l:'有給休暇日数',             fKey:'paidLeaveCount'},
+  {k:'fixedHoliday',    l:'固定休日',               fKey:'fixedHoliday'},
+  {k:'deductTax',       l:'税金控除（概算）',          fKey:'deductTax'},
+  {k:'deductSocial',    l:'社会保険料（概算）',        fKey:'deductSocial'},
+  {k:'deductHousing',   l:'居住費控除',              fKey:'deductHousing'},
+  {k:'jpCompJobDesc',   l:'比較対象日本人の職務内容',   fKey:'jpCompJobDesc'},
+  {k:'jpCompSalary',    l:'比較対象日本人の賃金',      fKey:'jpCompSalary'},
+];
+
+function openEmpShortageCheck(coId, idx) {
+  var co = companies.find(function(x){ return x.id === coId; });
+  if (!co || !co.empSets || !co.empSets[idx]) { showToast('⚠️ 雇用条件が見つかりません'); return; }
+  saveEmpSet(coId, idx);
+  var es = co.empSets[idx];
+
+  // 空欄項目を抽出
+  var missing = EMP_SHORTAGE_FIELDS.filter(function(f) {
+    var v = es[f.k];
+    return v === undefined || v === null || String(v).trim() === '';
+  });
+
+  var modal = document.createElement('div');
+  modal.id = 'empShortageModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
+
+  var inner = document.createElement('div');
+  inner.style.cssText = 'background:white;border-radius:14px;width:100%;max-width:520px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;';
+  modal.appendChild(inner);
+  document.body.appendChild(modal);
+
+  function render() {
+    var h = '';
+    h += '<div style="padding:14px 16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">';
+    h += '<div style="font-size:14px;font-weight:800;color:#0f2040;">📋 不足項目チェック</div>';
+    h += '<button onclick="document.getElementById(\'empShortageModal\').remove()" style="font-size:18px;color:#9ca3af;background:none;border:none;cursor:pointer;">✕</button>';
+    h += '</div>';
+    h += '<div style="padding:10px 16px;background:#f0fdf4;border-bottom:1px solid #e5e7eb;">';
+    h += '<div style="font-size:11px;color:#059669;font-weight:700;">📌 ' + esc(co.name) + ' ／ ' + esc(es.setName||'雇用条件'+(idx+1)) + '</div>';
+    h += '<div style="font-size:11px;color:#6b7280;margin-top:2px;">空欄の項目を選択 → フォームURLを生成して企業にヒアリングできます</div>';
+    h += '</div>';
+
+    h += '<div style="flex:1;overflow-y:auto;padding:12px 16px;">';
+    if (!missing.length) {
+      h += '<div style="text-align:center;padding:40px;color:#059669;font-size:13px;font-weight:700;">✅ 必須項目はすべて入力済みです</div>';
+    } else {
+      h += '<div style="font-size:11px;font-weight:700;color:#dc2626;margin-bottom:8px;">⚠️ 未入力 ' + missing.length + '件</div>';
+      h += '<div style="display:flex;flex-direction:column;gap:4px;" id="empShortageList">';
+      missing.forEach(function(f, i) {
+        h += '<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;background:#fafafa;hover:background:#f0fdf4;">';
+        h += '<input type="checkbox" class="emp-shortage-cb" data-fkey="' + esc(f.fKey) + '" data-label="' + esc(f.l) + '" checked style="width:15px;height:15px;accent-color:#059669;cursor:pointer;">';
+        h += '<span style="font-size:12px;font-weight:600;color:#374151;">' + esc(f.l) + '</span>';
+        h += '</label>';
+      });
+      h += '</div>';
+    }
+    h += '</div>';
+
+    if (missing.length) {
+      h += '<div style="padding:12px 16px;border-top:1px solid #e5e7eb;display:flex;flex-direction:column;gap:8px;">';
+      h += '<div style="display:flex;gap:6px;">';
+      h += '<button onclick="(function(){document.querySelectorAll(\'.emp-shortage-cb\').forEach(function(c){c.checked=true;});})()" style="font-size:11px;padding:5px 12px;background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">全選択</button>';
+      h += '<button onclick="(function(){document.querySelectorAll(\'.emp-shortage-cb\').forEach(function(c){c.checked=false;});})()" style="font-size:11px;padding:5px 12px;background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">全解除</button>';
+      h += '</div>';
+      h += '<button onclick="generateEmpShortageFormUrl(\'' + coId + '\')" style="padding:11px;background:#059669;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">🔗 フォームURLを生成</button>';
+      // URL表示エリア
+      h += '<div id="empShortageUrlArea" style="display:none;">';
+      h += '<div style="font-size:11px;font-weight:700;color:#6b7280;margin-bottom:4px;">企業担当者に送付するURL：</div>';
+      h += '<div style="display:flex;gap:6px;">';
+      h += '<input id="empShortageUrlInput" type="text" readonly style="flex:1;font-size:11px;padding:8px 10px;border:1.5px solid #e5e7eb;border-radius:8px;background:#f9fafb;">';
+      h += '<button onclick="(function(){var el=document.getElementById(\'empShortageUrlInput\');navigator.clipboard.writeText(el.value).then(function(){showToast(\'URLをコピーしました\');document.getElementById(\'empShortageModal\').remove();});})()" style="flex-shrink:0;padding:8px 14px;background:#16a34a;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">コピー</button>';
+      h += '</div>';
+      h += '</div>';
+      h += '</div>';
+    }
+
+    inner.innerHTML = h;
+  }
+
+  render();
+}
+
+function generateEmpShortageFormUrl(coId) {
+  var co = companies.find(function(x){ return x.id === coId; });
+  if (!co) return;
+  var cbs = document.querySelectorAll('.emp-shortage-cb:checked');
+  if (!cbs.length) { showToast('⚠️ 項目を1つ以上選択してください'); return; }
+  var fields = [];
+  cbs.forEach(function(cb){ fields.push(cb.getAttribute('data-fkey')); });
+  var url = FORM_BASE_URL + '?case=' + encodeURIComponent('co_' + coId)
+    + '&type=company'
+    + '&name=' + encodeURIComponent(co.name||'')
+    + '&fields=' + encodeURIComponent(fields.join(','));
+  var area = document.getElementById('empShortageUrlArea');
+  var inp  = document.getElementById('empShortageUrlInput');
+  if (area && inp) {
+    inp.value = url;
+    area.style.display = '';
+    inp.select();
+  }
 }
 
 // 雇用条件 AI整合性チェック（チャット対応）
