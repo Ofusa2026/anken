@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_ADMIN ver.20260414.16 -->
+<!-- OFUSA_ADMIN ver.20260414.17 -->
 <html lang="ja"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -216,7 +216,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
       <div class="logo-badge">OFUSA</div>
       <div class="logo-title">大房行政書士法人</div>
       <div class="logo-sub">管理ダッシュボード</div>
-      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260414.16</div>
+      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260414.17</div>
     </div>
     <div class="sidebar-section">概要</div>
     <div class="nav-item active" onclick="nav('dashboard')">📊 ダッシュボード</div>
@@ -232,6 +232,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
     <div class="nav-item" onclick="nav('records')">📋 申請記録 未対応 <span class="nbadge red" id="bdg-records">0</span></div>
     <div class="nav-item" onclick="nav('receiptcheck')">🔍 要追完対応漏れチェック</div>
     <div class="nav-item" onclick="nav('coecheck')">🔍 COE・審査完了対応漏れチェック</div>
+    <div class="nav-item" onclick="downloadAppliedNoDriveCSV()">📥 申請中・ドライブ未設定CSV</div>
     <div class="nav-item" onclick="nav('users')">👥 ユーザー管理</div>
     <div class="nav-item" onclick="nav('settings')">⚙️ 設定</div>
     <div class="sidebar-user">
@@ -254,7 +255,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
     <div class="topbar">
       <div class="page-title" id="pageTitle">ダッシュボード</div>
       <div class="topbar-right">
-        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260414.16</span>
+        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260414.17</span>
         <span class="last-updated" id="lastUpdated"></span>
         <button class="btn btn-primary" onclick="refreshAll()">🔄 データ更新</button>
       </div>
@@ -1240,8 +1241,7 @@ function updateBadges(){
   // 一時帰国：persons.extra.tempReturn・除外ステータスあり・10日以内
   var TR_EXCLUDE = ['申請済(番号待)','審査中','特活審査中','★要追完','要追完 企業不足書類待ち','要追完 人材不足書類待ち','許可済 受取方法調整中','入管受取ステータス変更中','郵送交付','★郵送交付','郵送交付中','窓口受取','★窓口受取','窓口受取（本人）','完了','審査完了'];
   var tempReturnAlert = DATA.cases.filter(function(c){
-    var st=normalizeStatus(c.status);
-    if(TR_EXCLUDE.indexOf(st)!==-1) return false;
+    if(TR_EXCLUDE.indexOf(c.status)!==-1) return false;
     var d=daysLeft(getTempReturn(c)); return d!==null && d<=10 && d>=0;
   });
   setTxt('st-tokurei',    tokureiAlert.length);
@@ -1947,8 +1947,8 @@ function renderTempReturnAlerts(){
   var validNames = DATA.users.map(function(u){ return (u.name||'').trim(); }).filter(Boolean);
   var teams  = [...new Set(DATA.cases.map(function(c){ return c.team; }).filter(Boolean))];
   var staffs = [...new Set(DATA.cases.filter(function(c){
-    var st=normalizeStatus(c.status); var d=daysLeft(getTempReturn(c));
-    return TR_EXCLUDE.indexOf(st)===-1 && d!==null && d<=trDays && d>=0;
+    var d=daysLeft(getTempReturn(c));
+    return TR_EXCLUDE.indexOf(c.status)===-1 && d!==null && d<=trDays && d>=0;
   }).map(function(c){ return (c.staff||'').trim(); }).filter(function(s){
     return s && (validNames.length===0 || validNames.indexOf(s)!==-1);
   }))].sort();
@@ -1959,8 +1959,7 @@ function renderTempReturnAlerts(){
   popSelect('tempReturnSupportOrg', orgs, so);
   popSelect('tempReturnCompany', companies, co);
   var items = DATA.cases.filter(function(c){
-    var st=normalizeStatus(c.status);
-    if(TR_EXCLUDE.indexOf(st)!==-1) return false;
+    if(TR_EXCLUDE.indexOf(c.status)!==-1) return false;
     var tr=getTempReturn(c);
     var d=daysLeft(tr);
     if(d===null||d>trDays||d<0) return false;
@@ -3175,7 +3174,7 @@ function showAlertLineModal(staff, alertType, caseId){
     var co3 = document.getElementById('tempReturnCompany').value||'';
     items = DATA.cases.filter(function(c){
       var st=normalizeStatus(c.status);
-      if(TR_EX2.indexOf(st)!==-1) return false;
+      if(TR_EX2.indexOf(c.status)!==-1) return false;
       var d=daysLeft(getTempReturn(c));
       if(d===null||d>10||d<0) return false;
       if(so3 && c.org!==so3) return false;
@@ -3354,6 +3353,47 @@ function showLineModal(staff, type, event, supportOrg, appTypes){
   var modal = document.getElementById('lineModal');
   modal.style.display = 'flex';
 }
+function downloadAppliedNoDriveCSV(){
+  // ステータスが「申請」かつドライブURLなしの案件を抽出
+  var targets = DATA.cases.filter(function(c){
+    var st = normalizeStatus(c.status);
+    return st === '申請' && !hasDrive(c.id);
+  });
+  if(!targets.length){ showToast('該当案件なし'); return; }
+
+  var BOM = '\uFEFF';
+  var headers = ['案件名','申請人氏名','所属機関','登録支援機関','種別','ステータス','担当','チーム','在留期限','申請期限','受付番号'];
+  var rows = [headers.join(',')];
+  targets.forEach(function(c){
+    var row = [
+      c.name||'',
+      c.applicant||'',
+      c.company||'',
+      c.org||'',
+      c.app_type||'',
+      c.status||'',
+      c.staff||'',
+      c.team||'',
+      c.expire||'',
+      c.application_deadline||'',
+      c.receipt_no||''
+    ].map(function(v){ return '"'+String(v).replace(/"/g,'""')+'"'; });
+    rows.push(row.join(','));
+  });
+
+  var csv = BOM + rows.join('\r\n');
+  var blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = '申請中_ドライブ未設定_' + new Date().toLocaleDateString('ja-JP').replace(/\//g,'-') + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('✅ CSV出力しました（'+targets.length+'件）');
+}
+
 function showToast(msg, duration){
   var el = document.getElementById('toast');
   if(!el) return;
