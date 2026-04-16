@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260416.36</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260416.37</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -29157,17 +29157,19 @@ var savedMails = []; try{
 // 各リストの選択状態
 var recSel={}, shinsaSel={}, certSel={};
 
-function _listItemToRow(d) {
-  return {
+function _listItemToRow(d, type) {
+  var row = {
     id: d.id, name: d.name||null, date: d.date||null,
     case_no: d.caseNo||null, org: d.org||null, sub: d.sub||null,
     moved_at: d.movedAt||null, case_id: d.caseId||null,
     reported: d.reported||false,
     reported_at: d.reportedAt||null,
     pdf_done: d.pdfDone||false,
-    application_date: d.applicationDate||null,
     updated_at: new Date().toISOString()
   };
+  // application_dateはreceipt_archiveのみ
+  if (!type || type === 'rec') row.application_date = d.applicationDate||null;
+  return row;
 }
 function _rowToListItem(r) {
   return {
@@ -29185,10 +29187,10 @@ function persistShinsaList(changedId){
   if(changedId) {
     // 1件だけupsert
     var item = shinsaListData.find(function(x){return x.id===changedId;});
-    if(item) _sb.from('shinsa_archive').upsert(_listItemToRow(item),{onConflict:'id'}).then(function(r){if(r&&r.error){console.error('❌ shinsa_archive upsert err:',r.error.message,_listItemToRow(item));}else{console.log('✅ shinsa_archive saved:',item.id);}});
+    if(item) _sb.from('shinsa_archive').upsert(_listItemToRow(item,'shinsa'),{onConflict:'id'}).then(function(r){if(r&&r.error){console.error('❌ shinsa_archive upsert err:',r.error.message,_listItemToRow(item,'shinsa'));}else{console.log('✅ shinsa_archive saved:',item.id);}});
   } else {
     // 全件upsert（初回・一括操作時）
-    var rows = shinsaListData.map(_listItemToRow);
+    var rows = shinsaListData.map(function(d){return _listItemToRow(d,'shinsa');});
     if(rows.length) _sb.from('shinsa_archive').upsert(rows,{onConflict:'id'}).then(function(r){if(r&&r.error)console.error('shinsaList bulk err:',r.error);});
   }
 }
@@ -29197,9 +29199,9 @@ function persistCertList(changedId){
   if(!DB_READY) return;
   if(changedId) {
     var item = certListData.find(function(x){return x.id===changedId;});
-    if(item) _sb.from('cert_archive').upsert(_listItemToRow(item),{onConflict:'id'}).then(function(r){if(r&&r.error){console.error('❌ cert_archive upsert err:',r.error.message,_listItemToRow(item));}else{console.log('✅ cert_archive saved:',item.id);}});
+    if(item) _sb.from('cert_archive').upsert(_listItemToRow(item,'cert'),{onConflict:'id'}).then(function(r){if(r&&r.error){console.error('❌ cert_archive upsert err:',r.error.message,_listItemToRow(item,'cert'));}else{console.log('✅ cert_archive saved:',item.id);}});
   } else {
-    var rows = certListData.map(_listItemToRow);
+    var rows = certListData.map(function(d){return _listItemToRow(d,'cert');});
     if(rows.length) _sb.from('cert_archive').upsert(rows,{onConflict:'id'}).then(function(r){if(r&&r.error)console.error('certList bulk err:',r.error);});
   }
 }
@@ -29210,12 +29212,12 @@ function persistReceiptList(changedId){
   if(changedId) {
     var item = receiptListData.find(function(x){return x.id===changedId;});
     console.log('📦 item found:', !!item, 'row:', item ? _listItemToRow(item) : null);
-    if(item) _sb.from('receipt_archive').upsert(_listItemToRow(item),{onConflict:'id'}).then(function(r){
+    if(item) _sb.from('receipt_archive').upsert(_listItemToRow(item,'rec'),{onConflict:'id'}).then(function(r){
       if(r&&r.error) console.error('❌ receiptList upsert err:',r.error);
       else console.log('✅ receipt_archive upserted:', changedId);
     });
   } else {
-    var rows = receiptListData.map(_listItemToRow);
+    var rows = receiptListData.map(function(d){return _listItemToRow(d,'rec');});
     if(rows.length) _sb.from('receipt_archive').upsert(rows,{onConflict:'id'}).then(function(r){if(r&&r.error)console.error('receiptList bulk err:',r.error);});
   }
 }
