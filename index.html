@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260416.28</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260416.36</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -652,6 +652,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="nav-item" id="nav-gmail" onclick="openGmail()">📧 Gmail取込 <span id="gmailRunBadge" style="display:none;font-size:9px;color:white;background:#f59e0b;border-radius:8px;padding:1px 5px;margin-left:4px;animation:pulse 1.5s infinite;">取込中</span><span onclick="event.stopPropagation();resetImportBadge()" id="gmailResetBadge" style="display:none;font-size:9px;color:white;background:#dc2626;border-radius:8px;padding:1px 5px;margin-left:2px;cursor:pointer;">×</span></div>
   <div class="nav-item" id="nav-mailbox" onclick="openMailbox()" style="display:none;">📬 メールボックス</div>
   <div class="nav-item" id="nav-records" onclick="openRecords()">🗂️ 申請記録</div>
+  <div class="nav-item" id="nav-records-by-org" onclick="toggleRecordsByOrg()" style="padding-left:28px;font-size:11px;color:#6366f1;">📋 支援機関別に表示 <span id="recordsByOrgArrow">▶</span></div>
+  <div id="recordsByOrgList" style="display:none;padding:0 8px 4px 28px;"></div>
   <div class="nav-item" id="nav-tsuikan" onclick="openTsuikan()">⚠️ 要追完/指摘</div>
   <div class="nav-item" id="nav-shinsaList" onclick="openShinsaList()">✅ 審査完了</div>
   <div class="nav-item" id="nav-certList" onclick="openCertList()">📄 認定証明書</div>
@@ -2406,6 +2408,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       </div>
       <div class="person-field"><label>受付番号</label><input type="text" id="mr_receiptNo" placeholder="例：E V 26000159"></div>
       <div class="person-field"><label>受付日</label><input type="date" id="mr_receiptDate"></div>
+      <div class="person-field"><label>申請日</label><input type="date" id="mr_applicationDate"></div>
       <div class="person-field"><label>在留期限</label><input type="date" id="mr_expire"></div>
       <div class="person-field"><label>担当者</label><input type="text" id="mr_staff" placeholder="例：坂齊 佐知"></div>
       <div class="person-field"><label>取次者</label><input type="text" id="mr_toritsugisha" placeholder="例：田中 綾美"></div>
@@ -3688,7 +3691,35 @@ var personData = {};
 // 不要項目管理: { 'case_CASEID_info': ['field1','field2'], 'company_COID_basic': [...], ... }
 var skippedFields = JSON.parse(localStorage.getItem('ofusa_skippedFields')||'{}');
 function persistSkippedFields(){ try{localStorage.setItem('ofusa_skippedFields',JSON.stringify(skippedFields));}catch(e){} }
-function toggleSkipField(scope, key){ if(!skippedFields[scope]) skippedFields[scope]=[]; var idx=skippedFields[scope].indexOf(key); if(idx===-1) skippedFields[scope].push(key); else skippedFields[scope].splice(idx,1); persistSkippedFields(); }
+function toggleSkipField(scope, key){
+  if(!skippedFields[scope]) skippedFields[scope]=[];
+  var idx=skippedFields[scope].indexOf(key);
+  var nowSkipped = idx===-1;
+  if(nowSkipped) skippedFields[scope].push(key);
+  else skippedFields[scope].splice(idx,1);
+  persistSkippedFields();
+  // 雇用条件スコープ（company_xxx_empN）の場合、empHearingとも同期
+  var _empMatch = scope.match(/^company_(.+)_emp(\d+)$/);
+  if(_empMatch){
+    var _coId=_empMatch[1], _empIdx=parseInt(_empMatch[2]);
+    var _saveKey='empHearing_'+_coId+'_'+_empIdx;
+    if(!window._empHearingCache) window._empHearingCache={};
+    // キャッシュから取得
+    var _skips={};
+    try{_skips=JSON.parse(window._empHearingCache[_saveKey]||'{}');}catch(e){}
+    if(nowSkipped) _skips['skip_'+key]=true;
+    else delete _skips['skip_'+key];
+    window._empHearingCache[_saveKey]=JSON.stringify(_skips);
+    // 現在モーダルが開いていて同じcoId/idxならwindow._empHearingSkipsも更新
+    if(window._empHearingCoId===_coId && window._empHearingIdx===_empIdx){
+      window._empHearingSkips=_skips;
+    }
+    // Supabaseに保存
+    if(typeof DB_READY!=='undefined'&&DB_READY&&typeof _sb!=='undefined'){
+      _sb.from('settings').upsert({key:_saveKey,value:JSON.stringify(_skips)},{onConflict:'key'}).then(function(){});
+    }
+  }
+}
 function isFieldSkipped(scope, key){ return skippedFields[scope] && skippedFields[scope].indexOf(key)!==-1; }
 function sgGroupToggleCollapse(grpId){
   var el=document.getElementById(grpId);
@@ -16189,7 +16220,7 @@ function editEmpSet(coId, idx) {
   h += '<button onclick="checkEmpSetConsistency(\'' + coId + '\',' + idx + ')" style="flex:1;padding:12px;background:#f59e0b;color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">🤖 AI整合性チェック</button>';
   h += '<button onclick="aiTranslateAllEmp(\'' + coId + '\',' + idx + ')" style="flex:1;padding:12px;background:#7c3aed;color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">🤖 AI翻訳</button>';
   h += '</div>';
-  h += '<button onclick="openEmpShortageCheck(\'' + coId + '\',' + idx + ')" style="width:100%;margin-top:8px;padding:10px;background:#ecfdf5;color:#059669;border:1.5px solid #6ee7b7;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">📋 不足項目チェック → ヒアリングフォーム</button>';
+
   // 最下部にも戻るボタンと言語プルダウンを表示
   h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--gray-200);">';
   h += '<button onclick="renderCompanyDetail(companies.find(function(x){return x.id===\'' + coId + '\'}))" style="font-size:11px;padding:5px 12px;background:var(--gray-200);color:var(--gray-600);border:none;border-radius:6px;cursor:pointer;font-weight:700;">← 戻る</button>';
@@ -16404,135 +16435,6 @@ function saveEmpSet(coId, idx) {
   _empCases.forEach(function(c){ logCaseAction(c.id, 'info_save', '雇用条件セット保存'); });
 }
 
-
-// ===== 雇用条件 不足項目チェック → ヒアリングフォーム =====
-// フォームに存在する項目とEMP_SET_FIELDSのマッピング
-var EMP_SHORTAGE_FIELDS = [
-  {k:'officeName',      l:'事業所名',              fKey:'officeName'},
-  {k:'officeAddr',      l:'事業所住所',             fKey:'officeAddr'},
-  {k:'foreignerJobDesc',l:'外国人の職務内容',        fKey:'foreignerJobDesc'},
-  {k:'salaryMonthly',   l:'基本給（月給）',          fKey:'salaryMonthly'},
-  {k:'salaryHourly',    l:'時間給',                 fKey:'salaryHourly'},
-  {k:'totalMonthly',    l:'支払概算額',              fKey:'totalMonthly'},
-  {k:'payCutoffDay',    l:'締め日',                 fKey:'payCutoffDay'},
-  {k:'payDay',          l:'支払日',                 fKey:'payDay'},
-  {k:'payMethod',       l:'支払方法',               fKey:'payMethod'},
-  {k:'startTime',       l:'始業時刻',               fKey:'startTime'},
-  {k:'endTime',         l:'終業時刻',               fKey:'endTime'},
-  {k:'breakTime',       l:'休憩時間（分）',           fKey:'breakTime'},
-  {k:'weeklyDays',      l:'週所定労働日数',           fKey:'weeklyDays'},
-  {k:'weeklyH',         l:'週所定労働時間',           fKey:'weeklyH'},
-  {k:'monthlyH',        l:'月所定労働時間',           fKey:'monthlyH'},
-  {k:'overtimeFlg',     l:'時間外労働の有無',         fKey:'overtimeFlg'},
-  {k:'shiftFlg',        l:'シフト制の有無',           fKey:'shiftFlg'},
-  {k:'salaryRaise',     l:'昇給',                   fKey:'salaryRaise'},
-  {k:'bonus',           l:'賞与',                   fKey:'bonus'},
-  {k:'retirement',      l:'退職金',                 fKey:'retirement'},
-  {k:'insKenpo',        l:'健康保険',               fKey:'insKenpo'},
-  {k:'insPension',      l:'厚生年金',               fKey:'insPension'},
-  {k:'insEmp',          l:'雇用保険',               fKey:'insEmp'},
-  {k:'insLabor',        l:'労災保険',               fKey:'insLabor'},
-  {k:'paidLeaveCount',  l:'有給休暇日数',             fKey:'paidLeaveCount'},
-  {k:'fixedHoliday',    l:'固定休日',               fKey:'fixedHoliday'},
-  {k:'deductTax',       l:'税金控除（概算）',          fKey:'deductTax'},
-  {k:'deductSocial',    l:'社会保険料（概算）',        fKey:'deductSocial'},
-  {k:'deductHousing',   l:'居住費控除',              fKey:'deductHousing'},
-  {k:'jpCompJobDesc',   l:'比較対象日本人の職務内容',   fKey:'jpCompJobDesc'},
-  {k:'jpCompSalary',    l:'比較対象日本人の賃金',      fKey:'jpCompSalary'},
-];
-
-function openEmpShortageCheck(coId, idx) {
-  var co = companies.find(function(x){ return x.id === coId; });
-  if (!co || !co.empSets || !co.empSets[idx]) { showToast('⚠️ 雇用条件が見つかりません'); return; }
-  saveEmpSet(coId, idx);
-  var es = co.empSets[idx];
-
-  // 空欄項目を抽出
-  var missing = EMP_SHORTAGE_FIELDS.filter(function(f) {
-    var v = es[f.k];
-    return v === undefined || v === null || String(v).trim() === '';
-  });
-
-  var modal = document.createElement('div');
-  modal.id = 'empShortageModal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
-  modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
-
-  var inner = document.createElement('div');
-  inner.style.cssText = 'background:white;border-radius:14px;width:100%;max-width:520px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;';
-  modal.appendChild(inner);
-  document.body.appendChild(modal);
-
-  function render() {
-    var h = '';
-    h += '<div style="padding:14px 16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">';
-    h += '<div style="font-size:14px;font-weight:800;color:#0f2040;">📋 不足項目チェック</div>';
-    h += '<button onclick="document.getElementById(\'empShortageModal\').remove()" style="font-size:18px;color:#9ca3af;background:none;border:none;cursor:pointer;">✕</button>';
-    h += '</div>';
-    h += '<div style="padding:10px 16px;background:#f0fdf4;border-bottom:1px solid #e5e7eb;">';
-    h += '<div style="font-size:11px;color:#059669;font-weight:700;">📌 ' + esc(co.name) + ' ／ ' + esc(es.setName||'雇用条件'+(idx+1)) + '</div>';
-    h += '<div style="font-size:11px;color:#6b7280;margin-top:2px;">空欄の項目を選択 → フォームURLを生成して企業にヒアリングできます</div>';
-    h += '</div>';
-
-    h += '<div style="flex:1;overflow-y:auto;padding:12px 16px;">';
-    if (!missing.length) {
-      h += '<div style="text-align:center;padding:40px;color:#059669;font-size:13px;font-weight:700;">✅ 必須項目はすべて入力済みです</div>';
-    } else {
-      h += '<div style="font-size:11px;font-weight:700;color:#dc2626;margin-bottom:8px;">⚠️ 未入力 ' + missing.length + '件</div>';
-      h += '<div style="display:flex;flex-direction:column;gap:4px;" id="empShortageList">';
-      missing.forEach(function(f, i) {
-        h += '<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer;background:#fafafa;hover:background:#f0fdf4;">';
-        h += '<input type="checkbox" class="emp-shortage-cb" data-fkey="' + esc(f.fKey) + '" data-label="' + esc(f.l) + '" checked style="width:15px;height:15px;accent-color:#059669;cursor:pointer;">';
-        h += '<span style="font-size:12px;font-weight:600;color:#374151;">' + esc(f.l) + '</span>';
-        h += '</label>';
-      });
-      h += '</div>';
-    }
-    h += '</div>';
-
-    if (missing.length) {
-      h += '<div style="padding:12px 16px;border-top:1px solid #e5e7eb;display:flex;flex-direction:column;gap:8px;">';
-      h += '<div style="display:flex;gap:6px;">';
-      h += '<button onclick="(function(){document.querySelectorAll(\'.emp-shortage-cb\').forEach(function(c){c.checked=true;});})()" style="font-size:11px;padding:5px 12px;background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">全選択</button>';
-      h += '<button onclick="(function(){document.querySelectorAll(\'.emp-shortage-cb\').forEach(function(c){c.checked=false;});})()" style="font-size:11px;padding:5px 12px;background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;border-radius:6px;cursor:pointer;">全解除</button>';
-      h += '</div>';
-      h += '<button onclick="generateEmpShortageFormUrl(\'' + coId + '\')" style="padding:11px;background:#059669;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">🔗 フォームURLを生成</button>';
-      // URL表示エリア
-      h += '<div id="empShortageUrlArea" style="display:none;">';
-      h += '<div style="font-size:11px;font-weight:700;color:#6b7280;margin-bottom:4px;">企業担当者に送付するURL：</div>';
-      h += '<div style="display:flex;gap:6px;">';
-      h += '<input id="empShortageUrlInput" type="text" readonly style="flex:1;font-size:11px;padding:8px 10px;border:1.5px solid #e5e7eb;border-radius:8px;background:#f9fafb;">';
-      h += '<button onclick="(function(){var el=document.getElementById(\'empShortageUrlInput\');navigator.clipboard.writeText(el.value).then(function(){showToast(\'URLをコピーしました\');document.getElementById(\'empShortageModal\').remove();});})()" style="flex-shrink:0;padding:8px 14px;background:#16a34a;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">コピー</button>';
-      h += '</div>';
-      h += '</div>';
-      h += '</div>';
-    }
-
-    inner.innerHTML = h;
-  }
-
-  render();
-}
-
-function generateEmpShortageFormUrl(coId) {
-  var co = companies.find(function(x){ return x.id === coId; });
-  if (!co) return;
-  var cbs = document.querySelectorAll('.emp-shortage-cb:checked');
-  if (!cbs.length) { showToast('⚠️ 項目を1つ以上選択してください'); return; }
-  var fields = [];
-  cbs.forEach(function(cb){ fields.push(cb.getAttribute('data-fkey')); });
-  var url = FORM_BASE_URL + '?case=' + encodeURIComponent('co_' + coId)
-    + '&type=company'
-    + '&name=' + encodeURIComponent(co.name||'')
-    + '&fields=' + encodeURIComponent(fields.join(','));
-  var area = document.getElementById('empShortageUrlArea');
-  var inp  = document.getElementById('empShortageUrlInput');
-  if (area && inp) {
-    inp.value = url;
-    area.style.display = '';
-    inp.select();
-  }
-}
 
 // 雇用条件 AI整合性チェック（チャット対応）
 var _empCheckConversation = []; // 会話履歴
@@ -26417,9 +26319,20 @@ function _doRegisterIntakeCase(d, id) {
     acceptExp: d.accept_exp || '',
     residenceStatus: d.desired_status || '',
     expire: intakeDateOrNull(d.expire),
-    tokureiDate: intakeDateOrNull(d.tokurei_date),
+    tokureiDate: (function(){
+      var t = intakeDateOrNull(d.tokurei_date);
+      if (t) return t;
+      // tokurei_dateが空の場合、expireから自動計算（+2ヶ月）
+      var exp = intakeDateOrNull(d.expire);
+      if (exp) {
+        var dt = new Date(exp);
+        dt.setMonth(dt.getMonth() + 2);
+        return dt.toISOString().slice(0, 10);
+      }
+      return '';
+    })(),
     tempReturn: intakeDateOrNull(d.temp_return),
-    receiptDate: intakeDateOrNull(d.receipt_date),
+    receiptDate: '',  // 依頼受領日は申請受付日ではないため空に（受信トレイ登録時）
     toritsugisha: d.toritsugisha || '',
     introFee: d.intro_fee || '',
     otherSupportNote: d.other_support_note || '',
@@ -27558,7 +27471,9 @@ function scanCoDriveDocuments(coId) {
 function processCoScannedFiles(coId, files, el) {
     var co = companies.find(function(c){return c.id===coId;});
     if (!co) return;
-    var docList = REQUIRED_DOCS_CO;
+    // 現在表示中のタブに応じてdocListを切り替え
+    var _coTab = (window._coDocTabState && window._coDocTabState[coId]) || 'immig';
+    var docList = _coTab === 'kokko' ? REQUIRED_DOCS_CO_KOKKO : REQUIRED_DOCS_CO;
 
     var keywords = {
       '登記事項証明書': ['登記','登記事項','registry'],
@@ -27570,7 +27485,23 @@ function processCoScannedFiles(coId, files, el) {
       '受入体制に関する書類': ['受入','受け入れ','acceptance'],
       '特定技能雇用契約書': ['雇用契約','特定技能','contract'],
       '納税証明書（法人）': ['納税','法人税','tax'],
-      '役員の住民票': ['住民票','役員','resident']
+      '役員の住民票': ['住民票','役員','resident'],
+      '1. 履歴事項全部証明書': ['履歴事項','登記'],
+      '2. 建設業許可': ['建設業許可','建設許可'],
+      '3. 標準報酬決定通知書': ['標準報酬','報酬決定'],
+      '4. キャリアアップID': ['キャリアアップ','career'],
+      '5. 会員証明書': ['会員証明','会員証'],
+      '6. 委任状': ['委任状'],
+      '7. 求人票': ['求人票','求人'],
+      '8. 同等の技能を有する日本人と同等額以上の報酬であることの説明書': ['同等','報酬','説明書'],
+      '9. 就業規則および賃金規程': ['就業規則','賃金規程'],
+      '10. 賃金台帳': ['賃金台帳','台帳'],
+      '11. 経歴書': ['経歴書','経歴'],
+      '12. 雇用契約書': ['雇用契約書','契約書'],
+      '13. 36協定': ['36協定','三六協定'],
+      '14. 年間カレンダー': ['年間カレンダー','カレンダー'],
+      '15. 重要事項説明書': ['重要事項','説明書'],
+      '16. 技能者ID': ['技能者ID','技能者']
     };
 
     var matchMap = {};
@@ -27613,7 +27544,12 @@ function processCoScannedFiles(coId, files, el) {
       rh += '<div style="margin-top:6px;font-size:10px;color:var(--gray-400);">📎 その他: ' + unmatched.map(function(f){return f.name;}).join(', ') + '</div>';
     }
     rh += '<div style="margin-top:6px;font-size:12px;font-weight:700;color:' + (matchCount === docList.length ? '#16a34a' : '#ea580c') + ';">' + (matchCount === docList.length ? '🎉 全書類検出！' : '⚠️ ' + matchCount + '/' + docList.length + ' 検出') + '</div>';
-    rh += '<div style="margin-top:10px;"><button onclick="startCoRename(\'' + coId + '\')" style="padding:7px 18px;background:#059669;color:white;border:none;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;">📂 AIファイルリネーム</button></div>';
+    rh += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">';
+    rh += '<button onclick="startCoRename(\'' + coId + '\')" style="padding:7px 18px;background:#059669;color:white;border:none;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;">📂 AIファイルリネーム</button>';
+    if (_coTab === 'kokko') {
+      rh += '<button onclick="createKokkoFolderAndMove(\'' + coId + '\')" style="padding:7px 18px;background:#ea580c;color:white;border:none;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;">📁 フォルダ作成して移動</button>';
+    }
+    rh += '</div>';
     rh += '</div>';
     rh += '<div id="coRenameResult_' + coId + '"></div>';
 
@@ -27624,7 +27560,7 @@ function processCoScannedFiles(coId, files, el) {
     if (el) el.innerHTML = rh;
     persistCoDocCheck();
     // 進捗バーだけ再計算（画面再描画するとスキャン結果が消えるので再描画しない）
-    var docListR = REQUIRED_DOCS_CO;
+    var docListR = _coTab === 'kokko' ? REQUIRED_DOCS_CO_KOKKO : REQUIRED_DOCS_CO;
     var doneR = 0, totalR = 0;
     docListR.forEach(function(d) {
       var dc2 = coDocCheck[coId];
@@ -28023,6 +27959,59 @@ function executeCoRename(coId) {
       if (done >= renames.length) {
         showToast('✅ リネーム完了: 成功' + ok + '件' + (err ? ' / エラー' + err + '件' : ''));
         scanCoDriveDocuments(coId);
+      }
+    });
+  });
+}
+
+
+// ===== 国交省書類：フォルダ作成して移動 =====
+function createKokkoFolderAndMove(coId) {
+  var co = companies.find(function(c){ return c.id === coId; });
+  if (!co) { showToast('⚠️ 所属機関データなし'); return; }
+
+  var files = (window._coScanFiles || {})[coId] || [];
+  if (!files.length) { showToast('⚠️ 先にスキャンしてください'); return; }
+
+  // ドライブURLからフォルダIDを取得（最初のURL）
+  var driveUrl = co.driveUrl || co.driveUrl2;
+  if (!driveUrl) { showToast('⚠️ ドライブURLが未設定です'); return; }
+  var parentFolderId = extractDriveFolderId(driveUrl);
+  if (!parentFolderId) { showToast('⚠️ フォルダIDを取得できません'); return; }
+
+  var folderName = '1. 国交省申請';
+  var fileIds = files.map(function(f){ return f.id; });
+
+  showToast('📁 フォルダ「' + folderName + '」を作成中...');
+
+  // 1. フォルダ作成
+  jsonpPost(GAS_URL, 'createDriveFolder', { parentFolderId: parentFolderId, folderName: folderName }, function(res) {
+    if (!res || res.status !== 'ok') {
+      showToast('❌ フォルダ作成失敗: ' + (res && res.msg || ''));
+      return;
+    }
+    var destFolderId = res.folderId;
+    var folderUrl    = res.folderUrl;
+    showToast('📁 フォルダ作成完了。ファイル移動中... (' + fileIds.length + '件)');
+
+    // 2. ファイル移動
+    jsonpPost(GAS_URL, 'moveDriveFiles', { fileIds: fileIds, destFolderId: destFolderId }, function(res2) {
+      if (!res2 || res2.status !== 'ok') {
+        showToast('❌ 移動失敗: ' + (res2 && res2.msg || ''));
+        return;
+      }
+      var moved  = res2.moved || 0;
+      var errors = res2.errors ? res2.errors.length : 0;
+      showToast('✅ ' + moved + '件を「' + folderName + '」に移動しました' + (errors ? ' (エラー' + errors + '件)' : ''));
+
+      // 結果エリアにフォルダリンクを表示
+      var el = document.getElementById('coScanResult_' + coId);
+      if (el) {
+        var extra = '<div style="margin-top:8px;padding:8px 12px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:11px;">';
+        extra += '📁 <a href="' + folderUrl + '" target="_blank" style="color:#ea580c;font-weight:700;">' + folderName + '</a> に ' + moved + '件移動しました';
+        if (errors) extra += ' <span style="color:#dc2626;">（エラー' + errors + '件）</span>';
+        extra += '</div>';
+        el.innerHTML = extra + el.innerHTML;
       }
     });
   });
@@ -29176,6 +29165,7 @@ function _listItemToRow(d) {
     reported: d.reported||false,
     reported_at: d.reportedAt||null,
     pdf_done: d.pdfDone||false,
+    application_date: d.applicationDate||null,
     updated_at: new Date().toISOString()
   };
 }
@@ -29185,7 +29175,8 @@ function _rowToListItem(r) {
     caseNo: r.case_no||'', org: r.org||'', sub: r.sub||'',
     movedAt: r.moved_at||'', caseId: r.case_id||'',
     reported: r.reported||false, reportedAt: r.reported_at||null,
-    pdfDone: r.pdf_done||false
+    pdfDone: r.pdf_done||false,
+    applicationDate: r.application_date||''
   };
 }
 function persistShinsaList(changedId){
@@ -30340,6 +30331,8 @@ function renderListItems(type, data, borderColor){
     var _dispStaff = linkedCase ? (linkedCase.staff||'') : '';
     var _dispOrg = linkedCase ? (linkedCase.org||linkedCase.company||d.org||'') : (d.org||'');
     h+='<span style="color:var(--gray-400);width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;">'+(_dispCaseNo||'—')+'</span>';
+    // 申請日
+    if(type==='rec' && d.applicationDate) h+='<span style="flex-shrink:0;font-size:9px;color:#0369a1;background:#e0f2fe;border:1px solid #7dd3fc;border-radius:4px;padding:2px 6px;white-space:nowrap;">📅 申請 '+d.applicationDate.slice(0,10)+'</span>';
     // 担当者バッジ
     if(_dispStaff) h+='<span style="flex-shrink:0;font-size:9px;color:#6366f1;background:#eef2ff;border:1px solid #c7d2fe;border-radius:4px;padding:2px 6px;white-space:nowrap;">👤 '+esc(_dispStaff)+'</span>';
     // ステータスバッジ（全タイプ）
@@ -30447,6 +30440,52 @@ function _populateListFilter(staffSelId, orgSelId, listData) {
   orgSel.innerHTML='<option value="">全支援機関</option>';
   Object.keys(orgSet).sort().forEach(function(o){ var op=document.createElement('option');op.value=o;op.textContent=o.length>18?o.slice(0,18)+'…':o;if(o===curOrg)op.selected=true;orgSel.appendChild(op); });
 }
+
+// ===== 申請記録：支援機関別サブメニュー =====
+function toggleRecordsByOrg() {
+  var list = document.getElementById('recordsByOrgList');
+  var arrow = document.getElementById('recordsByOrgArrow');
+  if (!list) return;
+  var isOpen = list.style.display !== 'none';
+  if (isOpen) {
+    list.style.display = 'none';
+    if (arrow) arrow.textContent = '▶';
+    return;
+  }
+  // 申請記録に存在する支援機関一覧を生成
+  var orgSet = {};
+  receiptListData.forEach(function(d) {
+    var lc = d.caseId ? cData.find(function(c){ return c.id === d.caseId; }) : null;
+    var org = lc ? (lc.org || '') : (d.org || '');
+    if (org) orgSet[org] = (orgSet[org] || 0) + 1;
+  });
+  var orgs = Object.keys(orgSet).sort();
+  var h = '';
+  orgs.forEach(function(org) {
+    var cnt = orgSet[org];
+    h += '<div data-org="' + esc(org) + '" onclick="openRecordsByOrg(this.dataset.org)" style="padding:4px 8px;font-size:11px;color:#374151;cursor:pointer;border-radius:6px;display:flex;justify-content:space-between;align-items:center;" onmouseenter="this.style.background=\'#f0f4ff\'" onmouseleave="this.style.background=\'transparent\'">';
+    h += '<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">' + esc(org) + '</span>';
+    h += '<span style="font-size:10px;color:#6b7280;flex-shrink:0;">' + cnt + '件</span>';
+    h += '</div>';
+  });
+  if (!orgs.length) h = '<div style="font-size:11px;color:#9ca3af;padding:4px 8px;">申請記録なし</div>';
+  list.innerHTML = h;
+  list.style.display = 'block';
+  if (arrow) arrow.textContent = '▼';
+}
+
+function openRecordsByOrg(org) {
+  // 申請記録画面を開いて支援機関フィルターをセット
+  openRecords();
+  setTimeout(function() {
+    var orgSel = document.getElementById('recordFilterOrg');
+    if (orgSel) {
+      orgSel.value = org;
+      renderRecords();
+    }
+  }, 100);
+}
+
 // 申請記録から案件へ受付番号をワンクリック転記
 function _transferReceiptFromRecord(recordId) {
   var d = receiptListData.find(function(x){ return x.id === recordId; });
@@ -31791,6 +31830,7 @@ function openManualRecord(){
   if(caseSelEl){caseSelEl.style.display='none';caseSelEl.textContent='';}
   var dd=document.getElementById('mr_caseDropdown');if(dd)dd.style.display='none';
   document.getElementById('mr_receiptDate').value=new Date().toISOString().slice(0,10);
+  document.getElementById('mr_applicationDate').value='';
   document.getElementById('mr_expire').value='';
   document.getElementById('mr_appType').value='認定';
   document.getElementById('mr_status').value='申請済';
@@ -31810,6 +31850,7 @@ function submitManualRecord(){
     appType:document.getElementById('mr_appType').value,
     receiptNo:document.getElementById('mr_receiptNo').value.trim(),
     receiptDate:document.getElementById('mr_receiptDate').value,
+    applicationDate:document.getElementById('mr_applicationDate').value,
     expire:document.getElementById('mr_expire').value,
     staff:document.getElementById('mr_staff').value.trim(),
     toritsugisha:document.getElementById('mr_toritsugisha').value.trim(),
@@ -31819,7 +31860,7 @@ function submitManualRecord(){
     team:document.getElementById('mr_team').value
   };
   // 申請記録にも追加（caseId紐づけ付き）
-  var recEntry={id:'mr_'+Date.now(), name:applicant, date:data.receiptDate, caseNo:data.receiptNo, org:data.org, sub:data.name, movedAt:new Date().toISOString().slice(0,10), caseId:caseId};
+  var recEntry={id:'mr_'+Date.now(), name:applicant, date:data.receiptDate, caseNo:data.receiptNo, org:data.org, sub:data.name, movedAt:new Date().toISOString().slice(0,10), caseId:caseId, applicationDate:data.applicationDate||''};
   receiptListData.push(recEntry);
   persistReceiptList(recEntry.id);
   // 案件にも受付番号反映
@@ -39258,7 +39299,7 @@ function _openEmpShortageModalInner(coId, idx, saved) {
       h += '<div id="esh_lbl_'+f.k+'" style="font-size:13px;font-weight:700;color:' + (isSkipped ? '#94a3b8' : '#0f2040') + ';' + (isSkipped ? 'text-decoration:line-through;' : '') + '">' + f.l + ' <span style="font-size:10px;color:#94a3b8;">↗</span></div>';
       if (f.ph) h += '<div style="font-size:11px;color:#94a3b8;margin-top:2px;">例: ' + f.ph + '</div>';
       h += '</div>';
-      var _sk=f.k; h += '<button id="esh_btn_'+_sk+'" data-fk="'+_sk+'" onclick="toggleEmpSkip(this.dataset.fk)" style="padding:4px 12px;font-size:11px;border:1px solid ' + (isSkipped ? '#94a3b8' : '#f59e0b') + ';background:' + (isSkipped ? '#f1f5f9' : '#fef3c7') + ';color:' + (isSkipped ? '#64748b' : '#b45309') + ';border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">' + (isSkipped ? '斜線解除' : '斜線を入れる') + '</button>';
+      var _sk=f.k; h += '<button id="esh_btn_'+_sk+'" data-fk="'+_sk+'" onclick="toggleEmpSkip(this.dataset.fk)" style="padding:4px 12px;font-size:11px;border:1px solid ' + (isSkipped ? '#94a3b8' : '#f59e0b') + ';background:' + (isSkipped ? '#f1f5f9' : '#fef3c7') + ';color:' + (isSkipped ? '#64748b' : '#b45309') + ';border-radius:6px;cursor:pointer;font-weight:700;white-space:nowrap;">' + (isSkipped ? '解除' : '不要') + '</button>';
       h += '</div>';
     });
     if (curSec) h += '</div>';
@@ -39514,17 +39555,16 @@ function toggleEmpSkip(key) {
     console.warn('empHearing save skipped: coId=', coId, 'idx=', idx);
   }
 
-  // editEmpSetを再描画してフィールドの不要状態を反映
-  // スクロール位置保存→モーダル閉じる→editEmpSet再描画→モーダル再表示（メモリ上のskipsを使用）
+  // DOM直接更新のみ（モーダル再描画なし）
+  // 雇用条件編集画面のUIも再描画して不要状態を反映
   if (coId !== null && coId !== undefined && idx !== null && idx !== undefined) {
     var scrollBody = document.getElementById('empShortageScrollBody');
     window._modalScrollPos = scrollBody ? scrollBody.scrollTop : 0;
-    closeEmpShortageModal();
     editEmpSet(coId, idx);
-    // Supabase非同期を待たずに現在のメモリ上のskipsでモーダルを再表示
     setTimeout(function(){
-      _openEmpShortageModalInner(coId, idx, window._empHearingSkips || {});
-    }, 50);
+      var modal = document.getElementById('empShortageModal');
+      if (!modal) _openEmpShortageModalInner(coId, idx, window._empHearingSkips || {});
+    }, 30);
   }
 
   // 行・ラベル・ボタンをIDで直接更新
@@ -39540,7 +39580,7 @@ function toggleEmpSkip(key) {
   }
   var btn = document.getElementById('esh_btn_' + key);
   if (btn) {
-    btn.textContent = nowSkipped ? '斜線解除' : '斜線を入れる';
+    btn.textContent = nowSkipped ? '解除' : '不要';
     btn.style.borderColor = nowSkipped ? '#94a3b8' : '#f59e0b';
     btn.style.background = nowSkipped ? '#f1f5f9' : '#fef3c7';
     btn.style.color = nowSkipped ? '#64748b' : '#b45309';
