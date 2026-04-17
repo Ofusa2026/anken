@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_ADMIN ver.20260414.17 -->
+<!-- OFUSA_ADMIN ver.20260414.18 -->
 <html lang="ja"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -216,7 +216,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
       <div class="logo-badge">OFUSA</div>
       <div class="logo-title">大房行政書士法人</div>
       <div class="logo-sub">管理ダッシュボード</div>
-      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260414.17</div>
+      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260414.18</div>
     </div>
     <div class="sidebar-section">概要</div>
     <div class="nav-item active" onclick="nav('dashboard')">📊 ダッシュボード</div>
@@ -255,7 +255,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
     <div class="topbar">
       <div class="page-title" id="pageTitle">ダッシュボード</div>
       <div class="topbar-right">
-        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260414.17</span>
+        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260414.18</span>
         <span class="last-updated" id="lastUpdated"></span>
         <button class="btn btn-primary" onclick="refreshAll()">🔄 データ更新</button>
       </div>
@@ -563,14 +563,37 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
         </div>
         <div class="filters-section">
           <div class="filters">
-            <input class="search-input" id="shinsaSearch" placeholder="🔍 氏名・所属機関で検索..." oninput="renderShinsa()">
+            <input class="search-input" id="shinsaSearch" placeholder="🔍 氏名・受付番号で検索..." oninput="renderShinsa()">
+            <input class="filter-select" id="shinsaDateFrom" type="date" onchange="renderShinsa()" style="font-size:12px;padding:5px 8px;border:1px solid var(--gray-200);border-radius:6px;" title="受信日From">
+            <input class="filter-select" id="shinsaDateTo" type="date" onchange="renderShinsa()" style="font-size:12px;padding:5px 8px;border:1px solid var(--gray-200);border-radius:6px;" title="受信日To">
+            <select class="filter-select" id="shinsaSupportOrg" onchange="renderShinsa()" style="min-width:140px;">
+              <option value="">全登録支援機関</option>
+            </select>
+            <select class="filter-select" id="shinsaCompany" onchange="renderShinsa()" style="min-width:140px;">
+              <option value="">全所属機関</option>
+            </select>
+            <select class="filter-select" id="shinsaStaff" onchange="renderShinsa()" style="min-width:120px;">
+              <option value="">全担当</option>
+            </select>
+            <select class="filter-select" id="shinsaReported" onchange="renderShinsa()">
+              <option value="0">未報告のみ</option>
+              <option value="">全件</option>
+              <option value="1">報告済のみ</option>
+            </select>
             <span class="filter-count" id="shinsaCount">—件</span>
+          </div>
+        </div>
+        <!-- 担当別通知バナー -->
+        <div id="shinsaStaffBanner" style="display:none;padding:0 24px 12px;">
+          <div style="background:#f0fdf4;border:2px solid #16a34a;border-radius:10px;padding:10px 14px;">
+            <div style="font-size:11px;font-weight:700;color:#16a34a;margin-bottom:6px;">📱 担当別一括通知（審査完了・認定証 未報告）</div>
+            <div id="shinsaStaffBtns" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
           </div>
         </div>
         <div class="table-section" style="padding-top:0;">
           <div class="table-wrap">
             <table>
-              <thead><tr><th>氏名</th><th>所属機関</th><th>日付</th><th>移動日時</th><th>報告</th><th>PDF</th></tr></thead>
+              <thead><tr><th>氏名</th><th>所属機関</th><th>登録支援機関</th><th>受付番号</th><th>担当</th><th>日付</th><th>移動日時</th><th>報告</th><th>PDF</th><th></th></tr></thead>
               <tbody id="shinsaBody"></tbody>
             </table>
           </div>
@@ -2568,22 +2591,73 @@ function shinsaTab(tbl, el){
   renderShinsa();
 }
 
+function getShinsaCase(d){
+  if(!d.case_id) return null;
+  return DATA.cases.find(function(c){ return c.id===d.case_id; })||null;
+}
+function getShinsaStaff(d){ var c=getShinsaCase(d); return c?(c.staff||''):''; }
+function getShinsaCompany(d){ var c=getShinsaCase(d); return c?(c.company||''):(d.org||''); }
+function getShinsaSupportOrg(d){ var c=getShinsaCase(d); return c?(c.org||''):''; }
+function getShinsaReceiptNo(d){ var c=getShinsaCase(d); return c?(c.receipt_no||''):(d.case_no||''); }
+
 function renderShinsa(){
-  var q = (document.getElementById('shinsaSearch').value||'').toLowerCase();
+  var q       = (document.getElementById('shinsaSearch').value||'').toLowerCase();
+  var dateFrom= (document.getElementById('shinsaDateFrom')||{}).value||'';
+  var dateTo  = (document.getElementById('shinsaDateTo')||{}).value||'';
+  var soFilt  = (document.getElementById('shinsaSupportOrg')||{}).value||'';
+  var coFilt  = (document.getElementById('shinsaCompany')||{}).value||'';
+  var sfFilt  = (document.getElementById('shinsaStaff')||{}).value||'';
+  var repFilt = (document.getElementById('shinsaReported')||{}).value;
+  if(repFilt===undefined) repFilt='0';
+
   var data = _currentShinsaTable==='shinsa_archive' ? DATA.shinsaArchive
            : _currentShinsaTable==='cert_archive'    ? DATA.certArchive
            : DATA.receiptArchive;
 
+  // セレクト更新
+  var orgs   = [...new Set(data.map(function(d){ return getShinsaSupportOrg(d); }).filter(Boolean))].sort();
+  var cos    = [...new Set(data.map(function(d){ return getShinsaCompany(d); }).filter(Boolean))].sort();
+  var staffs = [...new Set(data.map(function(d){ return getShinsaStaff(d); }).filter(Boolean))].sort();
+  popSelect('shinsaSupportOrg', orgs, soFilt);
+  popSelect('shinsaCompany', cos, coFilt);
+  popSelect('shinsaStaff', staffs, sfFilt);
+
   var items = data.filter(function(d){
-    if(d.reported) return false; // 未報告のみ固定
-    if(q){ var s=(d.name||'')+(d.org||'')+(d.sub||''); if(!s.toLowerCase().includes(q)) return false; }
+    if(repFilt==='0' && d.reported) return false;
+    if(repFilt==='1' && !d.reported) return false;
+    if(dateFrom && (d.date||'')<dateFrom) return false;
+    if(dateTo   && (d.date||'')>dateTo)   return false;
+    if(soFilt && getShinsaSupportOrg(d)!==soFilt) return false;
+    if(coFilt && getShinsaCompany(d)!==coFilt) return false;
+    if(sfFilt && getShinsaStaff(d)!==sfFilt) return false;
+    if(q){ var rno=getShinsaReceiptNo(d); var s=(d.name||'')+(d.org||'')+(d.sub||'')+rno; if(!s.toLowerCase().includes(q)) return false; }
     return true;
   });
 
   setTxt('shinsaCount', items.length+'件');
+
+  // 未報告の担当別バナー
+  var pending = items.filter(function(d){ return !d.reported; });
+  var staffGroups = {};
+  pending.forEach(function(d){
+    var s = getShinsaStaff(d)||'（担当なし）';
+    if(!staffGroups[s]) staffGroups[s]=[];
+    staffGroups[s].push(d);
+  });
+  var banner = document.getElementById('shinsaStaffBanner');
+  var btnsEl = document.getElementById('shinsaStaffBtns');
+  if(banner && btnsEl){
+    var keys = Object.keys(staffGroups).sort();
+    if(keys.length && pending.length){
+      btnsEl.innerHTML = keys.map(function(s){
+        return '<button onclick="showShinsaLineModal(\''+esc(s)+'\')" style="font-size:11px;padding:4px 10px;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">'+esc(s)+'（'+staffGroups[s].length+'件）</button>';
+      }).join('');
+      banner.style.display = '';
+    } else { banner.style.display = 'none'; }
+  }
+
   var tbody = document.getElementById('shinsaBody');
-  if(!items.length){ tbody.innerHTML='<tr><td colspan="6" class="empty">該当データなし</td></tr>'; return; }
-  var today = new Date(); today.setHours(0,0,0,0);
+  if(!items.length){ tbody.innerHTML='<tr><td colspan="10" class="empty">該当データなし</td></tr>'; return; }
   tbody.innerHTML = items.map(function(d){
     var isOverdue = isOverdueUnreported(d);
     var rowStyle = isOverdue ? ' style="background:#fff5f5;"' : '';
@@ -2592,13 +2666,21 @@ function renderShinsa(){
       : isOverdue
         ? '<span class="st-badge st-red" style="border:1.5px solid #dc2626;">⚠️ 未報告</span>'
         : '<span class="st-badge st-yellow">未報告</span>';
+    var staff = getShinsaStaff(d);
+    var company = getShinsaCompany(d);
+    var supportOrg = getShinsaSupportOrg(d);
+    var receiptNo = getShinsaReceiptNo(d);
     return '<tr'+rowStyle+'>'
-      +'<td class="td-name">'+esc(d.name||'—')+'</td>'
-      +'<td style="font-size:12px;">'+esc(d.org||'—')+'</td>'
+      +'<td class="td-name">'+esc(d.name||'—')+'<div class="td-sub">'+esc(d.sub||'')+'</div></td>'
+      +'<td style="font-size:12px;">'+esc(company||'—')+'</td>'
+      +'<td style="font-size:11px;color:var(--gray-400);">'+esc(supportOrg||'—')+'</td>'
+      +'<td style="font-size:11px;font-weight:600;">'+esc(receiptNo||'—')+'</td>'
+      +'<td style="font-size:12px;">'+esc(staff||'—')+'</td>'
       +'<td style="font-size:12px;">'+fmtDate(d.date)+'</td>'
       +'<td style="font-size:11px;color:var(--gray-400);">'+fmtDateTime(d.moved_at)+'</td>'
       +'<td>'+reportedCell+'</td>'
       +'<td>'+(d.pdf_done?'<span class="st-badge st-green">✓</span>':'<span class="st-badge st-gray">—</span>')+'</td>'
+      +'<td>'+(!d.reported&&staff?'<button onclick="showShinsaLineModal(\''+esc(staff)+'\',\''+esc(d.id||'')+'\')" style="font-size:10px;padding:3px 8px;background:#16a34a;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;">📱</button>':'')+'</td>'
       +'</tr>';
   }).join('');
 }
@@ -3031,6 +3113,48 @@ function renderRecordsSection(){
       +'</td>'
       +'</tr>';
   }).join('');
+}
+
+function showShinsaLineModal(staffName, singleId){
+  var data = _currentShinsaTable==='shinsa_archive' ? DATA.shinsaArchive
+           : _currentShinsaTable==='cert_archive'    ? DATA.certArchive
+           : DATA.receiptArchive;
+  var typeLabel = _currentShinsaTable==='shinsa_archive' ? '審査完了' : _currentShinsaTable==='cert_archive' ? '認定証' : '受領書';
+  var targets;
+  if(singleId){
+    targets = data.filter(function(d){ return d.id===singleId; });
+  } else {
+    targets = data.filter(function(d){
+      if(d.reported) return false;
+      var s = getShinsaStaff(d)||'（担当なし）';
+      return s===staffName;
+    });
+  }
+  if(!targets.length){ showToast('対象データなし'); return; }
+  var today = new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
+  var displayName = staffName==='（担当なし）'?'担当者':staffName;
+  var lines = [];
+  lines.push('@' + displayName + ' さん');
+  lines.push('');
+  lines.push('お疲れ様です。');
+  lines.push('以下の'+typeLabel+'について、案シスのステータス更新と報告をお願いします。');
+  lines.push('');
+  targets.forEach(function(d, i){
+    var company = getShinsaCompany(d);
+    var supportOrg = getShinsaSupportOrg(d);
+    var receiptNo = getShinsaReceiptNo(d);
+    lines.push((i+1)+'. '+(d.name||'—'));
+    if(d.sub) lines.push('   案件名: '+d.sub);
+    lines.push('   日付: '+fmtDate(d.date));
+    if(company) lines.push('   所属機関: '+company);
+    if(supportOrg) lines.push('   登録支援機関: '+supportOrg);
+    if(receiptNo) lines.push('   受付番号: '+receiptNo);
+    lines.push('');
+  });
+  lines.push('よろしくお願いいたします。');
+  document.getElementById('lineModalMeta').textContent = displayName+' 担当 ／ '+typeLabel+' 未報告 '+targets.length+'件（'+today+'）';
+  document.getElementById('lineModalText').value = lines.join('\n');
+  document.getElementById('lineModal').style.display = 'flex';
 }
 
 function showRecordsLineModal(staffName, ids){
