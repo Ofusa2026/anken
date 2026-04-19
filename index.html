@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260416.44</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260416.48</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2554,7 +2554,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260416.44';
+var OFUSA_VERSION = 'ver.20260416.48';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -12336,6 +12336,87 @@ function toggleMilestoneBanner() {
 }
 // ===== /申請マイルストーンバナー =====
 
+
+
+function _hfCloseModal(){
+  var m = document.getElementById('_hearingFormModal');
+  if(m) m.remove();
+}
+function _hfCopyUrl(){
+  var el = document.getElementById('_hfModalUrl');
+  if(!el) return;
+  navigator.clipboard.writeText(el.value).then(function(){
+    var b = document.getElementById('_hfCopyBtn');
+    if(b){b.textContent='✓ コピー済';b.style.background='#16a34a';setTimeout(function(){b.textContent='コピー';b.style.background='#2563eb';},2000);}
+  }).catch(function(){ el.select(); document.execCommand('copy'); showToast('📋 コピーしました'); });
+}
+function _hfSaveDriveUrl(caseId){
+  var url = (document.getElementById('_hfDriveUrl')||{}).value;
+  if(!url || !url.trim()){showToast('⚠️ URLを入力してください');return;}
+  url = url.trim();
+  var pd = personData[caseId]||{};
+  pd.driveUrl = url;
+  personData[caseId] = pd;
+  persistPersonToDB(caseId, pd);
+  showToast('✅ ドライブURLを保存しました');
+  var b = document.getElementById('_hfDriveUrlSaveBtn');
+  if(b){b.textContent='✓ 保存済';b.style.background='#16a34a';}
+}
+// ===== ★ヒアリングフォーム送付 → フォームURL確認モーダル =====
+function _onStatusHearingForm(c) {
+  var caseId = c.id;
+  // appTypeからformTypeを決定
+  var _at = c.appType || '';
+  var formType = _at.indexOf('認定') !== -1 ? (_at.indexOf('技人国') !== -1 || _at.indexOf('技術') !== -1 ? 'gijinkoku_nintei' : 'tokutei_nintei')
+    : _at.indexOf('更新') !== -1 ? (_at.indexOf('技人国') !== -1 || _at.indexOf('技術') !== -1 ? 'gijinkoku_koushin' : 'tokutei_koushin')
+    : _at.indexOf('変更') !== -1 ? (_at.indexOf('技人国') !== -1 || _at.indexOf('技術') !== -1 ? 'gijinkoku_henkou' : 'tokutei_henkou')
+    : 'tokutei_nintei';
+  var formUrl = FORM_BASE_URL + '?case=' + encodeURIComponent(caseId) + '&type=' + formType + '&name=' + encodeURIComponent(c.applicant || c.name || '');
+
+  // 人材ドライブURL
+  var pd = personData[caseId] || {};
+  var hasDrive = !!(pd.driveUrl || pd.driveUrl2 || pd.driveUrl3);
+
+  var modal = document.createElement('div');
+  modal.id = '_hearingFormModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10002;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
+
+  var h = '<div onclick="event.stopPropagation()" style="background:white;border-radius:16px;width:100%;max-width:500px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);">';
+  h += '<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:4px;">📝 ヒアリングフォーム送付</div>';
+  h += '<div style="font-size:11px;color:#6b7280;margin-bottom:16px;">' + esc(c.applicant || c.name || '') + '</div>';
+
+  // フォームURL
+  h += '<div style="margin-bottom:14px;">';
+  h += '<div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:6px;">📋 フォームURL（人材送付用）</div>';
+  h += '<div style="display:flex;gap:6px;align-items:center;">';
+  h += '<input id="_hfModalUrl" type="text" value="' + esc(formUrl) + '" readonly style="flex:1;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:11px;color:#334155;background:#f8fafc;outline:none;">';
+  h += '<button id="_hfCopyBtn" onclick="_hfCopyUrl()" style="padding:8px 14px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">コピー</button>';
+  h += '</div></div>';
+
+  // 人材ドライブURL（未入力の場合のみ入力欄表示）
+  if (!hasDrive) {
+    h += '<div style="margin-bottom:14px;background:#fff7ed;border:1.5px solid #fed7aa;border-radius:10px;padding:12px;">';
+    h += '<div style="font-size:11px;font-weight:700;color:#92400e;margin-bottom:6px;">📁 人材ドライブURL（未設定）</div>';
+    h += '<input id="_hfDriveUrl" type="text" placeholder="https://drive.google.com/..." style="width:100%;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12px;outline:none;box-sizing:border-box;font-family:inherit;">';
+    h += '<button id="_hfDriveUrlSaveBtn" onclick="_hfSaveDriveUrl(&quot;' + caseId + '&quot;)" style="margin-top:6px;width:100%;padding:8px;background:#ea580c;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">保存する</button>';
+    h += '</div>';
+  } else {
+    h += '<div style="margin-bottom:14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;font-size:11px;color:#15803d;font-weight:700;">✅ 人材ドライブURL設定済み</div>';
+  }
+
+  h += '<div style="display:flex;justify-content:flex-end;gap:8px;">';
+  h += '<button onclick="_hfCloseModal()" style="padding:8px 16px;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">閉じる</button>';
+  h += '</div>';
+  h += '</div>';
+
+  modal.innerHTML = h;
+  document.body.appendChild(modal);
+  // URLを自動選択状態にする
+  setTimeout(function(){ var el = document.getElementById('_hfModalUrl'); if(el) el.select(); }, 100);
+}
+// ===== /ヒアリングフォームモーダル =====
+
 // ===== ステータス変更確認ダイアログ（同期・Enterで確定）=====
 function _confirmStatusChange(oldStatus, newStatus, customMsg) {
   var msg = customMsg || ('ステータスを' + (oldStatus ? '「' + oldStatus + '」→' : '') + '「' + newStatus + '」に変更します。');
@@ -12452,6 +12533,10 @@ function autoSaveInfo(key, value) {
         console.info('✅ [OFUSA] cases patch: status =', value);
         showToast('✅ ' + value + ' で保存しました');
         logCaseAction(c.id, 'status_change', (_prevStatus ? _prevStatus + ' → ' : '') + value);
+        // ★ヒアリングフォーム送付 → フォームURL確認モーダル
+        if (value === '★ヒアリングフォーム送付') {
+          _onStatusHearingForm(c);
+        }
         // share通知：対象ステータスへの変更時にshare_notificationsへinsert
         var _shareNotifyStatuses = ['審査中', '許可済 受取方法調整中', '入管受取ステータス変更中', '郵送交付', '★窓口受取', '窓口受取（本人）'];
         if (_shareNotifyStatuses.indexOf(value) >= 0 && c.org) {
@@ -12982,35 +13067,37 @@ function reissueOrgViewUrl(orgId, orgName) {
 }
 
 function issueOrgViewUrl(orgId, orgName) {
-  // settingsテーブルにトークンを保存（org_token_<uuid>: orgId）
-  var token = localStorage.getItem('org_token_' + orgId);
-  if (!token) {
-    // 完全ランダムUUID（crypto.randomUUID使用）
-    token = typeof crypto !== 'undefined' && crypto.randomUUID
-      ? crypto.randomUUID()
-      : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,function(c){return(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16);});
-    localStorage.setItem('org_token_' + orgId, token);
-  }
-  if (DB_READY) {
-    _sb.from('settings').upsert({key: 'org_view_token_' + token, value: orgId}, {onConflict:'key'}).then(function(){});
-  }
-  var url = 'https://ofusa2026.github.io/org-view/share.html?token=' + encodeURIComponent(token);
-  var _passKey = 'org_view_pass_' + token;
+  if (!DB_READY) { showToast('⚠️ DB接続待機中です。しばらくお待ちください。'); return; }
 
-  // 既存パスワードを取得してからモーダル表示
-  var _showModal = function(existingPass) {
-    var modal = document.createElement('div');
-    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px;';
-    modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
-    _buildOrgUrlModal(modal, url, orgId, orgName, token, _passKey, existingPass);
-    document.body.appendChild(modal);
-  };
-  if (DB_READY) {
-    _sb.from('settings').select('value').eq('key', _passKey).then(function(r){
-      var existing = (!r.error && r.data && r.data.length) ? r.data[0].value : '';
-      _showModal(existing);
-    });
-  } else { _showModal(''); }
+  // DBから既存トークンを検索（どのPCからでも同じURLを表示）
+  _sb.from('settings').select('key,value').like('key', 'org_view_token_%').then(function(r) {
+    var token = null;
+    if (!r.error && r.data) {
+      var existing = r.data.find(function(row){ return row.value === orgId; });
+      if (existing) token = existing.key.replace('org_view_token_', '');
+    }
+    if (!token) {
+      // 新規トークン発行
+      token = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,function(c){return(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16);});
+      _sb.from('settings').upsert({key: 'org_view_token_' + token, value: orgId}, {onConflict:'key'}).then(function(){});
+    }
+    localStorage.setItem('org_token_' + orgId, token);
+    var url = 'https://ofusa2026.github.io/org-view/share.html?token=' + encodeURIComponent(token);
+    var _passKey = 'org_view_pass_' + token;
+    var _doShowModal = function(existingPass) {
+      var modal = document.createElement('div');
+      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:16px;';
+      modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
+      _buildOrgUrlModal(modal, url, orgId, orgName, token, _passKey, existingPass);
+      document.body.appendChild(modal);
+    };
+    _sb.from('settings').select('value').eq('key', _passKey).then(function(r2){
+      var existing = (!r2.error && r2.data && r2.data.length) ? r2.data[0].value : '';
+      _doShowModal(existing);
+    }).catch(function(){ _doShowModal(''); });
+  }).catch(function(){ showToast('⚠️ URL取得に失敗しました。再度お試しください。'); });
 }
 
 function _buildOrgUrlModal(modal, url, orgId, orgName, token, passKey, existingPass) {
