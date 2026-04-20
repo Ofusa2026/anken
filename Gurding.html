@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_ADMIN ver.20260420.05 -->
+<!-- OFUSA_ADMIN ver.20260420.07 -->
 <html lang="ja"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -216,7 +216,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
       <div class="logo-badge">OFUSA</div>
       <div class="logo-title">大房行政書士法人</div>
       <div class="logo-sub">管理ダッシュボード</div>
-      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260420.05</div>
+      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260420.07</div>
     </div>
     <div class="sidebar-section">概要</div>
     <div class="nav-item active" onclick="nav('dashboard')">📊 ダッシュボード</div>
@@ -255,7 +255,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
     <div class="topbar">
       <div class="page-title" id="pageTitle">ダッシュボード</div>
       <div class="topbar-right">
-        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260420.05</span>
+        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260420.07</span>
         <span class="last-updated" id="lastUpdated"></span>
         <button class="btn btn-primary" onclick="refreshAll()">🔄 データ更新</button>
       </div>
@@ -539,6 +539,10 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
       <div class="section" id="sec-tasks">
         <div class="filters-section">
           <div class="filters">
+            <div style="display:flex;gap:4px;flex-shrink:0;">
+              <button id="taskViewList" onclick="setTaskView('list')" style="padding:5px 10px;font-size:11px;font-weight:700;border-radius:6px;border:1.5px solid #2563eb;background:#2563eb;color:white;cursor:pointer;">📋 リスト</button>
+              <button id="taskViewKanban" onclick="setTaskView('kanban')" style="padding:5px 10px;font-size:11px;font-weight:700;border-radius:6px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">📊 カンバン</button>
+            </div>
             <input class="search-input" id="taskSearch" placeholder="🔍 氏名・タスク名・担当で検索..." oninput="renderTasks()">
             <select class="filter-select" id="taskSide" onchange="renderTasks()">
               <option value="">KH＋JP</option>
@@ -929,7 +933,7 @@ var FORM_TYPE_LABEL = {
 var TEAM_COLORS = ['#2563eb','#16a34a','#ea580c','#7c3aed','#dc2626','#0891b2','#d97706'];
 
 var _sb = null;
-var DATA = { cases:[], shinsaArchive:[], certArchive:[], receiptArchive:[], forms:[], intake:[], users:[], persons:[], notes:{}, taskStatus:[], taskUrgent:[], taskDeadline:[] };
+var DATA = { cases:[], shinsaArchive:[], certArchive:[], receiptArchive:[], forms:[], intake:[], users:[], persons:[], notes:{}, taskStatus:[], taskUrgent:[], taskDeadline:[], agencyMaster:[] };
 var _currentShinsaTable = 'shinsa_archive';
 var _caseNoExpireFilter = false; // 在留期限未入力フィルター状態
 var _caseNoDriveFilter  = false; // ドライブ未設定フィルター状態
@@ -1152,6 +1156,9 @@ function refreshAll(){
     else DATA.intake = [];
     tick();
   }).catch(function(){ DATA.intake=[]; tick(); });
+  _sb.from('agency_master').select('name,support_staff').then(function(r){
+    if(!r.error) DATA.agencyMaster = r.data||[];
+  }).catch(function(){ DATA.agencyMaster=[]; });
 
   // doc_tasks (ステータス・期日・急ぎフラグ)
   _sb.from('doc_tasks').select('case_id,task_index,status,deadline').then(function(r){
@@ -2455,7 +2462,19 @@ function renderCases(){
 
 // ── TASKS ──
 // 除外ステータス（タスクアラート専用）
+var _taskView = 'list'; // 'list' or 'kanban'
+function setTaskView(v){
+  _taskView = v;
+  var lb = document.getElementById('taskViewList');
+  var kb = document.getElementById('taskViewKanban');
+  if(lb){ lb.style.background=v==='list'?'#2563eb':'white'; lb.style.color=v==='list'?'white':'var(--gray-400)'; lb.style.borderColor=v==='list'?'#2563eb':'var(--gray-200)'; }
+  if(kb){ kb.style.background=v==='kanban'?'#2563eb':'white'; kb.style.color=v==='kanban'?'white':'var(--gray-400)'; kb.style.borderColor=v==='kanban'?'#2563eb':'var(--gray-200)'; }
+  renderTasks();
+}
+
 var TASK_EXCLUDE_STATUSES = [
+  '申請済(番号待)','審査中','特活審査中',
+  '★要追完','要追完 企業不足書類待ち','要追完 人材不足書類待ち',
   '許可済 受取方法調整中','入管受取ステータス変更中',
   '★郵送交付','郵送交付中','郵送交付',
   '窓口受取','★窓口受取','窓口受取（本人）','完了','審査完了'
@@ -2697,7 +2716,75 @@ function renderTasks(){
       +'</tbody></table></div>';
   }
 
-  el.innerHTML = '<div style="padding:0 24px 24px;">'+html+'</div>';
+  if(_taskView === 'kanban'){
+    el.innerHTML = '<div style="padding:0 24px 24px;">'+renderTaskKanban(khUrgent, khOverdue, khNoDl, jpItems, showKH, showJP)+'</div>';
+  } else {
+    el.innerHTML = '<div style="padding:0 24px 24px;">'+html+'</div>';
+  }
+}
+
+function renderTaskKanban(khUrgent, khOverdue, khNoDl, jpItems, showKH, showJP){
+  // タスク名ごとに集計
+  var taskNames = TASK_NAMES_GUARDING;
+  var allItems = [];
+  if(showKH) allItems = allItems.concat(khUrgent, khOverdue, khNoDl);
+  if(showJP) allItems = allItems.concat(jpItems);
+
+  // タスク名 → 件数・担当者リスト
+  var taskMap = {}; // {ti: {total, urgent, overdue, items}}
+  allItems.forEach(function(item){
+    var ti = item.ti;
+    if(!taskMap[ti]) taskMap[ti] = {total:0, urgent:0, overdue:0, jp:0, items:[]};
+    taskMap[ti].total++;
+    if(item.isUrgent) taskMap[ti].urgent++;
+    if(item.isOverdue) taskMap[ti].overdue++;
+    if(item.st===3) taskMap[ti].jp++;
+    taskMap[ti].items.push(item);
+  });
+
+  var html = '<div style="overflow-x:auto;padding-bottom:8px;">';
+  html += '<div style="display:flex;gap:10px;min-width:max-content;align-items:flex-start;">';
+
+  taskNames.forEach(function(tn, ti){
+    var col = taskMap[ti];
+    if(!col || !col.total) return;
+    var hasUrgent = col.urgent > 0;
+    var hasOverdue = col.overdue > 0;
+    var borderColor = hasUrgent ? '#dc2626' : hasOverdue ? '#ea580c' : '#e2e8f0';
+    var headerBg = hasUrgent ? '#fef2f2' : hasOverdue ? '#fff7ed' : '#f8fafc';
+
+    html += '<div style="width:200px;flex-shrink:0;border:1.5px solid '+borderColor+';border-radius:10px;overflow:hidden;">';
+    // ヘッダー
+    html += '<div style="background:'+headerBg+';padding:8px 10px;border-bottom:1px solid '+borderColor+';">';
+    html += '<div style="font-size:12px;font-weight:800;color:#1e293b;">'+esc(tn)+'</div>';
+    html += '<div style="display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;">';
+    html += '<span style="font-size:10px;font-weight:700;background:#e2e8f0;color:#475569;padding:1px 6px;border-radius:8px;">計 '+col.total+'件</span>';
+    if(col.urgent) html += '<span style="font-size:10px;font-weight:700;background:#fee2e2;color:#dc2626;padding:1px 6px;border-radius:8px;">🔥 '+col.urgent+'</span>';
+    if(col.overdue) html += '<span style="font-size:10px;font-weight:700;background:#fff7ed;color:#ea580c;padding:1px 6px;border-radius:8px;">⚠️ '+col.overdue+'</span>';
+    if(col.jp) html += '<span style="font-size:10px;font-weight:700;background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:8px;">🇯🇵 '+col.jp+'</span>';
+    html += '</div></div>';
+    // カード
+    html += '<div style="padding:6px;display:flex;flex-direction:column;gap:4px;max-height:500px;overflow-y:auto;">';
+    col.items.slice(0,30).forEach(function(item){
+      var c = item.c;
+      var cardBg = item.isUrgent ? '#fef2f2' : item.st===3 ? '#eff6ff' : 'white';
+      var flag = item.isUrgent?'🔥':item.isOverdue?'⚠️':item.st===3?'🇯🇵':'';
+      html += '<div style="background:'+cardBg+';border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:11px;">';
+      html += '<div style="font-weight:700;color:#1e293b;line-height:1.3;">'+(flag?flag+' ':'')+esc(c.name||'—')+'</div>';
+      if(c.applicant) html += '<div style="color:#6b7280;font-size:10px;margin-top:1px;">'+esc(c.applicant)+'</div>';
+      html += '<div style="display:flex;gap:4px;margin-top:3px;flex-wrap:wrap;align-items:center;">';
+      if(c.staff) html += '<span style="font-size:9px;background:#f1f5f9;color:#475569;padding:1px 5px;border-radius:4px;">'+esc(c.staff)+'</span>';
+      if(item.dl) html += '<span style="font-size:9px;background:'+(item.isOverdue?'#fee2e2':'#f1f5f9')+';color:'+(item.isOverdue?'#dc2626':'#64748b')+';padding:1px 5px;border-radius:4px;">'+item.dl+'</span>';
+      html += '</div></div>';
+    });
+    if(col.items.length > 30){
+      html += '<div style="text-align:center;font-size:10px;color:#94a3b8;padding:4px;">他 '+(col.items.length-30)+'件...</div>';
+    }
+    html += '</div></div>';
+  });
+
+  html += '</div></div>';
+  return html;
 }
 function shinsaTab(tbl, el){
   _currentShinsaTable = tbl;
@@ -2903,7 +2990,15 @@ function getIntakeField(d){
 }
 
 function getIntakeStaff(d){
-  return d.support_staff || d.staff || d.assigned_to || d.staff_name || '';
+  // まずintake自身のフィールドを確認
+  if(d.support_staff) return d.support_staff;
+  // なければagency_masterの登録支援機関名で引く
+  var agencyName = getIntakeSupportOrg(d);
+  if(agencyName && DATA.agencyMaster && DATA.agencyMaster.length){
+    var ag = DATA.agencyMaster.find(function(a){ return a.name===agencyName; });
+    if(ag && ag.support_staff) return ag.support_staff;
+  }
+  return d.staff || d.assigned_to || d.staff_name || '';
 }
 
 function renderIntake(){
