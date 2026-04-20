@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_ADMIN ver.20260420.14 -->
+<!-- OFUSA_ADMIN ver.20260420.15 -->
 <html lang="ja"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -216,7 +216,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
       <div class="logo-badge">OFUSA</div>
       <div class="logo-title">大房行政書士法人</div>
       <div class="logo-sub">管理ダッシュボード</div>
-      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260420.14</div>
+      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260420.15</div>
     </div>
     <div class="sidebar-section">概要</div>
     <div class="nav-item active" onclick="nav('dashboard')">📊 ダッシュボード</div>
@@ -255,7 +255,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
     <div class="topbar">
       <div class="page-title" id="pageTitle">ダッシュボード</div>
       <div class="topbar-right">
-        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260420.14</span>
+        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260420.15</span>
         <span class="last-updated" id="lastUpdated"></span>
         <button class="btn btn-primary" onclick="refreshAll()">🔄 データ更新</button>
       </div>
@@ -2530,7 +2530,8 @@ document.addEventListener('click', function(e){
   }
 });
 
-var _taskView = 'list'; // 'list' or 'kanban'
+var _taskView = 'list';
+var _filteredTaskItems = []; // 現在絞り込み後の全アイテム // 'list' or 'kanban'
 function setTaskView(v){
   _taskView = v;
   var lb = document.getElementById('taskViewList');
@@ -2665,6 +2666,7 @@ function renderTasks(){
   var khNoDl     = showKH ? all.khNoDl.filter(filterItem)     : [];
   var jpItems    = showJP ? all.jpItems.filter(filterItem)    : [];
   var total = khUrgent.length+khOverdue.length+khNoDl.length+jpItems.length;
+  _filteredTaskItems = khUrgent.concat(khOverdue, khNoDl, jpItems);
   setTxt('taskCount', total+'件');
 
   var el = document.getElementById('taskAlertList');
@@ -2731,6 +2733,8 @@ function renderTasks(){
       +'<td>'+dlCell+'</td>'
       // 設定日
       +'<td style="font-size:10px;color:var(--gray-400);">'+(item.createdAt?item.createdAt.slice(0,10):'—')+'</td>'
+      // 個別通知
+      +'<td><button onclick="showTaskLineModal(\''+esc(c.staff||'')+'\',\''+esc(item.key)+'\')\" style="font-size:10px;padding:3px 7px;background:#f59e0b;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;">📱</button></td>'
       +'</tr>';
   }
 
@@ -2742,7 +2746,7 @@ function renderTasks(){
       +'<table><thead><tr>'
         +'<th style="width:38px;padding:0;"></th>'
         +'<th>氏名 / タスク</th><th>所属機関</th><th>種別</th>'
-        +'<th>ステータス</th><th>在留期限</th><th>担当</th><th>チーム</th><th>タスク期日</th><th>設定日</th>'
+        +'<th>ステータス</th><th>在留期限</th><th>担当</th><th>チーム</th><th>タスク期日</th><th>設定日</th><th></th>'
       +'</tr></thead>'
       +'<tbody>'+items.map(function(i){ return taskRow(i, blockKey); }).join('')+'</tbody>'
       +'</table></div>';
@@ -2773,7 +2777,7 @@ function renderTasks(){
       +'<table><thead><tr>'
         +'<th style="width:38px;padding:0;"></th>'
         +'<th>氏名 / タスク</th><th>所属機関</th><th>種別</th>'
-        +'<th>ステータス</th><th>在留期限</th><th>担当</th><th>チーム</th><th>タスク期日</th><th>設定日</th>'
+        +'<th>ステータス</th><th>在留期限</th><th>担当</th><th>チーム</th><th>タスク期日</th><th>設定日</th><th></th>'
       +'</tr></thead>'
       +'<tbody>'+jpItems.map(function(item){
         var c=item.c, dl=item.dl, isOverdue=item.isOverdue;
@@ -2798,16 +2802,15 @@ function renderTasks(){
           +'<td style="font-size:11px;color:var(--gray-400);">'+esc(c.team||'—')+'</td>'
           +'<td>'+dlCell+'</td>'
           +'<td style="font-size:10px;color:var(--gray-400);">'+(item.createdAt?item.createdAt.slice(0,10):'—')+'</td>'
+          +'<td><button onclick="showTaskLineModal(\''+esc(c.staff||'')+'\',\''+esc(item.key)+'\')\" style="font-size:10px;padding:3px 7px;background:#2563eb;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;">📱</button></td>'
           +'</tr>';
       }).join('')
       +'</tbody></table></div>';
   }
 
   // 期日超過・急ぎの担当別通知バナー
-  // 通知バナー：現在の表示アイテム全体を対象
-  var allOverdue = [];
-  if(showKH) allOverdue = allOverdue.concat(khUrgent, khOverdue, khNoDl);
-  if(showJP) allOverdue = allOverdue.concat(jpItems);
+  // 通知バナー：絞り込み後の全アイテムを対象
+  var allOverdue = _filteredTaskItems;
   var taskStaffGroups = {};
   allOverdue.forEach(function(item){
     var s = (item.c.staff||'').trim()||'（担当なし）';
@@ -2835,13 +2838,18 @@ function renderTasks(){
   }
 }
 
-function showTaskLineModal(staffName){
-  // 現在のフィルター結果から取得（buildTaskAlertItems+filterを再実行）
-  var allItems = buildTaskAlertItems();
-  var allTargets = allItems.khUrgent.concat(allItems.khOverdue, allItems.khNoDl, allItems.jpItems);
-  var targets = allTargets.filter(function(item){
-    return (item.c.staff||'').trim()===(staffName==='（担当なし）'?'':staffName) || (staffName==='（担当なし）' && !(item.c.staff||'').trim());
-  });
+function showTaskLineModal(staffName, caseKey){
+  var targets;
+  if(caseKey){
+    // 個別案件：key = case_id + '_' + ti
+    targets = _filteredTaskItems.filter(function(item){ return item.key===caseKey; });
+    if(!targets.length){ showToast('案件が見つかりません'); return; }
+  } else {
+    targets = _filteredTaskItems.filter(function(item){
+      var s = (item.c.staff||'').trim();
+      return staffName==='（担当なし）' ? !s : s===staffName;
+    });
+  }
   if(!targets.length){ showToast('対象案件なし'); return; }
   var today = new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
   var displayName = staffName==='（担当なし）'?'担当者':staffName;
@@ -3204,7 +3212,8 @@ function renderIntake(){
     var keys = Object.keys(staffGroups).sort();
     if(keys.length && pending.length){
       btnsEl.innerHTML = keys.map(function(s){
-        return '<button onclick="showIntakeLineModal(\''+esc(s)+'\')" style="font-size:11px;padding:4px 10px;background:#2563eb;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">'+esc(s)+'（'+staffGroups[s].length+'件）</button>';
+        var lineLabel = s==='（担当なし）' ? '（担当なし）' : getLineName(s);
+        return '<button onclick="showIntakeLineModal(\''+esc(s)+'\')" style="font-size:11px;padding:4px 10px;background:#2563eb;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">'+esc(lineLabel)+'（'+staffGroups[s].length+'件）</button>';
       }).join('');
       banner.style.display = '';
     } else {
