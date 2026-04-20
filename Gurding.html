@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_ADMIN ver.20260414.19 -->
+<!-- OFUSA_ADMIN ver.20260420.01 -->
 <html lang="ja"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -216,7 +216,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
       <div class="logo-badge">OFUSA</div>
       <div class="logo-title">大房行政書士法人</div>
       <div class="logo-sub">管理ダッシュボード</div>
-      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260414.19</div>
+      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260420.01</div>
     </div>
     <div class="sidebar-section">概要</div>
     <div class="nav-item active" onclick="nav('dashboard')">📊 ダッシュボード</div>
@@ -255,7 +255,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
     <div class="topbar">
       <div class="page-title" id="pageTitle">ダッシュボード</div>
       <div class="topbar-right">
-        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260414.19</span>
+        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260420.01</span>
         <span class="last-updated" id="lastUpdated"></span>
         <button class="btn btn-primary" onclick="refreshAll()">🔄 データ更新</button>
       </div>
@@ -540,11 +540,19 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
         <div class="filters-section">
           <div class="filters">
             <input class="search-input" id="taskSearch" placeholder="🔍 氏名・タスク名・担当で検索..." oninput="renderTasks()">
+            <select class="filter-select" id="taskSide" onchange="renderTasks()">
+              <option value="">KH＋JP</option>
+              <option value="kh">🇰🇭 カンボジア側のみ</option>
+              <option value="jp">🇯🇵 日本側のみ</option>
+            </select>
             <select class="filter-select" id="taskTeam" onchange="renderTasks()">
               <option value="">全チーム</option>
             </select>
             <select class="filter-select" id="taskStaff" onchange="renderTasks()">
               <option value="">全担当者</option>
+            </select>
+            <select class="filter-select" id="taskSupportOrg" onchange="renderTasks()" style="min-width:140px;">
+              <option value="">全登録支援機関</option>
             </select>
             <span class="filter-count" id="taskCount">—件</span>
           </div>
@@ -2426,45 +2434,61 @@ function renderCases(){
 }
 
 // ── TASKS ──
+// 除外ステータス（タスクアラート専用）
+var TASK_EXCLUDE_STATUSES = [
+  '許可済 受取方法調整中','入管受取ステータス変更中',
+  '★郵送交付','郵送交付中','郵送交付',
+  '窓口受取','★窓口受取','窓口受取（本人）','完了','審査完了'
+];
+
 function buildTaskAlertItems(){
-  // doc_tasks: [{case_id, task_index, status, deadline}, ...]
-  // taskUrgent: {"case_xxx_0": true, ...} (object形式)
   var urgentMap = (DATA.taskUrgent && typeof DATA.taskUrgent==='object' && !Array.isArray(DATA.taskUrgent))
     ? DATA.taskUrgent : {};
-
   var today = new Date(); today.setHours(0,0,0,0);
   var todayStr = today.toISOString().slice(0,10);
 
-  var urgent=[], overdue=[], noDeadline=[];
+  // KH側（st=0,1,2）、JP側（st=3）
+  var khUrgent=[], khOverdue=[], khNoDl=[];
+  var jpItems=[];
 
-  // caseIdでcaseを引くためのMap
   var caseMap={};
   DATA.cases.forEach(function(c){ caseMap[c.id]=c; });
 
   DATA.taskStatus.forEach(function(row){
     var c = caseMap[row.case_id];
     if(!c) return;
-    if(isExcluded(c.status)) return;
+    if(TASK_EXCLUDE_STATUSES.indexOf(c.status)!==-1) return;
     var st = row.status;
-    if(st===4||st===5) return; // 完了・不要はスキップ
+    if(st===4||st===5) return; // 完了・不要スキップ
     var ti = row.task_index;
     var key = row.case_id+'_'+ti;
     var dl = row.deadline||'';
+    var createdAt = row.created_at||'';
     var isUrgent = !!urgentMap[key];
     var isOverdue = dl && dl < todayStr;
-    var item = { c:c, key:key, ti:ti, st:st, dl:dl, isUrgent:isUrgent, isOverdue:isOverdue };
-    if(isUrgent && isOverdue) urgent.push(item);
-    else if(isOverdue) overdue.push(item);
-    else if(!dl) noDeadline.push(item);
+    var item = { c:c, key:key, ti:ti, st:st, dl:dl, createdAt:createdAt, isUrgent:isUrgent, isOverdue:isOverdue };
+
+    if(st===3){
+      // 日本側（確認待ち）
+      jpItems.push(item);
+    } else {
+      // カンボジア側（未着手・着手依頼・着手中）
+      if(isUrgent && isOverdue) khUrgent.push(item);
+      else if(isOverdue) khOverdue.push(item);
+      else if(!dl) khNoDl.push(item);
+    }
   });
 
-  // 期日順ソート
   function byDl(a,b){
     if(a.dl&&!b.dl) return -1; if(!a.dl&&b.dl) return 1;
     return a.dl<b.dl?-1:a.dl>b.dl?1:0;
   }
-  urgent.sort(byDl); overdue.sort(byDl);
-  return { urgent:urgent, overdue:overdue, noDeadline:noDeadline };
+  khUrgent.sort(byDl); khOverdue.sort(byDl);
+  jpItems.sort(byDl);
+
+  return { khUrgent:khUrgent, khOverdue:khOverdue, khNoDl:khNoDl, jpItems:jpItems,
+    // 後方互換
+    urgent:khUrgent, overdue:khOverdue, noDeadline:khNoDl };
 }
 
 var TASK_NAMES_GUARDING = ['質問票作成','1-6作成','サイン書類作成','企業押印書類作成','企業押印依頼','オンラインExcel作成','スキャン作成','窓口申請準備','オンライン申請','窓口申請','追加資料提出','預かり証作成','郵送交付','国交省申請','国交省修正','推薦票取り寄せ'];
@@ -2474,29 +2498,39 @@ function stColor(st){ return ['#94a3b8','#2563eb','#8b5cf6','#f97316','#16a34a',
 
 function renderTasks(){
   var q     = (document.getElementById('taskSearch').value||'').toLowerCase();
+  var side  = (document.getElementById('taskSide')||{}).value||'';
   var team  = document.getElementById('taskTeam').value||'';
   var staff = document.getElementById('taskStaff').value||'';
+  var so    = (document.getElementById('taskSupportOrg')||{}).value||'';
 
   var teams  = [...new Set(DATA.cases.map(function(c){ return c.team; }).filter(Boolean))].sort();
   var staffs = [...new Set(DATA.cases.map(function(c){ return c.staff; }).filter(Boolean))].sort();
+  var orgs   = [...new Set(DATA.cases.map(function(c){ return c.org; }).filter(Boolean))].sort();
   popSelect('taskTeam',  teams,  team);
   popSelect('taskStaff', staffs, staff);
+  popSelect('taskSupportOrg', orgs, so);
 
   var all = buildTaskAlertItems();
 
   function filterItem(item){
     if(team  && item.c.team!==team)   return false;
     if(staff && item.c.staff!==staff) return false;
+    if(so    && item.c.org!==so)      return false;
     if(q){
       var s=(item.c.name||'')+(item.c.org||item.c.company||'')+(item.c.staff||'')+(taskLabel(item.ti));
       if(!s.toLowerCase().includes(q)) return false;
     }
     return true;
   }
-  var urgent    = all.urgent.filter(filterItem);
-  var overdue   = all.overdue.filter(filterItem);
-  var noDeadline= all.noDeadline.filter(filterItem);
-  var total = urgent.length+overdue.length+noDeadline.length;
+
+  var showKH = side===''||side==='kh';
+  var showJP = side===''||side==='jp';
+
+  var khUrgent   = showKH ? all.khUrgent.filter(filterItem)   : [];
+  var khOverdue  = showKH ? all.khOverdue.filter(filterItem)  : [];
+  var khNoDl     = showKH ? all.khNoDl.filter(filterItem)     : [];
+  var jpItems    = showJP ? all.jpItems.filter(filterItem)    : [];
+  var total = khUrgent.length+khOverdue.length+khNoDl.length+jpItems.length;
   setTxt('taskCount', total+'件');
 
   var el = document.getElementById('taskAlertList');
@@ -2561,6 +2595,8 @@ function renderTasks(){
       +'<td style="font-size:11px;color:var(--gray-400);">'+esc(c.team||'—')+'</td>'
       // タスク期日
       +'<td>'+dlCell+'</td>'
+      // 設定日
+      +'<td style="font-size:10px;color:var(--gray-400);">'+(item.createdAt?item.createdAt.slice(0,10):'—')+'</td>'
       +'</tr>';
   }
 
@@ -2572,16 +2608,67 @@ function renderTasks(){
       +'<table><thead><tr>'
         +'<th style="width:38px;padding:0;"></th>'
         +'<th>氏名 / タスク</th><th>所属機関</th><th>種別</th>'
-        +'<th>ステータス</th><th>在留期限</th><th>担当</th><th>チーム</th><th>タスク期日</th>'
+        +'<th>ステータス</th><th>在留期限</th><th>担当</th><th>チーム</th><th>タスク期日</th><th>設定日</th>'
       +'</tr></thead>'
       +'<tbody>'+items.map(function(i){ return taskRow(i, blockKey); }).join('')+'</tbody>'
       +'</table></div>';
   }
 
   var html = '';
-  html += taskBlock(urgent,     'urgent',     '<div class="card-title" style="color:#dc2626;">🔥 急ぎ＋期日超過 <span style="background:#dc2626;color:white;font-size:10px;padding:1px 8px;border-radius:10px;margin-left:6px;">'+urgent.length+'件</span></div>');
-  html += taskBlock(overdue,    'overdue',    '<div class="card-title" style="color:#ea580c;">⚠️ 期日超過 <span style="background:#ea580c;color:white;font-size:10px;padding:1px 8px;border-radius:10px;margin-left:6px;">'+overdue.length+'件</span></div>');
-  html += taskBlock(noDeadline, 'noDeadline', '<div class="card-title" style="color:#64748b;">📅 期日未設定 <span style="background:#64748b;color:white;font-size:10px;padding:1px 8px;border-radius:10px;margin-left:6px;">'+noDeadline.length+'件</span></div>');
+
+  // 🇰🇭 カンボジア側セクション
+  if(khUrgent.length||khOverdue.length||khNoDl.length){
+    html += '<div style="display:flex;align-items:center;gap:8px;margin:8px 0 6px;padding:8px 14px;background:linear-gradient(90deg,#fef9c3,#fef3c7);border-left:4px solid #f59e0b;border-radius:0 8px 8px 0;">'
+      +'<span style="font-size:16px;">🇰🇭</span>'
+      +'<span style="font-size:13px;font-weight:800;color:#92400e;">カンボジア側対応</span>'
+      +'<span style="font-size:11px;color:#92400e;margin-left:auto;">'+(khUrgent.length+khOverdue.length+khNoDl.length)+'件</span>'
+      +'</div>';
+    html += taskBlock(khUrgent,  'urgent',     '<div class="card-title" style="color:#dc2626;">🔥 急ぎ＋期日超過 <span style="background:#dc2626;color:white;font-size:10px;padding:1px 8px;border-radius:10px;margin-left:6px;">'+khUrgent.length+'件</span></div>');
+    html += taskBlock(khOverdue, 'overdue',    '<div class="card-title" style="color:#ea580c;">⚠️ 期日超過 <span style="background:#ea580c;color:white;font-size:10px;padding:1px 8px;border-radius:10px;margin-left:6px;">'+khOverdue.length+'件</span></div>');
+    html += taskBlock(khNoDl,    'noDeadline', '<div class="card-title" style="color:#64748b;">📅 期日未設定 <span style="background:#64748b;color:white;font-size:10px;padding:1px 8px;border-radius:10px;margin-left:6px;">'+khNoDl.length+'件</span></div>');
+  }
+
+  // 🇯🇵 日本側セクション（確認待ち）
+  if(jpItems.length){
+    html += '<div style="display:flex;align-items:center;gap:8px;margin:12px 0 6px;padding:8px 14px;background:linear-gradient(90deg,#dbeafe,#eff6ff);border-left:4px solid #3b82f6;border-radius:0 8px 8px 0;">'
+      +'<span style="font-size:16px;">🇯🇵</span>'
+      +'<span style="font-size:13px;font-weight:800;color:#1e40af;">日本側対応（確認待ち）</span>'
+      +'<span style="font-size:11px;color:#1e40af;margin-left:auto;">'+jpItems.length+'件</span>'
+      +'</div>';
+    html += '<div class="table-wrap" style="margin-bottom:12px;">'
+      +'<table><thead><tr>'
+        +'<th style="width:38px;padding:0;"></th>'
+        +'<th>氏名 / タスク</th><th>所属機関</th><th>種別</th>'
+        +'<th>ステータス</th><th>在留期限</th><th>担当</th><th>チーム</th><th>タスク期日</th><th>設定日</th>'
+      +'</tr></thead>'
+      +'<tbody>'+jpItems.map(function(item){
+        var c=item.c, dl=item.dl, isOverdue=item.isOverdue;
+        var d=daysLeft(c.expire);
+        var expCls=d!==null&&d<=10?(d<0?'st-red':'st-yellow'):'st-gray';
+        var dlCell=!dl?'<span class="st-badge st-gray">未設定</span>'
+          :isOverdue?'<span class="st-badge st-red" style="border:1.5px solid #dc2626;">⚠️ '+dl+'</span>'
+          :'<span class="st-badge st-yellow">'+dl+'</span>';
+        return '<tr style="background:#f0f9ff;">'
+          +'<td style="padding:0;width:38px;"><div style="width:38px;min-height:48px;height:100%;background:#dbeafe;border-right:2px solid #93c5fd;display:flex;align-items:center;justify-content:center;"><span style="font-size:8px;font-weight:800;color:#1e40af;text-align:center;line-height:1.5;white-space:pre-line;">🇯🇵\n確認\n待ち</span></div></td>'
+          +'<td><div class="td-name">'+esc(c.name||'—')+'</div>'
+            +'<div class="td-sub" style="display:flex;gap:4px;align-items:center;margin-top:2px;flex-wrap:wrap;">'
+              +'<span style="font-size:10px;color:var(--gray-400);">'+esc(c.applicant||'')+'</span>'
+              +'<span style="font-size:10px;font-weight:700;color:#2563eb;background:#eff6ff;border:1px solid #bfdbfe;border-radius:4px;padding:1px 5px;">'+taskLabel(item.ti)+'</span>'
+              +(item.isUrgent?'<span style="font-size:10px;font-weight:800;color:#dc2626;">🔥急ぎ</span>':'')
+            +'</div></td>'
+          +'<td style="font-size:12px;">'+esc(c.org||c.company||'—')+'</td>'
+          +'<td>'+typeBadge(c.app_type)+'</td>'
+          +'<td>'+stBadge(c.status)+'</td>'
+          +'<td><span class="st-badge '+expCls+'">'+fmtDate(c.expire)+'</span></td>'
+          +'<td style="font-size:12px;">'+esc(c.staff||'—')+'</td>'
+          +'<td style="font-size:11px;color:var(--gray-400);">'+esc(c.team||'—')+'</td>'
+          +'<td>'+dlCell+'</td>'
+          +'<td style="font-size:10px;color:var(--gray-400);">'+(item.createdAt?item.createdAt.slice(0,10):'—')+'</td>'
+          +'</tr>';
+      }).join('')
+      +'</tbody></table></div>';
+  }
+
   el.innerHTML = '<div style="padding:0 24px 24px;">'+html+'</div>';
 }
 function shinsaTab(tbl, el){
