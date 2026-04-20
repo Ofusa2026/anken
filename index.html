@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260416.88</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260416.93</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -1307,6 +1307,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <button onclick="bulkTrashCases()" style="background:#dc2626;color:white;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;">🗑 一括削除</button>
     <button onclick="bulkChangeStatus()" style="background:#f59e0b;color:white;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;">📋 一括ステータス変更</button>
     <button onclick="openDuplicateCaseFromSel()" style="background:#0ea5e9;color:white;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;">📋 複製</button>
+    <button onclick="bulkSetApplicationDeadline()" style="background:#059669;color:white;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;">📅 一括申請期限</button>
     <button onclick="cancelGroupSelect()" style="background:white;color:#64748b;border:1px solid #d1d5db;border-radius:8px;padding:6px 12px;font-size:11px;cursor:pointer;">✕ 解除</button>
   </div>
   <!-- TABLE + KANBAN (共通ヘッダー) -->
@@ -2554,7 +2555,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260416.88';
+var OFUSA_VERSION = 'ver.20260416.93';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -11198,6 +11199,28 @@ function saveTaskConfirm(tkey){
   var cur=taskConfirm[tkey]||0;
   // 0→1(確認依頼) →2(確認済) →0(リセット) ループ
   var next=(cur+1)%3;
+  // 確認済(2)になる時はタスク完了の確認を出す
+  if (next === 2) {
+    var _parts0=tkey.split('_'); var _ti0=parseInt(_parts0[_parts0.length-1]); var _cid0=_parts0.slice(0,_parts0.length-1).join('_');
+    var _tn0 = TASK_NAMES[_ti0] || 'タスク';
+    if (confirm(_tn0 + ' を完了にしますか？')) {
+      docTaskStatus[tkey] = 4;
+      try{localStorage.setItem('ofusa_docTaskStatus',JSON.stringify(docTaskStatus));}catch(e){}
+      if(DB_READY){_sb.from('doc_tasks').upsert({case_id:_cid0,task_index:_ti0,status:4,review_state:'2'},{onConflict:'case_id,task_index'}).then(function(){});}
+      var _caseObj0=cData.find(function(x){return x.id===_cid0;});
+      if(_caseObj0){var _d0=0;for(var _i0=0;_i0<TASK_NAMES.length;_i0++){if((docTaskStatus[_cid0+'_'+_i0]||0)>=4)_d0++;}_caseObj0.taskDone=_d0;}
+      // 雇用条件入力（idx:8）完了 → 1-6作成タスクモーダル
+      if (_ti0 === 8 && _caseObj0) { setTimeout(function(){ _onStatus16Create(_caseObj0); }, 500); }
+      // ステータス自動変更確認
+      var _AUTO_STATUS_MAP0 = {1:'★1-6企業送付', 2:'★サイン書類送付', 3:'★企業押印送付', 6:'★申請'};
+      var _nextStatus0 = _AUTO_STATUS_MAP0[_ti0];
+      if (_nextStatus0 && _caseObj0 && _caseObj0.status !== _nextStatus0) {
+        setTimeout(function(){ if(confirm('ステータスを「' + _nextStatus0 + '」に変更しますか？')){ autoSaveInfo('status', _nextStatus0); } }, 300);
+      }
+    } else {
+      return; // キャンセル時は何もしない
+    }
+  }
   taskConfirm[tkey]=next;
   try{localStorage.setItem('ofusa_taskConfirm',JSON.stringify(taskConfirm));}catch(e){} 
   persistTaskMeta();
@@ -21485,6 +21508,55 @@ function bulkTrashCases(){
   }
 }
 
+
+function bulkSetApplicationDeadline() {
+  var cbs = document.querySelectorAll('.group-sel-cb:checked');
+  if (!cbs.length) { alert('案件を選択してください'); return; }
+  var ids = []; cbs.forEach(function(cb){ ids.push(cb.getAttribute('data-id')); });
+
+  var modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
+
+  var today = new Date().toISOString().slice(0,10);
+  modal.innerHTML = '<div onclick="event.stopPropagation()" style="background:white;border-radius:16px;padding:24px;width:360px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,.3);">'
+    + '<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:4px;">📅 一括申請期限設定</div>'
+    + '<div style="font-size:11px;color:#6b7280;margin-bottom:16px;">' + ids.length + '件の案件に適用</div>'
+    + '<div style="margin-bottom:16px;">'
+    + '<label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:6px;">申請期限</label>'
+    + '<input type="date" id="_bulkDlInput" value="' + today + '" style="width:100%;padding:10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:14px;box-sizing:border-box;">'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;">'
+    + '<button onclick="_bulkDlCancel()" style="padding:8px 16px;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">キャンセル</button>'
+    + '<button onclick="_doBulkSetDeadline(' + JSON.stringify(ids) + ')" style="padding:8px 20px;background:#059669;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">✅ 設定する</button>'
+    + '</div></div>';
+
+  document.body.appendChild(modal);
+  setTimeout(function(){ var el=document.getElementById('_bulkDlInput');if(el)el.focus(); },100);
+}
+
+function _bulkDlCancel(){ var m=document.querySelector('#_bulkDlModal'); if(m) m.remove(); var ms=document.querySelectorAll('div[style*="z-index: 9999"],div[style*="z-index:9999"]'); ms.forEach(function(el){if(el.querySelector('#_bulkDlInput'))el.remove();}); }
+function _doBulkSetDeadline(ids) {
+  var val = (document.getElementById('_bulkDlInput')||{}).value;
+  if (!val) { showToast('⚠️ 日付を入力してください'); return; }
+  document.querySelector('div[style*="fixed"][style*="9999"]') && document.querySelector('div[style*="fixed"][style*="9999"]').remove();
+
+  var updated = 0;
+  ids.forEach(function(cid) {
+    var c = cData.find(function(x){ return x.id===cid; });
+    if (!c) return;
+    c.applicationDeadline = val;
+    _markCaseChanged(cid);
+    if (DB_READY) {
+      _sb.from('cases').update({application_deadline: val, updated_at: new Date().toISOString()}).eq('id', cid).then(function(){});
+    }
+    updated++;
+  });
+
+  applyFilters();
+  cancelGroupSelect();
+  showToast('✅ ' + updated + '件の申請期限を ' + val + ' に設定しました');
+}
 function bulkChangeStatus(){
   var cbs = document.querySelectorAll('.group-sel-cb:checked');
   if(!cbs.length){ alert('案件を選択してください'); return; }
@@ -23029,12 +23101,12 @@ function openCase(id) {
   var _hassoBadge = HASSO_BADGES[c.id] ? '<span class="case-header-tag" style="background:#0c4a6e;color:white;font-weight:700;">📮 発送中</span>' : '';
   var _co = findCompanyByName(c.company);
   var _coLinkHtml = (_co)
-    ? '<span class="case-header-tag" onclick="openCompanyDetail(\'' + _co.id + '\')" style="cursor:pointer;color:#2563eb;text-decoration:underline;font-weight:700;">🏢 ' + esc(c.company||c.org||'') + '</span>'
+    ? '<span class="case-header-tag" onclick="openCompanyDetail(\'' + _co.id + '\')" style="cursor:pointer;color:white;text-decoration:underline;font-weight:700;">🏢 ' + esc(c.company||c.org||'') + '</span>'
     : '<span class="case-header-tag">🏢 ' + esc(c.company||c.org||'') + '</span>';
   var _so = c.org ? supportOrgs.find(function(s){ return s.name === c.org; }) : null;
   var _soLinkHtml = c.org
     ? (_so
-        ? '<span class="case-header-tag" onclick="openSupport();selectSupport(\'' + _so.id + '\')" style="cursor:pointer;color:#7c3aed;text-decoration:underline;font-weight:700;">🤝 ' + esc(c.org) + '</span>'
+        ? '<span class="case-header-tag" onclick="openSupport();selectSupport(\'' + _so.id + '\')" style="cursor:pointer;color:white;text-decoration:underline;font-weight:700;">🤝 ' + esc(c.org) + '</span>'
         : '<span class="case-header-tag">🤝 ' + esc(c.org) + '</span>')
     : '';
   document.getElementById('caseDetailTags').innerHTML =
@@ -25665,6 +25737,14 @@ function toggleDocCheck2(caseId, fullKey) {
   if (!docCheck[caseId] || typeof docCheck[caseId] !== 'object') docCheck[caseId] = {};
   docCheck[caseId][fullKey] = !docCheck[caseId][fullKey];
   var val = docCheck[caseId][fullKey];
+  // staff::チェックがONになった時、取得日を今日の日付にデフォルトセット
+  if (val && fullKey.indexOf('staff::') === 0) {
+    var _docName = fullKey.slice(7);
+    var _dateKey = 'date::' + _docName;
+    if (!docCheck[caseId][_dateKey]) {
+      docCheck[caseId][_dateKey] = new Date().toISOString().slice(0, 10);
+    }
+  }
   showToast((val ? '✅' : '⬜') + ' ' + fullKey.replace('ai::','🤖 ').replace('staff::','👤 '));
   persistDocCheck();
   logCaseAction(caseId, 'info_save', '書類チェック ' + fullKey.replace(/^[^:]+::/,''));
