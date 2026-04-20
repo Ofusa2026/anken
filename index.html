@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260416.67</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260416.69</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2554,7 +2554,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260416.67';
+var OFUSA_VERSION = 'ver.20260416.69';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -11236,7 +11236,22 @@ function setTaskReviewState(tkey, state){
   };
   _persistTaskNotifications();
   if(assignee) updateReviewBadge();
-  var msg = state===2 ? '✅ 確認済にしました' : '↩ 差戻しました';
+  // 確認済（state=2）の場合はタスク自体を完了（status=4）にする
+  if (state === 2) {
+    docTaskStatus[tkey] = 4;
+    var _caseObj = cData.find(function(x){return x.id===caseId;});
+    if(_caseObj){
+      var _d=0; for(var _i=0;_i<TASK_NAMES.length;_i++){if((docTaskStatus[caseId+'_'+_i]||0)>=4)_d++;} 
+      _caseObj.taskDone=_d; _caseObj.taskTotal=TASK_NAMES.length;
+      if(DB_READY) _sb.from('cases').update({task_done:_d,task_total:TASK_NAMES.length,updated_at:new Date().toISOString()}).eq('id',caseId).then(function(){});
+    }
+    if(DB_READY){
+      var _p3=tkey.split('_');var _ti3=parseInt(_p3[_p3.length-1]);var _ci3=_p3.slice(0,_p3.length-1).join('_');
+      _sb.from('doc_tasks').upsert({case_id:_ci3,task_index:_ti3,status:4,review_state:'2',assignee_comment:taskAssigneeComment[tkey]||null,checker_comment:taskCheckerComment[tkey]||null},{onConflict:'case_id,task_index'}).then(function(){});
+    }
+    try{localStorage.setItem('ofusa_docTaskStatus',JSON.stringify(docTaskStatus));}catch(e){}
+  }
+  var msg = state===2 ? '✅ 確認済・タスク完了にしました' : '↩ 差戻しました';
   showToast(msg + (assignee ? '（' + assignee + 'さんに通知）' : ''));
   persistTaskMeta();
   showTab('tasks');
@@ -20081,11 +20096,10 @@ function loadCaseActions() {
       if (res.error) { console.error('loadCaseActions error:', res.error); return; }
       caseActions = {};
       (res.data || []).forEach(function(row) {
-        // 案件ごとに最新1件だけ保持（upload_receivedより他のアクションを優先）
-        var existing = caseActions[row.case_id];
-        if (!existing) {
-          caseActions[row.case_id] = row;
-        } else if (existing.action_type === 'upload_received' && row.action_type !== 'upload_received') {
+        // upload_receivedは最終アクションから除外
+        if (row.action_type === 'upload_received') return;
+        // 案件ごとに最新1件だけ保持
+        if (!caseActions[row.case_id]) {
           caseActions[row.case_id] = row;
         }
       });
