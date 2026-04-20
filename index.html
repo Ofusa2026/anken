@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260416.95</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260416.98</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2555,7 +2555,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260416.95';
+var OFUSA_VERSION = 'ver.20260416.98';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -20481,7 +20481,7 @@ function _persistRequiredDocsGiji(){
     _sb.from('settings').upsert({key:'required_docs_giji',value:JSON.stringify(REQUIRED_DOCS_GIJI)},{onConflict:'key'}).then(function(){});
 }
 var REQUIRED_DOCS = (function(){
-  try { var s = localStorage.getItem('ofusa_requiredDocs'); if(s) return JSON.parse(s); } catch(e) {}
+  // localStorageは使わずデフォルト値で初期化（DBから起動時に上書き）
   return {
     '更新': _REQUIRED_DOCS_DEFAULT['更新'].slice(),
     '変更': _REQUIRED_DOCS_DEFAULT['変更'].slice(),
@@ -25421,34 +25421,45 @@ function renderLineTab(c) {
   // グループID（非表示・内部利用のみ）
   h += '<input id="lineGidInput_'+c.id+'" type="hidden" value="'+gid+'">';
 
-  // === クイック送信 ===
-  h += '<div style="margin-bottom:16px;">';
-  h += '<div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid var(--navy);">✉️ クイック送信</div>';
+  // === 案内テキスト生成（2カラムレイアウト） ===
+  h += '<div style="display:flex;gap:12px;height:420px;">';
 
-  // テキスト送信
-  h += '<div style="background:white;border:1.5px solid var(--gray-200);border-radius:12px;padding:14px;margin-bottom:10px;">';
-  h += '<textarea id="lineQuickMsg_'+c.id+'" rows="3" placeholder="メッセージを入力..." style="width:100%;border:1.5px solid var(--gray-200);border-radius:8px;padding:10px;font-size:13px;resize:vertical;box-sizing:border-box;font-family:inherit;"></textarea>';
-  h += '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">';
-  h += '<button onclick="lineQuickSend(\''+c.id+'\')" style="padding:8px 16px;background:#06b6d4;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📋 コピー</button>';
-  h += '<button onclick="showLineSendMenu(\''+c.id+'\')" style="padding:8px 16px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📁 Drive書類をコピー</button>';
-  h += '<button onclick="openDocTextGenerator(\''+c.id+'\')" style="padding:8px 16px;background:#059669;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📝 テキスト生成</button>';
-  h += '</div></div>';
+  // 左カラム：テンプレート選択
+  h += '<div style="width:200px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;">';
+  h += '<div style="font-size:11px;font-weight:800;color:var(--navy);margin-bottom:4px;padding-bottom:4px;border-bottom:2px solid var(--navy);">📋 テキスト生成</div>';
 
-  // テンプレート送信
-  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">';
-  var templates = [
-    {label:'📋 不足書類リスト', action:'insertUncheckedDocs(\''+c.id+'\')'},
-    {label:'🙏 リマインド', msg: (c.applicant||'')+'様\n\nお疲れ様です。大房行政書士法人です。\nお手続きに必要な書類のご準備状況はいかがでしょうか？\nご不明な点がございましたらお気軽にご連絡ください。\n\nよろしくお願いいたします。'},
-    {label:'✅ 受領連絡', msg: (c.applicant||'')+'様\n\nお疲れ様です。大房行政書士法人です。\n書類を受領いたしました。ありがとうございます。\n確認次第、ご連絡いたします。\n\nよろしくお願いいたします。'},
-  ];
-  templates.forEach(function(t){
-    if(t.action){
-      h += '<button onclick="'+t.action+'" style="padding:6px 12px;background:#f0fdf4;border:1.5px solid #86efac;border-radius:8px;font-size:11px;font-weight:700;color:#15803d;cursor:pointer;">'+t.label+'</button>';
-    } else {
-      h += '<button onclick="lineTemplateSend(\''+c.id+'\',\''+encodeURIComponent(t.msg)+'\')" style="padding:6px 12px;background:#eff6ff;border:1.5px solid #93c5fd;border-radius:8px;font-size:11px;font-weight:700;color:#1e40af;cursor:pointer;">'+t.label+'</button>';
-    }
+  // docTextRulesから人材カテゴリのルール
+  var _guideRules = docTextRules.filter(function(r){ return r.category === '人材' || r.category === '共通'; });
+  _guideRules.forEach(function(rule) {
+    h += '<button onclick="_guideSelectRule(\''+c.id+'\',\''+rule.id+'\',this)" class="_guideRuleBtn" style="text-align:left;padding:8px 10px;background:white;border:1.5px solid #e2e8f0;border-radius:8px;font-size:11px;font-weight:700;color:#374151;cursor:pointer;transition:.2s;" onmouseover="this.style.borderColor=\'#2563eb\';this.style.background=\'#eff6ff\'" onmouseout="if(!this.classList.contains(\'_active\')){this.style.borderColor=\'#e2e8f0\';this.style.background=\'white\'}">📋 '+esc(rule.name)+'</button>';
   });
-  h += '</div></div>';
+
+  // 固定テンプレート
+  var _fixedTmpls = [
+    {id:'_ft_shortage', label:'📋 不足書類案内'},
+    {id:'_ft_reminder', label:'🙏 リマインド'},
+    {id:'_ft_received', label:'✅ 受領連絡'},
+  ];
+  _fixedTmpls.forEach(function(ft) {
+    h += '<button onclick="_guideSelectFixed(\''+c.id+'\',\''+ft.id+'\',this)" class="_guideRuleBtn" style="text-align:left;padding:8px 10px;background:white;border:1.5px solid #e2e8f0;border-radius:8px;font-size:11px;font-weight:700;color:#374151;cursor:pointer;transition:.2s;" onmouseover="this.style.borderColor=\'#2563eb\';this.style.background=\'#eff6ff\'" onmouseout="if(!this.classList.contains(\'_active\')){this.style.borderColor=\'#e2e8f0\';this.style.background=\'white\'}">'+esc(ft.label)+'</button>';
+  });
+
+  h += '<div style="margin-top:auto;">';
+  h += '<button onclick="showLineSendMenu(\''+c.id+'\')" style="width:100%;padding:7px;background:#eff6ff;border:1.5px solid #93c5fd;border-radius:8px;font-size:11px;font-weight:700;color:#1e40af;cursor:pointer;">📁 Drive書類</button>';
+  h += '</div>';
+  h += '</div>';
+
+  // 右カラム：プレビュー・編集
+  h += '<div style="flex:1;display:flex;flex-direction:column;gap:6px;">';
+  h += '<div style="font-size:11px;font-weight:800;color:var(--navy);margin-bottom:4px;padding-bottom:4px;border-bottom:2px solid var(--navy);">✏️ プレビュー・編集</div>';
+  h += '<textarea id="_guidePreview_'+c.id+'" placeholder="左のテンプレートを選択するとここにテキストが表示されます。編集もできます。" style="flex:1;width:100%;padding:10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12px;resize:none;font-family:inherit;line-height:1.6;box-sizing:border-box;"></textarea>';
+  h += '<div style="display:flex;gap:8px;">';
+  h += '<button onclick="_guideCopyText(\''+c.id+'\')" style="flex:1;padding:8px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📋 コピー</button>';
+  h += '<button onclick="_guideClear(\''+c.id+'\')" style="padding:8px 12px;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🗑 クリア</button>';
+  h += '</div>';
+  h += '</div>';
+
+  h += '</div>';
 
   h += '</div>';
 
@@ -25456,6 +25467,135 @@ function renderLineTab(c) {
   el.innerHTML = h;
 
 }
+
+
+// ===== 案内タブ テキスト生成 =====
+function _guideSelectRule(caseId, ruleId, btn) {
+  // アクティブボタン切り替え
+  document.querySelectorAll('._guideRuleBtn').forEach(function(b){
+    b.classList.remove('_active');
+    b.style.borderColor = '#e2e8f0'; b.style.background = 'white'; b.style.color = '#374151';
+  });
+  btn.classList.add('_active');
+  btn.style.borderColor = '#2563eb'; btn.style.background = '#eff6ff'; btn.style.color = '#1e40af';
+
+  // テキスト生成（generateDocTextと同じロジック）
+  var rule = docTextRules.find(function(r){ return r.id === ruleId; });
+  if (!rule) return;
+  var cas = cData.find(function(c){ return c.id === caseId; }) || {};
+  var p = personData[caseId] || {};
+  var co = findCompanyByName(cas.company) || {};
+
+  var _formType = cas.appType ? (
+    cas.appType.indexOf('認定')!==-1 ? (cas.appType.indexOf('技人国')!==-1||cas.appType.indexOf('技術')!==-1?'gijinkoku_nintei':'tokutei_nintei') :
+    cas.appType.indexOf('更新')!==-1 ? (cas.appType.indexOf('技人国')!==-1||cas.appType.indexOf('技術')!==-1?'gijinkoku_koushin':'tokutei_koushin') :
+    cas.appType.indexOf('変更')!==-1 ? (cas.appType.indexOf('技人国')!==-1||cas.appType.indexOf('技術')!==-1?'gijinkoku_henkou':'tokutei_henkou') : 'tokutei_nintei'
+  ) : 'tokutei_nintei';
+  var _formUrl = FORM_BASE_URL + '?case=' + encodeURIComponent(caseId) + '&type=' + _formType + '&name=' + encodeURIComponent(cas.applicant||cas.name||'');
+
+  var _driveUrl = p.driveUrl || '';
+  var _uploadUrl = '';
+  if (_driveUrl) {
+    var _fid = extractDriveFolderId(_driveUrl);
+    if (_fid) {
+      var _dc7 = docCheck[caseId] || {};
+      var _skipDocs7 = Object.keys(_dc7).filter(function(k){return k.indexOf('skip::')===0;}).map(function(k){return k.replace('skip::','');});
+      var _at = (cas.appType||'').indexOf('更新')>=0?'更新':(cas.appType||'').indexOf('変更')>=0?'変更':(cas.appType||'').indexOf('認定')>=0?'認定':'';
+      var _nat = cas.nationality || p.nationality || '';
+      var _ryugaku = (p.residenceStatus||cas.currentStatus||'').indexOf('留学')>=0 ? '1' : '';
+      _uploadUrl = 'https://ofusa2026.github.io/upload/zinzai_dataup.html?folder=' + _fid
+        + '&case=' + encodeURIComponent(caseId)
+        + (_at ? '&appType=' + encodeURIComponent(_at) : '')
+        + (_nat ? '&nationality=' + encodeURIComponent(_nat) : '')
+        + (_ryugaku ? '&ryugaku=1' : '')
+        + (_skipDocs7.length ? '&skipDocs=' + encodeURIComponent(_skipDocs7.join(',')) : '');
+    }
+  }
+
+  var vars = {
+    applicant: cas.applicant||cas.name||'', appType: cas.appType||'',
+    currentStatus: p.residenceStatus||cas.currentStatus||'', residenceStatus: cas.residenceStatus||'',
+    nationality: cas.nationality||p.nationality||'', company: cas.company||'',
+    companyCategory: co.companyCategory||'', org: cas.org||'',
+    field: cas.applicantField||'', jobCategory: cas.jobCategory||'',
+    formUrl: _formUrl, uploadUrl: _uploadUrl
+  };
+  var text = rule.template;
+  for (var k in vars) { text = text.replace(new RegExp('\{'+k+'\}','g'), vars[k]); }
+
+  // docListを必要書類タブのリストで生成
+  var _docListItems = [];
+  var _actualDocList = _getDocList(cas);
+  if (_actualDocList && _actualDocList.length) {
+    var _dc = docCheck[caseId] || {};
+    _actualDocList.forEach(function(d) {
+      if (_dc['skip::'+d]) return;
+      _docListItems.push('□ ' + d);
+    });
+  }
+  var additions = [];
+  rule.conditions.forEach(function(cond) {
+    var matched = false;
+    if (cond.and && Array.isArray(cond.and)) {
+      matched = cond.and.every(function(sub){ var fv=vars[sub.field]||''; return fv&&fv.indexOf(sub.contains)>=0; });
+    } else if (cond.field) {
+      var fv = vars[cond.field]||''; matched = fv&&fv.indexOf(cond.contains)>=0;
+    }
+    if (matched) additions.push(cond.append);
+  });
+  // additionsはdocTextRulesの条件テキスト（書類リストと重複するため案内タブでは使わない）
+  text = text.replace('{docList}', _docListItems.join('\n'));
+
+  var ta = document.getElementById('_guidePreview_' + caseId);
+  if (ta) ta.value = text;
+}
+
+function _guideSelectFixed(caseId, fixedId, btn) {
+  document.querySelectorAll('._guideRuleBtn').forEach(function(b){
+    b.classList.remove('_active');
+    b.style.borderColor = '#e2e8f0'; b.style.background = 'white'; b.style.color = '#374151';
+  });
+  btn.classList.add('_active');
+  btn.style.borderColor = '#2563eb'; btn.style.background = '#eff6ff'; btn.style.color = '#1e40af';
+
+  var cas = cData.find(function(c){ return c.id === caseId; }) || {};
+  var name = cas.applicant || cas.name || '';
+  var text = '';
+
+  if (fixedId === '_ft_shortage') {
+    var dc = docCheck[caseId] || {};
+    var docList = _getDocList(cas) || [];
+    var unchecked = docList.filter(function(d){ return !dc['staff::'+d] && !dc['skip::'+d]; });
+    text = name + '様\n\nお疲れ様です。大房行政書士法人です。\n以下の書類がまだ届いていません。\nご準備のうえご提出をお願いいたします。\n\n';
+    unchecked.forEach(function(d){ text += '□ ' + d + '\n'; });
+    text += '\nご不明な点がございましたらお気軽にご連絡ください。\nよろしくお願いいたします。\n\n大房行政書士法人\nTEL：03-6424-8849';
+  } else if (fixedId === '_ft_reminder') {
+    text = name + '様\n\nお疲れ様です。大房行政書士法人です。\nお手続きに必要な書類のご準備状況はいかがでしょうか？\nご不明な点がございましたらお気軽にご連絡ください。\n\nよろしくお願いいたします。\n\n大房行政書士法人\nTEL：03-6424-8849';
+  } else if (fixedId === '_ft_received') {
+    text = name + '様\n\nお疲れ様です。大房行政書士法人です。\n書類を受領いたしました。ありがとうございます。\n確認次第、ご連絡いたします。\n\nよろしくお願いいたします。\n\n大房行政書士法人\nTEL：03-6424-8849';
+  }
+
+  var ta = document.getElementById('_guidePreview_' + caseId);
+  if (ta) ta.value = text;
+}
+
+function _guideCopyText(caseId) {
+  var ta = document.getElementById('_guidePreview_' + caseId);
+  if (!ta || !ta.value) { showToast('⚠️ テキストがありません'); return; }
+  navigator.clipboard.writeText(ta.value).then(function(){
+    showToast('📋 コピーしました');
+  }).catch(function(){ ta.select(); document.execCommand('copy'); showToast('📋 コピーしました'); });
+}
+
+function _guideClear(caseId) {
+  var ta = document.getElementById('_guidePreview_' + caseId);
+  if (ta) ta.value = '';
+  document.querySelectorAll('._guideRuleBtn').forEach(function(b){
+    b.classList.remove('_active');
+    b.style.borderColor = '#e2e8f0'; b.style.background = 'white'; b.style.color = '#374151';
+  });
+}
+// ===== /案内タブ テキスト生成 =====
 
 function getLineGroupDisplayName(g){
   var n=g.name||'';
