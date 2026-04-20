@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_ADMIN ver.20260420.03 -->
+<!-- OFUSA_ADMIN ver.20260420.05 -->
 <html lang="ja"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -216,7 +216,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
       <div class="logo-badge">OFUSA</div>
       <div class="logo-title">大房行政書士法人</div>
       <div class="logo-sub">管理ダッシュボード</div>
-      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260420.03</div>
+      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260420.05</div>
     </div>
     <div class="sidebar-section">概要</div>
     <div class="nav-item active" onclick="nav('dashboard')">📊 ダッシュボード</div>
@@ -255,7 +255,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
     <div class="topbar">
       <div class="page-title" id="pageTitle">ダッシュボード</div>
       <div class="topbar-right">
-        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260420.03</span>
+        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260420.05</span>
         <span class="last-updated" id="lastUpdated"></span>
         <button class="btn btn-primary" onclick="refreshAll()">🔄 データ更新</button>
       </div>
@@ -560,6 +560,19 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
               <option value="1">着手依頼</option>
               <option value="2">着手中</option>
               <option value="3">確認（JP）</option>
+            </select>
+            <select class="filter-select" id="taskCaseStatus" onchange="renderTasks()" style="min-width:140px;">
+              <option value="">全ステータス</option>
+              <option value="未着手">未着手</option>
+              <option value="1-6作成">1-6作成</option>
+              <option value="サイン書類作成">サイン書類作成</option>
+              <option value="スキャン書類作成">スキャン書類作成</option>
+              <option value="企業押印返送待ち(送付済)">企業押印返送待ち</option>
+              <option value="サイン書類返送待ち(送付済)">サイン書類返送待ち</option>
+              <option value="★申請">★申請</option>
+              <option value="申請">申請</option>
+              <option value="要追完">要追完</option>
+              <option value="★要追完">★要追完</option>
             </select>
             <span class="filter-count" id="taskCount">—件</span>
           </div>
@@ -2510,6 +2523,7 @@ function renderTasks(){
   var staff = document.getElementById('taskStaff').value||'';
   var so    = (document.getElementById('taskSupportOrg')||{}).value||'';
   var taskStF = (document.getElementById('taskStatusFilter')||{}).value;
+  var caseStF = (document.getElementById('taskCaseStatus')||{}).value||'';
 
   var teams  = [...new Set(DATA.cases.map(function(c){ return c.team; }).filter(Boolean))].sort();
   var staffs = [...new Set(DATA.cases.map(function(c){ return c.staff; }).filter(Boolean))].sort();
@@ -2525,6 +2539,7 @@ function renderTasks(){
     if(staff && item.c.staff!==staff) return false;
     if(so    && item.c.org!==so)      return false;
     if(taskStF!==''&&taskStF!==undefined && String(item.st)!==String(taskStF)) return false;
+    if(caseStF && item.c.status!==caseStF) return false;
     if(q){
       var s=(item.c.name||'')+(item.c.org||item.c.company||'')+(item.c.staff||'')+(taskLabel(item.ti));
       if(!s.toLowerCase().includes(q)) return false;
@@ -3298,7 +3313,6 @@ function showRecordsLineModal(staffName, ids){
 }
 
 function showIntakeLineModal(staffName, ids){
-  // ids指定なし→その担当者の未処理全件 / ids指定→その案件のみ
   var targets;
   if(ids && ids.length){
     targets = DATA.intake.filter(function(d){ return ids.indexOf(d.id)!==-1; });
@@ -3312,30 +3326,36 @@ function showIntakeLineModal(staffName, ids){
   }
   if(!targets.length){ showToast('対象データなし'); return; }
 
-  var today = new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
+  var now = new Date(); now.setHours(0,0,0,0);
+  var today2 = now.toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
   var displayName = staffName==='（担当なし）' ? '担当者' : staffName;
   var lines = [];
   lines.push('@' + displayName + ' さん');
   lines.push('');
-  targets.forEach(function(d, i){
-    var name    = getIntakeName(d);
-    var company = getIntakeCompany(d);
-    var appType = getIntakeType(d);
-    var field   = getIntakeField(d);
-    var supportOrg = getIntakeSupportOrg(d);
-    var recvAt  = fmtDate(d.received_at||d.created_at);
-    lines.push('受信トレイに届いている以下の案件ですが、お手すきの際に案件登録をお願いできますでしょうか？');
-    lines.push('');
-    lines.push('受信日：' + recvAt);
-    lines.push('所属機関名：' + (company||'—'));
-    lines.push('申請人氏名：' + name);
-    lines.push('申請種別：' + (appType!=='—'?appType:'—'));
-    lines.push('分野：' + (field||'—'));
-    if(i < targets.length-1) lines.push('');
-  });
+  lines.push('お疲れ様です。');
+  lines.push('受信トレイに届いている以下の案件ですが、お手すきの際に案件登録をお願いできますでしょうか？');
   lines.push('');
+  targets.forEach(function(d, i){
+    var name       = getIntakeName(d);
+    var company    = getIntakeCompany(d);
+    var supportOrg = getIntakeSupportOrg(d);
+    var appType    = getIntakeType(d);
+    var field      = getIntakeField(d);
+    var recvStr    = d.received_at||d.created_at||'';
+    var recvDate   = recvStr ? new Date(recvStr) : null;
+    var daysDiff   = recvDate ? Math.floor((now - recvDate) / 86400000) : null;
+    var isOld      = daysDiff !== null && daysDiff >= 3;
+    // 3日以上は【】で強調
+    var prefix = isOld ? '【⚠️ '+daysDiff+'日経過】' : '';
+    lines.push(prefix + (i+1) + '. ' + name);
+    lines.push('   受信日：' + fmtDate(recvStr) + (daysDiff!==null?' （'+daysDiff+'日前）':''));
+    lines.push('   所属機関：' + (company||'—'));
+    if(supportOrg) lines.push('   登録支援機関：' + supportOrg);
+    lines.push('   申請種別：' + (appType!=='—'?appType:'—'));
+    if(field&&field!=='—') lines.push('   分野：' + field);
+    lines.push('');
+  });
   lines.push('お忙しいところ恐縮ですが、よろしくお願いいたします！');
-  var today2 = new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
   document.getElementById('lineModalMeta').textContent = displayName + ' 担当 ／ 受信トレイ未処理 ' + targets.length + '件（' + today2 + '）';
   document.getElementById('lineModalText').value = lines.join('\n');
   document.getElementById('lineModal').style.display = 'flex';
