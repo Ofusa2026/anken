@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_ADMIN ver.20260420.10 -->
+<!-- OFUSA_ADMIN ver.20260420.11 -->
 <html lang="ja"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -216,7 +216,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
       <div class="logo-badge">OFUSA</div>
       <div class="logo-title">大房行政書士法人</div>
       <div class="logo-sub">管理ダッシュボード</div>
-      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260420.10</div>
+      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260420.11</div>
     </div>
     <div class="sidebar-section">概要</div>
     <div class="nav-item active" onclick="nav('dashboard')">📊 ダッシュボード</div>
@@ -255,7 +255,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
     <div class="topbar">
       <div class="page-title" id="pageTitle">ダッシュボード</div>
       <div class="topbar-right">
-        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260420.10</span>
+        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260420.11</span>
         <span class="last-updated" id="lastUpdated"></span>
         <button class="btn btn-primary" onclick="refreshAll()">🔄 データ更新</button>
       </div>
@@ -579,7 +579,20 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
               <option value="要追完">要追完</option>
               <option value="★要追完">★要追完</option>
             </select>
+            <select class="filter-select" id="taskDeadlineFilter" onchange="renderTasks()">
+              <option value="">期日：全件</option>
+              <option value="overdue">⚠️ 期日超過のみ</option>
+              <option value="urgent">🔥 急ぎ＋超過のみ</option>
+              <option value="nodl">📅 期日未設定のみ</option>
+            </select>
             <span class="filter-count" id="taskCount">—件</span>
+          </div>
+        </div>
+        <!-- タスク担当別通知バナー -->
+        <div id="taskStaffBanner" style="display:none;padding:0 24px 12px;">
+          <div style="background:#fef3c7;border:2px solid #f59e0b;border-radius:10px;padding:10px 14px;">
+            <div style="font-size:11px;font-weight:700;color:#92400e;margin-bottom:6px;">📱 担当別一括通知（タスク期日超過）</div>
+            <div id="taskStaffBtns" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
           </div>
         </div>
         <div class="table-section" style="padding-top:0;">
@@ -2544,8 +2557,9 @@ function renderTasks(){
   var team  = document.getElementById('taskTeam').value||'';
   var staff = document.getElementById('taskStaff').value||'';
   var so    = (document.getElementById('taskSupportOrg')||{}).value||'';
-  var taskStF = (document.getElementById('taskStatusFilter')||{}).value;
-  var caseStF = (document.getElementById('taskCaseStatus')||{}).value||'';
+  var taskStF  = (document.getElementById('taskStatusFilter')||{}).value;
+  var caseStF  = (document.getElementById('taskCaseStatus')||{}).value||'';
+  var dlFilt   = (document.getElementById('taskDeadlineFilter')||{}).value||'';
 
   var teams  = [...new Set(DATA.cases.map(function(c){ return c.team; }).filter(Boolean))].sort();
   var staffs = [...new Set(DATA.cases.map(function(c){ return c.staff; }).filter(Boolean))].sort();
@@ -2562,6 +2576,9 @@ function renderTasks(){
     if(so    && item.c.org!==so)      return false;
     if(taskStF!==''&&taskStF!==undefined && String(item.st)!==String(taskStF)) return false;
     if(caseStF && item.c.status!==caseStF) return false;
+    if(dlFilt==='overdue' && !item.isOverdue) return false;
+    if(dlFilt==='urgent'  && !(item.isUrgent||item.isOverdue)) return false;
+    if(dlFilt==='nodl'    && item.dl) return false;
     if(q){
       var s=(item.c.name||'')+(item.c.org||item.c.company||'')+(item.c.staff||'')+(taskLabel(item.ti));
       if(!s.toLowerCase().includes(q)) return false;
@@ -2719,6 +2736,27 @@ function renderTasks(){
       +'</tbody></table></div>';
   }
 
+  // 期日超過・急ぎの担当別通知バナー
+  var allOverdue = khUrgent.concat(khOverdue);
+  if(showJP) allOverdue = allOverdue.concat(jpItems.filter(function(i){ return i.isOverdue||i.isUrgent; }));
+  var taskStaffGroups = {};
+  allOverdue.forEach(function(item){
+    var s = (item.c.staff||'').trim()||'（担当なし）';
+    if(!taskStaffGroups[s]) taskStaffGroups[s]=[];
+    taskStaffGroups[s].push(item);
+  });
+  var taskBanner = document.getElementById('taskStaffBanner');
+  var taskBtns   = document.getElementById('taskStaffBtns');
+  if(taskBanner && taskBtns){
+    var tkeys = Object.keys(taskStaffGroups).sort();
+    if(tkeys.length && allOverdue.length){
+      taskBtns.innerHTML = tkeys.map(function(s){
+        return '<button onclick="showTaskLineModal(\''+esc(s)+'\')" style="font-size:11px;padding:4px 10px;background:#f59e0b;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">'+esc(s)+'（'+taskStaffGroups[s].length+'件）</button>';
+      }).join('');
+      taskBanner.style.display='';
+    } else { taskBanner.style.display='none'; }
+  }
+
   if(_taskView === 'kanban'){
     el.innerHTML = '<div style="padding:0 24px 24px;">'+renderTaskKanban(khUrgent, khOverdue, khNoDl, jpItems, showKH, showJP, false)+'</div>';
   } else if(_taskView === 'kanbanV'){
@@ -2726,6 +2764,41 @@ function renderTasks(){
   } else {
     el.innerHTML = '<div style="padding:0 24px 24px;">'+html+'</div>';
   }
+}
+
+function showTaskLineModal(staffName){
+  var allItems = buildTaskAlertItems();
+  var targets = allItems.khUrgent.concat(allItems.khOverdue, allItems.jpItems.filter(function(i){ return i.isOverdue||i.isUrgent; }));
+  targets = targets.filter(function(item){
+    return (item.c.staff||'').trim()===(staffName==='（担当なし）'?'':staffName) || (staffName==='（担当なし）' && !(item.c.staff||'').trim());
+  });
+  if(!targets.length){ showToast('対象案件なし'); return; }
+  var today = new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
+  var displayName = staffName==='（担当なし）'?'担当者':staffName;
+  var lines = [];
+  lines.push('@' + displayName + ' さん');
+  lines.push('');
+  lines.push('【💣タスク期日超過💣】');
+  lines.push('');
+  lines.push('お疲れ様です。');
+  lines.push('以下の案件でタスクの期日が超過しています。ご確認をお願いします。');
+  lines.push('');
+  targets.forEach(function(item, i){
+    var c = item.c;
+    var flag = item.isUrgent?'🔥 ':item.isOverdue?'⚠️ ':'';
+    lines.push(flag+(i+1)+'. '+esc(c.name||'—'));
+    if(c.applicant) lines.push('   申請人: '+c.applicant);
+    lines.push('   タスク: '+taskLabel(item.ti));
+    lines.push('   タスク状態: '+stLabel(item.st));
+    lines.push('   期日: '+(item.dl||'未設定'));
+    if(c.status) lines.push('   ステータス: '+c.status);
+    if(c.company) lines.push('   所属機関: '+c.company);
+    lines.push('');
+  });
+  lines.push('よろしくお願いいたします。');
+  document.getElementById('lineModalMeta').textContent = displayName+' 担当 ／ タスク期日超過 '+targets.length+'件（'+today+'）';
+  document.getElementById('lineModalText').value = lines.join('\n');
+  document.getElementById('lineModal').style.display = 'flex';
 }
 
 function renderTaskKanban(khUrgent, khOverdue, khNoDl, jpItems, showKH, showJP, vertical){
