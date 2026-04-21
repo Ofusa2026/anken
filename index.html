@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260421.25</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260421.27</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2202,8 +2202,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <hr style="margin:20px 0;border:none;border-top:1px solid var(--gray-200);">
       <div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:12px;">🚪 強制ログアウト（メンテナンス用）</div>
       <div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:14px;">
-        <div style="font-size:11px;color:#6b7280;margin-bottom:10px;line-height:1.6;">現在ログイン中の全員（本人含む）を強制的にログアウトさせます。バージョンアップや新ルール適用時にご利用ください。</div>
-        <button onclick="triggerForceLogoutAll()" style="padding:10px 18px;background:#dc2626;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;">🚪 今すぐ全員ログアウト</button>
+        <div style="font-size:11px;color:#6b7280;margin-bottom:10px;line-height:1.6;">現在ログイン中のユーザーを強制的にログアウトさせます。バージョンアップや新ルール適用時にご利用ください。</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button onclick="triggerForceLogoutAll()" style="padding:10px 18px;background:#dc2626;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;">🚪 今すぐ全員ログアウト</button>
+          <button onclick="openForceLogoutSelectModal()" style="padding:10px 18px;background:white;color:#dc2626;border:1.5px solid #dc2626;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;">👤 選択してログアウト</button>
+        </div>
       </div>
       <hr style="margin:20px 0;border:none;border-top:1px solid var(--gray-200);">
       <div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:12px;">🤖 AI読取設定（Claude API）</div>
@@ -2565,7 +2568,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260421.25';
+var OFUSA_VERSION = 'ver.20260421.27';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -4065,15 +4068,29 @@ function doLogout() {
 // 各クライアントはログイン時刻 < force_logout_at なら強制ログアウト
 function _checkForceLogout() {
   if (!DB_READY || !currentUser) return;
-  _sb.from('settings').select('value').eq('key','force_logout_at').maybeSingle().then(function(r){
-    if(!r || r.error || !r.data || !r.data.value) return;
-    var forceAt = r.data.value;
+  // 全員対象 + ユーザー個別の2つをまとめて取得
+  _sb.from('settings').select('key,value').in('key',['force_logout_at','force_logout_users']).then(function(r){
+    if(!r || r.error || !r.data) return;
+    var forceAt = '';
+    var forceUsers = {};
+    r.data.forEach(function(row){
+      if(row.key==='force_logout_at') forceAt = row.value || '';
+      else if(row.key==='force_logout_users'){
+        try{ forceUsers = (typeof row.value==='string') ? JSON.parse(row.value) : (row.value || {}); }catch(e){ forceUsers = {}; }
+      }
+    });
     var myLoginAt = localStorage.getItem('ofusa_loginAt');
-    if(!myLoginAt) return; // 古いクライアントで記録なしの場合はスキップ
-    if(myLoginAt < forceAt){
-      // 強制ログアウト実行
-      console.warn('🚪 強制ログアウト発動: loginAt='+myLoginAt+' < forceAt='+forceAt);
-      alert('⚠️ 管理者により全員ログアウトが実行されました。\n再度ログインしてください。');
+    var myForceAt = forceUsers[currentUser] || '';
+    // 適用すべきforce時刻 = max(全員, 自分個別)
+    var applicableForceAt = (myForceAt > forceAt) ? myForceAt : forceAt;
+    if(!applicableForceAt) return;
+    // myLoginAt未設定 = 旧バージョンからのセッション → 対象
+    // myLoginAt < applicableForceAt = 強制ログアウト時刻より前のログイン → 対象
+    var shouldLogout = !myLoginAt || myLoginAt < applicableForceAt;
+    if(shouldLogout){
+      var reason = myForceAt && myForceAt > forceAt ? '個別指定' : '全員対象';
+      console.warn('🚪 強制ログアウト発動('+reason+'): loginAt='+(myLoginAt||'未記録')+' / forceAt='+applicableForceAt);
+      alert('⚠️ 管理者によりログアウトが実行されました。\n再度ログインしてください。');
       doLogout();
     }
   }).catch(function(e){ console.error('forceLogout check err:', e); });
@@ -4099,6 +4116,93 @@ function triggerForceLogoutAll(){
     // 自分も即座にログアウト
     setTimeout(function(){ doLogout(); }, 800);
   });
+}
+
+// 管理者専用: 指定ユーザー（複数可）を強制ログアウト
+function triggerForceLogoutUsers(userNames){
+  var u = getUser(currentUser);
+  if(!u || !u.isAdmin){
+    alert('管理者権限が必要です');
+    return;
+  }
+  if(!userNames || !userNames.length){ alert('対象ユーザーが選択されていません'); return; }
+  if(!DB_READY){ alert('DB未接続のため実行できません'); return; }
+  // 現在の force_logout_users を取得してマージ
+  _sb.from('settings').select('value').eq('key','force_logout_users').maybeSingle().then(function(r){
+    var current = {};
+    if(r && !r.error && r.data && r.data.value){
+      try{ current = (typeof r.data.value==='string') ? JSON.parse(r.data.value) : (r.data.value || {}); }catch(e){ current = {}; }
+    }
+    var nowIso = new Date().toISOString();
+    userNames.forEach(function(name){ if(name) current[name] = nowIso; });
+    var newValue = JSON.stringify(current);
+    _sb.from('settings').upsert({key:'force_logout_users', value: newValue}, {onConflict:'key'}).then(function(r2){
+      if(r2 && r2.error){
+        console.error('force logout users upsert err:', r2.error);
+        alert('⚠️ 実行に失敗しました: '+(r2.error.message||''));
+        return;
+      }
+      showToast('✅ '+userNames.length+'名の強制ログアウトを実行しました');
+      // 自分が対象に含まれていれば自分もログアウト
+      if(userNames.indexOf(currentUser) >= 0){
+        setTimeout(function(){ doLogout(); }, 800);
+      }
+    });
+  });
+}
+
+// 単一ユーザーを即座にログアウト（ユーザー一覧の各行から呼ばれる）
+function triggerForceLogoutOne(userName){
+  if(!userName){ return; }
+  if(!confirm('「'+userName+'」を強制ログアウトさせます。よろしいですか？')) return;
+  triggerForceLogoutUsers([userName]);
+}
+
+// 「選択してログアウト」モーダル
+function openForceLogoutSelectModal(){
+  var u = getUser(currentUser);
+  if(!u || !u.isAdmin){ alert('管理者権限が必要です'); return; }
+  var _ex = document.getElementById('_forceLogoutSelectModal'); if(_ex) _ex.remove();
+  var modal = document.createElement('div');
+  modal.id = '_forceLogoutSelectModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10004;display:flex;align-items:center;justify-content:center;padding:16px;pointer-events:auto;';
+  modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
+  var h = '<div onclick="event.stopPropagation()" style="background:white;border-radius:16px;width:100%;max-width:480px;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);">';
+  h += '<div style="padding:20px 24px 10px;">';
+  h += '<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:4px;">🚪 強制ログアウト対象を選択</div>';
+  h += '<div style="font-size:11px;color:#6b7280;margin-bottom:12px;">選択したユーザーを即座にログアウトさせます</div>';
+  h += '<div style="display:flex;gap:8px;margin-bottom:10px;">';
+  h += '<button onclick="_flSelectAll(true)" style="padding:4px 10px;background:#eff6ff;color:#1e40af;border:1px solid #93c5fd;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">全て選択</button>';
+  h += '<button onclick="_flSelectAll(false)" style="padding:4px 10px;background:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">選択解除</button>';
+  h += '</div></div>';
+  h += '<div style="flex:1;overflow-y:auto;padding:0 24px;">';
+  (USERS||[]).forEach(function(user){
+    if(!user || !user.name) return;
+    var tm = user.team || '';
+    h += '<label style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#f8fafc;border-radius:8px;margin-bottom:6px;cursor:pointer;font-size:13px;">';
+    h += '<input type="checkbox" class="_flChk" value="'+esc(user.name)+'" style="width:16px;height:16px;cursor:pointer;">';
+    h += '<span style="font-weight:700;color:#374151;">'+esc(user.name)+'</span>';
+    if(tm) h += '<span style="font-size:10px;color:#6b7280;background:white;border:1px solid #e2e8f0;border-radius:4px;padding:1px 6px;">'+esc(tm)+'</span>';
+    h += '</label>';
+  });
+  h += '</div>';
+  h += '<div style="padding:14px 24px;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end;gap:8px;">';
+  h += '<button onclick="document.getElementById(\'_forceLogoutSelectModal\').remove()" style="padding:8px 16px;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">キャンセル</button>';
+  h += '<button onclick="_flApply()" style="padding:8px 20px;background:#dc2626;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">🚪 選択ユーザーをログアウト</button>';
+  h += '</div></div>';
+  modal.innerHTML = h;
+  document.body.appendChild(modal);
+}
+function _flSelectAll(check){
+  document.querySelectorAll('#_forceLogoutSelectModal ._flChk').forEach(function(cb){ cb.checked = !!check; });
+}
+function _flApply(){
+  var chks = document.querySelectorAll('#_forceLogoutSelectModal ._flChk:checked');
+  if(!chks.length){ alert('ユーザーを1名以上選択してください'); return; }
+  var names = Array.from(chks).map(function(cb){ return cb.value; });
+  if(!confirm('選択した '+names.length+' 名を強制ログアウトさせます:\n\n・' + names.join('\n・') + '\n\nよろしいですか？')) return;
+  document.getElementById('_forceLogoutSelectModal').remove();
+  triggerForceLogoutUsers(names);
 }
 
 // 起動時＋30秒間隔で強制ログアウトをチェック
@@ -9433,13 +9537,14 @@ function renderAdminUsers(){
   var el=document.getElementById('adminContent');if(!el)return;
   var h='<div style="font-size:12px;color:var(--gray-400);margin-bottom:4px;">パスワード・管理者権限を変更できます。</div>';
   h+='<div style="font-size:11px;color:#3b82f6;margin-bottom:10px;">※ ユーザーの追加・削除はチーム管理画面から行ってください。</div>';
-  h+='<div style="display:grid;grid-template-columns:1fr 80px 110px 60px;gap:4px;padding:4px 8px;font-size:10px;font-weight:700;color:var(--gray-400);border-bottom:2px solid var(--gray-200);">名前<span>チーム</span><span>パスワード</span><span>管理者</span></div>';
+  h+='<div style="display:grid;grid-template-columns:1fr 80px 110px 60px 90px;gap:4px;padding:4px 8px;font-size:10px;font-weight:700;color:var(--gray-400);border-bottom:2px solid var(--gray-200);">名前<span>チーム</span><span>パスワード</span><span>管理者</span><span>操作</span></div>';
   USERS.forEach(function(u,i){
-    h+='<div style="display:grid;grid-template-columns:1fr 80px 110px 60px;gap:4px;align-items:center;padding:6px 8px;border-bottom:1px solid var(--gray-200);">';
+    h+='<div style="display:grid;grid-template-columns:1fr 80px 110px 60px 90px;gap:4px;align-items:center;padding:6px 8px;border-bottom:1px solid var(--gray-200);">';
     h+='<div style="font-size:13px;font-weight:600;padding:4px 0;">'+u.name+'</div>';
     h+='<div style="font-size:11px;color:var(--gray-400);">'+u.team+'</div>';
     h+='<input value="'+(u.password||'').replace(/"/g,'&quot;')+'" onchange="adminUpdateUser('+i+',\'password\',this.value)" style="font-size:12px;padding:5px 6px;border:1px solid var(--gray-200);border-radius:6px;font-family:monospace;">';
     h+='<label style="font-size:10px;white-space:nowrap;cursor:pointer;text-align:center;"><input type="checkbox" '+(u.isAdmin?'checked':'')+' onchange="adminUpdateUser('+i+',\'isAdmin\',this.checked)"> 管理者</label>';
+    h+='<button onclick="triggerForceLogoutOne(&quot;'+esc(u.name).replace(/"/g,'&quot;')+'&quot;)" title="このユーザーを強制ログアウト" style="padding:4px 8px;background:white;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;">🚪 退出</button>';
     h+='</div>';
   });
   h+='<button onclick="persistUsers(true);showToast(\'✅ Supabaseに保存しました\')" style="margin-top:12px;width:100%;padding:10px;background:var(--blue);color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">💾 保存（Supabase同期）</button>';
