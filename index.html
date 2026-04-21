@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260421.05</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260421.07</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2523,8 +2523,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <div id="editHistorySection" style="display:none;padding:0 20px 8px;"></div>
     <div id="fuAddPanel" style="display:none;padding:0 12px 8px;border-top:1px solid #fde68a;background:#fffbeb;">
       <div style="font-size:10px;font-weight:800;color:#92400e;margin-bottom:5px;padding-top:8px;">+ 指摘を追加</div>
-      <div style="display:flex;gap:6px;margin-bottom:5px;flex-wrap:wrap;">
+      <div style="display:flex;gap:6px;margin-bottom:5px;flex-wrap:wrap;align-items:center;">
+        <label style="font-size:9px;color:#92400e;font-weight:700;">登録日</label>
         <input id="fuNewDate" type="date" style="padding:3px 6px;border:1px solid #fcd34d;border-radius:6px;font-size:10px;background:white;">
+        <label style="font-size:9px;color:#b45309;font-weight:700;margin-left:4px;">提出期限</label>
+        <input id="fuNewDue" type="date" style="padding:3px 6px;border:1px solid #fcd34d;border-radius:6px;font-size:10px;background:white;">
         <select id="fuNewType" style="padding:3px 6px;border:1px solid #fcd34d;border-radius:6px;font-size:10px;background:white;">
           <option value="追完依頼">追完依頼</option>
           <option value="申請内容等">申請内容等</option>
@@ -2556,7 +2559,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260421.05';
+var OFUSA_VERSION = 'ver.20260421.07';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -22637,8 +22640,16 @@ function applyFilters(resetPage) {
     var dbColSort = (!effectiveSort && colSt.col && colSortMap[colSt.col])
       ? {col: colSortMap[colSt.col], dir: colSt.dir}
       : null;
+    // フロント側フィルタ（分野・ボール・他機関）が有効な場合は全件取得してからフィルタ
+    var _frontFieldActive = getCheckedValues('fFieldDD').length > 0;
+    var _frontBallActive  = getCheckedValues('fBallDD').length > 0;
+    var _frontAgActive    = getCheckedValues('fAgencyDD').length > 0;
+    var _needAllForFront  = _frontFieldActive || _frontBallActive || _frontAgActive;
+    var _isKanban = (_viewMode==='kanban'||_viewMode==='kanbanV');
+    var _fetchPage     = (_isKanban || _needAllForFront) ? 1    : currentPage;
+    var _fetchPageSize = (_isKanban || _needAllForFront) ? 9999 : PAGE_SIZE;
     sbFetchCases({
-      page: (_viewMode==='kanban'||_viewMode==='kanbanV'?1:currentPage), pageSize: (_viewMode==='kanban'||_viewMode==='kanbanV'?9999:PAGE_SIZE),
+      page: _fetchPage, pageSize: _fetchPageSize,
       team: team, appType: type, status: status, staff: staff, org: org, search: q, sort: effectiveSort, field: field,
       colSort: dbColSort,
       caseIds: window._pendingFilterCaseIds || null
@@ -22694,8 +22705,21 @@ function applyFilters(resetPage) {
         return;
       }
       var pb=document.getElementById('paginationBar'); if(pb) pb.style.display='';
-      renderTable(cases);
-      renderPagination(total, currentPage, PAGE_SIZE);
+      // フロント側フィルタで件数が変わった場合は自前でページ切り出し
+      if(_needAllForFront) {
+        var _frontTotal = cases.length;
+        filteredTotalCount = _frontTotal;
+        var _pStart = (currentPage-1)*PAGE_SIZE;
+        if(_pStart >= _frontTotal && _frontTotal > 0){
+          currentPage = 1; _pStart = 0;
+        }
+        var _paged = cases.slice(_pStart, _pStart + PAGE_SIZE);
+        renderTable(_paged);
+        renderPagination(_frontTotal, currentPage, PAGE_SIZE);
+      } else {
+        renderTable(cases);
+        renderPagination(total, currentPage, PAGE_SIZE);
+      }
     });
   } else {
     // localStorage フォールバック
@@ -24647,6 +24671,17 @@ function showTab(tab) {
     h += '<input id="fu-add-label" type="text" placeholder="選択または直接入力" style="flex:1;padding:5px 8px;border:1px solid #fcd34d;border-radius:6px;font-size:11px;min-width:0;">';
     h += '<button onclick="addFuCardManual()" style="padding:5px 14px;background:#f59e0b;color:white;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">追加</button>';
     h += '</div>';
+    h += '<div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap;">';
+    h += '<label style="font-size:10px;color:#92400e;font-weight:700;">登録日</label>';
+    h += '<input id="fu-add-date" type="date" value="'+new Date().toISOString().slice(0,10)+'" style="padding:4px 6px;border:1px solid #fcd34d;border-radius:6px;font-size:11px;background:white;">';
+    h += '<label style="font-size:10px;color:#b45309;font-weight:700;margin-left:6px;">提出期限</label>';
+    h += '<input id="fu-add-due" type="date" style="padding:4px 6px;border:1px solid #fcd34d;border-radius:6px;font-size:11px;background:white;">';
+    h += '<div style="display:flex;gap:4px;">';
+    h += '<button type="button" onclick="fuSetDue(7)" style="padding:3px 8px;background:white;color:#92400e;border:1px solid #fcd34d;border-radius:10px;font-size:10px;cursor:pointer;">+1週</button>';
+    h += '<button type="button" onclick="fuSetDue(14)" style="padding:3px 8px;background:white;color:#92400e;border:1px solid #fcd34d;border-radius:10px;font-size:10px;cursor:pointer;">+2週</button>';
+    h += '<button type="button" onclick="fuSetDue(30)" style="padding:3px 8px;background:white;color:#92400e;border:1px solid #fcd34d;border-radius:10px;font-size:10px;cursor:pointer;">+1月</button>';
+    h += '</div>';
+    h += '</div>';
     h += '<textarea id="fu-add-comment" rows="1" placeholder="コメント（任意）" style="width:100%;margin-top:6px;padding:5px 8px;border:1px solid #e5e7eb;border-radius:6px;font-size:11px;resize:vertical;box-sizing:border-box;"></textarea>';
     h += '</div>';
 
@@ -24667,7 +24702,12 @@ function showTab(tab) {
           h += '<div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:3px;">'+esc(card.text.split('\n')[0])+'</div>';
           var comment = card.text.split('\n').slice(1).join('\n');
           if(comment) h += '<div style="font-size:11px;color:#64748b;white-space:pre-wrap;">'+esc(comment)+'</div>';
-          h += '<div style="font-size:10px;color:#94a3b8;margin-top:2px;">'+esc(card.date||'')+'</div>';
+          // 日付行（登録日＋提出期限）
+          h += '<div style="display:flex;gap:10px;align-items:center;margin-top:3px;font-size:10px;color:#94a3b8;flex-wrap:wrap;">';
+          h += '<span>登録: '+esc(card.date||'')+'</span>';
+          var dueHtml = fuDueBadge(card.dueDate, ci);
+          h += dueHtml;
+          h += '</div>';
           h += '</div>';
           h += '<button data-ci="'+ci+'" onclick="deleteFuCard(this.dataset.ci*1)" style="padding:2px 6px;background:none;color:#d1d5db;border:none;font-size:12px;cursor:pointer;flex-shrink:0;">×</button>';
           h += '</div>';
@@ -40529,13 +40569,14 @@ function saveFuCards(caseId,cards){
 function addFuCard(){
   try{
     if(!currentCase)return;
-    var dateEl=document.getElementById('fuNewDate'),typeEl=document.getElementById('fuNewType'),textEl=document.getElementById('fuNewText');
+    var dateEl=document.getElementById('fuNewDate'),dueEl=document.getElementById('fuNewDue'),typeEl=document.getElementById('fuNewType'),textEl=document.getElementById('fuNewText');
     if(!dateEl||!textEl){showToast('フォームが見つかりません');return;}
     var text=textEl.value.trim();if(!text){showToast('指摘内容を入力してください');return;}
     var cards=getFuCards(currentCase.id);
-    cards.unshift({id:Date.now(),date:dateEl.value||new Date().toISOString().slice(0,10),type:typeEl?typeEl.value:'追完依頼',text:text,done:false,doneDate:''});
+    cards.unshift({id:Date.now(),date:dateEl.value||new Date().toISOString().slice(0,10),dueDate:(dueEl?dueEl.value:'')||'',type:typeEl?typeEl.value:'追完依頼',text:text,done:false,doneDate:''});
     saveFuCards(currentCase.id,cards);
     textEl.value='';
+    if(dueEl)dueEl.value='';
     showToast('指摘を追加しました');
     showTab('followup');
   }catch(e){console.error('[addFuCard]',e);showToast('エラー: '+e.message);}
@@ -40557,18 +40598,61 @@ function addFuCardManual() {
   if(!currentCase) return;
   var lbl = document.getElementById('fu-add-label');
   var cmt = document.getElementById('fu-add-comment');
+  var dateEl = document.getElementById('fu-add-date');
+  var dueEl = document.getElementById('fu-add-due');
   var label = (lbl ? lbl.value : '').trim();
   var comment = (cmt ? cmt.value : '').trim();
   if(!label) { showToast('指摘事項を選択または入力してください', 'error'); return; }
   var text = label + (comment ? '\n' + comment : '');
+  var regDate = (dateEl && dateEl.value) ? dateEl.value : new Date().toISOString().slice(0,10);
+  var dueDate = (dueEl && dueEl.value) ? dueEl.value : '';
   var cards = getFuCards(currentCase.id);
-  cards.push({id:Date.now(), date:new Date().toISOString().slice(0,10), type:'指摘', text:text, done:false, doneDate:''});
+  cards.push({id:Date.now(), date:regDate, dueDate:dueDate, type:'指摘', text:text, done:false, doneDate:''});
   saveFuCards(currentCase.id, cards);
   // リセット
   if(lbl) lbl.value='';
   if(cmt) cmt.value='';
+  if(dueEl) dueEl.value='';
   var btns = document.querySelectorAll('#fu-item-btns button');
   btns.forEach(function(b){ b.style.background='white'; b.style.borderColor='#fcd34d'; b.style.color='#92400e'; delete b.dataset.sel; });
+  showTab('followup');
+}
+// 提出期限のクイック設定ボタン
+function fuSetDue(days) {
+  var dueEl = document.getElementById('fu-add-due');
+  if(!dueEl) return;
+  var dateEl = document.getElementById('fu-add-date');
+  var base = (dateEl && dateEl.value) ? new Date(dateEl.value) : new Date();
+  base.setDate(base.getDate() + days);
+  dueEl.value = base.toISOString().slice(0,10);
+}
+// 提出期限バッジのHTMLを返す（期限超過・近日アラート）
+function fuDueBadge(dueDate, ci) {
+  if(!dueDate) {
+    return '<span style="cursor:pointer;color:#cbd5e1;font-size:10px;" onclick="editFuDueDate('+ci+')" title="提出期限を設定">＋期限設定</span>';
+  }
+  var today = new Date(); today.setHours(0,0,0,0);
+  var due = new Date(dueDate); due.setHours(0,0,0,0);
+  var diff = Math.round((due - today)/86400000);
+  var bg='#e0f2fe', fg='#0369a1', icon='📅', label='';
+  if(diff < 0) { bg='#fee2e2'; fg='#b91c1c'; icon='🚨'; label=' ('+Math.abs(diff)+'日超過)'; }
+  else if(diff === 0) { bg='#fef3c7'; fg='#b45309'; icon='⏰'; label=' (本日)'; }
+  else if(diff <= 3) { bg='#fef3c7'; fg='#b45309'; icon='⚠️'; label=' (あと'+diff+'日)'; }
+  else if(diff <= 7) { bg='#fef9c3'; fg='#a16207'; icon='📅'; label=' (あと'+diff+'日)'; }
+  return '<span onclick="editFuDueDate('+ci+')" style="cursor:pointer;display:inline-flex;align-items:center;gap:2px;padding:1px 6px;background:'+bg+';color:'+fg+';border-radius:10px;font-size:10px;font-weight:700;" title="クリックで期限変更">'+icon+' 期限: '+esc(dueDate)+label+'</span>';
+}
+// 提出期限を編集（プロンプト）
+function editFuDueDate(idx) {
+  if(!currentCase) return;
+  var cards = getFuCards(currentCase.id);
+  if(!cards[idx]) return;
+  var cur = cards[idx].dueDate || '';
+  var v = prompt('提出期限（YYYY-MM-DD、空欄で解除）', cur);
+  if(v === null) return;
+  v = v.trim();
+  if(v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) { showToast('日付形式が不正です'); return; }
+  cards[idx].dueDate = v;
+  saveFuCards(currentCase.id, cards);
   showTab('followup');
 }
 function fuCardCheck(idx, checked) {
