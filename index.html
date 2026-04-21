@@ -82,7 +82,7 @@ html,body{height:100%;margin:0;padding:0;}body{font-family:-apple-system,BlinkMa
 
 /* ===== TABLE ===== */
 .table-section{padding:0 24px 24px;flex:1;}
-.table-wrap{background:white;border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--gray-200);overflow:auto;height:calc(100vh - 220px);}
+.table-wrap{background:white;border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--gray-200);overflow-x:auto;}
 table{width:100%;border-collapse:collapse;}
 thead th{padding:6px 10px;font-size:11px;color:var(--gray-400);font-weight:700;text-align:left;border-bottom:1px solid var(--gray-200);background:#fafafa;white-space:nowrap;position:sticky;top:0;z-index:10;}
 tbody tr{border-bottom:1px solid var(--gray-200);cursor:pointer;transition:.1s;}
@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260417.12</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260417.20</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -1131,7 +1131,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 </div>
 <!-- ===== /決定報告パネル ===== -->
 
-<div id="casesScreen" class="main-panel" style="display:flex;flex-direction:column;height:100%;overflow:hidden;">
+<div id="casesScreen" class="main-panel" style="display:flex;flex-direction:column;height:100%;overflow-y:auto;">
   <!-- TOPBAR -->
   <div class="topbar">
     <span class="page-title">案件一覧</span>
@@ -2555,7 +2555,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260417.12';
+var OFUSA_VERSION = 'ver.20260417.20';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -12562,7 +12562,7 @@ function _onStatus16Create(c) {
 
   var modal = document.createElement('div');
   modal.id = '_16createModal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10002;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10002;display:flex;align-items:center;justify-content:center;padding:16px;pointer-events:auto;';
   modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
 
   var h = '<div onclick="event.stopPropagation()" style="background:white;border-radius:16px;width:100%;max-width:460px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);">';
@@ -12715,7 +12715,7 @@ function _onStatusHearingForm(c) {
 
   var modal = document.createElement('div');
   modal.id = '_hearingFormModal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10002;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10002;display:flex;align-items:center;justify-content:center;padding:16px;pointer-events:auto;';
   // 背景クリックでは閉じない（×ボタンのみ）
 
   var h = '<div onclick="event.stopPropagation()" style="background:white;border-radius:16px;width:100%;max-width:500px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);">';
@@ -30567,8 +30567,13 @@ function moveMailData(skipPdf){
       }
       moved++;
     } else if(m.badge==='審査完了'){
+      entry.caseId = m.linkedCase || '';
       if(!shinsaListData.some(function(x){return x.id===m.id;})){
         shinsaListData.push(entry); moved++;
+      } else {
+        // 既存エントリのcaseIdを更新
+        var _exist = shinsaListData.find(function(x){return x.id===m.id;});
+        if(_exist && m.linkedCase) _exist.caseId = m.linkedCase;
       }
       // 紐付け済なら案件の審査完了データにも反映
       if(m.linkedCase){
@@ -30578,6 +30583,7 @@ function moveMailData(skipPdf){
         persistShinsaData(m.linkedCase);
       }
     } else if(m.badge==='認定証明書'){
+      entry.caseId = m.linkedCase || '';
       if(!certListData.some(function(x){return x.id===m.id;})){
         certListData.push(entry); moved++;
       }
@@ -31140,14 +31146,21 @@ function unlinkListItem(type, itemId){
 }
 
 function toggleReported(type, id) {
+  console.log('🔔 toggleReported called:', type, id);
+  // 既にモーダルが出ていたら無視
+  if (document.querySelector('[data-shinsamodal]')) { console.log('🔔 modal already open, skip'); return; }
   var arr = type==='rec' ? receiptListData : type==='shinsa' ? shinsaListData : certListData;
   var item = arr.find(function(x){return x.id===id;});
+  console.log('🔔 item found:', !!item, 'caseId:', item ? item.caseId : 'N/A', 'reported:', item ? item.reported : 'N/A');
   if(!item) return;
   var willBeReported = !item.reported;
+  console.log('🔔 willBeReported:', willBeReported, 'cData length:', cData.length);
   // 審査完了/認定証：未対応→対応済の時にステータス変更ポップアップ
-  if ((type === 'shinsa' || type === 'cert') && willBeReported && item.caseId) {
-    var linkedCase = cData.find(function(c){ return c.id === item.caseId; });
+  if ((type === 'shinsa' || type === 'cert') && willBeReported) {
+    var linkedCase = item.caseId ? (cData.find(function(c){ return c.id === item.caseId; }) || null) : null;
+    console.log('🔔 linkedCase:', linkedCase ? linkedCase.id : 'null', 'item.caseId:', item.caseId);
     if (linkedCase) {
+      console.log('🔔 calling _shinsaStatusChangeModal');
       _shinsaStatusChangeModal(linkedCase, type, function() {
         item.reported = true;
         item.reportedAt = new Date().toISOString();
@@ -31156,6 +31169,7 @@ function toggleReported(type, id) {
       });
       return;
     }
+    // 未紐づけまたはcaseが見つからない場合はそのまま対応済みに
   }
   item.reported = willBeReported;
   item.reportedAt = item.reported ? new Date().toISOString() : null;
@@ -31169,14 +31183,19 @@ function toggleReported(type, id) {
 }
 
 function _shinsaStatusChangeModal(cas, type, onComplete) {
+  console.log('🔔 _shinsaStatusChangeModal start, cas:', cas ? cas.id : 'null', 'type:', type);
   // typeが関数の場合は旧呼び出し互換（type省略）
   if (typeof type === 'function') { onComplete = type; type = 'shinsa'; }
+  try {
   var modal = document.createElement('div');
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10002;display:flex;align-items:center;justify-content:center;padding:16px;';
-  modal.onclick = function(e){ if(e.target===modal){ modal.remove(); } };
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10002;display:flex;align-items:center;justify-content:center;padding:16px;pointer-events:auto;';
+  modal.onclick = function(e){ 
+    e.stopPropagation();
+    if(e.target===modal){ modal.remove(); } 
+  };
 
   var currentStatus = cas.status || '';
-  var statusOptions = ALL_STATUSES || STATUS_LIST || [];
+  var statusOptions = STATUS_LIST || [];
 
   var optHtml = '';
   // 審査完了後によく使うステータスを上部に表示
@@ -31189,6 +31208,9 @@ function _shinsaStatusChangeModal(cas, type, onComplete) {
     optHtml += '<button onclick="event.stopPropagation();_shinsaApplyStatus(\'' + _cid + '\',\'' + s + '\')" style="padding:8px 14px;background:' + (_sel?'#2563eb':'white') + ';color:' + (_sel?'white':'#374151') + ';border:1.5px solid ' + (_sel?'#2563eb':'#e2e8f0') + ';border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">' + esc(s) + '</button>';
   });
 
+  // 既存のshinsamodalがあれば削除
+  var _existingModal = document.querySelector('[data-shinsamodal]');
+  if (_existingModal) _existingModal.remove();
   modal.setAttribute('data-shinsamodal','1');
   var _cbKeyEsc = '_shinsaOnComplete_' + cas.id.replace(/[^a-zA-Z0-9]/g,'_');
   var _modalLabel = type === 'cert' ? '認定証メールを対応済にしました' : '審査完了メールを対応済にしました';
@@ -31196,11 +31218,26 @@ function _shinsaStatusChangeModal(cas, type, onComplete) {
   var box = document.createElement('div');
   box.onclick = function(e){ e.stopPropagation(); };
   box.style.cssText = 'background:white;border-radius:16px;padding:24px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,.3);';
-  box.innerHTML = '<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:4px;">' + _modalTitle + '</div>'
-    + '<div style="font-size:12px;color:#64748b;margin-bottom:16px;">' + esc(getDisplayName(cas)) + ' ／ 現在：' + esc(currentStatus) + '</div>'
-    + '<div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:8px;">ステータスを変更しますか？</div>'
-    + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;">' + optHtml + '</div>'
-    + '<div style="display:flex;gap:8px;justify-content:flex-end;" id="_shinsaBtnRow"></div>';
+  var _titleDiv = document.createElement('div');
+  _titleDiv.style.cssText = 'font-size:15px;font-weight:800;color:#0f2040;margin-bottom:4px;';
+  _titleDiv.textContent = _modalTitle;
+  var _nameDiv = document.createElement('div');
+  _nameDiv.style.cssText = 'font-size:12px;color:#64748b;margin-bottom:16px;';
+  _nameDiv.textContent = getDisplayName(cas) + ' ／ 現在：' + currentStatus;
+  var _askDiv = document.createElement('div');
+  _askDiv.style.cssText = 'font-size:11px;font-weight:700;color:#374151;margin-bottom:8px;';
+  _askDiv.textContent = 'ステータスを変更しますか？';
+  var _optDiv = document.createElement('div');
+  _optDiv.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;';
+  _optDiv.innerHTML = optHtml;
+  var _btnRow = document.createElement('div');
+  _btnRow.id = '_shinsaBtnRow';
+  _btnRow.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
+  box.appendChild(_titleDiv);
+  box.appendChild(_nameDiv);
+  box.appendChild(_askDiv);
+  box.appendChild(_optDiv);
+  box.appendChild(_btnRow);
   var btnSkip = document.createElement('button');
   btnSkip.style.cssText = 'padding:8px 16px;background:#f0fdf4;color:#15803d;border:1.5px solid #86efac;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;';
   btnSkip.textContent = '変更せずに対応済';
@@ -31227,9 +31264,9 @@ function _shinsaStatusChangeModal(cas, type, onComplete) {
       }
     });
   };
-  box.querySelector('#_shinsaBtnRow').appendChild(btnUrl);
-  box.querySelector('#_shinsaBtnRow').appendChild(btnSkip);
-  box.querySelector('#_shinsaBtnRow').appendChild(btnCancel);
+  _btnRow.appendChild(btnUrl);
+  _btnRow.appendChild(btnSkip);
+  _btnRow.appendChild(btnCancel);
   modal.appendChild(box);
 
   // コールバックを一時的にグローバルに保存
@@ -31237,6 +31274,8 @@ function _shinsaStatusChangeModal(cas, type, onComplete) {
   window[_cbKey] = function(){ delete window[_cbKey]; onComplete(); };
 
   document.body.appendChild(modal);
+  console.log('🔔 modal appended to body, visible:', modal.style.display);
+  } catch(e) { console.error('❌ _shinsaStatusChangeModal error:', e.message, e.stack); }
 }
 
 function _shinsaApplyStatus(caseId, newStatus) {
@@ -32542,7 +32581,7 @@ function _checkShinsaCertReported(cas, newStatus) {
 function _showMailReportedConfirm(type, items, cas) {
   var label = type === 'cert' ? '認定証メール' : '審査完了メール';
   var modal = document.createElement('div');
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10002;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10002;display:flex;align-items:center;justify-content:center;padding:16px;pointer-events:auto;';
   modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
   var box = document.createElement('div');
   box.onclick = function(e){ e.stopPropagation(); };
