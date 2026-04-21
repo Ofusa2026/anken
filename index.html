@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260417.22</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260417.34</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -1478,6 +1478,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="topbar" style="flex-shrink:0;">
     <span class="page-title">✅ 審査完了一覧</span>
     <div style="display:flex;gap:8px;align-items:center;">
+      <button id="fillUrlsBtn" onclick="runFillDriveUrls()" style="font-size:11px;padding:4px 12px;background:#f0f9ff;color:#0369a1;border:1px solid #7dd3fc;border-radius:6px;cursor:pointer;font-weight:600;">🔗 書類URL補完</button>
       <select id="shinsaListSort" onchange="renderShinsaList()" style="font-size:12px;padding:4px 8px;border:1px solid var(--gray-200);border-radius:6px;background:white;">
         <option value="date">日付順</option>
         <option value="applicant">申請者名</option>
@@ -2555,7 +2556,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260417.22';
+var OFUSA_VERSION = 'ver.20260417.34';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -31206,8 +31207,7 @@ function _shinsaStatusChangeModal(cas, type, onComplete) {
     : ['完了','郵送交付','★郵送交付','窓口受取','★窓口受取','窓口受取（本人）','許可済 受取方法調整中'];
   var _cid = cas.id;
   suggestedStatuses.forEach(function(s) {
-    var _sel = currentStatus===s;
-    optHtml += '<button onclick="event.stopPropagation();_shinsaApplyStatus(\'' + _cid + '\',\'' + s + '\')" style="padding:8px 14px;background:' + (_sel?'#2563eb':'white') + ';color:' + (_sel?'white':'#374151') + ';border:1.5px solid ' + (_sel?'#2563eb':'#e2e8f0') + ';border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">' + esc(s) + '</button>';
+    optHtml += '<button data-status="' + esc(s) + '" style="padding:8px 14px;background:white;color:#374151;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">' + esc(s) + '</button>';
   });
 
   // 既存のshinsamodalがあれば削除
@@ -31220,26 +31220,163 @@ function _shinsaStatusChangeModal(cas, type, onComplete) {
   var box = document.createElement('div');
   box.onclick = function(e){ e.stopPropagation(); };
   box.style.cssText = 'background:white;border-radius:16px;padding:24px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,.3);';
+  var _arr4 = type==='cert' ? certListData : shinsaListData;
+  var _item4 = _arr4 ? _arr4.find(function(x){ return x.caseId === cas.id; }) : null;
+  var _savedUrl = _item4 ? (_item4.driveUrl || '') : '';
+
   var _titleDiv = document.createElement('div');
   _titleDiv.style.cssText = 'font-size:15px;font-weight:800;color:#0f2040;margin-bottom:4px;';
   _titleDiv.textContent = _modalTitle;
   var _nameDiv = document.createElement('div');
-  _nameDiv.style.cssText = 'font-size:12px;color:#64748b;margin-bottom:16px;';
+  _nameDiv.style.cssText = 'font-size:12px;color:#64748b;margin-bottom:8px;';
   _nameDiv.textContent = getDisplayName(cas) + ' ／ 現在：' + currentStatus;
+  // 書類URLエリアを生成
+  var _urlDiv = document.createElement('div');
+  _urlDiv.style.cssText = 'margin-bottom:12px;padding:8px 10px;background:#f5f3ff;border-radius:8px;display:flex;align-items:center;gap:8px;min-height:32px;';
+  box.appendChild(_titleDiv);
+  box.appendChild(_nameDiv);
+  box.appendChild(_urlDiv);
+
+  function _renderUrlArea(url) {
+    _urlDiv.innerHTML = '';
+    if (url) {
+      var _urlLink = document.createElement('a');
+      _urlLink.href = url; _urlLink.target = '_blank';
+      _urlLink.style.cssText = 'font-size:11px;color:#7c3aed;font-weight:700;text-decoration:none;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      _urlLink.textContent = '📎 書類を開く';
+      var _copyBtn = document.createElement('button');
+      _copyBtn.style.cssText = 'font-size:10px;padding:3px 10px;background:#7c3aed;color:white;border:none;border-radius:6px;cursor:pointer;white-space:nowrap;flex-shrink:0;';
+      _copyBtn.textContent = 'URLコピー';
+      _copyBtn.onclick = function(e){ e.stopPropagation(); navigator.clipboard.writeText(url).catch(function(){}); _copyBtn.textContent='✅ コピー済'; setTimeout(function(){_copyBtn.textContent='URLコピー';},2000); };
+      _urlDiv.appendChild(_urlLink);
+      _urlDiv.appendChild(_copyBtn);
+    } else {
+      _urlDiv.innerHTML = '<span style="font-size:10px;color:#94a3b8;">書類URL なし</span>';
+    }
+  }
+
+  if (_savedUrl) {
+    _renderUrlArea(_savedUrl);
+  } else {
+    // GASから取得を試みる
+    _urlDiv.innerHTML = '<span style="font-size:10px;color:#94a3b8;">⏳ 書類URL取得中...</span>';
+    var _searchName = (cas.applicant || cas.name || '').trim();
+    var _folderType = type === 'cert' ? '認定証明書' : '審査完了';
+    jsonpPost(GAS_GMAIL_URL, 'getDriveFileUrl', { folderType: _folderType, name: _searchName }, function(r) {
+      if (r && r.status === 'ok' && r.publicUrl) {
+        _renderUrlArea(r.publicUrl);
+        if (_item4) { _item4.driveUrl = r.publicUrl; }
+        // DBにも保存
+        var _tbl = type === 'cert' ? 'cert_archive' : 'shinsa_archive';
+        if (DB_READY && _item4) {
+          _sb.from(_tbl).update({ drive_url: r.publicUrl }).eq('id', _item4.id).then(function(){});
+        }
+      } else {
+        _renderUrlArea('');
+      }
+    }, function(){ _renderUrlArea(''); });
+  }
+  // テキスト生成エリア
+  var _textSection = document.createElement('div');
+  _textSection.style.cssText = 'margin-bottom:14px;';
+  var _textLabel = document.createElement('div');
+  _textLabel.style.cssText = 'font-size:11px;font-weight:700;color:#374151;margin-bottom:6px;';
+  _textLabel.textContent = '📝 送信テキスト';
+  var _textArea = document.createElement('textarea');
+  _textArea.style.cssText = 'width:100%;box-sizing:border-box;font-size:12px;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:8px;resize:vertical;min-height:80px;line-height:1.6;font-family:sans-serif;';
+  _textArea.placeholder = 'ステータスを選ぶと自動入力されます';
+
+  // テキストパターン定義
+  var _NL = '\n';
+  var _textPatterns = type === 'cert'
+    ? { '_default': 'こちらの審査が完了しました！' + _NL + 'COEをお送りしますのでご確認ください！' }
+    : {
+        '窓口受取':       'こちらの審査が完了しました！' + _NL + '東京入管受け取りになります！',
+        '★窓口受取':      'こちらの審査が完了しました！' + _NL + '東京入管受け取りになります！',
+        '窓口受取（本人）': 'こちらの審査が完了しました！' + _NL + '東京入管受け取りになります！',
+        '郵送交付':       'こちらの審査が完了しました！' + _NL + '郵送交付になります！',
+        '★郵送交付':      'こちらの審査が完了しました！' + _NL + '郵送交付になります！',
+        '郵送交付中':     'こちらの審査が完了しました！' + _NL + '郵送交付になります！',
+        '完了':           'こちらの審査が完了しました！',
+        '_oosaki':        'こちらの審査が完了しました！' + _NL + '郵送交付になりますので弊社大盛宛にてお送りください！' + _NL + _NL + '〒144-0052 ' + _NL + '東京都大田区蒲田５丁目１１−１０ FUNDES蒲田8階' + _NL + '大房行政書士法人　' + (cas.staff || '') + '宛'
+      };
+
+  // テキストは空で始める（ステータス選択時にセット）
+  _textArea.placeholder = 'ステータスを選ぶと自動入力されます';
+
+  var _copyTextBtn = document.createElement('button');
+  _copyTextBtn.style.cssText = 'margin-top:6px;font-size:11px;padding:4px 12px;background:#0f2040;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;';
+  _copyTextBtn.textContent = '📋 コピー';
+  _copyTextBtn.onclick = function(e){
+    e.stopPropagation();
+    if (_textArea.value) {
+      navigator.clipboard.writeText(_textArea.value).catch(function(){});
+      _copyTextBtn.textContent = '✅ コピー済';
+      setTimeout(function(){ _copyTextBtn.textContent = '📋 コピー'; }, 2000);
+    }
+  };
+
+  // 大房宛ボタン（更新・変更のみ）
+  if (type !== 'cert') {
+    var _oosakiBtn = document.createElement('button');
+    _oosakiBtn.style.cssText = 'margin-top:6px;margin-left:6px;font-size:11px;padding:4px 12px;background:#f5f3ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:6px;cursor:pointer;font-weight:700;';
+    _oosakiBtn.textContent = '🏢 担当者宛';
+    _oosakiBtn.onclick = function(e){ e.stopPropagation(); _textArea.value = 'こちらの審査が完了しました！' + _NL + '郵送交付になりますので弊社大盛宛にてお送りください！' + _NL + _NL + '〒144-0052 ' + _NL + '東京都大田区蒲田５丁目１１−１０ FUNDES蒲田8階' + _NL + '大房行政書士法人　' + (cas.staff || '') + '宛'; };
+    _textSection.appendChild(_textLabel);
+    _textSection.appendChild(_textArea);
+    _textSection.appendChild(_copyTextBtn);
+    _textSection.appendChild(_oosakiBtn);
+  } else {
+    _textSection.appendChild(_textLabel);
+    _textSection.appendChild(_textArea);
+    _textSection.appendChild(_copyTextBtn);
+  }
+  box.appendChild(_textSection);
+
   var _askDiv = document.createElement('div');
   _askDiv.style.cssText = 'font-size:11px;font-weight:700;color:#374151;margin-bottom:8px;';
   _askDiv.textContent = 'ステータスを変更しますか？';
   var _optDiv = document.createElement('div');
   _optDiv.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;';
   _optDiv.innerHTML = optHtml;
+  // 選択中ステータスを管理
+  var _selectedStatus = '';
+  // ステータスボタンをクリック時にテキストを自動セット＋ハイライト＋対応済ボタン活性
+  _optDiv.addEventListener('click', function(e) {
+    var btn = e.target.closest('button[data-status]');
+    if (!btn) return;
+    var st = btn.getAttribute('data-status');
+    _selectedStatus = st;
+    // ハイライト
+    _optDiv.querySelectorAll('button[data-status]').forEach(function(b){
+      b.style.background = b === btn ? '#2563eb' : 'white';
+      b.style.color = b === btn ? 'white' : '#374151';
+      b.style.borderColor = b === btn ? '#2563eb' : '#e2e8f0';
+    });
+    // テキストセット
+    if (_textPatterns[st]) _textArea.value = _textPatterns[st];
+    else if (type === 'cert') _textArea.value = _textPatterns['_default'] || '';
+    else _textArea.value = 'こちらの審査が完了しました！';
+    // 対応済ボタンを活性化
+    if (_applyBtn) { _applyBtn.disabled = false; _applyBtn.style.opacity = '1'; }
+  });
   var _btnRow = document.createElement('div');
   _btnRow.id = '_shinsaBtnRow';
   _btnRow.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
-  box.appendChild(_titleDiv);
-  box.appendChild(_nameDiv);
   box.appendChild(_askDiv);
   box.appendChild(_optDiv);
   box.appendChild(_btnRow);
+  var _applyBtn = document.createElement('button');
+  _applyBtn.style.cssText = 'padding:8px 20px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;opacity:0.4;';
+  _applyBtn.textContent = '✅ 変更して対応済';
+  _applyBtn.disabled = true;
+  _applyBtn.onclick = function(e){
+    e.stopPropagation();
+    if (!_selectedStatus) return;
+    _shinsaApplyStatus(_cid, _selectedStatus);
+    modal.remove();
+    if(window[_cbKeyEsc]){window[_cbKeyEsc]();delete window[_cbKeyEsc];}
+  };
   var btnSkip = document.createElement('button');
   btnSkip.style.cssText = 'padding:8px 16px;background:#f0fdf4;color:#15803d;border:1.5px solid #86efac;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;';
   btnSkip.textContent = '変更せずに対応済';
@@ -31248,39 +31385,7 @@ function _shinsaStatusChangeModal(cas, type, onComplete) {
   btnCancel.style.cssText = 'padding:8px 16px;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;font-size:12px;cursor:pointer;';
   btnCancel.textContent = 'キャンセル';
   btnCancel.onclick = function(e){ e.stopPropagation(); modal.remove(); };
-  // 書類URL取得ボタン（保存済みURLがあれば即コピー）
-  var _arr4 = type==='cert' ? certListData : shinsaListData;
-  var _item4 = _arr4 ? _arr4.find(function(x){ return x.caseId === cas.id; }) : null;
-  var _savedUrl = _item4 ? (_item4.driveUrl || '') : '';
-  var btnUrl = document.createElement('button');
-  btnUrl.style.cssText = 'padding:8px 16px;background:#f5f3ff;color:#7c3aed;border:1.5px solid #c4b5fd;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;';
-  btnUrl.textContent = _savedUrl ? '📎 書類URLをコピー' : '📎 書類URL取得';
-  var _doGetUrl = function() {
-    btnUrl.textContent = '⏳ 取得中...'; btnUrl.disabled = true;
-    _getShinsaFileUrl(cas, type, function(url) {
-      btnUrl.disabled = false;
-      if (url) {
-        btnUrl.textContent = '✅ コピー済';
-        navigator.clipboard.writeText(url).catch(function(){});
-        showToast('📎 書類URLをコピーしました');
-        // 取得したURLを保存
-        if (_item4) _item4.driveUrl = url;
-      } else {
-        btnUrl.textContent = '❌ 取得失敗'; setTimeout(function(){ btnUrl.textContent = '📎 書類URL取得'; }, 2000);
-      }
-    });
-  };
-  btnUrl.onclick = function(e){
-    e.stopPropagation();
-    if (_savedUrl) {
-      navigator.clipboard.writeText(_savedUrl).catch(function(){});
-      btnUrl.textContent = '✅ コピー済';
-      showToast('📎 書類URLをコピーしました');
-    } else {
-      _doGetUrl();
-    }
-  };
-  _btnRow.appendChild(btnUrl);
+  _btnRow.appendChild(_applyBtn);
   _btnRow.appendChild(btnSkip);
   _btnRow.appendChild(btnCancel);
   modal.appendChild(box);
@@ -31647,6 +31752,47 @@ function openShinsaList(){
   renderShinsaList();
   switchPanel('shinsaListScreen','nav-shinsaList');
 }
+
+// ===== 書類URL一括補完 =====
+function runFillDriveUrls() {
+  var btn = document.getElementById('fillUrlsBtn');
+  if (btn) { btn.textContent = '⏳ 実行中...'; btn.disabled = true; }
+  jsonpPost(GAS_GMAIL_URL, 'fillDriveUrls', {}, function(r) {
+    if (btn) { btn.textContent = '🔗 書類URL補完'; btn.disabled = false; }
+    if (r && r.status === 'ok') {
+      showToast('✅ 書類URL補完完了: ' + r.updated + '件更新');
+      // ローカルのshinsaListData/certListDataも更新するためリロード
+      loadShinsaCertListFromDB();
+    } else {
+      showToast('❌ URL補完失敗: ' + (r ? r.msg : '通信エラー'), 'error');
+    }
+  }, function() {
+    if (btn) { btn.textContent = '🔗 書類URL補完'; btn.disabled = false; }
+    showToast('❌ 通信エラー', 'error');
+  });
+}
+
+function loadShinsaCertListFromDB() {
+  if (!DB_READY) return;
+  _sb.from('shinsa_archive').select('id,drive_url').not('drive_url', 'is', null).then(function(r) {
+    if (r && r.data) {
+      r.data.forEach(function(row) {
+        var item = shinsaListData.find(function(x){ return x.id === row.id; });
+        if (item && row.drive_url) item.driveUrl = row.drive_url;
+      });
+    }
+  });
+  _sb.from('cert_archive').select('id,drive_url').not('drive_url', 'is', null).then(function(r) {
+    if (r && r.data) {
+      r.data.forEach(function(row) {
+        var item = certListData.find(function(x){ return x.id === row.id; });
+        if (item && row.drive_url) item.driveUrl = row.drive_url;
+      });
+    }
+  });
+}
+// ===== /書類URL一括補完 =====
+
 function renderShinsaList(){
   _populateListFilter('shinsaFilterStaff','shinsaFilterOrg',shinsaListData);
   var q=((document.getElementById('shinsaListSearch')||{}).value||'').toLowerCase();
@@ -32067,6 +32213,17 @@ function runImport() { var skipPdf = false;
         if (result.status === 'ok') {
           addLog('✅ ' + m.name + ' → 取込完了', 'log-ok');
           m.pdfDone = true;
+          // driveUrlをshinsaListData/certListDataに保存
+          if (result.driveUrl) {
+            m.driveUrl = result.driveUrl;
+            var _arr = m.badge==='認定証明書' ? certListData : shinsaListData;
+            var _entry = _arr.find(function(x){ return x.id === m.id; });
+            if (_entry) {
+              _entry.driveUrl = result.driveUrl;
+              var _tbl = m.badge==='認定証明書' ? 'cert_archive' : 'shinsa_archive';
+              if (DB_READY) _sb.from(_tbl).update({drive_url: result.driveUrl}).eq('id', m.id).then(function(){});
+            }
+          }
           persistSavedMails();
           bgImport.okCount++;
         } else {
@@ -32607,10 +32764,7 @@ function _showMailReportedConfirm(type, items, cas) {
   items.forEach(function(d){
     itemsHtml += '<div style="font-size:11px;color:#374151;padding:4px 0;border-bottom:1px solid #f1f5f9;">📧 ' + esc(d.name||'') + (d.date ? '　<span style="color:#94a3b8;">' + d.date.slice(0,10) + '</span>' : '') + '</div>';
   });
-  box.innerHTML = '<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:4px;">📬 ' + label + ' を対応済にしますか？</div>'
-    + '<div style="font-size:12px;color:#64748b;margin-bottom:12px;">' + esc(getDisplayName(cas)) + '</div>'
-    + '<div style="background:#f8fafc;border-radius:8px;padding:8px 10px;margin-bottom:16px;">' + itemsHtml + '</div>'
-    + '<div style="display:flex;gap:8px;justify-content:flex-end;" id="_mailConfirmBtnRow"></div>';
+
   var btnOk = document.createElement('button');
   btnOk.style.cssText = 'padding:8px 20px;background:#059669;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;';
   btnOk.textContent = '✅ 対応済にする';
@@ -32623,30 +32777,63 @@ function _showMailReportedConfirm(type, items, cas) {
     modal.remove();
     showToast('✅ ' + label + ' を対応済にしました');
   };
-  // 書類URL取得ボタン
-  var btnUrlM = document.createElement('button');
-  btnUrlM.style.cssText = 'padding:8px 16px;background:#f5f3ff;color:#7c3aed;border:1.5px solid #c4b5fd;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;';
-  btnUrlM.textContent = '📎 書類URL取得';
-  btnUrlM.onclick = function(){
-    btnUrlM.textContent = '⏳ 取得中...'; btnUrlM.disabled = true;
-    _getShinsaFileUrl(cas, type, function(url) {
-      btnUrlM.disabled = false;
-      if (url) {
-        btnUrlM.textContent = '✅ コピー済';
-        navigator.clipboard.writeText(url).catch(function(){});
-        showToast('📎 書類URLをコピーしました');
-      } else {
-        btnUrlM.textContent = '❌ 取得失敗'; setTimeout(function(){ btnUrlM.textContent = '📎 書類URL取得'; }, 2000);
-      }
-    });
-  };
+  // 書類URLエリア（_shinsaStatusChangeModalと同じ方式）
+  var _arr4M = type==='cert' ? certListData : shinsaListData;
+  var _item4M = _arr4M ? _arr4M.find(function(x){ return x.caseId === cas.id; }) : null;
+  var _savedUrlM = _item4M ? (_item4M.driveUrl || '') : '';
+  var _urlDivM = document.createElement('div');
+  _urlDivM.style.cssText = 'margin-bottom:12px;padding:8px 10px;background:#f5f3ff;border-radius:8px;display:flex;align-items:center;gap:8px;min-height:32px;';
+  function _renderUrlAreaM(url) {
+    _urlDivM.innerHTML = '';
+    if (url) {
+      var _a = document.createElement('a');
+      _a.href = url; _a.target = '_blank';
+      _a.style.cssText = 'font-size:11px;color:#7c3aed;font-weight:700;text-decoration:none;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      _a.textContent = '📎 書類を開く';
+      var _cb = document.createElement('button');
+      _cb.style.cssText = 'font-size:10px;padding:3px 10px;background:#7c3aed;color:white;border:none;border-radius:6px;cursor:pointer;white-space:nowrap;flex-shrink:0;';
+      _cb.textContent = 'URLコピー';
+      _cb.onclick = function(e){ e.stopPropagation(); navigator.clipboard.writeText(url).catch(function(){}); _cb.textContent='✅ コピー済'; setTimeout(function(){_cb.textContent='URLコピー';},2000); };
+      _urlDivM.appendChild(_a); _urlDivM.appendChild(_cb);
+    } else {
+      _urlDivM.innerHTML = '<span style="font-size:10px;color:#94a3b8;">書類URL なし</span>';
+    }
+  }
+  // itemsListに含まれるcaseIdのdriveUrlを使う（複数の場合は最初のもの）
+  var _itemUrlSrc = items.length ? (_arr4M ? _arr4M.find(function(x){ return x.id === items[0].id; }) : null) : null;
+  var _finalSavedUrl = (_itemUrlSrc && _itemUrlSrc.driveUrl) ? _itemUrlSrc.driveUrl : _savedUrlM;
+  if (_finalSavedUrl) {
+    _renderUrlAreaM(_finalSavedUrl);
+  } else {
+    _urlDivM.innerHTML = '<span style="font-size:10px;color:#94a3b8;">⏳ 書類URL取得中...</span>';
+    var _searchNameM = (cas.applicant || cas.name || '').trim();
+    var _folderTypeM = type === 'cert' ? '認定証明書' : '審査完了';
+    jsonpPost(GAS_GMAIL_URL, 'getDriveFileUrl', { folderType: _folderTypeM, name: _searchNameM }, function(r) {
+      if (r && r.status === 'ok' && r.publicUrl) {
+        _renderUrlAreaM(r.publicUrl);
+        if (_item4M) { _item4M.driveUrl = r.publicUrl; }
+        if (_itemUrlSrc) { _itemUrlSrc.driveUrl = r.publicUrl; }
+        var _tbl = type === 'cert' ? 'cert_archive' : 'shinsa_archive';
+        var _targetItem = _item4M || _itemUrlSrc;
+        if (DB_READY && _targetItem) _sb.from(_tbl).update({ drive_url: r.publicUrl }).eq('id', _targetItem.id).then(function(){});
+      } else { _renderUrlAreaM(''); }
+    }, function(){ _renderUrlAreaM(''); });
+  }
+  // itemsリストの後にURLエリアを差し込む
+  box.innerHTML = '<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:4px;">📬 ' + label + ' を対応済にしますか？</div>'
+    + '<div style="font-size:12px;color:#64748b;margin-bottom:12px;">' + esc(getDisplayName(cas)) + '</div>'
+    + '<div style="background:#f8fafc;border-radius:8px;padding:8px 10px;margin-bottom:8px;">' + itemsHtml + '</div>';
+  box.appendChild(_urlDivM);
+  var _btnContainer = document.createElement('div');
+  _btnContainer.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:8px;';
+  _btnContainer.id = '_mailConfirmBtnRow';
+  box.appendChild(_btnContainer);
   var btnSkip = document.createElement('button');
   btnSkip.style.cssText = 'padding:8px 16px;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;font-size:13px;cursor:pointer;';
   btnSkip.textContent = 'あとで';
   btnSkip.onclick = function(){ modal.remove(); };
-  box.querySelector('#_mailConfirmBtnRow').appendChild(btnUrlM);
-  box.querySelector('#_mailConfirmBtnRow').appendChild(btnOk);
-  box.querySelector('#_mailConfirmBtnRow').appendChild(btnSkip);
+  _btnContainer.appendChild(btnOk);
+  _btnContainer.appendChild(btnSkip);
   modal.appendChild(box);
   document.body.appendChild(modal);
 }
