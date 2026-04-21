@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260421.21</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260421.25</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2200,6 +2200,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:12px;">👤 ユーザー・パスワード管理</div>
       <div id="adminContent"></div>
       <hr style="margin:20px 0;border:none;border-top:1px solid var(--gray-200);">
+      <div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:12px;">🚪 強制ログアウト（メンテナンス用）</div>
+      <div style="background:#fef2f2;border:1.5px solid #fecaca;border-radius:10px;padding:14px;">
+        <div style="font-size:11px;color:#6b7280;margin-bottom:10px;line-height:1.6;">現在ログイン中の全員（本人含む）を強制的にログアウトさせます。バージョンアップや新ルール適用時にご利用ください。</div>
+        <button onclick="triggerForceLogoutAll()" style="padding:10px 18px;background:#dc2626;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:700;font-size:13px;">🚪 今すぐ全員ログアウト</button>
+      </div>
+      <hr style="margin:20px 0;border:none;border-top:1px solid var(--gray-200);">
       <div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:12px;">🤖 AI読取設定（Claude API）</div>
       <div style="background:#faf5ff;border:1.5px solid #e9d5ff;border-radius:10px;padding:14px;">
         <div style="font-size:11px;color:#6b7280;margin-bottom:8px;">画像・PDFからの自動読取に使用します。<a href="https://console.anthropic.com/" target="_blank" style="color:#7c3aed;">Anthropic Console</a>でAPIキーを取得してください。</div>
@@ -2559,7 +2565,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260421.21';
+var OFUSA_VERSION = 'ver.20260421.25';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -3058,6 +3064,7 @@ function dbRowToCase(r) {
     members: (function(){try{return r.members?(typeof r.members==='string'?JSON.parse(r.members):r.members):[];}catch(e){return [];}}())
     ,priority: (r.priority != null ? r.priority : null)
     ,mailThreadUrl: r.mail_thread_url||''
+    ,fieldSkip: (r.field_skip && typeof r.field_skip==='object') ? r.field_skip : {}
   };
 }
 
@@ -3996,6 +4003,9 @@ function doLogin() {
 
 function completeLogin(userName, user) {
   currentUser = userName;
+  // ログイン時刻を記録（強制ログアウト判定用）
+  var _loginAt = new Date().toISOString();
+  localStorage.setItem('ofusa_loginAt', _loginAt);
   var remember = document.getElementById('loginRemember');
   if(remember && remember.checked){
     localStorage.setItem('ofusa_currentUser', userName);
@@ -4042,12 +4052,61 @@ function doLogout() {
   currentUser = '';
   localStorage.removeItem('ofusa_currentUser');
   localStorage.removeItem('ofusa_rememberLogin');
+  localStorage.removeItem('ofusa_loginAt');
   sessionStorage.removeItem('ofusa_currentUser');
   if (_sb && _sb.auth) { _sb.auth.signOut().catch(function(){}); }
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('sidebarUser').style.display = 'none';
   showAuthStep1();
 }
+
+// ===== 強制ログアウト機能 =====
+// 管理者が「今すぐ全員ログアウト」ボタンを押すと settings.force_logout_at がDBに書き込まれる
+// 各クライアントはログイン時刻 < force_logout_at なら強制ログアウト
+function _checkForceLogout() {
+  if (!DB_READY || !currentUser) return;
+  _sb.from('settings').select('value').eq('key','force_logout_at').maybeSingle().then(function(r){
+    if(!r || r.error || !r.data || !r.data.value) return;
+    var forceAt = r.data.value;
+    var myLoginAt = localStorage.getItem('ofusa_loginAt');
+    if(!myLoginAt) return; // 古いクライアントで記録なしの場合はスキップ
+    if(myLoginAt < forceAt){
+      // 強制ログアウト実行
+      console.warn('🚪 強制ログアウト発動: loginAt='+myLoginAt+' < forceAt='+forceAt);
+      alert('⚠️ 管理者により全員ログアウトが実行されました。\n再度ログインしてください。');
+      doLogout();
+    }
+  }).catch(function(e){ console.error('forceLogout check err:', e); });
+}
+
+// 管理者専用: 今すぐ全員ログアウト（自分含む）
+function triggerForceLogoutAll(){
+  var u = getUser(currentUser);
+  if(!u || !u.isAdmin){
+    alert('管理者権限が必要です');
+    return;
+  }
+  if(!confirm('⚠️ 現在ログイン中の全員を強制ログアウトさせます。\n\n（本人も含めて全員がログイン画面に戻ります）\n\n実行してよろしいですか？')) return;
+  if(!DB_READY){ alert('DB未接続のため実行できません'); return; }
+  var nowIso = new Date().toISOString();
+  _sb.from('settings').upsert({key:'force_logout_at', value: nowIso}, {onConflict:'key'}).then(function(r){
+    if(r && r.error){
+      console.error('force logout upsert err:', r.error);
+      alert('⚠️ 実行に失敗しました: '+(r.error.message||''));
+      return;
+    }
+    showToast('✅ 全員強制ログアウトを実行しました');
+    // 自分も即座にログアウト
+    setTimeout(function(){ doLogout(); }, 800);
+  });
+}
+
+// 起動時＋30秒間隔で強制ログアウトをチェック
+setInterval(function(){ _checkForceLogout(); }, 30000);
+// 起動後3秒後に初回チェック（DB_READY待ち）
+setTimeout(function(){ _checkForceLogout(); }, 3000);
+// ===== /強制ログアウト =====
+
 
 // ===== NAVIGATION =====
 
@@ -12961,13 +13020,17 @@ function _confirmStatusChange(oldStatus, newStatus, customMsg) {
 }
 // ===== /ステータス変更確認ダイアログ =====
 
-// ===== ステータス変更時の必須項目チェック =====
-// 認定申請: 契約開始日・契約終了日・書類作成日 (3項目)
-// 更新/変更/その他: 契約開始日・契約終了日・在留期限・申請期限・書類作成日 (5項目)
+// ===== ステータス変更時の項目入力確認（スキップ可） =====
+// 全申請種別: 担当者・支援委託費
+// 認定申請: + 契約開始日・契約終了日・書類作成日 (計5項目)
+// 更新/変更/その他: + 契約開始日・契約終了日・在留期限・申請期限・書類作成日 (計7項目)
+// 各項目は「不要」を押すとcase単位でスキップフラグが立ち、以降出ない
 function _checkRequiredFieldsForStatus(c){
   if(!c) return [];
   var isNintei = (c.appType||'').indexOf('認定')>=0;
   var required = [
+    {k:'staff',l:'担当者',type:'select'},
+    {k:'supportFee',l:'支援委託費',type:'text'},
     {k:'contractStart',l:'契約開始日',type:'date'},
     {k:'contractEnd',l:'契約終了日',type:'date'},
     {k:'docCreateDate',l:'書類作成日',type:'date'}
@@ -12976,8 +13039,11 @@ function _checkRequiredFieldsForStatus(c){
     required.push({k:'expire',l:'在留期限',type:'date'});
     required.push({k:'applicationDeadline',l:'申請期限',type:'date'});
   }
+  // スキップフラグが立っている項目は除外
+  var skipMap = (c.fieldSkip && typeof c.fieldSkip==='object') ? c.fieldSkip : {};
   var missing = [];
   required.forEach(function(f){
+    if(skipMap[f.k]) return; // スキップ済み
     var v = c[f.k];
     if(!v || (typeof v==='string' && v.trim()==='')) missing.push(f);
   });
@@ -12994,21 +13060,37 @@ function _showRequiredFieldsModal(c, missingFields, oldStatus, newStatus){
   modal.onclick = function(e){ if(e.target===modal){} };
 
   var isNintei = (c.appType||'').indexOf('認定')>=0;
-  var h = '<div onclick="event.stopPropagation()" style="background:white;border-radius:16px;width:100%;max-width:520px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);">';
-  h += '<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:4px;">📋 必須項目を入力してください</div>';
+  var h = '<div onclick="event.stopPropagation()" style="background:white;border-radius:16px;width:100%;max-width:560px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);">';
+  h += '<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:4px;">📋 基本情報の入力確認</div>';
   h += '<div style="font-size:11px;color:#6b7280;margin-bottom:10px;">' + esc(c.applicant || c.name || '') + '</div>';
-  h += '<div style="font-size:12px;color:#b45309;font-weight:700;background:#fffbeb;border:1.5px solid #fcd34d;border-radius:8px;padding:10px 12px;margin-bottom:16px;">⚠️ ステータスを「' + esc(newStatus) + '」に変更するには以下の項目が必要です。'+(isNintei?'<br><span style="font-size:10px;color:#92400e;">（認定申請は在留期限・申請期限は不要）</span>':'')+'</div>';
+  h += '<div style="font-size:12px;color:#1e40af;font-weight:600;background:#eff6ff;border:1.5px solid #93c5fd;border-radius:8px;padding:10px 12px;margin-bottom:16px;line-height:1.5;">💡 以下の項目が未入力です。入力せずに進むこともできますが、入力するまで毎回表示されます。<br><span style="color:#6b7280;font-size:11px;">この案件では不要な場合は「不要」ボタンで以降非表示にできます。</span>'+(isNintei?'<br><span style="font-size:10px;color:#64748b;">（認定申請は在留期限・申請期限は対象外）</span>':'')+'</div>';
 
   missingFields.forEach(function(f){
-    h += '<div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;">';
-    h += '<label style="font-size:12px;font-weight:700;color:#374151;width:110px;flex-shrink:0;">'+esc(f.l)+'</label>';
-    h += '<input type="'+f.type+'" id="_reqfld_'+f.k+'" style="flex:1;padding:8px 10px;border:1.5px solid #93c5fd;border-radius:6px;font-size:12px;">';
+    h += '<div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;background:#f8fafc;border-radius:8px;padding:8px 10px;">';
+    h += '<label style="font-size:12px;font-weight:700;color:#374151;width:100px;flex-shrink:0;">'+esc(f.l)+'</label>';
+    if(f.type==='select' && f.k==='staff'){
+      // 担当者セレクト（USERSリストから）
+      h += '<select id="_reqfld_'+f.k+'" style="flex:1;padding:6px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:12px;background:white;">';
+      h += '<option value="">選択してください</option>';
+      (typeof USERS!=='undefined'?USERS:[]).forEach(function(u){
+        if(u && u.name) h += '<option value="'+esc(u.name)+'">'+esc(u.name)+'</option>';
+      });
+      h += '</select>';
+    } else {
+      var _ph = '';
+      if(f.k==='supportFee') _ph = ' placeholder="例: 50000（税抜・円）"';
+      h += '<input type="'+f.type+'" id="_reqfld_'+f.k+'"'+_ph+' style="flex:1;padding:6px 10px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:12px;background:white;">';
+    }
+    h += '<button onclick="_reqFieldsMarkSkip(&quot;'+esc(c.id)+'&quot;,&quot;'+esc(f.k)+'&quot;,&quot;'+esc(f.l)+'&quot;)" style="padding:6px 12px;background:white;color:#64748b;border:1.5px solid #cbd5e1;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;" title="この案件ではこの項目を以降表示しない">不要</button>';
     h += '</div>';
   });
 
-  h += '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px;">';
+  h += '<div style="display:flex;justify-content:space-between;gap:8px;margin-top:20px;align-items:center;">';
+  h += '<div style="font-size:10px;color:#94a3b8;">※ 入力欄は空のままでも「続行」できます</div>';
+  h += '<div style="display:flex;gap:8px;">';
   h += '<button onclick="_reqFieldsCancel()" style="padding:8px 16px;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">キャンセル</button>';
-  h += '<button onclick="_reqFieldsApply(&quot;'+esc(c.id)+'&quot;,&quot;'+esc(oldStatus||'')+'&quot;,&quot;'+esc(newStatus)+'&quot;)" style="padding:8px 20px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">入力してステータス変更</button>';
+  h += '<button onclick="_reqFieldsApply(&quot;'+esc(c.id)+'&quot;,&quot;'+esc(oldStatus||'')+'&quot;,&quot;'+esc(newStatus)+'&quot;)" style="padding:8px 20px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">続行してステータス変更</button>';
+  h += '</div>';
   h += '</div>';
   h += '</div>';
 
@@ -13033,25 +13115,56 @@ function _reqFieldsCancel(){
   showToast('ステータス変更をキャンセルしました');
 }
 
+// 「不要」ボタン: この項目を case単位でスキップフラグON → モーダルの行を消す
+function _reqFieldsMarkSkip(caseId, fieldKey, fieldLabel){
+  var c = cData.find(function(x){ return x.id===caseId; });
+  if(!c) return;
+  if(!c.fieldSkip || typeof c.fieldSkip!=='object') c.fieldSkip = {};
+  c.fieldSkip[fieldKey] = true;
+  // DB保存
+  if(DB_READY){
+    _sb.from('cases').update({field_skip: c.fieldSkip, updated_at: new Date().toISOString()}).eq('id', c.id).then(function(r){
+      if(r && r.error) console.error('field_skip save err:', r.error);
+    });
+  }
+  try{localStorage.setItem('ofusa_cases', JSON.stringify(cData));}catch(e){}
+  // モーダルの該当行を削除
+  var fieldRow = document.getElementById('_reqfld_'+fieldKey);
+  if(fieldRow){
+    var row = fieldRow.closest('div');
+    if(row) row.remove();
+  }
+  // window._reqFieldsList からも削除
+  if(window._reqFieldsList){
+    window._reqFieldsList = window._reqFieldsList.filter(function(f){ return f.k !== fieldKey; });
+  }
+  showToast('「'+fieldLabel+'」を以降非表示にしました');
+  // 全て不要になったら自動でモーダルを閉じてステータス変更適用
+  if(!window._reqFieldsList || window._reqFieldsList.length===0){
+    var m = document.getElementById('_reqFieldsModal');
+    if(m){
+      // モーダル内の「続行」ボタンを自動クリック（同じ処理のため）
+      var applyBtn = m.querySelector('button[onclick*="_reqFieldsApply"]');
+      if(applyBtn) applyBtn.click();
+    }
+  }
+}
+
 function _reqFieldsApply(caseId, oldStatus, newStatus){
   var c = cData.find(function(x){ return x.id===caseId; });
   if(!c){ _reqFieldsCancel(); return; }
   var list = window._reqFieldsList || [];
-  // 全項目入力チェック
-  var stillMissing = [];
+  // 入力された値のみ保存（空欄はスキップ扱いではなく、そのまま未入力のまま次に進む）
   var newValues = {};
   list.forEach(function(f){
     var el = document.getElementById('_reqfld_'+f.k);
     var v = el ? el.value.trim() : '';
-    if(!v) stillMissing.push(f.l);
-    else newValues[f.k] = v;
+    if(v) newValues[f.k] = v;
   });
-  if(stillMissing.length){
-    alert('以下の項目が未入力です:\n・' + stillMissing.join('\n・'));
-    return;
-  }
-  // 値を保存（各項目をDBに反映）
+  // DB反映準備
   var _COL_MAP = {
+    staff:'staff',
+    supportFee:'support_fee',
     contractStart:'contract_start', contractEnd:'contract_end',
     expire:'expire', applicationDeadline:'application_deadline',
     docCreateDate:'doc_create_date'
@@ -13062,10 +13175,9 @@ function _reqFieldsApply(caseId, oldStatus, newStatus){
     c[k] = newValues[k];
     logEdit(c.id, '案件', k, oldV, newValues[k]);
     var col = _COL_MAP[k]; if(col) dbUpdate[col] = newValues[k];
-    // UI側のinputも更新
     var uiEl = document.getElementById('ei-'+k);
     if(uiEl) uiEl.value = newValues[k];
-    // 在留期限を入れたときは特例期限も自動計算
+    // 在留期限入力時は特例期限も自動計算
     if(k==='expire' && newValues[k] && !c.tokureiDate){
       var auto = addTwoMonths(newValues[k]);
       if(auto){
@@ -13076,7 +13188,7 @@ function _reqFieldsApply(caseId, oldStatus, newStatus){
       }
     }
   });
-  // ステータスも更新
+  // ステータス変更
   var oldS = c.status || '';
   c.status = newStatus;
   dbUpdate.status = newStatus;
@@ -13084,29 +13196,30 @@ function _reqFieldsApply(caseId, oldStatus, newStatus){
   _markCaseChanged(c.id);
   if(DB_READY){
     _sb.from('cases').update(dbUpdate).eq('id', c.id).then(function(r){
-      if(r && r.error) console.error('required fields save err:', r.error);
+      if(r && r.error) console.error('status + fields save err:', r.error);
     });
   }
   // status UI 更新
   var statusEl = document.getElementById('ei-status');
   if(statusEl) statusEl.value = newStatus;
-  // share通知（対象ステータスなら）
+  // share通知
   var _shareNotifyStatuses = ['審査中', '許可済 受取方法調整中', '入管受取ステータス変更中', '★郵送交付', '★窓口受取', '窓口受取（本人）'];
   if(DB_READY && _shareNotifyStatuses.indexOf(newStatus) >= 0 && c.org){
     _sb.from('share_notifications').insert({
       case_id: c.id, org: c.org, status: newStatus, receipt_no: c.receiptNo || null
     }).then(function(nr){ if(nr && nr.error) console.error('share_notifications err:', nr.error); });
   }
-  // モーダル閉じて一覧再描画
+  // モーダル閉じ + 再描画
   var m = document.getElementById('_reqFieldsModal'); if(m) m.remove();
   window._reqFieldsList = null;
-  showToast('✅ 入力完了、ステータスを「'+newStatus+'」に変更しました');
+  var filledCount = Object.keys(newValues).length;
+  showToast('✅ ステータスを「'+newStatus+'」に変更しました'+(filledCount?'（'+filledCount+'項目入力）':''));
   try { applyFilters(); } catch(e) {}
   if(typeof showTab==='function' && typeof currentTab!=='undefined'){
     try { showTab(currentTab || 'info'); } catch(e) {}
   }
 }
-// ===== /必須項目チェック =====
+// ===== /項目入力確認モーダル =====
 
 function setMilestoneStep(caseId, stepIdx) {
   var c = cases.find(function(x){ return x.id === caseId; });
