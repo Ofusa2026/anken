@@ -82,7 +82,7 @@ html,body{height:100%;margin:0;padding:0;}body{font-family:-apple-system,BlinkMa
 
 /* ===== TABLE ===== */
 .table-section{padding:0 24px 24px;flex:1;}
-.table-wrap{background:white;border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--gray-200);overflow-x:auto;}
+.table-wrap{background:white;border-radius:12px;box-shadow:var(--shadow);border:1px solid var(--gray-200);overflow:auto;height:calc(100vh - 220px);}
 table{width:100%;border-collapse:collapse;}
 thead th{padding:6px 10px;font-size:11px;color:var(--gray-400);font-weight:700;text-align:left;border-bottom:1px solid var(--gray-200);background:#fafafa;white-space:nowrap;position:sticky;top:0;z-index:10;}
 tbody tr{border-bottom:1px solid var(--gray-200);cursor:pointer;transition:.1s;}
@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260416.98</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260417.12</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -1131,7 +1131,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 </div>
 <!-- ===== /決定報告パネル ===== -->
 
-<div id="casesScreen" class="main-panel" style="display:flex;flex-direction:column;height:100%;overflow-y:auto;">
+<div id="casesScreen" class="main-panel" style="display:flex;flex-direction:column;height:100%;overflow:hidden;">
   <!-- TOPBAR -->
   <div class="topbar">
     <span class="page-title">案件一覧</span>
@@ -2555,7 +2555,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260416.98';
+var OFUSA_VERSION = 'ver.20260417.12';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -5777,7 +5777,6 @@ function renderTemplatesContent() {
     h += '<div style="flex:1;"><div style="font-size:12px;font-weight:700;color:var(--navy);">'+sd.label+'</div>';
     h += '<div style="font-size:10px;color:var(--gray-400);">'+sd.desc+'</div></div>';
     h += '<span style="font-size:11px;color:var(--blue);">書類生成へ ›</span>';
-    h += '</div>';
   });
   h += '</div>';
 
@@ -7525,7 +7524,7 @@ function generateUploadUrl(driveUrl, caseId) {
     var _isRyugaku = _currentResidence.indexOf('留学') >= 0 ? '1' : '';
     var _appTypeNorm = _appType.indexOf('更新') >= 0 ? '更新' : _appType.indexOf('変更') >= 0 ? '変更' : _appType.indexOf('認定') >= 0 ? '認定' : '';
     var _dc7 = docCheck[caseId] || {};
-    var _skipDocs7 = Object.keys(_dc7).filter(function(k){return k.indexOf('skip::')===0;}).map(function(k){return k.replace('skip::','');});
+    var _skipDocs7 = Object.keys(_dc7).filter(function(k){return k.indexOf('skip::')===0 && _dc7[k] && _dc7[k]!==false;}).map(function(k){return k.replace('skip::','');});
     var uploadUrl = 'https://ofusa2026.github.io/upload/zinzai_dataup.html?folder=' + folderId
       + (caseId ? '&case=' + encodeURIComponent(caseId) : '')
       + (_appTypeNorm ? '&appType=' + encodeURIComponent(_appTypeNorm) : '')
@@ -12994,6 +12993,11 @@ function autoSaveInfo(key, value) {
         logCaseAction(c.id, 'status_change', (_prevStatus ? _prevStatus + ' → ' : '') + value);
         // 1-6作成以降・申請前 → 不足チェックモーダル
         setTimeout(function(){ openShortageModal(c.id, value); }, 500);
+        // 受取・完了系ステータス → 審査完了/認定証メール対応済確認
+        var _RECEIPT_STATUSES = ['許可済 受取方法調整中','入管受取ステータス変更中','★郵送交付','郵送交付','郵送交付中','★窓口受取','窓口受取','窓口受取（本人）','完了'];
+        if (_RECEIPT_STATUSES.indexOf(value) >= 0) {
+          setTimeout(function(){ _checkShinsaCertReported(c, value); }, 600);
+        }
         // ★ヒアリングフォーム送付 → 必要書類の依頼日を今日の日付で一括セット
         if (value === '★ヒアリングフォーム送付') {
           (function(){
@@ -21892,12 +21896,14 @@ function setViewMode(mode) {
 
   if (mode === 'kanban' || mode === 'kanbanV') {
     if(_tb) _tb.style.display = 'none';
+
     if(kanbanEl){ kanbanEl.style.display = 'block'; kanbanEl.dataset.kanbanMode = mode; }
     var activeBtn = mode === 'kanban' ? btnKanbanH : btnKanbanV;
     if(activeBtn){ activeBtn.style.background='#2563eb'; activeBtn.style.color='white'; }
     applyFilters();
   } else {
     if(_tb) _tb.style.display = '';
+
     if(btnList){ btnList.style.background='#2563eb'; btnList.style.color='white'; }
     applyFilters();
   }
@@ -22098,9 +22104,12 @@ function renderKanban() {
     h += '</div></div>';
   });
 
-  if (!found) h += '<div style="padding:40px;text-align:center;color:#94a3b8;">表示する案件がありません</div>';
-  h += '</div>';
-  el.innerHTML = h;
+  if (!found) h += '<tr><td colspan="19" style="padding:40px;text-align:center;color:#94a3b8;">表示する案件がありません</td></tr>';
+  if (_caseTable) {
+    _caseTable.innerHTML = h;
+  } else {
+    el.innerHTML = '<table style="width:100%;border-collapse:collapse;">' + h + '</table>';
+  }
 
   // kanban-colのスタイル調整
   el.querySelectorAll('.kanban-col').forEach(function(col) {
@@ -22121,6 +22130,31 @@ function renderKanban() {
   });
 }
 
+
+function _buildKanbanVThead() {
+  return '<thead style="position:sticky;top:0;z-index:10;">'
+    + '<tr style="background:#fafafa;">'
+    + '<th style="width:32px;font-size:10px;color:#6b7280;padding:6px 4px;text-align:center;border-bottom:2px solid #e2e8f0;">優先</th>'
+    + '<th style="width:24px;border-bottom:2px solid #e2e8f0;"></th>'
+    + '<th style="display:none;"></th>'
+    + '<th style="font-size:10px;color:#6b7280;padding:6px 8px;min-width:180px;border-bottom:2px solid #e2e8f0;">案件名/申請者</th>'
+    + '<th style="font-size:10px;color:#6b7280;padding:6px 8px;max-width:100px;min-width:100px;border-bottom:2px solid #e2e8f0;">企業/支援機関</th>'
+    + '<th style="font-size:10px;color:#6b7280;padding:6px 4px;width:50px;border-bottom:2px solid #e2e8f0;">種別</th>'
+    + '<th style="font-size:10px;color:#6b7280;padding:6px 4px;width:49px;border-bottom:2px solid #e2e8f0;">担当</th>'
+    + '<th style="font-size:10px;color:#6b7280;padding:6px 4px;width:80px;border-bottom:2px solid #e2e8f0;">状態<br><span style="font-size:9px;font-weight:400;">分野</span></th>'
+    + '<th style="display:none;"></th>'
+    + '<th style="font-size:10px;color:#6b7280;padding:6px 4px;width:85px;border-bottom:2px solid #e2e8f0;">在留期限<br><span style="font-size:9px;font-weight:400;">特例日</span></th>'
+    + '<th style="font-size:10px;color:#6b7280;padding:6px 4px;border-bottom:2px solid #e2e8f0;">帰国予定</th>'
+    + '<th style="font-size:10px;color:#6b7280;padding:6px 4px;width:70px;border-bottom:2px solid #e2e8f0;">申請期限</th>'
+    + '<th style="display:none;"></th>'
+    + '<th style="font-size:10px;color:#6b7280;padding:6px 4px;min-width:70px;border-bottom:2px solid #e2e8f0;">受付番号<br><span style="font-size:9px;font-weight:400;">申請日</span></th>'
+    + '<th style="font-size:10px;color:#6b7280;padding:6px 4px;width:60px;border-bottom:2px solid #e2e8f0;">希望在留</th>'
+    + '<th style="font-size:10px;color:#6b7280;padding:6px 4px;width:80px;border-bottom:2px solid #e2e8f0;">他機関申請</th>'
+    + '<th style="font-size:10px;color:#6b7280;padding:6px 4px;width:150px;border-bottom:2px solid #e2e8f0;">進捗状況</th>'
+    + '<th style="font-size:10px;color:#6b7280;padding:6px 4px;width:90px;border-bottom:2px solid #e2e8f0;">未完了タスク</th>'
+    + '<th style="font-size:10px;color:#6b7280;padding:6px 4px;width:100px;border-bottom:2px solid #e2e8f0;">最終アクション</th>'
+    + '</tr></thead>';
+}
 function renderKanbanV() {
   var el = document.getElementById('kanbanView');
   if (!el) return;
@@ -22129,7 +22163,7 @@ function renderKanbanV() {
 
   var _stColor = {'未着手':'#64748b','★ヒアリングフォーム送付':'#7c3aed','ヒアリングフォーム回答待ち(送付済)':'#94a3b8','1-6作成':'#2563eb','★1-6企業送付':'#7c3aed','1-6企業確認待ち(送付済)':'#94a3b8','1-6修正':'#ea580c','★1-6修正送付':'#7c3aed','サイン書類作成':'#2563eb','★サイン書類送付':'#7c3aed','サイン書類返送待ち(送付済)':'#94a3b8','企業書類作成':'#2563eb','★企業押印送付':'#7c3aed','企業押印返送待ち(送付済)':'#94a3b8','スキャン書類作成':'#2563eb','★申請':'#16a34a','申請済(番号待)':'#059669','審査中':'#d97706','特活審査中':'#d97706','★要追完':'#ea580c','要追完 企業不足書類待ち':'#ea580c','要追完 人材不足書類待ち':'#ea580c','許可済 受取方法調整中':'#0369a1','入管受取ステータス変更中':'#0284c7','★郵送交付':'#0369a1','郵送交付中':'#0369a1','郵送交付':'#0369a1','★窓口受取':'#0369a1','窓口受取':'#0369a1','窓口受取（本人）':'#0369a1','完了':'#16a34a','審査完了':'#16a34a'};
 
-  // グループマップ構築（一覧と同様）
+  // グループマップ構築
   var caseToGroup = {}, groupCaseMap = {}, groupHasVisible = {};
   caseGroups.forEach(function(g){
     groupCaseMap[g.id] = [];
@@ -22147,7 +22181,7 @@ function renderKanbanV() {
     });
   });
 
-  // ステータス別に仕分け（グループも含む）
+  // ステータス別に仕分け
   var statusGroups = {};
   STATUS_LIST.forEach(function(s){ statusGroups[s] = []; });
   var placedGroups = {};
@@ -22156,14 +22190,16 @@ function renderKanbanV() {
     if (!statusGroups[st]) statusGroups[st] = [];
     var gid = caseToGroup[c.id];
     if(gid && groupHasVisible[gid]) {
-      // グループはまだ未配置なら代表として追加
       if(!placedGroups[gid]) { placedGroups[gid]=true; statusGroups[st].push({type:'group',groupId:gid,status:st}); }
     } else {
       statusGroups[st].push({type:'case',c:c});
     }
   });
 
-  var h = '<div style="display:flex;flex-direction:column;gap:0;">';
+  // caseTableに直接書き込む（theadを共有してズレを防ぐ）
+  var _caseTable = document.getElementById('caseTable');
+  if (_caseTable) _caseTable.style.display = '';
+  var h = '';
   var allStatuses = STATUS_LIST.slice();
   Object.keys(statusGroups).forEach(function(s){ if(allStatuses.indexOf(s)<0) allStatuses.push(s); });
 
@@ -22175,31 +22211,29 @@ function renderKanbanV() {
     var color = _stColor[s] || '#64748b';
     var isOpen = localStorage.getItem('kanbanV_open_'+s) !== '0';
 
-    h += '<div class="kanban-v-group" data-status="'+esc(s)+'" style="border-bottom:1px solid #e2e8f0;">';
-    h += '<div onclick="(function(){var o=localStorage.getItem(\'kanbanV_open_'+esc(s)+'\')!==\'0\';localStorage.setItem(\'kanbanV_open_'+esc(s)+'\',o?\'0\':\'1\');renderKanban();})()"';
-    h += ' style="display:flex;align-items:center;gap:10px;padding:8px 14px;cursor:pointer;background:'+color+'10;user-select:none;">';
-    h += '<div style="width:10px;height:10px;border-radius:50%;background:'+color+';flex-shrink:0;"></div>';
-    h += '<div style="font-size:12px;font-weight:800;color:'+color+';flex:1;">'+esc(s)+'</div>';
-    h += '<span style="font-size:11px;font-weight:700;color:'+color+';background:'+color+'20;padding:2px 10px;border-radius:99px;">'+items.length+'件</span>';
-    h += '<span style="font-size:11px;color:#94a3b8;">'+(isOpen?'▲':'▼')+'</span>';
-    h += '</div>';
+    // ステータスヘッダー行
+    h += '<tr class="kanban-v-group" data-status="'+esc(s)+'" style="border-bottom:1px solid #e2e8f0;background:'+color+'10;">'
+      + '<td colspan="19" onclick="(function(){var o=localStorage.getItem(\'kanbanV_open_'+esc(s)+'\')!==\'0\';localStorage.setItem(\'kanbanV_open_'+esc(s)+'\',o?\'0\':\'1\');renderKanban();})()\" style="padding:8px 14px;cursor:pointer;user-select:none;">'
+      + '<div style="display:flex;align-items:center;gap:10px;">'
+      + '<div style="width:10px;height:10px;border-radius:50%;background:'+color+';flex-shrink:0;"></div>'
+      + '<div style="font-size:12px;font-weight:800;color:'+color+';flex:1;">'+esc(s)+'</div>'
+      + '<span style="font-size:11px;font-weight:700;color:'+color+';background:'+color+'20;padding:2px 10px;border-radius:99px;">'+items.length+'件</span>'
+      + '<span style="font-size:11px;color:#94a3b8;">'+(isOpen?'▲':'▼')+'</span>'
+      + '</div></td></tr>';
 
     if (isOpen) {
-      h += '<table style="width:100%;border-collapse:collapse;">';
       items.forEach(function(item){
         if(item.type === 'case'){
           var rowHtml = buildCaseRow(item.c, today, false);
           rowHtml = rowHtml.replace('<tr ', '<tr draggable="true" data-cid="'+item.c.id+'" data-status="'+esc(s)+'" ondragstart="kanbanDragStart(event)" ondragend="kanbanDragEnd(event)" ');
           h += rowHtml;
         } else {
-          // グループ行
           var grp = caseGroups.find(function(g){return g.id===item.groupId;});
           var gcases = groupCaseMap[item.groupId] || [];
           if(!grp || !gcases.length) return;
-          var COLS = 12;
           var grpOpen = localStorage.getItem('kanbanV_grp_'+grp.id) !== '0';
-          h += '<tr style="background:linear-gradient(90deg,#eff6ff,#f8faff);"><td colspan="'+COLS+'" style="padding:6px 14px;border-left:4px solid #2563eb;border-bottom:1px solid #bfdbfe;">';
-          h += '<div style="display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="(function(){var o=localStorage.getItem(\'kanbanV_grp_'+grp.id+'\')!==\'0\';localStorage.setItem(\'kanbanV_grp_'+grp.id+'\',o?\'0\':\'1\');renderKanban();})()">';
+          h += '<tr style="background:linear-gradient(90deg,#eff6ff,#f8faff);"><td colspan="19" style="padding:6px 14px;border-left:4px solid #2563eb;border-bottom:1px solid #bfdbfe;">';
+          h += '<div style="display:flex;align-items:center;gap:8px;cursor:pointer;" onclick="(function(){var o=localStorage.getItem(\'kanbanV_grp_'+grp.id+'\')!==\'0\';localStorage.setItem(\'kanbanV_grp_'+grp.id+'\',o?\'0\':\'1\');renderKanban();})()\">';
           h += '<span style="font-size:13px;">📁</span>';
           h += '<span style="font-weight:800;font-size:12px;color:#1e40af;">'+esc(grp.name)+'</span>';
           h += '<span style="background:#dbeafe;color:#1e40af;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;">'+gcases.length+'件</span>';
@@ -22215,17 +22249,19 @@ function renderKanbanV() {
           }
         }
       });
-      h += '</table>';
     }
-    h += '</div>';
   });
 
-  if (!found) h += '<div style="padding:40px;text-align:center;color:#94a3b8;">表示する案件がありません</div>';
-  h += '</div>';
-  el.innerHTML = h;
+  if (!found) h += '<tr><td colspan="19" style="padding:40px;text-align:center;color:#94a3b8;">表示する案件がありません</td></tr>';
+  if (_caseTable) {
+    _caseTable.innerHTML = h;
+  } else {
+    el.innerHTML = '<table style="width:100%;border-collapse:collapse;">' + h + '</table>';
+  }
 
-  // ドラッグ&ドロップ（縦モード）
-  el.querySelectorAll('[draggable="true"]').forEach(function(card){
+  // ドラッグ&ドロップ（caseTableに書いたのでcaseTableから取得）
+  var _dragTarget = _caseTable || el;
+  _dragTarget.querySelectorAll('[draggable="true"]').forEach(function(card){
     card.addEventListener('dragstart', function(e){
       _kanbanDragCid = this.dataset.cid;
       _kanbanDragStatus = (cData.find(function(x){return x.id===_kanbanDragCid;})||{}).status;
@@ -22235,20 +22271,20 @@ function renderKanbanV() {
     card.addEventListener('dragend', function(){
       this.style.opacity='';
       _kanbanDragCid=null; _kanbanDragStatus=null;
-      el.querySelectorAll('.kanban-v-group').forEach(function(g){ g.style.outline=''; g.style.background=''; });
+      document.querySelectorAll('.kanban-v-group').forEach(function(g){ g.style.outline=''; g.style.background=''; });
     });
   });
   // ステータスグループへのドロップ
-  el.querySelectorAll('.kanban-v-group').forEach(function(grp){
+  document.querySelectorAll('.kanban-v-group').forEach(function(grp){
     grp.addEventListener('dragover', function(e){
       e.preventDefault();
-      if(_kanbanDragStatus !== this.dataset.status){ this.style.outline='2px dashed #2563eb'; this.style.background='#eff6ff'; }
+      if(_kanbanDragStatus !== this.dataset.status){ this.style.outline='2px dashed #2563eb'; }
     });
     grp.addEventListener('dragleave', function(e){
-      if(!this.contains(e.relatedTarget)){ this.style.outline=''; this.style.background=''; }
+      if(!this.contains(e.relatedTarget)){ this.style.outline=''; }
     });
     grp.addEventListener('drop', function(e){
-      e.preventDefault(); this.style.outline=''; this.style.background='';
+      e.preventDefault(); this.style.outline='';
       var newStatus=this.dataset.status;
       if(!_kanbanDragCid || newStatus===_kanbanDragStatus) return;
       kanbanUpdateStatus(_kanbanDragCid, newStatus);
@@ -22305,7 +22341,7 @@ function _dummy_old_renderKanban() {
       var items = gStatuses[s];
       if(!items || !items.length) return;
       h += '<div class="kanban-group" data-status="'+esc(s)+'" style="margin-bottom:4px;">';
-      h += '<table style="width:100%;border-collapse:collapse;">';
+
       h += '<thead><tr><th colspan="15" style="background:var(--navy);color:white;padding:4px 12px;font-size:11px;font-weight:800;">'+esc(s)+' '+items.length+'件</th></tr></thead>';
       items.forEach(function(c){
         var rowHtml = buildCaseRow(c, today, true);
@@ -25499,7 +25535,7 @@ function _guideSelectRule(caseId, ruleId, btn) {
     var _fid = extractDriveFolderId(_driveUrl);
     if (_fid) {
       var _dc7 = docCheck[caseId] || {};
-      var _skipDocs7 = Object.keys(_dc7).filter(function(k){return k.indexOf('skip::')===0;}).map(function(k){return k.replace('skip::','');});
+      var _skipDocs7 = Object.keys(_dc7).filter(function(k){return k.indexOf('skip::')===0 && _dc7[k] && _dc7[k]!==false;}).map(function(k){return k.replace('skip::','');});
       var _at = (cas.appType||'').indexOf('更新')>=0?'更新':(cas.appType||'').indexOf('変更')>=0?'変更':(cas.appType||'').indexOf('認定')>=0?'認定':'';
       var _nat = cas.nationality || p.nationality || '';
       var _ryugaku = (p.residenceStatus||cas.currentStatus||'').indexOf('留学')>=0 ? '1' : '';
@@ -25529,7 +25565,7 @@ function _guideSelectRule(caseId, ruleId, btn) {
   if (_actualDocList && _actualDocList.length) {
     var _dc = docCheck[caseId] || {};
     _actualDocList.forEach(function(d) {
-      if (_dc['skip::'+d]) return;
+      if (_dc['skip::'+d] && _dc['skip::'+d] !== false) return;
       _docListItems.push('□ ' + d);
     });
   }
@@ -25905,8 +25941,13 @@ function setDocDate2(caseId, docName, value) {
 function toggleDocSkip(caseId, docName) {
   if (!docCheck[caseId] || typeof docCheck[caseId] !== 'object') docCheck[caseId] = {};
   var key = 'skip::' + docName;
-  docCheck[caseId][key] = !docCheck[caseId][key];
-  showToast(docCheck[caseId][key] ? '🚫 ' + docName + ' 不要に設定' : '✅ ' + docName + ' 必要に戻す');
+  if (docCheck[caseId][key]) {
+    delete docCheck[caseId][key]; // 解除時はキーを削除
+    showToast('✅ ' + docName + ' 必要に戻す');
+  } else {
+    docCheck[caseId][key] = '1';
+    showToast('🚫 ' + docName + ' 不要に設定');
+  }
   persistDocCheck();
   if (currentCase) renderDocsTab(currentCase);
 }
@@ -31102,16 +31143,117 @@ function toggleReported(type, id) {
   var arr = type==='rec' ? receiptListData : type==='shinsa' ? shinsaListData : certListData;
   var item = arr.find(function(x){return x.id===id;});
   if(!item) return;
-  item.reported = !item.reported;
+  var willBeReported = !item.reported;
+  // 審査完了/認定証：未対応→対応済の時にステータス変更ポップアップ
+  if ((type === 'shinsa' || type === 'cert') && willBeReported && item.caseId) {
+    var linkedCase = cData.find(function(c){ return c.id === item.caseId; });
+    if (linkedCase) {
+      _shinsaStatusChangeModal(linkedCase, type, function() {
+        item.reported = true;
+        item.reportedAt = new Date().toISOString();
+        if(type==='shinsa') persistShinsaList(id); else persistCertList(id);
+        if(type==='shinsa') renderShinsaList(); else renderCertList();
+      });
+      return;
+    }
+  }
+  item.reported = willBeReported;
   item.reportedAt = item.reported ? new Date().toISOString() : null;
-  console.log('📤 toggleReported:', type, id, '→ reported:', item.reported, 'DB_READY:', DB_READY, 'row:', _listItemToRow(item));
-  // 1件だけDB更新（changedIdを渡す）
+  console.log('📤 toggleReported:', type, id, '→ reported:', item.reported);
   if(type==='rec') persistReceiptList(id);
   else if(type==='shinsa') persistShinsaList(id);
   else persistCertList(id);
   if(type==='rec') renderRecords();
   else if(type==='shinsa') renderShinsaList();
   else renderCertList();
+}
+
+function _shinsaStatusChangeModal(cas, type, onComplete) {
+  // typeが関数の場合は旧呼び出し互換（type省略）
+  if (typeof type === 'function') { onComplete = type; type = 'shinsa'; }
+  var modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10002;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.onclick = function(e){ if(e.target===modal){ modal.remove(); } };
+
+  var currentStatus = cas.status || '';
+  var statusOptions = ALL_STATUSES || STATUS_LIST || [];
+
+  var optHtml = '';
+  // 審査完了後によく使うステータスを上部に表示
+  var suggestedStatuses = type === 'cert'
+    ? ['完了']
+    : ['完了','郵送交付','★郵送交付','窓口受取','★窓口受取','窓口受取（本人）','許可済 受取方法調整中'];
+  var _cid = cas.id;
+  suggestedStatuses.forEach(function(s) {
+    var _sel = currentStatus===s;
+    optHtml += '<button onclick="event.stopPropagation();_shinsaApplyStatus(\'' + _cid + '\',\'' + s + '\')" style="padding:8px 14px;background:' + (_sel?'#2563eb':'white') + ';color:' + (_sel?'white':'#374151') + ';border:1.5px solid ' + (_sel?'#2563eb':'#e2e8f0') + ';border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">' + esc(s) + '</button>';
+  });
+
+  modal.setAttribute('data-shinsamodal','1');
+  var _cbKeyEsc = '_shinsaOnComplete_' + cas.id.replace(/[^a-zA-Z0-9]/g,'_');
+  var _modalLabel = type === 'cert' ? '認定証メールを対応済にしました' : '審査完了メールを対応済にしました';
+  var _modalTitle = type === 'cert' ? '📬 認定証メール 対応済' : '📬 審査完了メール 対応済';
+  var box = document.createElement('div');
+  box.onclick = function(e){ e.stopPropagation(); };
+  box.style.cssText = 'background:white;border-radius:16px;padding:24px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,.3);';
+  box.innerHTML = '<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:4px;">' + _modalTitle + '</div>'
+    + '<div style="font-size:12px;color:#64748b;margin-bottom:16px;">' + esc(getDisplayName(cas)) + ' ／ 現在：' + esc(currentStatus) + '</div>'
+    + '<div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:8px;">ステータスを変更しますか？</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;">' + optHtml + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;" id="_shinsaBtnRow"></div>';
+  var btnSkip = document.createElement('button');
+  btnSkip.style.cssText = 'padding:8px 16px;background:#f0fdf4;color:#15803d;border:1.5px solid #86efac;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;';
+  btnSkip.textContent = '変更せずに対応済';
+  btnSkip.onclick = function(e){ e.stopPropagation(); modal.remove(); if(window[_cbKeyEsc]){window[_cbKeyEsc]();delete window[_cbKeyEsc];} };
+  var btnCancel = document.createElement('button');
+  btnCancel.style.cssText = 'padding:8px 16px;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;font-size:12px;cursor:pointer;';
+  btnCancel.textContent = 'キャンセル';
+  btnCancel.onclick = function(e){ e.stopPropagation(); modal.remove(); };
+  // 書類URL取得ボタン
+  var btnUrl = document.createElement('button');
+  btnUrl.style.cssText = 'padding:8px 16px;background:#f5f3ff;color:#7c3aed;border:1.5px solid #c4b5fd;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;';
+  btnUrl.textContent = '📎 書類URL取得';
+  btnUrl.onclick = function(e){
+    e.stopPropagation();
+    btnUrl.textContent = '⏳ 取得中...'; btnUrl.disabled = true;
+    _getShinsaFileUrl(cas, type, function(url) {
+      btnUrl.disabled = false;
+      if (url) {
+        btnUrl.textContent = '✅ コピー済';
+        navigator.clipboard.writeText(url).catch(function(){});
+        showToast('📎 書類URLをコピーしました');
+      } else {
+        btnUrl.textContent = '❌ 取得失敗'; setTimeout(function(){ btnUrl.textContent = '📎 書類URL取得'; }, 2000);
+      }
+    });
+  };
+  box.querySelector('#_shinsaBtnRow').appendChild(btnUrl);
+  box.querySelector('#_shinsaBtnRow').appendChild(btnSkip);
+  box.querySelector('#_shinsaBtnRow').appendChild(btnCancel);
+  modal.appendChild(box);
+
+  // コールバックを一時的にグローバルに保存
+  var _cbKey = '_shinsaOnComplete_' + cas.id.replace(/[^a-zA-Z0-9]/g,'_');
+  window[_cbKey] = function(){ delete window[_cbKey]; onComplete(); };
+
+  document.body.appendChild(modal);
+}
+
+function _shinsaApplyStatus(caseId, newStatus) {
+  var _m = document.querySelector('[data-shinsamodal]'); if(_m) _m.remove();
+  var cas = cData.find(function(c){ return c.id===caseId; });
+  if (cas && newStatus) {
+    cas.status = newStatus;
+    _markCaseChanged(caseId);
+    if (DB_READY) {
+      _sb.from('cases').update({status: newStatus, updated_at: new Date().toISOString()}).eq('id', caseId).then(function(){});
+    }
+    showToast('✅ ステータスを「' + newStatus + '」に変更しました');
+    applyFilters();
+  }
+  // コールバック実行（対応済フラグをセット）
+  var _cbKey = '_shinsaOnComplete_' + caseId.replace(/[^a-zA-Z0-9]/g,'_');
+  if (window[_cbKey]) { window[_cbKey](); delete window[_cbKey]; }
 }
 
 function renderListItems(type, data, borderColor){
@@ -32334,6 +32476,125 @@ function saveMadoguchiNew() {
     showToast('✅ 窓口予定を登録しました（オフライン）');
   }
 }
+
+
+// ===== 受取系ステータス変更時：審査完了/認定証メール対応済確認 =====
+
+// ===== 審査完了/認定証ファイルのURL取得 =====
+function _getShinsaFileUrl(cas, type, callback) {
+  if (!cas) { callback(null); return; }
+  var folderType = type === 'cert' ? '認定証明書' : '審査完了';
+  var searchName = (cas.applicant || cas.name || '').replace(/ /g, '_');
+  
+  // Gmail取込専用GASのURLを使用
+  jsonpPost(GAS_GMAIL_URL, 'getDriveFileUrl', {
+    folderType: folderType,
+    name: searchName
+  }, function(res) {
+    if (res && res.status === 'ok' && res.publicUrl) {
+      callback(res.publicUrl);
+    } else {
+      _searchShinsaFile(cas, folderType, callback);
+    }
+  }, function() { callback(null); });
+}
+
+function _searchShinsaFile(cas, folderType, callback) {
+  // GASのgetDriveImagesを使ってGMAIL_FOLDERのサブフォルダを検索
+  // まず案件のdocCheckからドライブURLを取得して直接ファイルを探す
+  var p = personData[cas.id] || {};
+  var driveUrl = p.driveUrl || '';
+  if (!driveUrl) { callback(null); return; }
+  var folderId = extractDriveFolderId(driveUrl);
+  if (!folderId) { callback(null); return; }
+  
+  // ドライブフォルダ内のファイルリストを取得
+  jsonpPost(GAS_URL, 'getDriveImages', { folderId: folderId }, function(res) {
+    if (!res || res.status !== 'ok' || !res.files || !res.files.length) { callback(null); return; }
+    // folderTypeに関連するファイルを探す（審査完了/認定証明書）
+    var keyword = folderType === '認定証明書' ? '認定' : '審査完了';
+    var target = res.files.find(function(f) { return f.name && f.name.indexOf(keyword) >= 0; });
+    if (!target) { callback(null); return; }
+    // そのfileIdを公開してURLを返す
+    jsonpPost(GAS_GMAIL_URL, 'makeFilePublic', { fileId: target.id }, function(r2) {
+      if (r2 && r2.status === 'ok' && r2.publicUrl) { callback(r2.publicUrl); }
+      else { callback(null); }
+    }, function(){ callback(null); });
+  }, function(){ callback(null); });
+}
+// ===== /審査完了/認定証ファイルのURL取得 =====
+
+function _checkShinsaCertReported(cas, newStatus) {
+  if (!cas || !cas.id) return;
+  var appType = cas.appType || '';
+  var isNintei = appType.indexOf('認定') >= 0;
+  if (isNintei) {
+    var unhandled = certListData.filter(function(d){ return d.caseId === cas.id && !d.reported; });
+    if (!unhandled.length) return;
+    _showMailReportedConfirm('cert', unhandled, cas);
+  } else {
+    var unhandled = shinsaListData.filter(function(d){ return d.caseId === cas.id && !d.reported; });
+    if (!unhandled.length) return;
+    _showMailReportedConfirm('shinsa', unhandled, cas);
+  }
+}
+
+function _showMailReportedConfirm(type, items, cas) {
+  var label = type === 'cert' ? '認定証メール' : '審査完了メール';
+  var modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10002;display:flex;align-items:center;justify-content:center;padding:16px;';
+  modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
+  var box = document.createElement('div');
+  box.onclick = function(e){ e.stopPropagation(); };
+  box.style.cssText = 'background:white;border-radius:16px;padding:24px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.3);';
+  var itemsHtml = '';
+  items.forEach(function(d){
+    itemsHtml += '<div style="font-size:11px;color:#374151;padding:4px 0;border-bottom:1px solid #f1f5f9;">📧 ' + esc(d.name||'') + (d.date ? '　<span style="color:#94a3b8;">' + d.date.slice(0,10) + '</span>' : '') + '</div>';
+  });
+  box.innerHTML = '<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:4px;">📬 ' + label + ' を対応済にしますか？</div>'
+    + '<div style="font-size:12px;color:#64748b;margin-bottom:12px;">' + esc(getDisplayName(cas)) + '</div>'
+    + '<div style="background:#f8fafc;border-radius:8px;padding:8px 10px;margin-bottom:16px;">' + itemsHtml + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;" id="_mailConfirmBtnRow"></div>';
+  var btnOk = document.createElement('button');
+  btnOk.style.cssText = 'padding:8px 20px;background:#059669;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;';
+  btnOk.textContent = '✅ 対応済にする';
+  btnOk.onclick = function(){
+    items.forEach(function(d){
+      d.reported = true; d.reportedAt = new Date().toISOString();
+      if(type==='shinsa') persistShinsaList(d.id); else persistCertList(d.id);
+    });
+    if(type==='shinsa') renderShinsaList(); else renderCertList();
+    modal.remove();
+    showToast('✅ ' + label + ' を対応済にしました');
+  };
+  // 書類URL取得ボタン
+  var btnUrlM = document.createElement('button');
+  btnUrlM.style.cssText = 'padding:8px 16px;background:#f5f3ff;color:#7c3aed;border:1.5px solid #c4b5fd;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;';
+  btnUrlM.textContent = '📎 書類URL取得';
+  btnUrlM.onclick = function(){
+    btnUrlM.textContent = '⏳ 取得中...'; btnUrlM.disabled = true;
+    _getShinsaFileUrl(cas, type, function(url) {
+      btnUrlM.disabled = false;
+      if (url) {
+        btnUrlM.textContent = '✅ コピー済';
+        navigator.clipboard.writeText(url).catch(function(){});
+        showToast('📎 書類URLをコピーしました');
+      } else {
+        btnUrlM.textContent = '❌ 取得失敗'; setTimeout(function(){ btnUrlM.textContent = '📎 書類URL取得'; }, 2000);
+      }
+    });
+  };
+  var btnSkip = document.createElement('button');
+  btnSkip.style.cssText = 'padding:8px 16px;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;font-size:13px;cursor:pointer;';
+  btnSkip.textContent = 'あとで';
+  btnSkip.onclick = function(){ modal.remove(); };
+  box.querySelector('#_mailConfirmBtnRow').appendChild(btnUrlM);
+  box.querySelector('#_mailConfirmBtnRow').appendChild(btnOk);
+  box.querySelector('#_mailConfirmBtnRow').appendChild(btnSkip);
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+}
+// ===== /受取系ステータス変更時 =====
 
 function autoSaveInfoFor(c, key, value) {
   var _oldAif = c[key] !== undefined ? c[key] : '';
@@ -34973,7 +35234,7 @@ function generateDocText(caseId,ruleId){
       var _nat2 = cas.nationality || p.nationality || '';
       var _isRyugaku2 = (p.residenceStatus||p.residence_status||cas.currentStatus||'').indexOf('留学')>=0 ? '1' : '';
       var _dc2 = docCheck[caseId] || {};
-      var _skipDocs2 = Object.keys(_dc2).filter(function(k){return k.indexOf('skip::')===0;}).map(function(k){return k.replace('skip::','');});
+      var _skipDocs2 = Object.keys(_dc2).filter(function(k){return k.indexOf('skip::')===0 && _dc2[k] && _dc2[k]!==false;}).map(function(k){return k.replace('skip::','');});
       _uploadUrl = 'https://ofusa2026.github.io/upload/zinzai_dataup.html?folder=' + _folderId
         + '&case=' + encodeURIComponent(caseId)
         + (_appTypeNorm2 ? '&appType=' + encodeURIComponent(_appTypeNorm2) : '')
@@ -35025,7 +35286,7 @@ function generateDocText(caseId,ruleId){
   if (_actualDocList && _actualDocList.length) {
     var _dc = docCheck[caseId] || {};
     _actualDocList.forEach(function(d) {
-      if (_dc['skip::'+d]) return; // 不要はスキップ
+      if (_dc['skip::'+d] && _dc['skip::'+d] !== false) return; // 不要はスキップ
       _docListItems.push('□ ' + d);
     });
   }
@@ -37622,6 +37883,26 @@ function loadAllFromSupabase() {
       loadMadoguchiRecords();
       loadTsuikanMailsFromDB();
       loadCaseActions();
+      // required_docsをDBから読み込んでlocalStorageを上書き（全員に反映）
+      (function(){
+        var _keys = ['required_docs','required_docs_ryugaku','required_docs_giji','required_docs_nationality'];
+        var _lsKeys = {'required_docs':'ofusa_requiredDocs','required_docs_ryugaku':'ofusa_requiredDocsRyugaku','required_docs_giji':'ofusa_requiredDocsGiji','required_docs_nationality':'ofusa_requiredDocsNationality'};
+        _sb.from('settings').select('key,value').in('key', _keys).then(function(r){
+          if(r.error||!r.data) return;
+          r.data.forEach(function(row){
+            try{
+              var parsed = JSON.parse(row.value);
+              var lsKey = _lsKeys[row.key];
+              if(lsKey) localStorage.setItem(lsKey, JSON.stringify(parsed));
+              // グローバル変数にも反映
+              if(row.key==='required_docs') REQUIRED_DOCS = parsed;
+              if(row.key==='required_docs_ryugaku') REQUIRED_DOCS_RYUGAKU = parsed;
+              if(row.key==='required_docs_giji') REQUIRED_DOCS_GIJI = parsed;
+              if(row.key==='required_docs_nationality') REQUIRED_DOCS_NATIONALITY = parsed;
+            }catch(e){}
+          });
+        });
+      })();
       console.log('✅ Supabase全データ読み込み完了');
       // localStorageテンプレートをSupabaseへ自動マイグレーション
       try { migrateLocalTemplatesToSupabase(); } catch(e) { console.error('tpl migration err:', e); }
