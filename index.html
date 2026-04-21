@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260417.34</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260421.05</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2556,7 +2556,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260417.34';
+var OFUSA_VERSION = 'ver.20260421.05';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -31189,6 +31189,16 @@ function _shinsaStatusChangeModal(cas, type, onComplete) {
   console.log('🔔 _shinsaStatusChangeModal start, cas:', cas ? cas.id : 'null', 'type:', type);
   // typeが関数の場合は旧呼び出し互換（type省略）
   if (typeof type === 'function') { onComplete = type; type = 'shinsa'; }
+  // cas.staffが空の場合はcDataから再取得、それでも空ならDBから取得
+  if (cas && !cas.staff) {
+    var _fresh = cData.find(function(c){ return c.id === cas.id; });
+    if (_fresh && _fresh.staff) cas.staff = _fresh.staff;
+  }
+  if (cas && !cas.staff && DB_READY) {
+    _sb.from('cases').select('staff').eq('id', cas.id).then(function(r){
+      if (r && r.data && r.data[0] && r.data[0].staff) cas.staff = r.data[0].staff;
+    });
+  }
   try {
   var modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10002;display:flex;align-items:center;justify-content:center;padding:16px;pointer-events:auto;';
@@ -31237,7 +31247,9 @@ function _shinsaStatusChangeModal(cas, type, onComplete) {
   box.appendChild(_nameDiv);
   box.appendChild(_urlDiv);
 
+  var _finalUrl = _savedUrl; // URLを共有変数で管理
   function _renderUrlArea(url) {
+    _finalUrl = url;
     _urlDiv.innerHTML = '';
     if (url) {
       var _urlLink = document.createElement('a');
@@ -31250,6 +31262,10 @@ function _shinsaStatusChangeModal(cas, type, onComplete) {
       _copyBtn.onclick = function(e){ e.stopPropagation(); navigator.clipboard.writeText(url).catch(function(){}); _copyBtn.textContent='✅ コピー済'; setTimeout(function(){_copyBtn.textContent='URLコピー';},2000); };
       _urlDiv.appendChild(_urlLink);
       _urlDiv.appendChild(_copyBtn);
+      // テキストエリアにURLが含まれていなければ末尾に追加（_textAreaが定義済みの場合のみ）
+      if (typeof _textArea !== 'undefined' && _textArea && _textArea.value && _textArea.value.indexOf(url) < 0) {
+        _textArea.value = _textArea.value + _NL + url;
+      }
     } else {
       _urlDiv.innerHTML = '<span style="font-size:10px;color:#94a3b8;">書類URL なし</span>';
     }
@@ -31298,7 +31314,7 @@ function _shinsaStatusChangeModal(cas, type, onComplete) {
         '★郵送交付':      'こちらの審査が完了しました！' + _NL + '郵送交付になります！',
         '郵送交付中':     'こちらの審査が完了しました！' + _NL + '郵送交付になります！',
         '完了':           'こちらの審査が完了しました！',
-        '_oosaki':        'こちらの審査が完了しました！' + _NL + '郵送交付になりますので弊社大盛宛にてお送りください！' + _NL + _NL + '〒144-0052 ' + _NL + '東京都大田区蒲田５丁目１１−１０ FUNDES蒲田8階' + _NL + '大房行政書士法人　' + (cas.staff || '') + '宛'
+        '_oosaki':        'こちらの審査が完了しました！' + _NL + '郵送交付になりますので弊社' + (cas.staff || '') + '宛にてお送りください！' + _NL + _NL + '〒144-0052 ' + _NL + '東京都大田区蒲田５丁目１１−１０ FUNDES蒲田8階' + _NL + '大房行政書士法人　' + (cas.staff || '') + '宛'
       };
 
   // テキストは空で始める（ステータス選択時にセット）
@@ -31321,7 +31337,11 @@ function _shinsaStatusChangeModal(cas, type, onComplete) {
     var _oosakiBtn = document.createElement('button');
     _oosakiBtn.style.cssText = 'margin-top:6px;margin-left:6px;font-size:11px;padding:4px 12px;background:#f5f3ff;color:#7c3aed;border:1px solid #c4b5fd;border-radius:6px;cursor:pointer;font-weight:700;';
     _oosakiBtn.textContent = '🏢 担当者宛';
-    _oosakiBtn.onclick = function(e){ e.stopPropagation(); _textArea.value = 'こちらの審査が完了しました！' + _NL + '郵送交付になりますので弊社大盛宛にてお送りください！' + _NL + _NL + '〒144-0052 ' + _NL + '東京都大田区蒲田５丁目１１−１０ FUNDES蒲田8階' + _NL + '大房行政書士法人　' + (cas.staff || '') + '宛'; };
+    _oosakiBtn.onclick = function(e){
+      e.stopPropagation();
+      var _ooText = 'こちらの審査が完了しました！' + _NL + '郵送交付になりますので弊社' + (cas.staff || '') + '宛にてお送りください！' + _NL + _NL + '〒144-0052 ' + _NL + '東京都大田区蒲田５丁目１１−１０ FUNDES蒲田8階' + _NL + '大房行政書士法人　' + (cas.staff || '') + '宛';
+      _textArea.value = _finalUrl ? _ooText + _NL + _finalUrl : _ooText;
+    };
     _textSection.appendChild(_textLabel);
     _textSection.appendChild(_textArea);
     _textSection.appendChild(_copyTextBtn);
@@ -31354,9 +31374,12 @@ function _shinsaStatusChangeModal(cas, type, onComplete) {
       b.style.borderColor = b === btn ? '#2563eb' : '#e2e8f0';
     });
     // テキストセット
-    if (_textPatterns[st]) _textArea.value = _textPatterns[st];
-    else if (type === 'cert') _textArea.value = _textPatterns['_default'] || '';
-    else _textArea.value = 'こちらの審査が完了しました！';
+    var _baseText;
+    if (_textPatterns[st]) _baseText = _textPatterns[st];
+    else if (type === 'cert') _baseText = _textPatterns['_default'] || '';
+    else _baseText = 'こちらの審査が完了しました！';
+    // URLがあれば末尾に追加
+    _textArea.value = _finalUrl ? _baseText + _NL + _finalUrl : _baseText;
     // 対応済ボタンを活性化
     if (_applyBtn) { _applyBtn.disabled = false; _applyBtn.style.opacity = '1'; }
   });
