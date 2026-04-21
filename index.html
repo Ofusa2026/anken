@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260417.20</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260417.22</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2555,7 +2555,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260417.20';
+var OFUSA_VERSION = 'ver.20260417.22';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -30033,6 +30033,7 @@ function _listItemToRow(d, type) {
     reported: d.reported||false,
     reported_at: d.reportedAt||null,
     pdf_done: d.pdfDone||false,
+    drive_url: d.driveUrl||null,
     updated_at: new Date().toISOString()
   };
   // application_dateはreceipt_archiveのみ
@@ -30046,7 +30047,8 @@ function _rowToListItem(r) {
     movedAt: r.moved_at||'', caseId: r.case_id||'',
     reported: r.reported||false, reportedAt: r.reported_at||null,
     pdfDone: r.pdf_done||false,
-    applicationDate: r.application_date||''
+    applicationDate: r.application_date||'',
+    driveUrl: r.drive_url||''
   };
 }
 function persistShinsaList(changedId){
@@ -31246,12 +31248,14 @@ function _shinsaStatusChangeModal(cas, type, onComplete) {
   btnCancel.style.cssText = 'padding:8px 16px;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;font-size:12px;cursor:pointer;';
   btnCancel.textContent = 'キャンセル';
   btnCancel.onclick = function(e){ e.stopPropagation(); modal.remove(); };
-  // 書類URL取得ボタン
+  // 書類URL取得ボタン（保存済みURLがあれば即コピー）
+  var _arr4 = type==='cert' ? certListData : shinsaListData;
+  var _item4 = _arr4 ? _arr4.find(function(x){ return x.caseId === cas.id; }) : null;
+  var _savedUrl = _item4 ? (_item4.driveUrl || '') : '';
   var btnUrl = document.createElement('button');
   btnUrl.style.cssText = 'padding:8px 16px;background:#f5f3ff;color:#7c3aed;border:1.5px solid #c4b5fd;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;';
-  btnUrl.textContent = '📎 書類URL取得';
-  btnUrl.onclick = function(e){
-    e.stopPropagation();
+  btnUrl.textContent = _savedUrl ? '📎 書類URLをコピー' : '📎 書類URL取得';
+  var _doGetUrl = function() {
     btnUrl.textContent = '⏳ 取得中...'; btnUrl.disabled = true;
     _getShinsaFileUrl(cas, type, function(url) {
       btnUrl.disabled = false;
@@ -31259,10 +31263,22 @@ function _shinsaStatusChangeModal(cas, type, onComplete) {
         btnUrl.textContent = '✅ コピー済';
         navigator.clipboard.writeText(url).catch(function(){});
         showToast('📎 書類URLをコピーしました');
+        // 取得したURLを保存
+        if (_item4) _item4.driveUrl = url;
       } else {
         btnUrl.textContent = '❌ 取得失敗'; setTimeout(function(){ btnUrl.textContent = '📎 書類URL取得'; }, 2000);
       }
     });
+  };
+  btnUrl.onclick = function(e){
+    e.stopPropagation();
+    if (_savedUrl) {
+      navigator.clipboard.writeText(_savedUrl).catch(function(){});
+      btnUrl.textContent = '✅ コピー済';
+      showToast('📎 書類URLをコピーしました');
+    } else {
+      _doGetUrl();
+    }
   };
   _btnRow.appendChild(btnUrl);
   _btnRow.appendChild(btnSkip);
@@ -32523,12 +32539,13 @@ function saveMadoguchiNew() {
 function _getShinsaFileUrl(cas, type, callback) {
   if (!cas) { callback(null); return; }
   var folderType = type === 'cert' ? '認定証明書' : '審査完了';
-  var searchName = (cas.applicant || cas.name || '').replace(/ /g, '_');
+  var searchName = cas.applicant || cas.name || '';
   
-  // Gmail取込専用GASのURLを使用
+  // Gmail取込専用GASのURLを使用（nameはスペースそのままで渡す）
   jsonpPost(GAS_GMAIL_URL, 'getDriveFileUrl', {
     folderType: folderType,
-    name: searchName
+    name: searchName,
+    caseNo: item ? (item.caseNo || '') : ''
   }, function(res) {
     if (res && res.status === 'ok' && res.publicUrl) {
       callback(res.publicUrl);
