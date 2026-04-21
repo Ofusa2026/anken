@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260421.07</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260421.13</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2559,7 +2559,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260421.07';
+var OFUSA_VERSION = 'ver.20260421.13';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -3319,9 +3319,31 @@ function persistCompaniesToDB(companiesArray, silent, updateTimestamp) {
   tryUpsertCompanies(rows, 0);
 }
 
+// 配偶者の有無を '有'/'無'/'' に正規化（フォーム値や過去データの表記ゆれを吸収）
+function normalizeSpouseValue(v) {
+  if (v == null) return '';
+  var s = String(v).trim();
+  if (!s) return '';
+  if (s === '有' || s === '無') return s;
+  // 「有」扱い
+  if (/^(はい|yes|married|既婚|有り|あり|配偶者あり)/i.test(s)) return '有';
+  if (s.indexOf('はい') >= 0 || s.indexOf('Yes') >= 0 || s.indexOf('yes') >= 0) return '有';
+  if (s.indexOf('有 ') === 0 || /^有[　\s]/.test(s)) return '有';
+  // 「無」扱い
+  if (/^(いいえ|no|single|未婚|独身|無し|なし|配偶者なし)/i.test(s)) return '無';
+  if (s.indexOf('いいえ') >= 0 || s.indexOf('No') >= 0 || s.indexOf('single') >= 0 || s.indexOf('Single') >= 0) return '無';
+  if (s.indexOf('無 ') === 0 || /^無[　\s]/.test(s)) return '無';
+  // 判定不能はそのまま返す（既存の既知パターン以外を壊さない）
+  return s;
+}
+
 // 人材データ: personData をDBに保存
 function persistPersonToDB(caseId, p) {
   if (!DB_READY || !caseId) return;
+  // spouse値は保存直前に正規化（表記ゆれの再混入を防ぐ）
+  if (p && p.spouse != null && p.spouse !== '') {
+    p.spouse = normalizeSpouseValue(p.spouse);
+  }
   var row = { case_id: caseId };
   // 主要フィールドをマッピング
   var mapping = {
@@ -4080,7 +4102,9 @@ function _bulkImportSingle(r) {
       Object.keys(response).forEach(function(k){
         if(!response[k] && response[k]!==0) return;
         var dest = _map[k] || k;
-        p[dest] = response[k];
+        var val = response[k];
+        if (dest === 'spouse') val = normalizeSpouseValue(val);
+        p[dest] = val;
       });
       personData[caseId] = p;
       var c = cData.find(function(x){return x.id===caseId;});
@@ -12176,7 +12200,10 @@ function importFormResponse(responseId, caseId, formType) {
       Object.keys(response).forEach(function(k) {
         if (!response[k] && response[k] !== 0) return;
         var dest = _personKeyMap[k] || k;
-        p[dest] = response[k];
+        var val = response[k];
+        // spouse（配偶者の有無）は '有'/'無' に正規化
+        if (dest === 'spouse') val = normalizeSpouseValue(val);
+        p[dest] = val;
       });
       // entryCount/coeCountから有無フラグを自動設定
       if(response.entryCount !== undefined){
@@ -12550,7 +12577,7 @@ function _hfSaveDriveUrl(caseId){
   if(b){b.textContent='✓ 保存済';b.style.background='#16a34a';}
 }
 
-// ===== 1-6作成 → 雇用条件入力・所属機関情報入力 タスクモーダル =====
+// ===== 雇用条件入力完了 → 次タスク「1-6作成」期限設定モーダル =====
 function _onStatus16Create(c) {
   var caseId = c.id;
   // 2日後の日付
@@ -12558,11 +12585,19 @@ function _onStatus16Create(c) {
   var defaultDeadline = dt.toISOString().slice(0, 10);
   var me = currentUser || '';
 
-  // 既に設定済みか確認
-  var idx7 = caseId + '_7'; // 所属機関情報入力
-  var idx8 = caseId + '_8'; // 雇用条件入力
-  var already7 = taskDeadline[idx7] || taskAssignee[idx7+'_checker'];
-  var already8 = taskDeadline[idx8] || taskAssignee[idx8+'_checker'];
+  var key1 = caseId + '_1'; // 1-6作成
+
+  // 既に完了済みならスキップ（再発動しない）
+  var curStatus1 = docTaskStatus[key1] || 0;
+  if (curStatus1 >= 4) return;
+
+  // 既存値があれば引き継ぐ
+  var existingDeadline = taskDeadline[key1] || defaultDeadline;
+  var existingChecker  = taskAssignee[key1+'_checker'] || me;
+  var existingComment  = (typeof taskAssigneeComment !== 'undefined' && taskAssigneeComment[key1]) || '';
+
+  // 既存モーダルがあれば閉じる
+  var _ex = document.getElementById('_16createModal'); if(_ex) _ex.remove();
 
   var modal = document.createElement('div');
   modal.id = '_16createModal';
@@ -12570,58 +12605,36 @@ function _onStatus16Create(c) {
   modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
 
   var h = '<div onclick="event.stopPropagation()" style="background:white;border-radius:16px;width:100%;max-width:460px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);">';
-  h += '<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:4px;">📋 1-6作成 タスク設定</div>';
-  h += '<div style="font-size:11px;color:#6b7280;margin-bottom:16px;">' + esc(c.applicant || c.name || '') + '</div>';
+  h += '<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:4px;">📋 次のタスク：1-6作成</div>';
+  h += '<div style="font-size:11px;color:#6b7280;margin-bottom:4px;">' + esc(c.applicant || c.name || '') + '</div>';
+  h += '<div style="font-size:10px;color:#16a34a;font-weight:700;margin-bottom:16px;">✅ 雇用条件入力が完了しました。次の「1-6作成」タスクの期限・担当を設定します。</div>';
 
-  // 雇用条件入力（idx:8）
-  h += '<div id="_16block8" style="border:1.5px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:10px;">';
+  // 1-6作成（idx:1）
+  h += '<div id="_16block1" style="border:1.5px solid #93c5fd;background:#eff6ff;border-radius:10px;padding:12px;margin-bottom:16px;">';
   h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
-  h += '<div style="font-size:12px;font-weight:700;color:#374151;">📝 雇用条件入力</div>';
+  h += '<div style="font-size:12px;font-weight:700;color:#1e40af;">📋 1-6作成</div>';
   h += '<div style="display:flex;align-items:center;gap:6px;">';
-  h += '<label style="font-size:11px;color:#6b7280;display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="_16skip8" onchange="_16toggleSkip(8)"> 不要</label>';
-  h += '<button id="_16urg8" onclick="_16toggleUrgent(8)" style="font-size:10px;padding:3px 10px;border-radius:6px;border:1.5px solid #fca5a5;background:white;color:#dc2626;font-weight:700;cursor:pointer;">🔥 急ぎ</button>';
+  h += '<label style="font-size:11px;color:#6b7280;display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="_16skip1" onchange="_16toggleSkip(1)"> 不要</label>';
+  h += '<button id="_16urg1" onclick="_16toggleUrgent(1)" style="font-size:10px;padding:3px 10px;border-radius:6px;border:1.5px solid #fca5a5;background:white;color:#dc2626;font-weight:700;cursor:pointer;">🔥 急ぎ</button>';
   h += '</div>';
   h += '</div>';
   h += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">';
   h += '<label style="font-size:11px;color:#6b7280;width:60px;flex-shrink:0;">期限</label>';
-  h += '<input type="date" id="_16deadline8" value="' + defaultDeadline + '" style="flex:1;padding:6px 8px;border:1.5px solid #e2e8f0;border-radius:6px;font-size:12px;">';
+  h += '<input type="date" id="_16deadline1" value="' + esc(existingDeadline) + '" style="flex:1;padding:6px 8px;border:1.5px solid #93c5fd;border-radius:6px;font-size:12px;background:white;">';
   h += '</div>';
   h += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">';
-  h += '<label style="font-size:11px;color:#6b7280;width:60px;flex-shrink:0;">確認者</label>';
-  h += '<input type="text" id="_16checker8" value="' + esc(me) + '" placeholder="確認者名" style="flex:1;padding:6px 8px;border:1.5px solid #e2e8f0;border-radius:6px;font-size:12px;">';
+  h += '<label style="font-size:11px;color:#6b7280;width:60px;flex-shrink:0;">担当者</label>';
+  h += '<input type="text" id="_16checker1" value="' + esc(existingChecker) + '" placeholder="担当者名" style="flex:1;padding:6px 8px;border:1.5px solid #93c5fd;border-radius:6px;font-size:12px;background:white;">';
   h += '</div>';
   h += '<div style="display:flex;gap:8px;align-items:center;">';
   h += '<label style="font-size:11px;color:#6b7280;width:60px;flex-shrink:0;">コメント</label>';
-  h += '<input type="text" id="_16comment8" placeholder="対応者コメント" style="flex:1;padding:6px 8px;border:1.5px solid #e2e8f0;border-radius:6px;font-size:12px;">';
-  h += '</div>';
-  h += '</div>';
-
-  // 所属機関情報入力（idx:7）
-  h += '<div id="_16block7" style="border:1.5px solid #e5e7eb;border-radius:10px;padding:12px;margin-bottom:16px;">';
-  h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
-  h += '<div style="font-size:12px;font-weight:700;color:#374151;">🏢 所属機関情報入力</div>';
-  h += '<div style="display:flex;align-items:center;gap:6px;">';
-  h += '<label style="font-size:11px;color:#6b7280;display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="_16skip7" onchange="_16toggleSkip(7)"> 不要</label>';
-  h += '<button id="_16urg7" onclick="_16toggleUrgent(7)" style="font-size:10px;padding:3px 10px;border-radius:6px;border:1.5px solid #fca5a5;background:white;color:#dc2626;font-weight:700;cursor:pointer;">🔥 急ぎ</button>';
-  h += '</div>';
-  h += '</div>';
-  h += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">';
-  h += '<label style="font-size:11px;color:#6b7280;width:60px;flex-shrink:0;">期限</label>';
-  h += '<input type="date" id="_16deadline7" value="' + defaultDeadline + '" style="flex:1;padding:6px 8px;border:1.5px solid #e2e8f0;border-radius:6px;font-size:12px;">';
-  h += '</div>';
-  h += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">';
-  h += '<label style="font-size:11px;color:#6b7280;width:60px;flex-shrink:0;">確認者</label>';
-  h += '<input type="text" id="_16checker7" value="' + esc(me) + '" placeholder="確認者名" style="flex:1;padding:6px 8px;border:1.5px solid #e2e8f0;border-radius:6px;font-size:12px;">';
-  h += '</div>';
-  h += '<div style="display:flex;gap:8px;align-items:center;">';
-  h += '<label style="font-size:11px;color:#6b7280;width:60px;flex-shrink:0;">コメント</label>';
-  h += '<input type="text" id="_16comment7" placeholder="対応者コメント" style="flex:1;padding:6px 8px;border:1.5px solid #e2e8f0;border-radius:6px;font-size:12px;">';
+  h += '<input type="text" id="_16comment1" value="' + esc(existingComment) + '" placeholder="担当者へのコメント" style="flex:1;padding:6px 8px;border:1.5px solid #93c5fd;border-radius:6px;font-size:12px;background:white;">';
   h += '</div>';
   h += '</div>';
 
   h += '<div style="display:flex;justify-content:flex-end;gap:8px;">';
   h += '<button onclick="_16closeModal()" style="padding:8px 16px;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">スキップ</button>';
-  h += '<button onclick="_16saveTask(&quot;' + caseId + '&quot;)" style="padding:8px 20px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">設定する</button>';
+  h += '<button onclick="_16saveTask(&quot;' + caseId + '&quot;)" style="padding:8px 20px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">設定して依頼</button>';
   h += '</div>';
   h += '</div>';
 
@@ -12629,7 +12642,7 @@ function _onStatus16Create(c) {
   document.body.appendChild(modal);
 }
 
-var _16urgentState = {7: false, 8: false};
+var _16urgentState = {1: false, 7: false, 8: false};
 
 function _shToggleDocSkip(el, caseId, docName) {
   if (!docCheck[caseId]) docCheck[caseId] = {};
@@ -12659,46 +12672,34 @@ function _16closeModal() {
 }
 
 function _16saveTask(caseId) {
-  var deadline8 = (document.getElementById('_16deadline8') || {}).value || '';
-  var checker8  = (document.getElementById('_16checker8') || {}).value || '';
-  var comment8  = (document.getElementById('_16comment8') || {}).value || '';
-  var deadline7 = (document.getElementById('_16deadline7') || {}).value || '';
-  var checker7  = (document.getElementById('_16checker7') || {}).value || '';
-  var comment7  = (document.getElementById('_16comment7') || {}).value || '';
+  var deadline1 = (document.getElementById('_16deadline1') || {}).value || '';
+  var checker1  = (document.getElementById('_16checker1') || {}).value || '';
+  var comment1  = (document.getElementById('_16comment1') || {}).value || '';
 
-  var key8 = caseId + '_8';
-  var key7 = caseId + '_7';
-  var skip8 = document.getElementById('_16skip8') && document.getElementById('_16skip8').checked;
-  var skip7 = document.getElementById('_16skip7') && document.getElementById('_16skip7').checked;
+  var key1 = caseId + '_1';
+  var skip1 = document.getElementById('_16skip1') && document.getElementById('_16skip1').checked;
 
-  if (!skip8) {
-    if (deadline8) { taskDeadline[key8] = deadline8; try{localStorage.setItem('ofusa_taskDeadline',JSON.stringify(taskDeadline));}catch(e){} }
-    if (checker8)  { saveTaskChecker(key8, checker8); }
-    if (comment8)  { saveAssigneeComment(key8, comment8); }
-    if (_16urgentState[8]) { taskUrgent[key8] = true; try{localStorage.setItem('ofusa_taskUrgent',JSON.stringify(taskUrgent));}catch(e){} }
-    docTaskStatus[key8] = 1;
+  if (!skip1) {
+    if (deadline1) { taskDeadline[key1] = deadline1; try{localStorage.setItem('ofusa_taskDeadline',JSON.stringify(taskDeadline));}catch(e){} }
+    if (checker1)  { saveTaskChecker(key1, checker1); }
+    if (comment1)  { saveAssigneeComment(key1, comment1); }
+    if (_16urgentState[1]) { taskUrgent[key1] = true; try{localStorage.setItem('ofusa_taskUrgent',JSON.stringify(taskUrgent));}catch(e){} }
+    // 既に完了済み(4)以上のときは上書きしない（未着手0 → 依頼1）
+    var _cur = docTaskStatus[key1] || 0;
+    if (_cur < 4) docTaskStatus[key1] = 1;
   }
 
-  if (!skip7) {
-    if (deadline7) { taskDeadline[key7] = deadline7; try{localStorage.setItem('ofusa_taskDeadline',JSON.stringify(taskDeadline));}catch(e){} }
-    if (checker7)  { saveTaskChecker(key7, checker7); }
-    if (comment7)  { saveAssigneeComment(key7, comment7); }
-    if (_16urgentState[7]) { taskUrgent[key7] = true; try{localStorage.setItem('ofusa_taskUrgent',JSON.stringify(taskUrgent));}catch(e){} }
-    docTaskStatus[key7] = 1;
-  }
-
-  _16urgentState = {7: false, 8: false};
+  _16urgentState = {1: false, 7: false, 8: false};
   try{localStorage.setItem('ofusa_docTaskStatus',JSON.stringify(docTaskStatus));}catch(e){}
   persistTaskMeta();
-  persistDocTaskStatus(key8);
-  persistDocTaskStatus(key7);
+  persistDocTaskStatus(key1);
   // 案件一覧のtaskDoneを更新
   var _co = cData.find(function(x){return x.id===caseId;});
   if(_co){ var _d=0; for(var _i=0;_i<TASK_NAMES.length;_i++){if((docTaskStatus[caseId+'_'+_i]||0)>=4)_d++;} _co.taskDone=_d; }
   if(typeof showTab==='function') showTab('tasks');
 
   _16closeModal();
-  showToast('✅ タスク設定しました（雇用条件・所属機関）依頼状態にしました');
+  showToast(skip1 ? 'スキップしました' : '✅ 1-6作成タスクを依頼状態に設定しました');
 }
 // ===== /1-6作成タスクモーダル =====
 
@@ -12820,6 +12821,27 @@ function openShortageModal(caseId, newStatus) {
   var h = '<div onclick="event.stopPropagation()" style="background:white;border-radius:16px;width:100%;max-width:560px;max-height:85vh;overflow-y:auto;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);">';
   h += '<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:4px;">⚠️ 不足項目チェック</div>';
   h += '<div style="font-size:11px;color:#6b7280;margin-bottom:16px;">' + esc(c.applicant||c.name||'') + ' / ' + esc(newStatus) + '</div>';
+
+  // 📁 ドライブフォルダリンク（人材＋企業）
+  var _shDriveLinks = [];
+  for (var _di = 0; _di < 10; _di++) {
+    var _dk = _di === 0 ? 'driveUrl' : 'driveUrl' + (_di + 1);
+    if (p[_dk]) _shDriveLinks.push({ label: '人材' + (_di === 0 ? '' : (_di+1)), url: p[_dk] });
+  }
+  var _shCo = findCompanyByName(c.company) || {};
+  for (var _cdi = 0; _cdi < 5; _cdi++) {
+    var _cdk = _cdi === 0 ? 'driveUrl' : 'driveUrl' + (_cdi + 1);
+    if (_shCo[_cdk]) _shDriveLinks.push({ label: '企業' + (_cdi === 0 ? '' : (_cdi+1)), url: _shCo[_cdk] });
+  }
+  if (_shDriveLinks.length) {
+    h += '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:8px 10px;margin-bottom:14px;">';
+    h += '<div style="font-size:10px;font-weight:700;color:#1e40af;margin-bottom:5px;">📁 ドライブフォルダ</div>';
+    h += '<div style="display:flex;flex-wrap:wrap;gap:6px;">';
+    _shDriveLinks.forEach(function(d){
+      h += '<a href="' + esc(d.url) + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:white;color:#1d4ed8;border:1px solid #93c5fd;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none;">📁 ' + esc(d.label) + ' ↗</a>';
+    });
+    h += '</div></div>';
+  }
 
   // 人材データ不足
   if (missingPerson.length) {
@@ -25013,16 +25035,9 @@ function showTab(tab) {
     h += '<div style="margin-top:8px;padding:10px 14px;background:#f8fafc;border-radius:8px;font-size:12px;color:var(--gray-400);">完了 <b style="color:#16a34a;">' + counts[3] + '</b> / 修正中 <b style="color:#f97316;">' + counts[2] + '</b> / 確認中 <b style="color:#3b82f6;">' + counts[1] + '</b> / 未着手 <b>' + counts[0] + '</b>（全' + TASK_NAMES.length + '件）</div>';
   }
   document.getElementById('caseBody').innerHTML = h;
+  // 旧fuAddPanelは新UI（タブ内のfu-add-label）と重複するため常時非表示
   var _fuPanel = document.getElementById('fuAddPanel');
-  if (_fuPanel) {
-    if (tab === 'followup') {
-      _fuPanel.style.display = 'block';
-      var _fd = document.getElementById('fuNewDate');
-      if (_fd && !_fd.value) _fd.value = new Date().toISOString().slice(0,10);
-    } else {
-      _fuPanel.style.display = 'none';
-    }
-  }
+  if (_fuPanel) { _fuPanel.style.display = 'none'; }
   // 編集履歴セクション描画
   renderEditHistorySection(c);
   if (currentTab === 'info') {
@@ -31254,7 +31269,7 @@ function _shinsaStatusChangeModal(cas, type, onComplete) {
   // 審査完了後によく使うステータスを上部に表示
   var suggestedStatuses = type === 'cert'
     ? ['完了']
-    : ['完了','郵送交付','★郵送交付','窓口受取','★窓口受取','窓口受取（本人）','許可済 受取方法調整中'];
+    : ['許可済 受取方法調整中','入管受取ステータス変更中','★郵送交付','郵送交付中','★窓口受取','窓口受取（本人）','完了'];
   var _cid = cas.id;
   suggestedStatuses.forEach(function(s) {
     optHtml += '<button data-status="' + esc(s) + '" style="padding:8px 14px;background:white;color:#374151;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;text-align:left;">' + esc(s) + '</button>';
@@ -31347,10 +31362,10 @@ function _shinsaStatusChangeModal(cas, type, onComplete) {
   var _textPatterns = type === 'cert'
     ? { '_default': 'こちらの審査が完了しました！' + _NL + 'COEをお送りしますのでご確認ください！' }
     : {
-        '窓口受取':       'こちらの審査が完了しました！' + _NL + '東京入管受け取りになります！',
+        '許可済 受取方法調整中': 'こちらの審査が完了しました！',
+        '入管受取ステータス変更中': 'こちらの審査が完了しました！' + _NL + '入管受取ステータスの変更中です！',
         '★窓口受取':      'こちらの審査が完了しました！' + _NL + '東京入管受け取りになります！',
         '窓口受取（本人）': 'こちらの審査が完了しました！' + _NL + '東京入管受け取りになります！',
-        '郵送交付':       'こちらの審査が完了しました！' + _NL + '郵送交付になります！',
         '★郵送交付':      'こちらの審査が完了しました！' + _NL + '郵送交付になります！',
         '郵送交付中':     'こちらの審査が完了しました！' + _NL + '郵送交付になります！',
         '完了':           'こちらの審査が完了しました！',
@@ -31470,6 +31485,25 @@ function _shinsaApplyStatus(caseId, newStatus) {
     _markCaseChanged(caseId);
     if (DB_READY) {
       _sb.from('cases').update({status: newStatus, updated_at: new Date().toISOString()}).eq('id', caseId).then(function(){});
+    }
+    // share通知：対象ステータスへの変更時にshare_notificationsへinsert
+    var _shareNotifyStatuses = ['審査中', '許可済 受取方法調整中', '入管受取ステータス変更中', '郵送交付', '★窓口受取', '窓口受取（本人）'];
+    if (DB_READY && _shareNotifyStatuses.indexOf(newStatus) >= 0 && cas.org) {
+      _sb.from('share_notifications').insert({
+        case_id: cas.id, org: cas.org, status: newStatus, receipt_no: cas.receiptNo || null
+      }).then(function(nr) {
+        if (nr && nr.error) console.error('share_notifications insert error:', nr.error);
+      });
+    }
+    // 開いている案件モーダルの表示も更新
+    if (currentCase && currentCase.id === caseId) {
+      currentCase.status = newStatus;
+      var _statusEl = document.getElementById('ei-status');
+      if (_statusEl) _statusEl.value = newStatus;
+      // ヘッダーのステータスバッジも更新（showTabで再描画）
+      if (typeof showTab === 'function' && typeof currentTab !== 'undefined') {
+        try { showTab(currentTab || 'info'); } catch(e) {}
+      }
     }
     showToast('✅ ステータスを「' + newStatus + '」に変更しました');
     applyFilters();
@@ -38069,6 +38103,8 @@ openCase = function(id) {
         if (_pd.passport_expiry && !_pd.passportExpiry) _pd.passportExpiry = _pd.passport_expiry;
         if (_pd.birth_place && !_pd.birthPlace) _pd.birthPlace = _pd.birth_place;
         if (_pd.temp_return && !_pd.tempReturn) _pd.tempReturn = _pd.temp_return;
+        // spouse値を正規化（DBに旧形式の値が残っていても画面では '有'/'無' で扱う）
+        if (_pd.spouse) _pd.spouse = normalizeSpouseValue(_pd.spouse);
         personData[id] = _pd;
       }
     });
