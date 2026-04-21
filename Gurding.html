@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_ADMIN ver.20260421.04 -->
+<!-- OFUSA_ADMIN ver.20260421.05 -->
 <html lang="ja"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -216,7 +216,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
       <div class="logo-badge">OFUSA</div>
       <div class="logo-title">大房行政書士法人</div>
       <div class="logo-sub">管理ダッシュボード</div>
-      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260421.04</div>
+      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260421.05</div>
     </div>
     <div class="sidebar-section">概要</div>
     <div class="nav-item active" onclick="nav('dashboard')">📊 ダッシュボード</div>
@@ -255,7 +255,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
     <div class="topbar">
       <div class="page-title" id="pageTitle">ダッシュボード</div>
       <div class="topbar-right">
-        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260421.04</span>
+        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260421.05</span>
         <span class="last-updated" id="lastUpdated"></span>
         <button class="btn btn-primary" onclick="refreshAll()">🔄 データ更新</button>
       </div>
@@ -498,7 +498,10 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
           </div>
           <div id="deadlineStaffBanner" style="display:none;padding:0 24px 12px;">
             <div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:10px 14px;">
-              <div style="font-size:11px;font-weight:700;color:#dc2626;margin-bottom:6px;">📱 担当別一括通知（申請期限）</div>
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+                <div style="font-size:11px;font-weight:700;color:#dc2626;">📱 担当別一括通知（申請期限）</div>
+                <button onclick="downloadDeadlineCSV()" style="font-size:11px;padding:3px 10px;background:white;color:#dc2626;border:1.5px solid #dc2626;border-radius:6px;cursor:pointer;font-weight:700;">📥 全件CSV</button>
+              </div>
               <div id="deadlineStaffBtns" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
             </div>
           </div>
@@ -3739,7 +3742,10 @@ function renderDeadlineAlerts(){
     if(keys.length){
       btnsEl.innerHTML = keys.map(function(s){
         var lbl = s==='（担当なし）'?'（担当なし）':getLineName(s);
-        return '<button onclick="showDeadlineLineModal(\''+esc(s)+'\')" style="font-size:11px;padding:4px 10px;background:#dc2626;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">'+esc(lbl)+'（'+staffGroups[s].length+'件）</button>';
+        return '<div style="display:flex;gap:2px;align-items:center;">'
+          +'<button onclick="showDeadlineLineModal(\''+esc(s)+'\')" style="font-size:11px;padding:4px 10px;background:#dc2626;color:white;border:none;border-radius:6px 0 0 6px;cursor:pointer;font-weight:700;">📱 '+esc(lbl)+'（'+staffGroups[s].length+'件）</button>'
+          +'<button onclick="downloadDeadlineCSV(\''+esc(s)+'\')" style="font-size:11px;padding:4px 8px;background:#fee2e2;color:#dc2626;border:1px solid #dc2626;border-radius:0 6px 6px 0;cursor:pointer;font-weight:700;" title="このスタッフのCSV">📥</button>'
+          +'</div>';
       }).join('');
       banner.style.display='';
     } else { banner.style.display='none'; }
@@ -3775,6 +3781,65 @@ function renderDeadlineAlerts(){
         +'</tr>';
     }).join('')
     +'</tbody></table></div>';
+}
+
+function downloadDeadlineCSV(staffName){
+  var days = parseInt((document.getElementById('deadlineDays')||{value:'7'}).value);
+  var team = (document.getElementById('deadlineTeam')||{value:''}).value||'';
+  var sf   = (document.getElementById('deadlineStaff')||{value:''}).value||'';
+  var so   = (document.getElementById('deadlineSupportOrg')||{value:''}).value||'';
+  var SKIP_ST = ['完了','審査完了','審査中','申請済(番号待)'];
+
+  var items = DATA.cases.filter(function(c){
+    if(!c.application_deadline) return false;
+    if(SKIP_ST.indexOf(c.status)!==-1) return false;
+    var d = daysLeft(c.application_deadline);
+    if(d === null) return false;
+    if(days === -999){ if(d >= 0) return false; }
+    else { if(d > days) return false; }
+    if(team && c.team!==team) return false;
+    if(sf   && (c.staff||'').trim()!==sf) return false;
+    if(so   && c.org!==so) return false;
+    // 担当フィルター
+    if(staffName){
+      var s = (c.staff||'').trim()||'（担当なし）';
+      if(s !== staffName) return false;
+    }
+    return true;
+  }).sort(function(a,b){ return (daysLeft(a.application_deadline)??999)-(daysLeft(b.application_deadline)??999); });
+
+  if(!items.length){ showToast('出力対象なし'); return; }
+
+  var BOM = '\uFEFF';
+  var headers = ['申請期限','超過日数','申請人氏名','案件名','所属機関','登録支援機関','申請種別','ステータス','担当','チーム','在留期限'];
+  var rows = [headers.join(',')];
+  items.forEach(function(c){
+    var d = daysLeft(c.application_deadline);
+    var dStr = d<0 ? '期限切れ '+Math.abs(d)+'日超過' : d===0 ? '本日期限' : '残'+d+'日';
+    var row = [
+      c.application_deadline||'',
+      dStr,
+      c.applicant||'',
+      c.name||'',
+      c.company||'',
+      c.org||'',
+      c.app_type||'',
+      c.status||'',
+      c.staff||'',
+      c.team||'',
+      c.expire||''
+    ].map(function(v){ return '"'+String(v).replace(/"/g,'""')+'"'; });
+    rows.push(row.join(','));
+  });
+
+  var today = new Date().toLocaleDateString('ja-JP').replace(/\//g,'-');
+  var fname = staffName ? '申請期限_'+staffName+'_'+today+'.csv' : '申請期限_全件_'+today+'.csv';
+  var blob = new Blob([BOM+rows.join('\r\n')], {type:'text/csv;charset=utf-8;'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a'); a.href=url; a.download=fname;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('✅ CSV出力しました（'+items.length+'件）');
 }
 
 function showDeadlineLineModal(staffName, caseId){
