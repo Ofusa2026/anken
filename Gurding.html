@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- OFUSA_ADMIN ver.20260421.09 -->
+<!-- OFUSA_ADMIN ver.20260421.10 -->
 <html lang="ja"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -216,7 +216,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
       <div class="logo-badge">OFUSA</div>
       <div class="logo-title">大房行政書士法人</div>
       <div class="logo-sub">管理ダッシュボード</div>
-      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260421.09</div>
+      <div class="logo-sub" style="color:#64748b;margin-top:4px;font-size:9px;">ver.20260421.10</div>
     </div>
     <div class="sidebar-section">概要</div>
     <div class="nav-item active" onclick="nav('dashboard')">📊 ダッシュボード</div>
@@ -232,6 +232,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
     <div class="nav-item" onclick="nav('records')">📋 申請記録 未対応 <span class="nbadge red" id="bdg-records">0</span></div>
     <div class="nav-item" onclick="nav('receiptcheck')">🔍 要追完対応漏れチェック</div>
     <div class="nav-item" onclick="nav('coecheck')">🔍 COE・審査完了対応漏れチェック</div>
+    <div class="nav-item" onclick="nav('kokko')">🏗️ 国交省書類管理 <span class="nbadge red" id="bdg-kokko">0</span></div>
     <div class="nav-item" onclick="downloadAppliedNoDriveCSV()">📥 申請中・ドライブ未設定CSV</div>
     <div class="nav-item" onclick="nav('users')">👥 ユーザー管理</div>
     <div class="nav-item" onclick="nav('settings')">⚙️ 設定</div>
@@ -255,7 +256,7 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
     <div class="topbar">
       <div class="page-title" id="pageTitle">ダッシュボード</div>
       <div class="topbar-right">
-        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260421.09</span>
+        <span style="font-size:10px;color:#94a3b8;background:#f1f5f9;padding:2px 8px;border-radius:4px;font-weight:700;letter-spacing:0.5px;border:1px solid #e2e8f0;">ver.20260421.10</span>
         <span class="last-updated" id="lastUpdated"></span>
         <button class="btn btn-primary" onclick="refreshAll()">🔄 データ更新</button>
       </div>
@@ -813,6 +814,34 @@ tbody td{padding:6px 10px;font-size:12px;vertical-align:middle;}
         </div>
       </div>
 
+      <!-- ══ KOKKO ══ -->
+      <div class="section" id="sec-kokko">
+        <div class="filters-section">
+          <div class="filters">
+            <input class="search-input" id="kokkoSearch" placeholder="🔍 会社名で検索..." oninput="renderKokko()">
+            <select class="filter-select" id="kokkoStaff" onchange="renderKokko()">
+              <option value="">全担当</option>
+            </select>
+            <select class="filter-select" id="kokkoStatus" onchange="renderKokko()">
+              <option value="alert">⚠️ 催促対象（3日以上）</option>
+              <option value="pending">依頼済み・未受領</option>
+              <option value="all">全件</option>
+            </select>
+            <span class="filter-count" id="kokkoCount">—件</span>
+          </div>
+        </div>
+        <!-- 担当別通知バナー -->
+        <div id="kokkoStaffBanner" style="display:none;padding:0 24px 12px;">
+          <div style="background:#fef3c7;border:2px solid #d97706;border-radius:10px;padding:10px 14px;">
+            <div style="font-size:11px;font-weight:700;color:#92400e;margin-bottom:6px;">📱 担当別一括通知（国交省書類 催促）</div>
+            <div id="kokkoStaffBtns" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+          </div>
+        </div>
+        <div class="table-section" style="padding-top:0;">
+          <div id="kokkoList"><div class="loading"><div class="spinner"></div></div></div>
+        </div>
+      </div>
+
       <!-- ══ RECEIPT CHECK ══ -->
       <div class="section" id="sec-receiptcheck">
         <div class="filters-section">
@@ -1002,7 +1031,7 @@ var FORM_TYPE_LABEL = {
 var TEAM_COLORS = ['#2563eb','#16a34a','#ea580c','#7c3aed','#dc2626','#0891b2','#d97706'];
 
 var _sb = null;
-var DATA = { cases:[], shinsaArchive:[], certArchive:[], receiptArchive:[], forms:[], intake:[], users:[], persons:[], notes:{}, taskStatus:[], taskUrgent:[], taskDeadline:[], agencyMaster:[] };
+var DATA = { cases:[], shinsaArchive:[], certArchive:[], receiptArchive:[], forms:[], intake:[], users:[], persons:[], notes:{}, taskStatus:[], taskUrgent:[], taskDeadline:[], agencyMaster:[], companies:[], coDocCheck:{} };
 var _currentShinsaTable = 'shinsa_archive';
 var _caseNoExpireFilter = false; // 在留期限未入力フィルター状態
 var _caseNoDriveFilter  = false; // ドライブ未設定フィルター状態
@@ -1132,7 +1161,7 @@ function loadCfg(){ try{ return JSON.parse(localStorage.getItem(CFG_KEY)||'{}');
 // ═══════════════════════════════════════════════
 // NAVIGATION
 // ═══════════════════════════════════════════════
-var TITLES = { dashboard:'ダッシュボード', alerts:'期限アラート', cases:'案件一覧', tasks:'タスクアラート', shinsa:'審査完了・認定証', forms:'ヒアリングフォーム対応', intake:'案件登録確認', records:'申請記録 未対応', users:'ユーザー管理', settings:'設定', receiptcheck:'要追完対応漏れチェック', coecheck:'COE・審査完了対応漏れチェック' };
+var TITLES = { dashboard:'ダッシュボード', alerts:'期限アラート', cases:'案件一覧', tasks:'タスクアラート', shinsa:'審査完了・認定証', forms:'ヒアリングフォーム対応', intake:'案件登録確認', records:'申請記録 未対応', kokko:'国交省書類管理', users:'ユーザー管理', settings:'設定', receiptcheck:'要追完対応漏れチェック', coecheck:'COE・審査完了対応漏れチェック' };
 function nav(sec){
   document.querySelectorAll('.section').forEach(function(s){ s.classList.remove('active'); });
   document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
@@ -1228,6 +1257,14 @@ function refreshAll(){
   _sb.from('agency_master').select('name,support_staff').then(function(r){
     if(!r.error) DATA.agencyMaster = r.data||[];
   }).catch(function(){ DATA.agencyMaster=[]; });
+  // companies テーブル（国交省書類管理用）
+  _sb.from('companies').select('id,name,industry,ofusa_staff,support_staff,support_org_name').then(function(r){
+    if(!r.error) DATA.companies = r.data||[];
+  }).catch(function(){ DATA.companies=[]; });
+  // coDocCheck (settings)
+  _sb.from('settings').select('value').eq('key','coDocCheck').single().then(function(r){
+    if(!r.error && r.data) try{ DATA.coDocCheck = JSON.parse(r.data.value)||{}; }catch(e){}
+  }).catch(function(){});
 
   // doc_tasks (ステータス・期日・急ぎフラグ)
   _sb.from('doc_tasks').select('case_id,task_index,status,deadline').then(function(r){
@@ -1303,6 +1340,7 @@ function renderAll(){
   renderIntake();
   renderRecordsSection();
   renderDeadlineAlerts();
+  renderKokko();
 }
 
 // ── BADGES ──
@@ -4038,6 +4076,200 @@ function showAlertLineModal(staff, alertType, caseId){
   });
   lines.push('よろしくお願いいたします。');
   document.getElementById('lineModalMeta').textContent = displayName+' 担当 ／ '+typeLabel+' '+items.length+'件（'+today2+'）';
+  document.getElementById('lineModalText').value = lines.join('\n');
+  document.getElementById('lineModal').style.display = 'flex';
+}
+
+// 国交省書類の判定：書類名が番号で始まるもの（1. 2. 等）がkokko書類
+var KOKKO_DOC_KEYWORDS = ['1. 履歴事項全部証明書', '2. 建設業許可', '3. 全員分の厚生年金', '3. 標準報酬', '4. 建設キャリアアップ', '4. キャリアアップ', '5. JAC', '5. 会員証明書', '6. 委任状', '7. ハローワーク', '7. 求人票', '8. 同等の技能', '9. 就業規則', '9. 賃金規定', '10. 比較対象', '10. 賃金台帳', '11. 比較対象', '11. 経歴書', '12. 雇用契約書', '13. 36協定', '14. 年間カレンダー', '14. 変形労働', '15. 重要事項説明書', '16. 建設キャリアアップ', '16. 技能者ID'];
+
+function isKokkoDoc(docName){
+  return KOKKO_DOC_KEYWORDS.some(function(k){ return docName.indexOf(k)===0 || docName.replace(/^req::|^staff::|^skip::/, '').indexOf(k)===0; });
+}
+
+function getKokkoAlerts(){
+  var today = Date.now();
+  var results = []; // {company, doc, reqDate, daysDiff}
+  DATA.companies.forEach(function(co){
+    var dc = DATA.coDocCheck[co.id]||{};
+    Object.keys(dc).forEach(function(key){
+      if(key.indexOf('req::')!==0) return;
+      var docName = key.slice(5);
+      if(!isKokkoDoc(docName)) return;
+      var reqDate = dc[key];
+      if(!reqDate) return;
+      // staff::書類名 = true なら受領済み
+      if(dc['staff::'+docName]===true) return;
+      // skip なら除外
+      if(dc['skip::'+docName]===true) return;
+      var daysDiff = Math.floor((today - new Date(reqDate).getTime()) / 86400000);
+      results.push({ company:co, doc:docName, reqDate:reqDate, daysDiff:daysDiff });
+    });
+  });
+  return results;
+}
+
+function renderKokko(){
+  var q    = (document.getElementById('kokkoSearch')||{value:''}).value.toLowerCase();
+  var sf   = (document.getElementById('kokkoStaff')||{value:''}).value||'';
+  var mode = (document.getElementById('kokkoStatus')||{value:'alert'}).value||'alert';
+
+  var staffs = [...new Set(DATA.companies.map(function(c){ return c.ofusa_staff||''; }).filter(Boolean))].sort();
+  popSelect('kokkoStaff', staffs, sf);
+
+  var all = getKokkoAlerts();
+
+  var items = all.filter(function(r){
+    if(mode==='alert'   && r.daysDiff < 3) return false;
+    if(mode==='pending' && r.daysDiff < 0) return false;
+    var name = (r.company.name||'').toLowerCase();
+    if(q && !name.includes(q)) return false;
+    if(sf && (r.company.ofusa_staff||'')!==sf) return false;
+    return true;
+  });
+
+  // 会社ごとにグループ化
+  var coGroups = {};
+  items.forEach(function(r){
+    var cid = r.company.id;
+    if(!coGroups[cid]) coGroups[cid] = { company:r.company, docs:[] };
+    coGroups[cid].docs.push(r);
+  });
+  var coList = Object.values(coGroups).sort(function(a,b){
+    var aMax = Math.max.apply(null, a.docs.map(function(d){ return d.daysDiff; }));
+    var bMax = Math.max.apply(null, b.docs.map(function(d){ return d.daysDiff; }));
+    return bMax - aMax;
+  });
+
+  setTxt('kokkoCount', coList.length+'社 / '+items.length+'書類');
+  setBadge('bdg-kokko', coList.length);
+
+  // 担当別バナー
+  var staffGroups = {};
+  coList.forEach(function(g){
+    var s = (g.company.ofusa_staff||'').trim()||'（担当なし）';
+    if(!staffGroups[s]) staffGroups[s]=[];
+    staffGroups[s].push(g);
+  });
+  var banner = document.getElementById('kokkoStaffBanner');
+  var btnsEl = document.getElementById('kokkoStaffBtns');
+  if(banner && btnsEl){
+    var keys = Object.keys(staffGroups).sort();
+    if(keys.length){
+      btnsEl.innerHTML = keys.map(function(s){
+        var lbl = s==='（担当なし）'?'（担当なし）':getLineName(s);
+        return '<button onclick="showKokkoLineModal(\''+esc(s)+'\')" style="font-size:11px;padding:4px 10px;background:#d97706;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">'+esc(lbl)+'（'+staffGroups[s].length+'社）</button>';
+      }).join('');
+      banner.style.display='';
+    } else { banner.style.display='none'; }
+  }
+
+  var el = document.getElementById('kokkoList');
+  if(!coList.length){ el.innerHTML='<div class="empty">催促対象の会社なし</div>'; return; }
+
+  el.innerHTML = '<div style="padding:0 24px 24px;">'
+    +coList.map(function(g){
+      var co = g.company;
+      var alertDocs = g.docs.filter(function(d){ return d.daysDiff>=3; });
+      var pendingDocs = g.docs.filter(function(d){ return d.daysDiff>=0 && d.daysDiff<3; });
+      var borderColor = alertDocs.length>0 ? '#f59e0b' : '#e2e8f0';
+      var html = '<div style="border:1.5px solid '+borderColor+';border-radius:10px;margin-bottom:12px;overflow:hidden;">';
+      // ヘッダー
+      html += '<div style="background:'+(alertDocs.length>0?'#fffbeb':'#f8fafc')+';padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">';
+      html += '<div style="font-size:13px;font-weight:800;color:#1e293b;flex:1;">'+esc(co.name||'—')+'</div>';
+      if(co.industry) html += '<span style="font-size:10px;background:#eff6ff;color:#2563eb;padding:1px 8px;border-radius:10px;">'+esc(co.industry)+'</span>';
+      if(co.ofusa_staff) html += '<span style="font-size:11px;color:#6b7280;">担当: '+esc(co.ofusa_staff)+'</span>';
+      if(alertDocs.length) html += '<span style="font-size:11px;font-weight:700;color:#d97706;">⚠️ 催促'+alertDocs.length+'件</span>';
+      html += '<button onclick="showKokkoLineModal(\''+esc(co.ofusa_staff||'（担当なし）')+'\',\''+esc(co.id)+'\')" style="font-size:10px;padding:3px 8px;background:#d97706;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;">📱 担当通知</button>';
+      html += '<button onclick="showKokkoCompanyLineModal(\''+esc(co.id)+'\')" style="font-size:10px;padding:3px 8px;background:#2563eb;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;">🏢 企業通知</button>';
+      html += '</div>';
+      // 書類リスト
+      html += '<div style="padding:8px 14px;">';
+      html += '<table style="width:100%;font-size:11px;border-collapse:collapse;">';
+      html += '<thead><tr style="border-bottom:1px solid #e2e8f0;"><th style="text-align:left;padding:4px 6px;color:#6b7280;font-weight:600;">書類名</th><th style="padding:4px 6px;color:#6b7280;font-weight:600;width:90px;">依頼日</th><th style="padding:4px 6px;color:#6b7280;font-weight:600;width:70px;">経過</th></tr></thead>';
+      html += '<tbody>';
+      g.docs.sort(function(a,b){ return b.daysDiff-a.daysDiff; }).forEach(function(d){
+        var isAlert = d.daysDiff>=3;
+        html += '<tr style="border-bottom:1px solid #f1f5f9;">';
+        html += '<td style="padding:4px 6px;">'+esc(d.doc)+'</td>';
+        html += '<td style="padding:4px 6px;color:#6b7280;">'+fmtDate(d.reqDate)+'</td>';
+        html += '<td style="padding:4px 6px;text-align:center;"><span style="font-size:10px;font-weight:700;color:'+(isAlert?'#d97706':'#6b7280')+';">'+(isAlert?'⚠️ '+d.daysDiff+'日':''+d.daysDiff+'日')+'</span></td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table></div>';
+      html += '</div>';
+      return html;
+    }).join('')
+    +'</div>';
+}
+
+function showKokkoLineModal(staffName, coId){
+  var mode = (document.getElementById('kokkoStatus')||{value:'alert'}).value||'alert';
+  var all = getKokkoAlerts();
+  var coGroups = {};
+  all.forEach(function(r){
+    if(mode==='alert' && r.daysDiff<3) return;
+    var cid = r.company.id;
+    if(coId && cid!==coId) return;
+    if(!coId){
+      var s = (r.company.ofusa_staff||'').trim()||'（担当なし）';
+      if(s!==staffName) return;
+    }
+    if(!coGroups[cid]) coGroups[cid]={company:r.company,docs:[]};
+    coGroups[cid].docs.push(r);
+  });
+  var coList = Object.values(coGroups);
+  if(!coList.length){ showToast('対象なし'); return; }
+  var today = new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
+  var displayName = staffName==='（担当なし）'?'担当者':staffName;
+  var lineName = getLineName(displayName);
+  var lines = [];
+  lines.push('@' + lineName + ' さん');
+  lines.push('');
+  lines.push('【🏗️ 国交省書類 催促】');
+  lines.push('');
+  lines.push('お疲れ様です。');
+  lines.push('以下の会社の国交省書類が未受領となっています。ご確認・催促をお願いします。');
+  lines.push('');
+  coList.forEach(function(g, i){
+    var co = g.company;
+    lines.push((i+1)+'. '+esc(co.name||'—'));
+    g.docs.sort(function(a,b){ return b.daysDiff-a.daysDiff; }).forEach(function(d){
+      lines.push('   □ '+d.doc+'（依頼日: '+fmtDate(d.reqDate)+'、'+d.daysDiff+'日経過）');
+    });
+    lines.push('');
+  });
+  lines.push('よろしくお願いいたします。');
+  document.getElementById('lineModalMeta').textContent = lineName+' 担当 ／ 国交省書類催促 '+coList.length+'社（'+today+'）';
+  document.getElementById('lineModalText').value = lines.join('\n');
+  document.getElementById('lineModal').style.display = 'flex';
+}
+
+function showKokkoCompanyLineModal(coId){
+  var all = getKokkoAlerts();
+  var docs = all.filter(function(r){ return r.company.id===coId; });
+  if(!docs.length){ showToast('対象書類なし'); return; }
+  var co = docs[0].company;
+  var today = new Date().toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric'});
+  var lines = [];
+  lines.push('【🏗️ 国交省申請書類のご提出のお願い】');
+  lines.push('');
+  lines.push(esc(co.name||'')+'　ご担当者様');
+  lines.push('');
+  lines.push('お世話になっております。大房行政書士法人です。');
+  lines.push('特定技能の申請に必要な国土交通省関係書類について、以下の書類がまだお手元にない状況となっております。');
+  lines.push('お手数ですが、ご準備・ご提出をお願いいたします。');
+  lines.push('');
+  docs.sort(function(a,b){ return b.daysDiff-a.daysDiff; }).forEach(function(d){
+    lines.push('□ '+d.doc);
+    if(d.daysDiff>=3) lines.push('   ※依頼日（'+fmtDate(d.reqDate)+'）から'+d.daysDiff+'日経過しております');
+  });
+  lines.push('');
+  lines.push('ご不明な点がございましたらお気軽にご連絡ください。');
+  lines.push('よろしくお願いいたします。');
+  lines.push('');
+  lines.push('大房行政書士法人');
+  document.getElementById('lineModalMeta').textContent = esc(co.name||'企業')+'宛 ／ 国交省書類催促（'+today+'）';
   document.getElementById('lineModalText').value = lines.join('\n');
   document.getElementById('lineModal').style.display = 'flex';
 }
