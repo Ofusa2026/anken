@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260421.19</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260421.21</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2559,7 +2559,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260421.19';
+var OFUSA_VERSION = 'ver.20260421.21';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -2749,8 +2749,22 @@ function sbFetchCases(opts, callback) {
   }
   if (opts.staff && opts.staff !== '全担当者') {
     var _sfArr = Array.isArray(opts.staff) ? opts.staff : [opts.staff];
-    if(_sfArr.length===1){ countQuery=countQuery.eq('staff',_sfArr[0]); dataQuery=dataQuery.eq('staff',_sfArr[0]); }
-    else if(_sfArr.length>1){ countQuery=countQuery.in('staff',_sfArr); dataQuery=dataQuery.in('staff',_sfArr); }
+    var _hasUnset = _sfArr.indexOf('__UNSET__') >= 0;
+    var _sfNames = _sfArr.filter(function(v){ return v !== '__UNSET__'; });
+    if(_hasUnset && _sfNames.length===0){
+      // 「未設定」のみ選択: staffが null または 空文字
+      countQuery=countQuery.or('staff.is.null,staff.eq.'); 
+      dataQuery=dataQuery.or('staff.is.null,staff.eq.');
+    } else if(_hasUnset && _sfNames.length>0){
+      // 「未設定」+ 個別担当者: 複合条件
+      var _orCond = _sfNames.map(function(n){ return 'staff.eq.'+n; }).join(',');
+      _orCond = 'staff.is.null,staff.eq.,' + _orCond;
+      countQuery=countQuery.or(_orCond); dataQuery=dataQuery.or(_orCond);
+    } else if(_sfNames.length===1){
+      countQuery=countQuery.eq('staff',_sfNames[0]); dataQuery=dataQuery.eq('staff',_sfNames[0]);
+    } else if(_sfNames.length>1){
+      countQuery=countQuery.in('staff',_sfNames); dataQuery=dataQuery.in('staff',_sfNames);
+    }
   }
   // fieldフィルターはフロント側で処理（雇用条件セット内の分野も考慮するため）
   // if (opts.field) { ... }
@@ -2814,7 +2828,15 @@ function sbFetchCases(opts, callback) {
     } else if (!opts.includeDone) {
       idQuery = idQuery.or('status.not.in.("完了","審査完了"),status.is.null');
     }
-    if (opts.staff && opts.staff !== '全担当者') idQuery = idQuery.eq('staff', opts.staff);
+    if (opts.staff && opts.staff !== '全担当者') {
+      var _sfArrA = Array.isArray(opts.staff) ? opts.staff : [opts.staff];
+      var _hasUnsetA = _sfArrA.indexOf('__UNSET__') >= 0;
+      var _sfNamesA = _sfArrA.filter(function(v){ return v !== '__UNSET__'; });
+      if(_hasUnsetA && _sfNamesA.length===0){ idQuery = idQuery.or('staff.is.null,staff.eq.'); }
+      else if(_hasUnsetA && _sfNamesA.length>0){ var _ocA='staff.is.null,staff.eq.,'+_sfNamesA.map(function(n){return 'staff.eq.'+n;}).join(','); idQuery = idQuery.or(_ocA); }
+      else if(_sfNamesA.length===1){ idQuery = idQuery.eq('staff', _sfNamesA[0]); }
+      else if(_sfNamesA.length>1){ idQuery = idQuery.in('staff', _sfNamesA); }
+    }
     if (opts.search) {
       var sq2 = '%' + opts.search + '%';
       idQuery = idQuery.or('applicant.ilike.' + sq2 + ',company.ilike.' + sq2 + ',org.ilike.' + sq2 + ',name.ilike.' + sq2 + ',team.ilike.' + sq2 + ',staff.ilike.' + sq2 + ',receipt_no.ilike.' + sq2);
@@ -2895,8 +2917,22 @@ function sbFetchDoneCases(opts, callback) {
     dataQuery = dataQuery.eq('app_type', opts.appType);
   }
   if (opts.staff && opts.staff !== '全担当者') {
-    countQuery = countQuery.eq('staff', opts.staff);
-    dataQuery = dataQuery.eq('staff', opts.staff);
+    var _sfArrC = Array.isArray(opts.staff) ? opts.staff : [opts.staff];
+    var _hasUnsetC = _sfArrC.indexOf('__UNSET__') >= 0;
+    var _sfNamesC = _sfArrC.filter(function(v){ return v !== '__UNSET__'; });
+    if(_hasUnsetC && _sfNamesC.length===0){
+      countQuery = countQuery.or('staff.is.null,staff.eq.');
+      dataQuery = dataQuery.or('staff.is.null,staff.eq.');
+    } else if(_hasUnsetC && _sfNamesC.length>0){
+      var _ocC = 'staff.is.null,staff.eq.,'+_sfNamesC.map(function(n){return 'staff.eq.'+n;}).join(',');
+      countQuery = countQuery.or(_ocC); dataQuery = dataQuery.or(_ocC);
+    } else if(_sfNamesC.length===1){
+      countQuery = countQuery.eq('staff', _sfNamesC[0]);
+      dataQuery = dataQuery.eq('staff', _sfNamesC[0]);
+    } else if(_sfNamesC.length>1){
+      countQuery = countQuery.in('staff', _sfNamesC);
+      dataQuery = dataQuery.in('staff', _sfNamesC);
+    }
   }
   if (opts.org) {
     countQuery = countQuery.eq('org', opts.org);
@@ -2928,7 +2964,15 @@ function sbFetchDoneCases(opts, callback) {
     var idQuery2 = _sb.from('cases').select('id').in('status', ['完了', '審査完了']);
     if (opts.team && opts.team !== '全チーム') idQuery2 = idQuery2.eq('team', opts.team);
     if (opts.appType && opts.appType !== '全種別') { var _at3=Array.isArray(opts.appType)?opts.appType.filter(Boolean):[opts.appType]; idQuery2 = _at3.length===1?idQuery2.eq('app_type',_at3[0]):idQuery2.in('app_type',_at3); }
-    if (opts.staff && opts.staff !== '全担当者') idQuery2 = idQuery2.eq('staff', opts.staff);
+    if (opts.staff && opts.staff !== '全担当者') {
+      var _sfArrB = Array.isArray(opts.staff) ? opts.staff : [opts.staff];
+      var _hasUnsetB = _sfArrB.indexOf('__UNSET__') >= 0;
+      var _sfNamesB = _sfArrB.filter(function(v){ return v !== '__UNSET__'; });
+      if(_hasUnsetB && _sfNamesB.length===0){ idQuery2 = idQuery2.or('staff.is.null,staff.eq.'); }
+      else if(_hasUnsetB && _sfNamesB.length>0){ var _ocB='staff.is.null,staff.eq.,'+_sfNamesB.map(function(n){return 'staff.eq.'+n;}).join(','); idQuery2 = idQuery2.or(_ocB); }
+      else if(_sfNamesB.length===1){ idQuery2 = idQuery2.eq('staff', _sfNamesB[0]); }
+      else if(_sfNamesB.length>1){ idQuery2 = idQuery2.in('staff', _sfNamesB); }
+    }
     if (opts.search) {
       var sq3 = '%' + opts.search + '%';
       idQuery2 = idQuery2.or('applicant.ilike.' + sq3 + ',company.ilike.' + sq3 + ',org.ilike.' + sq3 + ',name.ilike.' + sq3 + ',team.ilike.' + sq3 + ',staff.ilike.' + sq3);
@@ -3824,6 +3868,9 @@ function buildStaffFilter(){
   var dd = document.getElementById('fStaffDD'); if(!dd) { buildOrgFilter(); return; }
   var checked = (_pendingFilterRestore && _pendingFilterRestore.staff) ? _pendingFilterRestore.staff : getCheckedValues('fStaffDD');
   dd.innerHTML = '';
+  // 先頭に「(未設定)」オプションを追加
+  var unsetChecked = checked.indexOf('__UNSET__') >= 0;
+  dd.innerHTML += '<label style="display:flex;align-items:center;gap:6px;padding:3px 6px;cursor:pointer;font-size:12px;white-space:nowrap;color:#dc2626;font-weight:700;border-bottom:1px solid #fecaca;margin-bottom:4px;padding-bottom:6px;"><input type="checkbox" value="__UNSET__"'+(unsetChecked?' checked':'')+' onchange="applyMultiFilter(&quot;fStaffDD&quot;,&quot;fStaffBtn&quot;,&quot;全担当者&quot;)"> ⚠️ 未設定</label>';
   USERS.forEach(function(u){
     if(!u.name) return;
     var isChecked = checked.indexOf(u.name) >= 0;
@@ -12914,6 +12961,153 @@ function _confirmStatusChange(oldStatus, newStatus, customMsg) {
 }
 // ===== /ステータス変更確認ダイアログ =====
 
+// ===== ステータス変更時の必須項目チェック =====
+// 認定申請: 契約開始日・契約終了日・書類作成日 (3項目)
+// 更新/変更/その他: 契約開始日・契約終了日・在留期限・申請期限・書類作成日 (5項目)
+function _checkRequiredFieldsForStatus(c){
+  if(!c) return [];
+  var isNintei = (c.appType||'').indexOf('認定')>=0;
+  var required = [
+    {k:'contractStart',l:'契約開始日',type:'date'},
+    {k:'contractEnd',l:'契約終了日',type:'date'},
+    {k:'docCreateDate',l:'書類作成日',type:'date'}
+  ];
+  if(!isNintei){
+    required.push({k:'expire',l:'在留期限',type:'date'});
+    required.push({k:'applicationDeadline',l:'申請期限',type:'date'});
+  }
+  var missing = [];
+  required.forEach(function(f){
+    var v = c[f.k];
+    if(!v || (typeof v==='string' && v.trim()==='')) missing.push(f);
+  });
+  return missing;
+}
+
+function _showRequiredFieldsModal(c, missingFields, oldStatus, newStatus){
+  // 既存モーダルがあれば閉じる
+  var _ex = document.getElementById('_reqFieldsModal'); if(_ex) _ex.remove();
+
+  var modal = document.createElement('div');
+  modal.id = '_reqFieldsModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10003;display:flex;align-items:center;justify-content:center;padding:16px;pointer-events:auto;';
+  modal.onclick = function(e){ if(e.target===modal){} };
+
+  var isNintei = (c.appType||'').indexOf('認定')>=0;
+  var h = '<div onclick="event.stopPropagation()" style="background:white;border-radius:16px;width:100%;max-width:520px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);">';
+  h += '<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:4px;">📋 必須項目を入力してください</div>';
+  h += '<div style="font-size:11px;color:#6b7280;margin-bottom:10px;">' + esc(c.applicant || c.name || '') + '</div>';
+  h += '<div style="font-size:12px;color:#b45309;font-weight:700;background:#fffbeb;border:1.5px solid #fcd34d;border-radius:8px;padding:10px 12px;margin-bottom:16px;">⚠️ ステータスを「' + esc(newStatus) + '」に変更するには以下の項目が必要です。'+(isNintei?'<br><span style="font-size:10px;color:#92400e;">（認定申請は在留期限・申請期限は不要）</span>':'')+'</div>';
+
+  missingFields.forEach(function(f){
+    h += '<div style="margin-bottom:10px;display:flex;gap:10px;align-items:center;">';
+    h += '<label style="font-size:12px;font-weight:700;color:#374151;width:110px;flex-shrink:0;">'+esc(f.l)+'</label>';
+    h += '<input type="'+f.type+'" id="_reqfld_'+f.k+'" style="flex:1;padding:8px 10px;border:1.5px solid #93c5fd;border-radius:6px;font-size:12px;">';
+    h += '</div>';
+  });
+
+  h += '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px;">';
+  h += '<button onclick="_reqFieldsCancel()" style="padding:8px 16px;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">キャンセル</button>';
+  h += '<button onclick="_reqFieldsApply(&quot;'+esc(c.id)+'&quot;,&quot;'+esc(oldStatus||'')+'&quot;,&quot;'+esc(newStatus)+'&quot;)" style="padding:8px 20px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">入力してステータス変更</button>';
+  h += '</div>';
+  h += '</div>';
+
+  modal.innerHTML = h;
+  document.body.appendChild(modal);
+
+  // missing項目リストをグローバルに保持（Apply時に読み出す）
+  window._reqFieldsList = missingFields;
+
+  // 最初のフィールドにフォーカス
+  setTimeout(function(){
+    if(missingFields.length){
+      var el = document.getElementById('_reqfld_'+missingFields[0].k);
+      if(el) el.focus();
+    }
+  }, 100);
+}
+
+function _reqFieldsCancel(){
+  var m = document.getElementById('_reqFieldsModal'); if(m) m.remove();
+  window._reqFieldsList = null;
+  showToast('ステータス変更をキャンセルしました');
+}
+
+function _reqFieldsApply(caseId, oldStatus, newStatus){
+  var c = cData.find(function(x){ return x.id===caseId; });
+  if(!c){ _reqFieldsCancel(); return; }
+  var list = window._reqFieldsList || [];
+  // 全項目入力チェック
+  var stillMissing = [];
+  var newValues = {};
+  list.forEach(function(f){
+    var el = document.getElementById('_reqfld_'+f.k);
+    var v = el ? el.value.trim() : '';
+    if(!v) stillMissing.push(f.l);
+    else newValues[f.k] = v;
+  });
+  if(stillMissing.length){
+    alert('以下の項目が未入力です:\n・' + stillMissing.join('\n・'));
+    return;
+  }
+  // 値を保存（各項目をDBに反映）
+  var _COL_MAP = {
+    contractStart:'contract_start', contractEnd:'contract_end',
+    expire:'expire', applicationDeadline:'application_deadline',
+    docCreateDate:'doc_create_date'
+  };
+  var dbUpdate = { updated_at: new Date().toISOString() };
+  Object.keys(newValues).forEach(function(k){
+    var oldV = c[k] || '';
+    c[k] = newValues[k];
+    logEdit(c.id, '案件', k, oldV, newValues[k]);
+    var col = _COL_MAP[k]; if(col) dbUpdate[col] = newValues[k];
+    // UI側のinputも更新
+    var uiEl = document.getElementById('ei-'+k);
+    if(uiEl) uiEl.value = newValues[k];
+    // 在留期限を入れたときは特例期限も自動計算
+    if(k==='expire' && newValues[k] && !c.tokureiDate){
+      var auto = addTwoMonths(newValues[k]);
+      if(auto){
+        c.tokureiDate = auto;
+        dbUpdate.tokurei_date = auto;
+        var tokEl = document.getElementById('ei-tokureiDate');
+        if(tokEl) tokEl.value = auto;
+      }
+    }
+  });
+  // ステータスも更新
+  var oldS = c.status || '';
+  c.status = newStatus;
+  dbUpdate.status = newStatus;
+  logEdit(c.id, '案件', 'status', oldS, newStatus);
+  _markCaseChanged(c.id);
+  if(DB_READY){
+    _sb.from('cases').update(dbUpdate).eq('id', c.id).then(function(r){
+      if(r && r.error) console.error('required fields save err:', r.error);
+    });
+  }
+  // status UI 更新
+  var statusEl = document.getElementById('ei-status');
+  if(statusEl) statusEl.value = newStatus;
+  // share通知（対象ステータスなら）
+  var _shareNotifyStatuses = ['審査中', '許可済 受取方法調整中', '入管受取ステータス変更中', '★郵送交付', '★窓口受取', '窓口受取（本人）'];
+  if(DB_READY && _shareNotifyStatuses.indexOf(newStatus) >= 0 && c.org){
+    _sb.from('share_notifications').insert({
+      case_id: c.id, org: c.org, status: newStatus, receipt_no: c.receiptNo || null
+    }).then(function(nr){ if(nr && nr.error) console.error('share_notifications err:', nr.error); });
+  }
+  // モーダル閉じて一覧再描画
+  var m = document.getElementById('_reqFieldsModal'); if(m) m.remove();
+  window._reqFieldsList = null;
+  showToast('✅ 入力完了、ステータスを「'+newStatus+'」に変更しました');
+  try { applyFilters(); } catch(e) {}
+  if(typeof showTab==='function' && typeof currentTab!=='undefined'){
+    try { showTab(currentTab || 'info'); } catch(e) {}
+  }
+}
+// ===== /必須項目チェック =====
+
 function setMilestoneStep(caseId, stepIdx) {
   var c = cases.find(function(x){ return x.id === caseId; });
   if (!c) return;
@@ -12939,6 +13133,15 @@ function autoSaveInfo(key, value) {
       var _el = document.getElementById('ei-status') || document.querySelector('[id^="ei-status"]');
       if (_el) _el.value = oldVal;
       showTab('info');
+      return;
+    }
+    // 必須項目チェック: 申請種別により必須項目が変わる
+    var _missingFields = _checkRequiredFieldsForStatus(c);
+    if (_missingFields.length > 0) {
+      _showRequiredFieldsModal(c, _missingFields, oldVal, value);
+      // セレクトを元の値に戻す（入力完了後にモーダルから再適用）
+      var _el2 = document.getElementById('ei-status') || document.querySelector('[id^="ei-status"]');
+      if (_el2) _el2.value = oldVal;
       return;
     }
   }
