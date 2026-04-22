@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260422.07</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260422.10</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2821,7 +2821,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260422.07';
+var OFUSA_VERSION = 'ver.20260422.10';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -3373,11 +3373,13 @@ function persistCasesToDB(casesArray, callback) {
       applicant_field: c.applicantField || null,
       job_category: c.jobCategory || null,
       shared_case_no: c.sharedCaseNo || null,
-      receipt_no: c.receiptNo || null,
+      // 外部プロセス（Gmail取込、審査完了取込等）で書き換わる可能性があるカラムは、
+      // ローカルcDataに値がない場合undefinedを送る（upsertで上書きせず既存値を保持）
+      receipt_no: c.receiptNo ? c.receiptNo : undefined,
       request_date: safeDate(c.requestDate),
       contract_start: safeDate(c.contractStart),
       contract_end: safeDate(c.contractEnd),
-      receipt_date: safeDate(c.receiptDate),
+      receipt_date: c.receiptDate ? safeDate(c.receiptDate) : undefined,
       madoguchi_date: safeDate(c.madoguchiDate), madoguchi_receive_date: safeDate(c.madoguchiReceiveDate),
       application_deadline: safeDate(c.applicationDeadline),
       doc_create_date: safeDate(c.docCreateDate),
@@ -3390,7 +3392,7 @@ function persistCasesToDB(casesArray, callback) {
       members: c.members ? JSON.stringify(c.members) : null,
       task_done: c.taskDone || 0,
       task_total: c.taskTotal || 0,
-      shinsa_date: safeDate(c.shinsaDate),
+      shinsa_date: c.shinsaDate ? safeDate(c.shinsaDate) : undefined,
       temp_return: safeDate(c.tempReturn),
       intro_fee: c.introFee || null,
       other_support_note: c.otherSupportNote || null,
@@ -3417,10 +3419,14 @@ function persistCasesToDB(casesArray, callback) {
     return true;
   });
   if (!rows.length) { if (typeof callback === 'function') callback(null); return; }
-  // 既知の除外カラムを事前に除外
+  // 既知の除外カラムを事前に除外 & undefined値のフィールドも除外（nullで上書きしないため）
   rows = rows.map(function(r) {
     var nr = {};
-    Object.keys(r).forEach(function(k){ if(!_dbExcludedCols[k]) nr[k]=r[k]; });
+    Object.keys(r).forEach(function(k){
+      if(_dbExcludedCols[k]) return;
+      if(r[k] === undefined) return; // undefinedは送らない → 既存DB値を保持
+      nr[k] = r[k];
+    });
     return nr;
   });
   // 同一バッチ内のID重複を除去（ON CONFLICT エラー回避）
@@ -12695,7 +12701,14 @@ function loadAdminReports(){
       targets.forEach(function(t){ t.list.innerHTML = '<div style="color:#16a34a;font-size:12px;font-weight:700;">✅ 未対応の報告はありません</div>'; });
       return;
     }
-    var h = '';
+    // 一括操作バー
+    var bulkBar = '';
+    bulkBar += '<div id="_adminReportsBulkBar" style="position:sticky;top:0;z-index:5;margin-bottom:10px;padding:10px 12px;background:white;border:1.5px solid #c7d2fe;border-radius:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">';
+    bulkBar += '<label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#1e40af;cursor:pointer;"><input type="checkbox" id="_adminReportsSelectAll" onchange="_toggleAllAdminReports(this.checked)" style="width:15px;height:15px;cursor:pointer;accent-color:#2563eb;"> すべて選択</label>';
+    bulkBar += '<span id="_adminReportsSelCount" style="font-size:12px;color:#64748b;font-weight:700;">0件選択中</span>';
+    bulkBar += '<button id="_adminReportsBulkBtn" onclick="bulkResolveAdminReports()" disabled style="margin-left:auto;padding:7px 16px;background:#e2e8f0;color:#94a3b8;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:not-allowed;">✅ 選択中を一括対応済み</button>';
+    bulkBar += '</div>';
+    var h = bulkBar;
     rows.forEach(function(rec){
       var created = rec.created_at ? new Date(rec.created_at) : null;
       var createdLabel = created ? created.toLocaleDateString('ja-JP')+' '+created.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}) : '';
@@ -12706,7 +12719,9 @@ function loadAdminReports(){
         var fdLabel = !isNaN(fd) ? (fd.toLocaleDateString('ja-JP')+' '+fd.toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})) : '';
         forceShownLabel = '<span style="display:inline-block;margin-left:6px;padding:1px 8px;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:999px;font-size:10px;font-weight:800;">📢 強制表示済 '+esc(fdLabel)+(rec.force_shown_by?' / '+esc(rec.force_shown_by):'')+'</span>';
       }
-      h += '<div style="background:white;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;margin-bottom:8px;">';
+      h += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;">';
+      h += '<input type="checkbox" class="_adminReportCheck" data-report-id="'+rec.id+'" onchange="_updateAdminReportSelCount()" style="margin-top:12px;width:15px;height:15px;cursor:pointer;accent-color:#2563eb;flex-shrink:0;">';
+      h += '<div style="background:white;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;flex:1;min-width:0;">';
       h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;">';
       h += '<div style="flex:1;min-width:0;">';
       h += '<div style="font-size:13px;font-weight:800;color:#0f2040;">'+esc(rec.applicant||'(名前なし)')+'</div>';
@@ -12722,7 +12737,8 @@ function loadAdminReports(){
         h += '<div style="font-size:11px;color:#374151;background:#fef9c3;border-radius:5px;padding:5px 8px;margin-top:4px;white-space:pre-wrap;">💬 '+esc(rec.reason)+'</div>';
       }
       h += '<div style="font-size:10px;color:#94a3b8;margin-top:4px;">報告者: '+esc(rec.reporter||'')+' ・ '+esc(createdLabel)+'</div>';
-      h += '</div>';
+      h += '</div>'; // /行カード
+      h += '</div>'; // /横並びラッパー
     });
     targets.forEach(function(t){ t.list.innerHTML = h; });
   }).catch(function(e){
@@ -12752,6 +12768,72 @@ function forceShowFromReport(reportId, caseId, fieldLabel){
     title: '📢 '+labelText+'について',
     message: '「'+labelText+'」についてご確認ください。',
     reportId: reportId
+  });
+}
+
+// 「すべて選択」トグル
+function _toggleAllAdminReports(checked){
+  document.querySelectorAll('._adminReportCheck').forEach(function(cb){
+    cb.checked = !!checked;
+  });
+  _updateAdminReportSelCount();
+}
+
+// 選択中の件数を更新＋ボタンの有効/無効切替
+function _updateAdminReportSelCount(){
+  var checked = document.querySelectorAll('._adminReportCheck:checked').length;
+  var total = document.querySelectorAll('._adminReportCheck').length;
+  var cnt = document.getElementById('_adminReportsSelCount');
+  if(cnt) cnt.textContent = checked + '件選択中';
+  var btn = document.getElementById('_adminReportsBulkBtn');
+  if(btn){
+    if(checked > 0){
+      btn.disabled = false;
+      btn.style.background = 'linear-gradient(135deg,#16a34a,#22c55e)';
+      btn.style.color = 'white';
+      btn.style.cursor = 'pointer';
+    } else {
+      btn.disabled = true;
+      btn.style.background = '#e2e8f0';
+      btn.style.color = '#94a3b8';
+      btn.style.cursor = 'not-allowed';
+    }
+  }
+  // 全選択チェックボックスの状態同期
+  var selAll = document.getElementById('_adminReportsSelectAll');
+  if(selAll){
+    selAll.checked = (checked === total && total > 0);
+    selAll.indeterminate = (checked > 0 && checked < total);
+  }
+}
+
+// 一括対応済みにする
+function bulkResolveAdminReports(){
+  if(!DB_READY) return;
+  var ids = [];
+  document.querySelectorAll('._adminReportCheck:checked').forEach(function(cb){
+    var id = parseInt(cb.getAttribute('data-report-id'), 10);
+    if(!isNaN(id)) ids.push(id);
+  });
+  if(!ids.length){ alert('対応済みにする報告が選択されていません'); return; }
+  if(!confirm('上記 ' + ids.length + ' 件の報告を対応済みにします。よろしいですか？')) return;
+  _sb.from('admin_reports').update({
+    status: 'resolved',
+    resolved_by: currentUser,
+    resolved_at: new Date().toISOString()
+  }).in('id', ids).then(function(r){
+    if(r && r.error){
+      alert('⚠️ 一括対応済みの更新に失敗しました: '+(r.error.message||''));
+      console.error('bulk resolve err:', r.error);
+      return;
+    }
+    showToast('✅ ' + ids.length + ' 件を対応済みにしました');
+    // 各caseの報告済みマップからも除去
+    if(window._reportedFieldsMap){
+      // mapはcase_id+field_keyなので即リロードするほうが確実。loadAdminReportsは再取得する
+    }
+    if(typeof loadAdminReports === 'function') loadAdminReports();
+    if(typeof _loadReportedFieldsMap === 'function') _loadReportedFieldsMap();
   });
 }
 
@@ -16134,6 +16216,133 @@ function _hfSaveDriveUrl(caseId){
   var b = document.getElementById('_hfDriveUrlSaveBtn');
   if(b){b.textContent='✓ 保存済';b.style.background='#16a34a';}
 }
+
+// ===== 「1-6作成」ステータスへ変更時 → 雇用条件入力(8)+所属機関情報入力(7)タスクを依頼 =====
+function _onStatus16CreateRequest(c) {
+  var caseId = c.id;
+  var dt = new Date(); dt.setDate(dt.getDate() + 2);
+  var defaultDeadline = dt.toISOString().slice(0, 10);
+  var me = currentUser || '';
+
+  var key7 = caseId + '_7'; // 所属機関情報入力
+  var key8 = caseId + '_8'; // 雇用条件入力
+
+  // 既に両方完了済みならスキップ（再発動しない）
+  var cur7 = docTaskStatus[key7] || 0;
+  var cur8 = docTaskStatus[key8] || 0;
+  if (cur7 >= 4 && cur8 >= 4) return;
+
+  var existingDeadline7 = taskDeadline[key7] || defaultDeadline;
+  var existingChecker7  = taskAssignee[key7+'_checker'] || me;
+  var existingComment7  = (typeof taskAssigneeComment !== 'undefined' && taskAssigneeComment[key7]) || '';
+  var existingDeadline8 = taskDeadline[key8] || defaultDeadline;
+  var existingChecker8  = taskAssignee[key8+'_checker'] || me;
+  var existingComment8  = (typeof taskAssigneeComment !== 'undefined' && taskAssigneeComment[key8]) || '';
+
+  var _ex = document.getElementById('_16reqModal'); if(_ex) _ex.remove();
+
+  var modal = document.createElement('div');
+  modal.id = '_16reqModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10002;display:flex;align-items:center;justify-content:center;padding:16px;pointer-events:auto;';
+  modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
+
+  function blockHtml(idx, label, deadline, checker, comment, curStatus){
+    var colorBase = idx === 8 ? '#c4b5fd' : '#7dd3fc';
+    var colorBg   = idx === 8 ? '#f5f3ff' : '#f0f9ff';
+    var colorText = idx === 8 ? '#5b21b6' : '#075985';
+    var emoji     = idx === 8 ? '💼' : '🏢';
+    var doneBadge = curStatus >= 4 ? '<span style="font-size:10px;padding:2px 8px;background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:999px;font-weight:800;">✓ 完了済</span>' : '';
+    var h = '<div id="_16reqBlock'+idx+'" style="border:1.5px solid '+colorBase+';background:'+colorBg+';border-radius:10px;padding:12px;margin-bottom:12px;">';
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
+    h += '<div style="font-size:12px;font-weight:700;color:'+colorText+';">'+emoji+' '+esc(label)+' '+doneBadge+'</div>';
+    h += '<div style="display:flex;align-items:center;gap:6px;">';
+    h += '<label style="font-size:11px;color:#6b7280;display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" id="_16reqSkip'+idx+'" onchange="_16reqToggleSkip('+idx+')"'+(curStatus>=4?' checked disabled':'')+'> 不要</label>';
+    h += '<button id="_16reqUrg'+idx+'" onclick="_16reqToggleUrgent('+idx+')" style="font-size:10px;padding:3px 10px;border-radius:6px;border:1.5px solid #fca5a5;background:white;color:#dc2626;font-weight:700;cursor:pointer;">🔥 急ぎ</button>';
+    h += '</div>';
+    h += '</div>';
+    h += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">';
+    h += '<label style="font-size:11px;color:#6b7280;width:60px;flex-shrink:0;">期限</label>';
+    h += '<input type="date" id="_16reqDeadline'+idx+'" value="' + esc(deadline) + '" style="flex:1;padding:6px 8px;border:1.5px solid '+colorBase+';border-radius:6px;font-size:12px;background:white;">';
+    h += '</div>';
+    h += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">';
+    h += '<label style="font-size:11px;color:#6b7280;width:60px;flex-shrink:0;">担当者</label>';
+    h += '<input type="text" id="_16reqChecker'+idx+'" value="' + esc(checker) + '" placeholder="担当者名" style="flex:1;padding:6px 8px;border:1.5px solid '+colorBase+';border-radius:6px;font-size:12px;background:white;">';
+    h += '</div>';
+    h += '<div style="display:flex;gap:8px;align-items:center;">';
+    h += '<label style="font-size:11px;color:#6b7280;width:60px;flex-shrink:0;">コメント</label>';
+    h += '<input type="text" id="_16reqComment'+idx+'" value="' + esc(comment) + '" placeholder="担当者へのコメント" style="flex:1;padding:6px 8px;border:1.5px solid '+colorBase+';border-radius:6px;font-size:12px;background:white;">';
+    h += '</div>';
+    h += '</div>';
+    return h;
+  }
+
+  var h = '<div onclick="event.stopPropagation()" style="background:white;border-radius:16px;width:100%;max-width:480px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);max-height:90vh;overflow-y:auto;">';
+  h += '<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:4px;">📋 次のタスク：雇用条件入力・所属機関情報入力</div>';
+  h += '<div style="font-size:11px;color:#6b7280;margin-bottom:4px;">' + esc(c.applicant || c.name || '') + '</div>';
+  h += '<div style="font-size:10px;color:#1e40af;font-weight:700;margin-bottom:14px;">✏️ ステータスを「1-6作成」に変更しました。まず下記2つのタスクを依頼します。これらが完了したら「1-6作成」タスクが自動で出ます。</div>';
+  h += blockHtml(8, '雇用条件入力', existingDeadline8, existingChecker8, existingComment8, cur8);
+  h += blockHtml(7, '所属機関情報入力', existingDeadline7, existingChecker7, existingComment7, cur7);
+  h += '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;">';
+  h += '<button onclick="_16reqCloseModal()" style="padding:8px 16px;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">スキップ</button>';
+  h += '<button onclick="_16reqSaveTask(&quot;' + caseId + '&quot;)" style="padding:8px 20px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">設定して依頼</button>';
+  h += '</div>';
+  h += '</div>';
+
+  modal.innerHTML = h;
+  document.body.appendChild(modal);
+}
+
+var _16reqUrgentState = {7: false, 8: false};
+
+function _16reqToggleSkip(idx) {
+  var skip = document.getElementById('_16reqSkip' + idx);
+  var block = document.getElementById('_16reqBlock' + idx);
+  if (block) block.style.opacity = (skip && skip.checked) ? '0.3' : '1';
+}
+function _16reqToggleUrgent(idx) {
+  _16reqUrgentState[idx] = !_16reqUrgentState[idx];
+  var btn = document.getElementById('_16reqUrg' + idx);
+  if (btn) {
+    btn.style.background = _16reqUrgentState[idx] ? '#dc2626' : 'white';
+    btn.style.color = _16reqUrgentState[idx] ? 'white' : '#dc2626';
+  }
+}
+function _16reqCloseModal() {
+  var m = document.getElementById('_16reqModal');
+  if (m) m.remove();
+}
+function _16reqSaveTask(caseId) {
+  var applied = 0;
+  [7, 8].forEach(function(idx){
+    var key = caseId + '_' + idx;
+    var skip = document.getElementById('_16reqSkip'+idx);
+    if (skip && skip.checked) return; // 不要はスキップ
+    var deadlineEl = document.getElementById('_16reqDeadline'+idx);
+    var checkerEl  = document.getElementById('_16reqChecker'+idx);
+    var commentEl  = document.getElementById('_16reqComment'+idx);
+    var deadline = deadlineEl ? deadlineEl.value : '';
+    var checker  = checkerEl ? checkerEl.value : '';
+    var comment  = commentEl ? commentEl.value : '';
+    if (deadline) { taskDeadline[key] = deadline; try{localStorage.setItem('ofusa_taskDeadline',JSON.stringify(taskDeadline));}catch(e){} }
+    if (checker)  { saveTaskChecker(key, checker); }
+    if (comment)  { saveAssigneeComment(key, comment); }
+    if (_16reqUrgentState[idx]) { taskUrgent[key] = true; try{localStorage.setItem('ofusa_taskUrgent',JSON.stringify(taskUrgent));}catch(e){} }
+    var _cur = docTaskStatus[key] || 0;
+    if (_cur < 4) docTaskStatus[key] = 1; // 未着手→依頼
+    applied++;
+  });
+  _16reqUrgentState = {7: false, 8: false};
+  try{localStorage.setItem('ofusa_docTaskStatus',JSON.stringify(docTaskStatus));}catch(e){}
+  persistTaskMeta();
+  persistDocTaskStatus(caseId+'_7');
+  persistDocTaskStatus(caseId+'_8');
+  var _co = cData.find(function(x){return x.id===caseId;});
+  if(_co){ var _d=0; for(var _i=0;_i<TASK_NAMES.length;_i++){if((docTaskStatus[caseId+'_'+_i]||0)>=4)_d++;} _co.taskDone=_d; }
+  if(typeof showTab==='function') showTab('tasks');
+  _16reqCloseModal();
+  showToast(applied ? ('✅ '+applied+'件のタスクを依頼状態に設定しました') : 'スキップしました');
+}
+// ===== /1-6作成ステータス変更時モーダル =====
 
 // ===== 雇用条件入力完了 → 次タスク「1-6作成」期限設定モーダル =====
 function _onStatus16Create(c) {
@@ -28898,7 +29107,7 @@ function showTab(tab) {
             _onStatusHearingForm(currentCase);
           }
           if (e.target.value === '1-6作成' && currentCase) {
-            _onStatus16Create(currentCase);
+            _onStatus16CreateRequest(currentCase);
           }
         });
       }
