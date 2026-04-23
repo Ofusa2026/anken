@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260422.10</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260423.01</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2821,7 +2821,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260422.10';
+var OFUSA_VERSION = 'ver.20260423.01';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -6178,6 +6178,27 @@ function _bulkImportSingle(r) {
         if (dest === 'spouse') val = normalizeSpouseValue(val);
         p[dest] = val;
       });
+      // 通算在留期間の自動計算（firstEntry から imported_at までの年月差、既存値があれば上書きしない）
+      var _firstEntry = response.firstEntry || p.firstEntry;
+      var _importedAt = r.imported_at;
+      if (_firstEntry && (!p.totalStayYear || p.totalStayYear === '') && (!p.totalStayMonth || p.totalStayMonth === '')) {
+        var _fm = String(_firstEntry).match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+        if (_fm) {
+          var _from = new Date(parseInt(_fm[1],10), parseInt(_fm[2],10)-1, parseInt(_fm[3],10));
+          var _to = _importedAt ? new Date(_importedAt) : new Date();
+          if (!isNaN(_from.getTime()) && !isNaN(_to.getTime())) {
+            var _years = _to.getFullYear() - _from.getFullYear();
+            var _months = _to.getMonth() - _from.getMonth();
+            var _days = _to.getDate() - _from.getDate();
+            if (_days < 0) _months--;
+            if (_months < 0) { _years--; _months += 12; }
+            if (_years >= 0) {
+              p.totalStayYear = String(_years);
+              p.totalStayMonth = String(_months);
+            }
+          }
+        }
+      }
       personData[caseId] = p;
       var c = cData.find(function(x){return x.id===caseId;});
       if (c && response.residenceStatus) c.currentStatus = response.residenceStatus;
