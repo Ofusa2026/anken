@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260423.04</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260423.05</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2821,7 +2821,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260423.04';
+var OFUSA_VERSION = 'ver.20260423.05';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -16895,6 +16895,10 @@ function _reqFieldsApply(caseId, oldStatus, newStatus){
   if(typeof showTab==='function' && typeof currentTab!=='undefined'){
     try { showTab(currentTab || 'info'); } catch(e) {}
   }
+  // 1-6作成 → 基本情報入力完了後に「次のタスク（雇用条件・所属機関情報入力）」モーダルを出す
+  if (newStatus === '1-6作成' && typeof _onStatus16CreateRequest === 'function') {
+    setTimeout(function(){ _onStatus16CreateRequest(c); }, 300);
+  }
 }
 // ===== /項目入力確認モーダル =====
 
@@ -17015,6 +17019,10 @@ function autoSaveInfo(key, value) {
         console.info('✅ [OFUSA] cases patch: status =', value);
         showToast('✅ ' + value + ' で保存しました');
         logCaseAction(c.id, 'status_change', (_prevStatus ? _prevStatus + ' → ' : '') + value);
+        // 1-6作成に変更された時 → 次のタスク（雇用条件・所属機関情報入力）依頼モーダル
+        if (value === '1-6作成' && typeof _onStatus16CreateRequest === 'function') {
+          setTimeout(function(){ _onStatus16CreateRequest(c); }, 300);
+        }
         // 1-6作成以降・申請前 → 不足チェックモーダル
         setTimeout(function(){ openShortageModal(c.id, value); }, 500);
         // 受取・完了系ステータス → 審査完了/認定証メール対応済確認
@@ -29167,9 +29175,8 @@ function showTab(tab) {
           if (e.target.value === '★ヒアリングフォーム送付' && currentCase) {
             _onStatusHearingForm(currentCase);
           }
-          if (e.target.value === '1-6作成' && currentCase) {
-            _onStatus16CreateRequest(currentCase);
-          }
+          // 「1-6作成」時の「次のタスク依頼」モーダルは、autoSaveInfo→_reqFieldsApply完走後に出すよう一本化
+          // （基本情報入力確認モーダルとの重なり/二重発火を防ぐ）
         });
       }
       // 登録支援機関 → 所属機関(雇用企業)の連動
