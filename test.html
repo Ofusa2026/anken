@@ -627,7 +627,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <div class="sidebar-logo">
     <div class="logo-badge">OFUSA</div>
     <div class="logo-title">大房行政書士法人<br>案件管理システム</div>
-    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260423.02</div>
+    <div style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;">ver.20260423.04</div>
   </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
@@ -2821,7 +2821,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260423.02';
+var OFUSA_VERSION = 'ver.20260423.04';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 var _sb = null;
 var DB_READY = false;
@@ -28473,6 +28473,7 @@ function showTab(tab) {
       {key:'deportationCount',label:'退去強制 回数',type:'select',opts:Array.from({length:100},function(_,i){return String(i+1);}),dis:p.deportation!=='有 Yes'},
       {key:'deportationDate',label:'退去強制 直近送還歴',type:'date',dis:p.deportation!=='有 Yes'},
       {key:'_s3',label:'📅 通算在留期間',type:'skipGroup',groupKeys:['totalStayYear','totalStayMonth']},
+      {key:'_totalStayAutoCalc',type:'totalStayAutoCalc'},
       {key:'totalStayYear',label:'特定技能1号 通算在留期間(年)',type:'select',opts:['0','1','2','3','4','5'],req:1},
       {key:'totalStayMonth',label:'特定技能1号 通算在留期間(月)',type:'select',opts:['0','1','2','3','4','5','6','7','8','9','10','11'],req:1},
       {key:'_s4',label:'🎓 技人国入力用',type:'gijinkoGroup'},
@@ -28491,6 +28492,48 @@ function showTab(tab) {
     var _sgOpen=false;
     olFields.forEach(function(f){
       if(f.type==='section'){h+='</div><div style="margin-top:16px;margin-bottom:8px;padding:8px 10px;background:var(--navy);border-radius:8px;"><span style="font-size:12px;font-weight:800;color:white;">'+f.label+'</span></div>';return;}
+      if(f.type==='totalStayAutoCalc'){
+        // 通算在留期間の自動計算表示（変更・更新のみ、読み取り専用）
+        var _at = c.appType || '';
+        if(_at.indexOf('変更')<0 && _at.indexOf('更新')<0) return;
+        // firstEntry 取得（personData優先、無ければ form_responses から）
+        var _fe = p.firstEntry || '';
+        if(!_fe && window._formResponsesCache && window._formResponsesCache[c.id]){
+          var _rs = window._formResponsesCache[c.id];
+          for(var _i=0;_i<_rs.length;_i++){
+            var _r = _rs[_i];
+            if(_r && _r.response && _r.response.firstEntry){ _fe = _r.response.firstEntry; break; }
+          }
+        }
+        // 計算
+        var _msg = '';
+        var _feMatch = _fe ? String(_fe).match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/) : null;
+        if(!_fe || String(_fe).indexOf('これから')===0){
+          _msg = '自動計算不可（日本に初めて入国した日 未入力または「これから特定技能になる」）';
+        } else if(!_feMatch){
+          _msg = '自動計算不可（日本に初めて入国した日 の日付形式を認識できません: '+esc(String(_fe))+'）';
+        } else {
+          var _from = new Date(parseInt(_feMatch[1],10), parseInt(_feMatch[2],10)-1, parseInt(_feMatch[3],10));
+          var _to = new Date();
+          if(isNaN(_from.getTime())){
+            _msg = '自動計算不可（日付変換エラー）';
+          } else if(_from > _to){
+            _msg = '自動計算不可（日本に初めて入国した日 が未来日付）';
+          } else {
+            var _years = _to.getFullYear() - _from.getFullYear();
+            var _months = _to.getMonth() - _from.getMonth();
+            var _days = _to.getDate() - _from.getDate();
+            if(_days < 0) _months--;
+            if(_months < 0) { _years--; _months += 12; }
+            var _feStr = _feMatch[1]+'-'+('0'+_feMatch[2]).slice(-2)+'-'+('0'+_feMatch[3]).slice(-2);
+            _msg = '自動計算: <b>'+_years+'年'+_months+'か月</b>（日本に初めて入国した日 '+_feStr+' 基準）';
+          }
+        }
+        h += '<div style="margin:4px 0 8px;padding:8px 12px;background:#f0f9ff;border-left:3px solid #0ea5e9;border-radius:6px;font-size:11px;color:#075985;">';
+        h += 'ⓘ '+_msg;
+        h += '</div>';
+        return;
+      }
       if(f.type==='skipGroup'){
         if(_sgOpen) h+='</div>'; // 前のskipGroupを閉じる
         _sgOpen=true;
