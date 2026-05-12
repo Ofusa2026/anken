@@ -7625,14 +7625,37 @@ function _filterUnresolvedCaseAlertCases(payload, onDone){
     return;
   }
   if(category === 'task_confirm'){
-    // ver.20260512.02: タスク確認モーダル — ステータスが「確認」から別のステータスに変わっていれば対応済
-    // コメント記入だけでは対応済とみなさない（根本対応＝ステータス変更を促す）
-    var unresolved = ids.filter(function(id){
-      var c = (cData||[]).find(function(x){ return x.id === id; });
-      if(!c) return false; // 案件が見つからなければ表示しない（削除済みかも）
-      if(c.status !== '確認') return false; // ステータスが「確認」から変わっていれば対応済
-      return true; // ステータスが「確認」のまま=未対応
-    });
+    // ver.20260512.02: タスク確認モーダル — その案件にdocTaskStatus===3(確認)のタスクが
+    // 1つも無ければ対応済（全て4以上=完了になっている）と判定
+    // 安全策: 例外発生時は当該IDをスキップ（モーダルから消す）して他の処理に影響させない
+    var unresolved = [];
+    try {
+      var _docTS = (typeof docTaskStatus === 'object' && docTaskStatus) ? docTaskStatus : {};
+      var _tasks = (typeof TASK_NAMES !== 'undefined' && Array.isArray(TASK_NAMES)) ? TASK_NAMES : [];
+      ids.forEach(function(id){
+        try {
+          var c = (cData||[]).find(function(x){ return x.id === id; });
+          if(!c) return; // 案件が見つからない=表示しない（削除済み等）
+          // この案件にdocTaskStatus===3 のタスクが1つでも残っていれば未対応
+          var hasConfirmTask = false;
+          for(var ti=0; ti<_tasks.length; ti++){
+            var key = id + '_' + ti;
+            if((_docTS[key]||0) === 3){
+              hasConfirmTask = true;
+              break;
+            }
+          }
+          if(hasConfirmTask) unresolved.push(id);
+        } catch(eInner) {
+          console.error('[task_confirm filter] case ' + id + ' skip:', eInner);
+        }
+      });
+    } catch(eOuter) {
+      console.error('[task_confirm filter] outer error:', eOuter);
+      // 致命的エラー時は安全側で全件表示（既存挙動を維持）
+      onDone(ids);
+      return;
+    }
     onDone(unresolved);
     return;
   }
