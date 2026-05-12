@@ -7625,29 +7625,15 @@ function _filterUnresolvedCaseAlertCases(payload, onDone){
     return;
   }
   if(category === 'task_confirm'){
-    // ver.20260512.02: タスク確認モーダル — ステータスが「確認」から抜けていれば対応済
-    // または、push_at以降のcase_action_plansに plan_text があれば対応済扱い
-    _sb.from('case_action_plans')
-      .select('case_id,plan_text,respondent')
-      .in('case_id', ids)
-      .gte('push_at', pushAt || '1970-01-01')
-      .eq('respondent', currentUser)
-      .then(function(r){
-        var respondedSet = {};
-        if(r && r.data){
-          r.data.forEach(function(row){
-            if(row.plan_text && String(row.plan_text).trim()) respondedSet[row.case_id] = true;
-          });
-        }
-        var unresolved = ids.filter(function(id){
-          var c = (cData||[]).find(function(x){ return x.id === id; });
-          if(!c) return false;
-          if(c.status !== '確認') return false;
-          if(respondedSet[id]) return false;
-          return true;
-        });
-        onDone(unresolved);
-      });
+    // ver.20260512.02: タスク確認モーダル — ステータスが「確認」から別のステータスに変わっていれば対応済
+    // コメント記入だけでは対応済とみなさない（根本対応＝ステータス変更を促す）
+    var unresolved = ids.filter(function(id){
+      var c = (cData||[]).find(function(x){ return x.id === id; });
+      if(!c) return false; // 案件が見つからなければ表示しない（削除済みかも）
+      if(c.status !== '確認') return false; // ステータスが「確認」から変わっていれば対応済
+      return true; // ステータスが「確認」のまま=未対応
+    });
+    onDone(unresolved);
     return;
   }
   if(isDocCategory){
