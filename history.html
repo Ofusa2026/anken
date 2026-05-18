@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>案件変更履歴</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --text:#1a202c;
+  --muted:#718096;
+  --line:#e2e8f0;
+  --bg:#f5f7fa;
+  --card:#ffffff;
+  --accent:#1a365d;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  padding:32px 24px 60px;
+  font-size:14px;
+  line-height:1.6;
+}
+.container{max-width:980px;margin:0 auto;}
+
+/* ヘッダー */
+.page-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  margin-bottom:24px;
+  flex-wrap:wrap;
+  gap:12px;
+}
+.page-title{
+  margin:0 0 4px 0;
+  font-size:22px;
+  color:var(--accent);
+  font-weight:700;
+}
+.page-subtitle{
+  color:var(--muted);
+  font-size:13px;
+}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;}
+.btn{
+  padding:8px 16px;
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:white;
+  font-size:13px;
+  font-weight:600;
+  cursor:pointer;
+  color:var(--text);
+}
+.btn:hover{background:#edf2f7;}
+.btn-primary{background:var(--accent);color:white;border-color:var(--accent);}
+.btn-primary:hover{background:#0f2349;}
+
+/* 案件サマリ */
+.case-summary{
+  background:white;
+  border-radius:10px;
+  padding:16px 20px;
+  margin-bottom:20px;
+  border-left:4px solid var(--accent);
+  box-shadow:0 2px 6px rgba(0,0,0,0.04);
+}
+.case-summary-name{
+  font-size:16px;
+  font-weight:700;
+  margin-bottom:8px;
+}
+.case-summary-meta{
+  display:flex;
+  flex-wrap:wrap;
+  gap:14px;
+  font-size:12px;
+}
+.case-summary-meta > div{}
+.case-summary-meta .k{color:var(--muted);margin-right:4px;}
+.case-summary-meta .v{font-weight:600;}
+
+/* タイムライン */
+.timeline{
+  position:relative;
+  padding-left:40px;
+}
+.timeline::before{
+  content:"";
+  position:absolute;
+  left:14px;top:8px;bottom:8px;
+  width:3px;
+  background:#cbd5e0;
+  border-radius:2px;
+}
+.event{
+  position:relative;
+  margin-bottom:20px;
+  background:white;
+  border-radius:10px;
+  padding:14px 18px;
+  box-shadow:0 2px 6px rgba(0,0,0,0.04);
+  border-left:4px solid #cbd5e0;
+}
+.event::before{
+  content:"";
+  position:absolute;
+  left:-33px;top:18px;
+  width:14px;height:14px;
+  border-radius:50%;
+  background:white;
+  border:3px solid #cbd5e0;
+  z-index:1;
+}
+.event.status{border-left-color:#e53e3e;}
+.event.status::before{border-color:#e53e3e;background:#fff5f5;}
+.event.staff{border-left-color:#3182ce;}
+.event.staff::before{border-color:#3182ce;background:#ebf8ff;}
+.event.deadline{border-left-color:#38a169;}
+.event.deadline::before{border-color:#38a169;background:#f0fff4;}
+.event.task{border-left-color:#d69e2e;}
+.event.task::before{border-color:#d69e2e;background:#fffbea;}
+.event.system{border-left-color:#a0aec0;}
+.event.system::before{border-color:#a0aec0;background:#f7fafc;}
+.event.insert{border-left-color:#805ad5;}
+.event.insert::before{border-color:#805ad5;background:#faf5ff;}
+
+.event-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  margin-bottom:10px;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.event-header-left{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.datetime{font-size:13px;color:#4a5568;font-weight:700;}
+.user{
+  font-size:11px;
+  background:#edf2f7;
+  padding:3px 10px;
+  border-radius:12px;
+  color:#4a5568;
+}
+.user.system{background:#e2e8f0;color:#718096;}
+.op-label{
+  font-size:10px;
+  font-weight:700;
+  padding:2px 8px;
+  border-radius:4px;
+  text-transform:uppercase;
+  letter-spacing:0.5px;
+}
+.op-label.insert{background:#e9d8fd;color:#553c9a;}
+.op-label.update{background:#bee3f8;color:#2c5282;}
+.op-label.delete{background:#fed7d7;color:#c53030;}
+
+.changes{margin-top:6px;}
+.change-row{
+  padding:8px 0;
+  border-bottom:1px dashed #edf2f7;
+  font-size:13px;
+}
+.change-row:last-child{border-bottom:none;}
+.field-name{
+  font-weight:600;
+  color:var(--text);
+  margin-bottom:4px;
+}
+.field-name .field-en{
+  font-weight:500;
+  font-size:11px;
+  color:var(--muted);
+  margin-left:6px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.diff{
+  font-size:13px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.old{
+  color:#a0aec0;
+  text-decoration:line-through;
+  word-break:break-all;
+}
+.new{
+  color:#2d3748;
+  font-weight:600;
+  background:#fffbea;
+  padding:1px 6px;
+  border-radius:3px;
+  word-break:break-all;
+}
+.empty{color:#cbd5e0;font-style:italic;}
+.arrow{color:#a0aec0;font-weight:bold;}
+.jsonvalue{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:11px;
+  background:#f7fafc;
+  padding:4px 8px;
+  border-radius:4px;
+  display:inline-block;
+  max-width:100%;
+  word-break:break-all;
+  white-space:pre-wrap;
+}
+
+.loading,.empty-state{
+  text-align:center;
+  padding:60px 20px;
+  color:var(--muted);
+}
+.error{
+  background:#fff5f5;
+  border:1px solid #feb2b2;
+  color:#c53030;
+  padding:14px 18px;
+  border-radius:8px;
+  margin-bottom:20px;
+}
+
+/* 印刷用 */
+@media print{
+  body{
+    background:white;
+    padding:0;
+    font-size:11px;
+  }
+  .container{max-width:none;padding:8mm;}
+  .toolbar{display:none !important;}
+  .page-header{margin-bottom:12px;}
+  .page-title{font-size:16px;}
+  .case-summary{
+    box-shadow:none;
+    border:1px solid var(--line);
+    page-break-inside:avoid;
+    margin-bottom:14px;
+    padding:10px 14px;
+  }
+  .case-summary-name{font-size:13px;}
+  .case-summary-meta{font-size:10px;gap:10px;}
+  .timeline{padding-left:30px;}
+  .timeline::before{left:10px;width:2px;}
+  .event{
+    box-shadow:none;
+    border:1px solid var(--line);
+    border-left-width:4px;
+    page-break-inside:avoid;
+    margin-bottom:10px;
+    padding:10px 14px;
+  }
+  .event::before{left:-25px;width:10px;height:10px;top:14px;border-width:2px;}
+  .datetime{font-size:11px;}
+  .user,.op-label{font-size:9px;}
+  .change-row{padding:5px 0;font-size:11px;}
+  .field-name .field-en{font-size:9px;}
+  .jsonvalue{font-size:9px;}
+  @page{
+    size:A4;
+    margin:10mm 8mm;
+  }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">📜 案件変更履歴</h1>
+      <div class="page-subtitle" id="caseSubtitle">読み込み中...</div>
+    </div>
+    <div class="toolbar">
+      <button class="btn" onclick="window.close();">← 戻る</button>
+      <button class="btn btn-primary" onclick="window.print();">🖨️ 印刷 / PDF保存</button>
+    </div>
+  </div>
+
+  <div id="content">
+    <div class="loading">読み込み中...</div>
+  </div>
+</div>
+
+<script>
+'use strict';
+var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
+var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
+var _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ========================================================
+// フィールド日本語マッピング（cases テーブル）
+// ========================================================
+var FIELD_LABELS = {
+  'applicant':'申請者氏名(英)',
+  'name':'案件名',
+  'nationality':'国籍',
+  'org':'取次者',
+  'company':'所属機関',
+  'app_type':'申請種別',
+  'residence_status':'在留資格',
+  'current_status':'現在の在留資格',
+  'team':'チーム',
+  'staff':'担当者',
+  'toritsugisha':'取次者(別)',
+  'expire':'在留期限',
+  'status':'ステータス',
+  'emp_set_idx':'雇用条件セットIdx',
+  'support_fee':'支援委託費',
+  'applicant_field':'申請分野',
+  'job_category':'業務区分',
+  'receipt_no':'受付番号',
+  'receipt_date':'受付日',
+  'doc_create_date':'書類作成日',
+  'folder_no':'フォルダ番号',
+  'industry':'業種',
+  'memo':'メモ',
+  'members':'メンバー',
+  'task_done':'タスク完了数',
+  'task_total':'タスク総数',
+  'tokurei_date':'特例期間日',
+  'shinsa_date':'審査日',
+  'temp_return':'一時帰国日',
+  'intro_fee':'紹介料',
+  'other_support_note':'その他支援メモ',
+  'case_no':'案件番号',
+  'author_name':'作成者名',
+  'author_title':'作成者役職',
+  'intake_id':'インテークID',
+  'drive_url':'ドライブURL',
+  'madoguchi_date':'窓口指定日',
+  'madoguchi_receive_date':'窓口受取日',
+  'application_deadline':'申請期限',
+  'has_job_placement':'職業紹介有無',
+  'applicant_field_en':'申請分野(英)',
+  'job_category_en':'業務区分(英)',
+  'person_order':'人材順位',
+  'shortage_memo':'不足メモ',
+  'company_note':'企業メモ',
+  'accept_exp':'受入経験',
+  'priority':'優先度',
+  'so_office_idx':'支援機関オフィスIdx',
+  'letterpack_id':'レターパックID',
+  'followup_note':'フォローアップメモ',
+  'other_agencies':'他機関情報',
+  'shared_case_no':'共有案件番号',
+  'company_id':'所属機関ID',
+  'milestone_step':'マイルストーンステップ',
+  'mail_thread_url':'メールスレッドURL',
+  'request_date':'依頼日',
+  'contract_start':'契約開始日',
+  'contract_end':'契約終了日',
+  'field_skip':'スキップ項目',
+  'immi_input_status':'入管入力ステータス',
+  'immi_input_at':'入管入力日時',
+  'dispatch_company_id':'派遣会社ID',
+  'created_at':'作成日時',
+  'updated_at':'更新日時'
+};
+
+// ステータス変更系か担当者変更系かなどを判定
+function getEventKind(operation, changedFields){
+  if(operation === 'INSERT') return 'insert';
+  if(!changedFields) return 'system';
+  var keys = Object.keys(changedFields);
+  if(keys.indexOf('status')>=0) return 'status';
+  if(keys.indexOf('staff')>=0 || keys.indexOf('team')>=0) return 'staff';
+  if(keys.indexOf('application_deadline')>=0
+     || keys.indexOf('expire')>=0
+     || keys.indexOf('temp_return')>=0
+     || keys.indexOf('contract_start')>=0
+     || keys.indexOf('contract_end')>=0
+     || keys.indexOf('tokurei_date')>=0
+     || keys.indexOf('shinsa_date')>=0) return 'deadline';
+  if(keys.indexOf('task_done')>=0 || keys.indexOf('task_total')>=0) return 'task';
+  return 'system';
+}
+
+function getOpLabel(operation){
+  if(operation === 'INSERT') return '<span class="op-label insert">作成</span>';
+  if(operation === 'UPDATE') return '<span class="op-label update">更新</span>';
+  if(operation === 'DELETE') return '<span class="op-label delete">削除</span>';
+  return '<span class="op-label update">'+operation+'</span>';
+}
+
+function esc(s){
+  if(s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+function fmtValue(v){
+  if(v === null || v === undefined || v === '') {
+    return '<span class="empty">（空）</span>';
+  }
+  if(typeof v === 'object'){
+    return '<span class="jsonvalue">'+esc(JSON.stringify(v, null, 2))+'</span>';
+  }
+  return esc(v);
+}
+
+function fmtDateJST(iso){
+  if(!iso) return '';
+  try {
+    var d = new Date(iso);
+    var y = d.getFullYear();
+    var m = String(d.getMonth()+1).padStart(2,'0');
+    var day = String(d.getDate()).padStart(2,'0');
+    var hh = String(d.getHours()).padStart(2,'0');
+    var mm = String(d.getMinutes()).padStart(2,'0');
+    var ss = String(d.getSeconds()).padStart(2,'0');
+    return y+'-'+m+'-'+day+' '+hh+':'+mm+':'+ss;
+  } catch(e){ return iso; }
+}
+
+function renderFieldName(field){
+  var label = FIELD_LABELS[field] || field;
+  return '<div class="field-name">'+esc(label)+
+         '<span class="field-en">('+esc(field)+')</span></div>';
+}
+
+function renderInsertEvent(log){
+  // INSERT時の各列の値を表示
+  var rows = '';
+  if(log.new_data && typeof log.new_data === 'object'){
+    var keys = Object.keys(log.new_data).sort();
+    keys.forEach(function(k){
+      var v = log.new_data[k];
+      if(v === null || v === undefined || v === '' ||
+         (typeof v === 'object' && Object.keys(v).length === 0)) return;
+      rows += '<div class="change-row">';
+      rows += renderFieldName(k);
+      rows += '<div class="diff"><span class="new">'+fmtValue(v)+'</span></div>';
+      rows += '</div>';
+    });
+  }
+  if(!rows){
+    rows = '<div class="change-row"><span class="empty">初期値なし</span></div>';
+  }
+  return rows;
+}
+
+function renderUpdateEvent(log){
+  var cf = log.changed_fields || {};
+  var keys = Object.keys(cf);
+  if(keys.length === 0){
+    return '<div class="change-row"><span class="empty">（変更内容の記録なし）</span></div>';
+  }
+  var rows = '';
+  keys.forEach(function(k){
+    var diff = cf[k];
+    var oldV = diff && diff.old !== undefined ? diff.old : null;
+    var newV = diff && diff.new !== undefined ? diff.new : null;
+    rows += '<div class="change-row">';
+    rows += renderFieldName(k);
+    rows += '<div class="diff">';
+    rows += '<span class="old">'+fmtValue(oldV)+'</span>';
+    rows += '<span class="arrow">→</span>';
+    rows += '<span class="new">'+fmtValue(newV)+'</span>';
+    rows += '</div>';
+    rows += '</div>';
+  });
+  return rows;
+}
+
+function renderEvent(log){
+  var kind = getEventKind(log.operation, log.changed_fields);
+  var dateStr = fmtDateJST(log.created_at);
+  var userName = log.user_name || '不明';
+  var userClass = (userName === 'DB直接' || userName === 'system') ? 'user system' : 'user';
+
+  var body = '';
+  if(log.operation === 'INSERT'){
+    body = renderInsertEvent(log);
+  } else if(log.operation === 'DELETE'){
+    body = '<div class="change-row"><span class="empty">レコード削除</span></div>';
+  } else {
+    body = renderUpdateEvent(log);
+  }
+
+  var h = '<div class="event '+kind+'">';
+  h += '<div class="event-header">';
+  h += '<div class="event-header-left">';
+  h += getOpLabel(log.operation);
+  h += '<span class="datetime">'+esc(dateStr)+'</span>';
+  h += '</div>';
+  h += '<span class="'+userClass+'">'+esc(userName)+'</span>';
+  h += '</div>';
+  h += '<div class="changes">'+body+'</div>';
+  h += '</div>';
+  return h;
+}
+
+function renderCaseSummary(c){
+  if(!c) return '';
+  var rows = [
+    ['案件ID','id'],
+    ['案件名','name'],
+    ['申請者','applicant'],
+    ['国籍','nationality'],
+    ['企業','company'],
+    ['取次者','org'],
+    ['担当','staff'],
+    ['チーム','team'],
+    ['ステータス','status'],
+    ['受領日','receipt_date'],
+    ['在留期限','expire'],
+    ['申請期限','application_deadline']
+  ];
+  var meta = rows.filter(function(r){return c[r[1]];})
+                 .map(function(r){
+                   return '<div><span class="k">'+r[0]+':</span><span class="v">'+esc(c[r[1]])+'</span></div>';
+                 }).join('');
+  var nm = c.name || (c.applicant + ' / ' + (c.company||''));
+  return '<div class="case-summary">'+
+         '<div class="case-summary-name">'+esc(nm)+'</div>'+
+         '<div class="case-summary-meta">'+meta+'</div>'+
+         '</div>';
+}
+
+// ========================================================
+// メイン
+// ========================================================
+async function loadHistory(){
+  var params = new URLSearchParams(location.search);
+  var caseId = params.get('case');
+  if(!caseId){
+    document.getElementById('content').innerHTML =
+      '<div class="error">案件IDが指定されていません（?case=xxx）</div>';
+    document.getElementById('caseSubtitle').textContent = '';
+    return;
+  }
+
+  // 案件情報を取得
+  var caseRes = await _sb.from('cases').select('*').eq('id', caseId).single();
+  var caseData = caseRes.data;
+  if(caseRes.error || !caseData){
+    document.getElementById('content').innerHTML =
+      '<div class="error">案件が見つかりません: '+esc(caseId)+'</div>';
+    document.getElementById('caseSubtitle').textContent = caseId;
+    return;
+  }
+
+  var displayName = caseData.name || ((caseData.applicant||'') + ' / ' + (caseData.company||''));
+  document.title = '履歴 - ' + displayName;
+  document.getElementById('caseSubtitle').textContent = displayName;
+
+  // 変更ログを取得
+  var logRes = await _sb.from('audit_log')
+    .select('*')
+    .eq('table_name', 'cases')
+    .eq('record_id', caseId)
+    .order('created_at', {ascending: true});
+
+  if(logRes.error){
+    document.getElementById('content').innerHTML =
+      renderCaseSummary(caseData) +
+      '<div class="error">ログ取得エラー: '+esc(logRes.error.message)+'</div>';
+    return;
+  }
+  var logs = logRes.data || [];
+
+  var html = renderCaseSummary(caseData);
+  if(logs.length === 0){
+    html += '<div class="empty-state">変更履歴がありません</div>';
+  } else {
+    html += '<div class="timeline">';
+    logs.forEach(function(log){
+      html += renderEvent(log);
+    });
+    html += '</div>';
+    // 件数表示（印刷時は非表示）
+    html += '<div style="text-align:center;color:var(--muted);font-size:12px;margin-top:24px;">' +
+            '計 ' + logs.length + ' 件の変更ログ</div>';
+  }
+  document.getElementById('content').innerHTML = html;
+}
+
+loadHistory().catch(function(err){
+  console.error(err);
+  document.getElementById('content').innerHTML =
+    '<div class="error">エラー: '+esc(err.message||err)+'</div>';
+});
+</script>
+</body>
+</html>
