@@ -3630,7 +3630,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260522.02';
+var OFUSA_VERSION = 'ver.20260522.03';
 console.log('%c OFUSA ' + OFUSA_VERSION + ' ', 'background:#1e3a5f;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 
 // ===== ver.20260504.010: 書類リスト系 localStorage を1度だけクリア =====
@@ -40178,6 +40178,8 @@ function renderDocsTab(cas) {
   }
   // テキスト生成ボタン
   h += '<button onclick="openDocTextGenerator(\'' + cas.id + '\')" style="padding:8px 16px;background:#059669;color:white;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">📝 テキスト生成</button>';
+  // ver.20260522.03: 国保ボタン（国保関連4書類を一括追加）
+  if (listKey) h += '<button onclick="addKokuhoDocs(\''+cas.id+'\',\''+listKey+'\')" style="padding:8px 16px;background:#fff7ed;color:#c2410c;border:1.5px solid #fdba74;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">🏥 国保</button>';
   if (listKey) h += '<button onclick="openCaseDocsEditor(\''+cas.id+'\',\''+listKey+'\')" style="margin-right:4px;font-size:11px;padding:4px 10px;background:'+(window._caseCustomDocs&&window._caseCustomDocs[cas.id]&&window._caseCustomDocs[cas.id][listKey]?'#ede9fe':'#f3f4f6')+';color:'+(window._caseCustomDocs&&window._caseCustomDocs[cas.id]&&window._caseCustomDocs[cas.id][listKey]?'#7c3aed':'#6b7280')+';border:1px solid '+(window._caseCustomDocs&&window._caseCustomDocs[cas.id]&&window._caseCustomDocs[cas.id][listKey]?'#c4b5fd':'#e5e7eb')+';border-radius:7px;font-weight:700;cursor:pointer;">✏️ 個別編集'+(window._caseCustomDocs&&window._caseCustomDocs[cas.id]&&window._caseCustomDocs[cas.id][listKey]?' ★':'')+'</button>';
   h += '<button onclick="openRequiredDocsEditor(\'' + listKey + '\')" style="padding:8px 16px;background:#f5f3ff;color:#7c3aed;border:1.5px solid #c4b5fd;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">✏️ リスト編集</button>';
   h += '</div>';
@@ -43375,6 +43377,42 @@ function _persistCaseCustomDocs(){
   try{localStorage.setItem('ofusa_caseCustomDocs',JSON.stringify(window._caseCustomDocs||{}));}catch(e){}
   if(typeof DB_READY!=='undefined'&&DB_READY&&typeof _sb!=='undefined')
     _sb.from('settings').upsert({key:'case_custom_docs',value:JSON.stringify(window._caseCustomDocs||{})},{onConflict:'key'}).then(function(){});
+}
+// ver.20260522.03: 国保関連4書類を案件のチェックリストに一括追加
+var _KOKUHO_DOCS = [
+  '資格確認書',
+  '国民健康保険料（税）納付証明書',
+  '被保険者記録照会回答票',
+  '被保険者記録照会（納付Ⅱ）'
+];
+function addKokuhoDocs(caseId, listKey){
+  if(!caseId || !listKey) return;
+  var cas = (cData||[]).find(function(c){return c.id===caseId;});
+  if(!cas){ alert('案件が見つかりません'); return; }
+  // 現在のdocList（個別カスタム or マージ結果）を起点にする
+  var current = (typeof _getDocList==='function') ? _getDocList(cas).slice() : [];
+  var added = [];
+  _KOKUHO_DOCS.forEach(function(d){
+    if(current.indexOf(d) === -1){
+      current.push(d);
+      added.push(d);
+    }
+  });
+  if(!added.length){
+    if(typeof showToast==='function') showToast('国保書類は既に全て追加されています');
+    else alert('国保書類は既に全て追加されています');
+    return;
+  }
+  // 案件個別カスタムとして保存
+  if(!window._caseCustomDocs) window._caseCustomDocs = {};
+  if(!window._caseCustomDocs[caseId]) window._caseCustomDocs[caseId] = {};
+  window._caseCustomDocs[caseId][listKey] = current;
+  _persistCaseCustomDocs();
+  // 再描画
+  if(typeof currentCase!=='undefined' && currentCase && currentCase.id===caseId){
+    renderDocsTab(currentCase);
+  }
+  if(typeof showToast==='function') showToast('🏥 国保書類を'+added.length+'件追加しました');
 }
 function openCaseDocsEditor(caseId, listKey) {
   window._reqDocsEditCaseId = caseId;
