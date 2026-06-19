@@ -78,7 +78,7 @@ input:focus{border-color:var(--accent);background:white;}
 </head>
 <body>
 <div class="header">
-  <div class="header-logo">OFUSA 行政書士法人 <span style="opacity:.5;font-size:9px;">ver.20260619.02</span></div>
+  <div class="header-logo">OFUSA 行政書士法人 <span style="opacity:.5;font-size:9px;">ver.20260619.03</span></div>
   <div class="header-title">雇用条件書 電子署名</div>
 </div>
 <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
@@ -229,7 +229,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
 async function loadSignRequest(token){
   try{
     const {data,error}=await sb.from('sign_requests')
-      .select('id,case_id,status,expires_at,doc_lang,drive_folder_id')
+      .select('id,case_id,status,expires_at,doc_lang,drive_folder_id,sig_page,sig_x,sig_y,sig_w,sig_h,sig_positions')
       .eq('token',token).single();
     if(error||!data){showError('リンクが見つかりません');return;}
     if(data.expires_at&&new Date(data.expires_at)<new Date()){showError('リンクの有効期限が切れています');return;}
@@ -341,11 +341,13 @@ async function embedSignatureToPdf(){
   if(!pdfBytes||!hasDrawn)return null;
   try{
     const {PDFDocument}=PDFLib;
-    const sc=SIG_COORDS[docLang]||SIG_COORDS['インドネシア語'];
-    // ver.20260619.01: 署名画像をSIG_COORDSのw/hに合わせてリサイズしてから埋め込む
-    // （スマホのdprが高いと元画像が巨大になりPDF-libが縦に引き伸ばしてしまう問題を修正）
-    const resized = await resizeSignatureImage(canvas, sc.w, sc.h);
-    const sigB64 = resized.split(',')[1];
+    // ver.20260619.03: DBのsig_x/y/w/h/pageを優先使用（SIG_COORDSは旧データ用フォールバック）
+    const sc = (caseData && caseData.sig_x != null)
+      ? {page: caseData.sig_page||0, x: caseData.sig_x, y: caseData.sig_y, w: caseData.sig_w, h: caseData.sig_h}
+      : (SIG_COORDS[docLang]||SIG_COORDS['インドネシア語']);
+    console.log('[sign] sc:', sc);
+    const sigDataUrl=canvas.toDataURL('image/png');
+    const sigB64=sigDataUrl.split(',')[1];
     const sigBytes=Uint8Array.from(atob(sigB64),c=>c.charCodeAt(0));
     const doc=await PDFDocument.load(pdfBytes);
     const pages=doc.getPages();
