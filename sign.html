@@ -341,17 +341,41 @@ async function embedSignatureToPdf(){
   if(!pdfBytes||!hasDrawn)return null;
   try{
     const {PDFDocument}=PDFLib;
-    const sigDataUrl=canvas.toDataURL('image/png');
-    const sigB64=sigDataUrl.split(',')[1];
+    const sc=SIG_COORDS[docLang]||SIG_COORDS['インドネシア語'];
+    // ver.20260619.01: 署名画像をSIG_COORDSのw/hに合わせてリサイズしてから埋め込む
+    // （スマホのdprが高いと元画像が巨大になりPDF-libが縦に引き伸ばしてしまう問題を修正）
+    const resized = await resizeSignatureImage(canvas, sc.w, sc.h);
+    const sigB64 = resized.split(',')[1];
     const sigBytes=Uint8Array.from(atob(sigB64),c=>c.charCodeAt(0));
     const doc=await PDFDocument.load(pdfBytes);
     const pages=doc.getPages();
-    const sc=SIG_COORDS[docLang]||SIG_COORDS['インドネシア語'];
     const sigPage=pages[sc.page]||pages[pages.length-1];
     const img=await doc.embedPng(sigBytes);
     sigPage.drawImage(img,{x:sc.x,y:sc.y,width:sc.w,height:sc.h});
     return await doc.save();
   }catch(e){alert('PDF合成エラー: '+e.message);console.error('PDF合成エラー:',e);return null;}
+}
+
+// ver.20260619.01: 署名画像リサイズ（アスペクト比を保ちつつ指定サイズに収める）
+function resizeSignatureImage(srcCanvas, targetW, targetH){
+  return new Promise(function(resolve){
+    const tmp = document.createElement('canvas');
+    // PDF座標はpt単位なので2倍解像度で作成
+    tmp.width  = targetW * 2;
+    tmp.height = targetH * 2;
+    const tc = tmp.getContext('2d');
+    tc.clearRect(0, 0, tmp.width, tmp.height);
+    // アスペクト比を保ってフィット
+    const srcW = srcCanvas.width;
+    const srcH = srcCanvas.height;
+    const scale = Math.min(tmp.width / srcW, tmp.height / srcH);
+    const dw = srcW * scale;
+    const dh = srcH * scale;
+    const dx = (tmp.width  - dw) / 2;
+    const dy = (tmp.height - dh) / 2;
+    tc.drawImage(srcCanvas, dx, dy, dw, dh);
+    resolve(tmp.toDataURL('image/png'));
+  });
 }
 
 // ===== 送信 =====
