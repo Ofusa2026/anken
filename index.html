@@ -6102,6 +6102,7 @@ function doLogin() {
 var WHATS_NEW = [
   { version:'ver.20260620.43', date:'2026-06-23', notify:false, items:[
     '🏛️ <b>必要書類タブに「国 一括チェック」ボタンを追加</b>：一括操作バーに「🏛️ 国 全チェック」「国 解除」を追加し、全書類の「国」（国交省許可後の案内）チェックをまとめてON/OFFできるようにしました（不要の書類は自動でスキップ）。人材の必要書類・会社の必要書類・管理部対応の各画面に対応しています。',
+    '★ <b>国交省書類のテキスト生成で「早め収集」書類に★を付与</b>：キャリアアップID・会員証明書・求人票など取得に時間がかかる書類に★を付け、文末に「★は取得にお時間がかかるためお早めに」の案内を入れるようにしました。アップロード画面でも★表示・各書類の説明文・見本画像・条件フィルタ（就業規則/36協定/変形労働の要否を質問して不要書類を自動スキップ）に対応しました。',
   ]},
   { version:'ver.20260620.42', date:'2026-06-20', notify:false, items:[
     '🏪 <b>窓口受取の案内テキストを刷新</b>：受取場所を選ぶと「○○入管受け取りになります！」と選んだ官署名が反映されます（本局・支局・出張所すべて対応）。本人住所の都道府県に応じた管轄入管が候補の先頭に⭐付きで表示されます。「窓口受取（本人）」では窓口文に加えて在留カードのアップロード案内＋URLが入り、通常の「窓口受取」は氏名＋受取入管名の2行のみです。ステータスが窓口受取系なら、基本情報の受取方法に関わらず正しい窓口テキストが出ます。',
@@ -36288,7 +36289,18 @@ function saveCompany(){
   COMPANY_FIELDS.forEach(function(f){var el=document.getElementById('cf_'+f.key); data[f.key]=el?(el.tagName==='TEXTAREA'?el.value:el.value.trim()):'';});
   if(!data.name){alert('会社名は必須です');return;}
   if(companyEditId){var idx=companies.findIndex(function(co){return co.id===companyEditId;}); if(idx!==-1){data.id=companyEditId;companies[idx]=data;}}
-  else{data.id='c'+Date.now(); companies.push(data); window._selectedCompanyId=data.id;}
+  else{
+    data.id='c'+Date.now(); companies.push(data); window._selectedCompanyId=data.id;
+    // ver.20260620.43: 新規会社は、国交省書類のうち大房側で用意する書類（エクセル一覧にない書類）を自動で「不要(skip)」にする
+    try {
+      var _kokkoAutoSkip = ['6. 委任状','8. 同等の技能を有する日本人と同等額以上の報酬であることの説明書','12. 雇用契約書','15. 重要事項説明書','16. 技能者ID'];
+      if (typeof coDocCheck !== 'undefined') {
+        if (!coDocCheck[data.id]) coDocCheck[data.id] = {};
+        _kokkoAutoSkip.forEach(function(nm){ coDocCheck[data.id]['skip::'+nm] = true; });
+        if (typeof persistCoDocCheck === 'function') persistCoDocCheck();
+      }
+    } catch(e){ console.warn('kokko auto-skip err:', e); }
+  }
   closeCompanyModal(); persistCompanies(data.id); renderCompanyList();
 }
 
@@ -49118,10 +49130,17 @@ function _cacheUploadKokkoDocs(coId){
     if(!list || !list.length) return;
     if(!_sb || !_sb.from){ console.warn('_cacheUploadKokkoDocs: Supabase client not ready'); return; }
     // ver.20260602: 各書類のチェック状態を付与（取得済みstaff:: または 不要skip:: なら done:true → 受け側でグレーアウト）
+    // ver.20260620.43: done に加えて状態種別 st を付与（staff=提出済み / skip=不要 / ofusa=弊社作成）
     var dc = (typeof coDocCheck !== 'undefined' && coDocCheck[coId]) ? coDocCheck[coId] : {};
+    var _ofusaDocs = ['6. 委任状','8. 同等の技能を有する日本人と同等額以上の報酬であることの説明書','12. 雇用契約書','15. 重要事項説明書','16. 技能者ID'];
     var visible = list.map(function(name){
-      var done = !!(dc['staff::'+name] || dc['skip::'+name]);
-      return { l: name, r: 1, t: 'normal', done: done };
+      var isStaff = !!dc['staff::'+name];
+      var isSkip = !!dc['skip::'+name];
+      var st = '';
+      if (_ofusaDocs.indexOf(name) >= 0 && isSkip) st = 'ofusa';      // 弊社作成（自動skip）
+      else if (isStaff) st = 'staff';                                 // 提出済み（取得済み）
+      else if (isSkip) st = 'skip';                                   // 不要
+      return { l: name, r: 1, t: 'normal', done: (isStaff || isSkip), st: st };
     });
     _sb.from('upload_docs_cache').upsert({
       case_id: coId,
@@ -53285,6 +53304,23 @@ function generateCoDocText(coId, ruleId) {
   // {docList}を所属機関書類チェックタブの実際のリスト（skip除外・未取得）で生成
   var _coDocListItems = [];
   var _actualCoDocList = _getCoDocList(co);
+  // ver.20260620.43: 国交省タブのとき、書類名をエクセルの正式名に変換。早め収集書類に★。エクセルにない書類は非表示
+  var _kokkoSlowDocs = ['4. キャリアアップID','5. 会員証明書','7. 求人票'];
+  // index側の番号付き書類名 → エクセルの正式書類名
+  var _kokkoDocNameMap = {
+    '1. 履歴事項全部証明書':'履歴事項全部証明書（※個人事業主の場合は住民票）',
+    '2. 建設業許可':'建設業許可証の写し',
+    '3. 標準報酬決定通知書':'健康保険・厚生年金保険被保険者標準報酬決定通知書の写し',
+    '4. キャリアアップID':'建設キャリアアップシステムの事業者IDを確認する書類',
+    '5. 会員証明書':'特定技能外国人受入事業実施法人（JAC）に加入していることを証する書類（加入証明書）',
+    '7. 求人票':'ハローワークの求人票',
+    '9. 就業規則および賃金規程':'就業規則・賃金規定',
+    '10. 賃金台帳':'特定技能外国人と同等の技能を有する日本人の賃金台帳',
+    '11. 経歴書':'特定技能外国人と同等の技能を有する日本人の職務経歴書',
+    '13. 36協定':'36協定届出書',
+    '14. 年間カレンダー':'変形労働時間制に関する協定届出書・労使協定書・年間カレンダー'
+  };
+  var _hasSlowDoc = false;
   if (_actualCoDocList && _actualCoDocList.length) {
     var _cdc = (typeof coDocCheck !== 'undefined' && coDocCheck[coId]) ? coDocCheck[coId] : {};
     _actualCoDocList.forEach(function(d) {
@@ -53292,11 +53328,28 @@ function generateCoDocText(coId, ruleId) {
       if (_cdc['skip::'+d] && _cdc['skip::'+d] !== false) return;
       // 担当確認済み（staff::）もスキップ＝未取得だけを列挙
       if (_cdc['staff::'+d] && _cdc['staff::'+d] !== false) return;
-      _coDocListItems.push('□ ' + d);
+      if (_isKokkoTab) {
+        // 国交省タブ：エクセルにある書類のみ正式名で出す。ない書類は非表示
+        var _exName = _kokkoDocNameMap[d];
+        if (!_exName) return; // エクセルにない書類は表示しない
+        if (_kokkoSlowDocs.indexOf(d) >= 0) {
+          _coDocListItems.push('★ ' + _exName);
+          _hasSlowDoc = true;
+        } else {
+          _coDocListItems.push('□ ' + _exName);
+        }
+      } else {
+        _coDocListItems.push('□ ' + d);
+      }
     });
   }
   // 条件ルールの追加テキストも末尾に追加
   if (additions.length) _coDocListItems = _coDocListItems.concat(additions);
+  // ★の説明を末尾に追加（国交省タブで★対象が1つ以上あるとき）
+  if (_isKokkoTab && _hasSlowDoc) {
+    _coDocListItems.push('');
+    _coDocListItems.push('★：取得にお時間がかかる書類です。お早めのご準備・ご提出にご協力をお願いいたします。');
+  }
 
   // {docList}はvarsから除外して最後に置換する
   var text = rule.template;
