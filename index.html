@@ -9665,7 +9665,11 @@ function _showForceCaseAlertModal(payload){
       h += '<div style="flex:1;padding:8px 10px;background:#eff6ff;border:1.5px solid #93c5fd;border-radius:6px;font-size:11px;color:#1e40af;line-height:1.5;">';
       h += docMsg;
       h += '</div>';
-      h += '<button onclick="_forceCaseAlertMarkDocReported(\''+esc(c.id)+'\',\''+esc(category)+'\')" style="padding:8px 14px;background:linear-gradient(135deg,#16a34a,#22c55e);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:800;white-space:nowrap;box-shadow:0 2px 6px rgba(22,163,74,.2);">✅ 対応済</button>';
+      if(category === 'doc_rec') {
+        h += '<button onclick="_goToRecordForCase(\''+esc(c.id)+'\')" style="padding:8px 14px;background:linear-gradient(135deg,#1e3a5f,#2563eb);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:800;white-space:nowrap;box-shadow:0 2px 8px rgba(37,99,235,.3);">📋 申請記録へ</button>';
+      } else {
+        h += '<button onclick="_forceCaseAlertMarkDocReported(\''+esc(c.id)+'\',\''+esc(category)+'\')" style="padding:8px 14px;background:linear-gradient(135deg,#16a34a,#22c55e);color:white;border:none;border-radius:6px;cursor:pointer;font-size:12px;font-weight:800;white-space:nowrap;box-shadow:0 2px 6px rgba(22,163,74,.2);">✅ 対応済</button>';
+      }
       h += '</div>';
     } else {
       // 通常: 左右2カラム（📢管理部コメント / 📝担当者コメント）
@@ -10078,6 +10082,34 @@ function _openRecordsFromDocAlert() {
 
   // ミニ通知バーを表示
   if(remainingCases.length) _showDocRecMiniBar(remainingCases, category, payload);
+}
+
+// 各カードの「📋 申請記録へ」ボタン：その案件名で申請記録をフィルターして遷移
+function _goToRecordForCase(caseId) {
+  var c = (cData || []).find(function(x){ return x.id === caseId; });
+  var applicantName = c ? (c.applicant || c.name || '') : '';
+
+  // モーダルのミニバーモードへ切り替え（全件分のバーを出す）
+  _openRecordsFromDocAlert();
+
+  // 申請記録の検索ボックスに申請人名をセットしてフィルター
+  if(applicantName) {
+    setTimeout(function(){
+      var inp = document.getElementById('recordSearchInput');
+      if(inp){ inp.value = applicantName; if(typeof renderRecords==='function') renderRecords(); }
+    }, 150);
+  }
+}
+
+// 申請記録側の toggleReported からも呼ばれる：ミニバーの該当ピルを削除
+function _syncDocRecMiniBar(caseId) {
+  if(!caseId) return;
+  var miniBar = document.getElementById('_docRecMiniBar');
+  if(!miniBar) return;
+  miniBar.querySelectorAll('[data-mini-case]').forEach(function(mc){
+    if(mc.getAttribute('data-mini-case') === caseId) mc.remove();
+  });
+  if(!miniBar.querySelectorAll('[data-mini-case]').length) miniBar.remove();
 }
 
 function _showDocRecMiniBar(cases, category, payload) {
@@ -58477,6 +58509,8 @@ function toggleReported(type, id) {
         if(type==='rec') renderRecords();
         else if(type==='shinsa') renderShinsaList();
         else renderCertList();
+        // ミニ通知バーを同期（申請記録側で対応済にした時もバーから消える）
+        if(type==='rec' && typeof _syncDocRecMiniBar==='function') _syncDocRecMiniBar(item.caseId);
       });
       return;
     }
@@ -58491,6 +58525,8 @@ function toggleReported(type, id) {
   if(type==='rec') renderRecords();
   else if(type==='shinsa') renderShinsaList();
   else renderCertList();
+  // ミニ通知バーを同期（未紐づけケースでも対応済にした時に消える）
+  if(type==='rec' && willBeReported && typeof _syncDocRecMiniBar==='function') _syncDocRecMiniBar(item.caseId);
 }
 
 function _shinsaStatusChangeModal(cas, type, onComplete, options) {
