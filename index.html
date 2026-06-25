@@ -72241,12 +72241,14 @@ async function sigAutoPlace() {
     { re: /Tanda tangan pekerja asing berketerampilan khusus[\s\u00a0]*1/i, w:265, h:41, maxHit:1 },
     { re: /Tanda tangan pekerja asing berketerampilan(?![\s\u00a0]*khusus)/i, w:300, h:36, maxHit:1 },
     { re: /Penerima[\s\u00a0]*\(tanda tangan\)/i, w:300, h:36, maxHit:1 },
-    { re: /Tanda tangan pemohon/i, w:220, h:36, maxHit:5 },
+    { re: /Tanda tangan pemohon/i, w:220, h:36, maxHit:10 },
     { re: /\uff08\u30b5\u30a4\u30f3\uff09[\s\u00a0]*Tanda[\s\u00a0]*Tangan/i, w:228, h:36, maxHit:1 }
   ];
 
   var newBoxes = [];
   var hits = ANCHORS.map(function(){ return 0; });
+  // 受診者の申告書（Laporan Penerima Pemeriksaan）は専用フラグで管理
+  var _laporan_done = false;
 
   try {
     var pdfDoc = await pdfjsLib.getDocument({ data: st.pdfBytes.slice() }).promise;
@@ -72285,6 +72287,18 @@ async function sigAutoPlace() {
 
       // ページ全文（行をスペースで連結）
       var fullText = lines.map(function(l){ return l.text; }).join(' ');
+
+      // --- 受診者の申告書（Laporan Penerima Pemeriksaan）専用処理 ---
+      // このページタイトルを検出したら、maxHit上限に関わらず必ず申請人署名枠を配置
+      if (!_laporan_done && /Laporan[\s\u00a0]*Penerima[\s\u00a0]*Pemeriksaan/i.test(fullText)) {
+        _laporan_done = true;
+        for (var li2 = 0; li2 < lines.length; li2++) {
+          if (/Tanda[\s\u00a0]*tangan[\s\u00a0]*pemohon/i.test(lines[li2].text)) {
+            newBoxes.push({ page: pn, x: Math.round(lines[li2].x), y: Math.round(lines[li2].y - 36), w: 220, h: 36 });
+            break;
+          }
+        }
+      }
 
       // --- アンカーごとにマッチ検索 ---
       ANCHORS.forEach(function(anchor, ai){
