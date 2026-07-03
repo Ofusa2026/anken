@@ -32343,6 +32343,44 @@ function _dcDel(cid, key){
   try{ if(typeof docCheck!=='undefined' && docCheck[cid]) delete docCheck[cid][key]; }catch(e){}
   try{ window._dcDeleted[cid+'\u0001'+key]=1; }catch(e){}
 }
+// ver.20260703: 書類チェック保存(doc_check/co_doc_check)の失敗ハンドラ（index.htmlと同期）
+function _handleDocSaveError(err, retryFn){
+  try {
+    var msg = (err && (err.message || err.msg || '')) + '';
+    var code = (err && (err.code || err.status || '')) + '';
+    var isSession = /jwt|expired|token|401|403|not authenticated|no api key|invalid.*claim|refresh|unauthor/i.test(msg + ' ' + code);
+    if(!isSession){
+      if(!window._docSaveErrToastAt || (Date.now() - window._docSaveErrToastAt) > 8000){
+        window._docSaveErrToastAt = Date.now();
+        if(typeof showToast==='function') showToast('⚠️ チェックの保存に失敗しました（' + (msg || '不明なエラー') + '）。画面を再読み込みして確認してください。');
+      }
+      return;
+    }
+    if(window._docSaveRetrying){
+      if(typeof showToast==='function') showToast('⚠️ ログインの有効期限が切れています。お手数ですが再ログインしてください。');
+      return;
+    }
+    window._docSaveRetrying = true;
+    if(typeof showToast==='function') showToast('🔄 ログインの有効期限が切れたため再接続しています…');
+    if(_sb && _sb.auth && typeof _sb.auth.refreshSession === 'function'){
+      _sb.auth.refreshSession().then(function(res){
+        if(res && !res.error && res.data && res.data.session){
+          if(typeof showToast==='function') showToast('✅ 再接続しました。保存し直します。');
+          try { if(typeof retryFn==='function') retryFn(); } catch(e){}
+        } else {
+          if(typeof showToast==='function') showToast('⚠️ 再接続できませんでした。恐れ入りますが再ログインしてください。');
+        }
+        setTimeout(function(){ window._docSaveRetrying = false; }, 5000);
+      }, function(){
+        if(typeof showToast==='function') showToast('⚠️ 再接続に失敗しました。恐れ入りますが再ログインしてください。');
+        setTimeout(function(){ window._docSaveRetrying = false; }, 5000);
+      });
+    } else {
+      window._docSaveRetrying = false;
+    }
+  } catch(e){ try{ window._docSaveRetrying = false; }catch(e2){} }
+}
+
 function persistDocCheck() {
   try { localStorage.setItem('ofusa_docCheck', JSON.stringify(docCheck)); } catch(e) {}
   if(DB_READY) {
@@ -32397,7 +32435,7 @@ function persistDocCheck() {
     }
     if(upserts.length){
       _sb.from('doc_check').upsert(upserts, {onConflict:'case_id,doc_key'}).then(function(r){
-        if(r.error){ console.error('doc_check upsert err:', r.error); }
+        if(r.error){ console.error('doc_check upsert err:', r.error); _handleDocSaveError(r.error, persistDocCheck); }
         else { upserts.forEach(function(u){ window._lastSyncedDocCheck[u.case_id+'\u0001'+u.doc_key] = u.value; }); }
       });
     }
@@ -32405,7 +32443,7 @@ function persistDocCheck() {
       // 1件ずつ delete（OR条件で複数キーを安全に処理）
       deletes.forEach(function(d){
         _sb.from('doc_check').delete().eq('case_id', d.case_id).eq('doc_key', d.doc_key).then(function(r){
-          if(r.error){ console.error('doc_check delete err:', r.error); }
+          if(r.error){ console.error('doc_check delete err:', r.error); _handleDocSaveError(r.error, persistDocCheck); }
           else { delete window._lastSyncedDocCheck[d.case_id+'\u0001'+d.doc_key]; try{ delete window._dcDeleted[d.case_id+'\u0001'+d.doc_key]; }catch(e){} }
         });
       });
@@ -50375,14 +50413,14 @@ function persistCoDocCheck(){
     }
     if(upserts.length){
       _sb.from('co_doc_check').upsert(upserts, {onConflict:'co_id,doc_key'}).then(function(r){
-        if(r.error){ console.error('co_doc_check upsert err:', r.error); }
+        if(r.error){ console.error('co_doc_check upsert err:', r.error); _handleDocSaveError(r.error, persistCoDocCheck); }
         else { upserts.forEach(function(u){ window._lastSyncedCoDocCheck[u.co_id+'\u0001'+u.doc_key] = u.value; }); }
       });
     }
     if(deletes.length){
       deletes.forEach(function(d){
         _sb.from('co_doc_check').delete().eq('co_id', d.co_id).eq('doc_key', d.doc_key).then(function(r){
-          if(r.error){ console.error('co_doc_check delete err:', r.error); }
+          if(r.error){ console.error('co_doc_check delete err:', r.error); _handleDocSaveError(r.error, persistCoDocCheck); }
           else { delete window._lastSyncedCoDocCheck[d.co_id+'\u0001'+d.doc_key]; }
         });
       });
