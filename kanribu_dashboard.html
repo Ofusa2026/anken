@@ -18,8 +18,8 @@
     --font-sans:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
   }
   *{box-sizing:border-box;}
-  body{margin:0; padding:12px; background:var(--surface-0); font-family:var(--font-sans); color:var(--text-primary);}
-  .wrap{max-width:none; margin:0;}
+  body{margin:0; padding:22px; background:var(--surface-0); font-family:var(--font-sans); color:var(--text-primary);}
+  .wrap{max-width:1120px; margin:0 auto;}
   h1.title{font-size:19px; font-weight:600; margin:0 0 14px; display:flex; align-items:center; gap:8px;}
   .app{display:flex; background:var(--surface-1); border-radius:12px; overflow:hidden; border:.5px solid var(--border); min-height:620px;}
   aside{width:230px; flex-shrink:0; background:var(--surface-2); border-right:.5px solid var(--border); display:flex; flex-direction:column; padding:12px 10px;}
@@ -85,9 +85,8 @@
   .ctrls .clearbtn:hover{background:var(--surface-1);}
   .ctrls .fnote{font-size:11.5px; color:var(--text-accent); margin-left:auto;}
   .board{display:flex; gap:12px; overflow-x:auto; padding-bottom:10px; align-items:flex-start;}
-  .subgrid{display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:10px; align-items:start;}
-  .col{flex:0 0 278px; background:var(--surface-1); border:.5px solid var(--border); border-radius:10px; padding:10px 9px; max-height:70vh; overflow-y:auto;}
-  .colhd{display:flex; align-items:center; gap:7px; font-size:12.5px; font-weight:600; position:sticky; top:0; z-index:2; background:var(--surface-1); padding-bottom:8px; margin-bottom:2px;}
+  .col{flex:0 0 278px; background:var(--surface-1); border:.5px solid var(--border); border-radius:10px; padding:10px 9px;}
+  .colhd{display:flex; align-items:center; gap:7px; margin-bottom:10px; font-size:12.5px; font-weight:600;}
   .colhd .cbadge{font-size:10.5px; font-weight:600; padding:1px 8px; border-radius:20px; margin-left:auto;}
   .colsub{font-size:10px; color:var(--text-muted); font-weight:400; margin-left:2px;}
   .empty{font-size:12px; color:var(--text-muted); padding:6px 2px 4px;}
@@ -231,31 +230,36 @@ function catTotal(c){return c.subs.reduce((s,x)=>s+(typeof x.count==='number'?x.
 
 let view='dash';
 let catFilter='';
-function kanriGo(cat, sub){ try{ (window.parent && window.parent!==window ? window.parent : window).postMessage({type:'kanri-nav', cat:cat, sub:sub||''}, '*'); }catch(e){} }
-function kanriOpen(id){ if(id && String(id).indexOf('f_')!==0){ try{ (window.parent && window.parent!==window ? window.parent : window).postMessage({type:'kanri-open', id:id}, '*'); }catch(e){} } else { alert('案件を開く（サンプル）'); } }
-document.addEventListener('click', function(e){ var b=e.target && e.target.closest ? e.target.closest('.kbtn') : null; if(!b) return; var ks=b.closest('.kase'); if(!ks||!ks.id) return; var _id=ks.id.replace(/^kase-/,''); if(_id && _id.indexOf('f_')!==0){ e.stopImmediatePropagation(); e.preventDefault(); kanriOpen(_id); } }, true);
-let curSub=null, curSubCat=null;
 
 function renderNav(){
-  const pend = approvals.filter(a=>lsGet('kanribu_appr_'+a.id,'')==='').length;
-  const pb = pend>0 ? `<span class="nb" style="background:var(--bg-danger);color:var(--text-danger)">${pend}</span>` : '';
-  const _tn=document.getElementById('topnav');
-  if(_tn) _tn.innerHTML =
-    `<button class="navitem" data-view="dash"><i class="ti ti-layout-grid ic"></i>ダッシュボード</button>`+
-    `<button class="navitem" data-view="shonin"><i class="ti ti-checkbox ic"></i>承認<span style="font-size:10px;color:var(--text-muted);margin-left:3px">静穏/表示停止</span>${pb}</button>`;
-  const _cn=document.getElementById('catnav');
-  if(_cn) _cn.innerHTML = cats.map(c=>{
+  document.getElementById('catnav').innerHTML = cats.map(c=>{
     const tone=catTone(c), tot=catTotal(c);
+    const on = view===c.id;
     const nb = tot>0 ? `<span class="nb" style="background:var(${totBg[tone]});color:var(${totFg[tone]})">${tot>999?(Math.floor(tot/1000)+'k+'):tot}</span>` : '';
-    return `<button class="navitem" data-view="${c.id}"><i class="ti ${c.icon} ic"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.name}</span>${nb}</button>`;
+    return `<button class="navitem ${on?'on':''}" data-view="${c.id}"><i class="ti ${c.icon} ic"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.name}</span>${nb}</button>`;
   }).join('');
-  document.querySelectorAll('.navitem').forEach(b=>{ b.classList.toggle('on', b.dataset.view===view); b.onclick=()=>{ var _v=b.dataset.view; if(_v!=='dash'&&_v!=='shonin'&&_v!=='tsuikan'){ kanriGo(_v); return; } view=_v; catFilter=''; renderNav(); renderMain(); }; });
+  document.querySelectorAll('.navitem').forEach(b=>b.onclick=()=>{view=b.dataset.view; // カテゴリ一覧の開閉
+(function(){
+  const btn=document.getElementById('catToggle');
+  const list=document.getElementById('catnav');
+  function apply(collapsed){
+    btn.classList.toggle('collapsed', collapsed);
+    list.classList.toggle('collapsed', collapsed);
+  }
+  apply(lsGet('kanribu_catcollapsed','0')==='1');
+  btn.onclick=()=>{
+    const now=!list.classList.contains('collapsed');
+    apply(now);
+    lsSet('kanribu_catcollapsed', now?'1':'0');
+  };
+})();
+renderNav(); renderMain();});
+  document.querySelectorAll('.navitem').forEach(b=>{ if(b.dataset.view===view) b.classList.add('on'); });
 }
 
 function renderMain(){
   if(view==='dash') return renderDash();
   if(view==='shonin') return renderShonin();
-  if(view==='sub') return renderSub();
   const c=cats.find(x=>x.id===view);
   renderCat(c);
 }
@@ -267,7 +271,7 @@ function renderDash(){
     const items = c.subs.map(s=>{
       const cval = s.count===null?'—':s.count.toLocaleString();
       const cls = s.count===null?'none':s.tone;
-      return `<div class="it" data-goto="${c.id}" data-gotosub="${s.id}"><span class="dot d-${cls}"></span><span class="lbl">${s.label}${s.sub?`<span class="sub2">${s.sub}</span>`:''}</span><span class="cnt c-${cls}">${cval}</span></div>`;
+      return `<div class="it" data-goto="${c.id}"><span class="dot d-${cls}"></span><span class="lbl">${s.label}${s.sub?`<span class="sub2">${s.sub}</span>`:''}</span><span class="cnt c-${cls}">${cval}</span></div>`;
     }).join('');
     return `<div class="card ${checked?'done':''}" id="card-${c.id}">
       <div class="chd"><i class="ti ${c.icon} cic"></i><span class="nm" data-goto="${c.id}">${c.name}</span>
@@ -285,7 +289,7 @@ function renderDash(){
     <p class="dsub">全画面の件数を1画面で確認。カテゴリ名・項目をクリックすると詳細（案件一覧）へ。見たら「本日確認済み」でチェック。</p>
     <div class="grid">${cards}</div>`;
 
-  document.querySelectorAll('[data-goto]').forEach(el=>el.onclick=()=>{ var g=el.dataset.goto, sb=el.dataset.gotosub||''; if(g==='tsuikan'){ if(sb){ curSubCat='tsuikan'; curSub=sb; view='sub'; } else { view='tsuikan'; } catFilter=''; renderNav(); renderMain(); var mn=document.getElementById('main'); if(mn) mn.scrollTop=0; return; } kanriGo(g, sb); });
+  document.querySelectorAll('[data-goto]').forEach(el=>el.onclick=()=>{view=el.dataset.goto; catFilter=''; renderNav(); renderMain(); document.getElementById('main').scrollTop=0;});
   document.querySelectorAll('[data-chk]').forEach(el=>el.onchange=e=>{
     const id=e.target.dataset.chk; lsSet('kanribu_chk_'+id, e.target.checked?'1':'0'); renderDash();
   });
@@ -295,30 +299,6 @@ function renderDash(){
 }
 
 function primaryStaff(s){ if(!s||s==='\u2014') return null; return s.split('\u30fb')[0].split('\uff08')[0].split('/')[0].trim()||null; }
-const F_NAMES=['NGUYEN VAN HUNG','TRAN THI MAI','LE VAN DUC','PHAM THI LAN','WANG WEI','LI NA','CHEN JIE','ZHANG WEI','SANTOS PEDRO','SILVA ANA','KUMAR RAJ','PRASETYO BUDI','WIDODO JOKO','AYU LESTARI','MOHAMMED ALI','KHIN MAUNG','AUNG KYAW','THAN HTAY','SOE MYINT','WIN TIN'];
-const F_ORGS=['株式会社大和建設','東海製造株式会社','さくら介護サービス','みらい農園','株式会社JAM','株式会社入勢建設','有限会社スカイネット','株式会社鎌田工業','社会福祉法人永寿会','株式会社ペッパーフードサービス'];
-const F_STAFF=['大盛 南美','陳','村山 七虹','清水 星吏','田中','佐藤','坂齊 佐知','冨島 有稀','神出 紘陽','マッタ 綾子'];
-const CARD_CAP=15;
-function fillerCard(s,i){
-  const id='f_'+s.id+'_'+i;
-  const done=lsGet('kanribu_cdone_'+id,'0')==='1';
-  const nm=F_NAMES[i%F_NAMES.length];
-  const org=F_ORGS[(i*3+1)%F_ORGS.length];
-  const staff=F_STAFF[(i*2+1)%F_STAFF.length];
-  const tone=s.tone==='none'?'accent':s.tone;
-  return `<div class="kase ${done?'done':''}" id="kase-${id}">
-    <div class="k1"><span class="kn">${nm}</span><span class="tag t-${tone}">${s.label}</span></div>
-    <div class="kmeta">${org}</div>
-    <div class="kmeta">担当：${staff}</div>
-    <textarea data-ccmt="${id}" placeholder="管理者コメント（この案件宛）">${lsGet('kanribu_ccomment_'+id,'')}</textarea>
-    <div class="krow">
-      <button class="kbtn" onclick="alert('案件を開く（サンプル）')"><i class="ti ti-external-link"></i>開く</button>
-      <button class="kforce" onclick="alert('「${staff}」に強制表示（サンプル）')"><i class="ti ti-speakerphone"></i>強制表示</button>
-      <label class="kdone ${done?'on':''}"><input type="checkbox" data-cdone="${id}" ${done?'checked':''}><i class="ti ti-${done?'circle-check-filled':'circle-check'}"></i>対応済み</label>
-      <span class="csaved" id="csaved-${id}">保存</span>
-    </div>
-  </div>`;
-}
 function renderCat(c){
   const tone=catTone(c), tot=catTotal(c);
   const staffSet=[]; c.subs.forEach(s=>(s.cases||[]).forEach(k=>{const p=primaryStaff(k.staff); if(p&&p!=='\u66f8\u985e\u90e8'&&!staffSet.includes(p)) staffSet.push(p);}));
@@ -350,18 +330,10 @@ function renderCat(c){
           </div>
         </div>`;
       }).join('');
-      const total = (typeof s.count==='number') ? s.count : flist.length;
-      let fillerHtml='', remaining=0;
-      if(!catFilter){
-        const target = Math.min(CARD_CAP, total);
-        const fillN = Math.max(0, target - flist.length);
-        for(let i=0;i<fillN;i++) fillerHtml += fillerCard(s,i);
-        remaining = total - flist.length - fillN;
-      }
-      const more = remaining>0 ? `<div class="empty">…他 ${remaining.toLocaleString()}件（実データ連携で全件表示）</div>` : '';
-      body = kk + fillerHtml + more;
+      const more = (!catFilter && s.more) ? `<div class="empty">\u2026\u4ed6 ${s.more.toLocaleString()}\u4ef6</div>` : '';
+      body = kk + more;
     }
-    return `<div class="col" id="col-${s.id}">
+    return `<div class="col">
       <div class="colhd"><span class="dot d-${s.count===null?'none':s.tone}"></span>${s.label}${s.sub?`<span class="colsub">${s.sub}</span>`:''}${cbadge}</div>
       ${body}
     </div>`;
@@ -429,90 +401,8 @@ function renderShonin(){
   document.querySelectorAll('[data-rej]').forEach(b=>b.onclick=()=>{lsSet('kanribu_appr_'+b.dataset.rej,'rejected'); renderNav(); renderShonin();});
   document.querySelectorAll('[data-undo]').forEach(b=>b.onclick=()=>{lsSet('kanribu_appr_'+b.dataset.undo,''); renderNav(); renderShonin();});
 }
-function subCard(k){
-  const done=lsGet('kanribu_cdone_'+k.id,'0')==='1';
-  const tags=k.tags.map(t=>`<span class="tag t-${t[1]}">${t[0]}</span>`).join(' ');
-  const q=k.quote?`<div class="kquote">${k.quote}</div>`:'';
-  return `<div class="kase ${done?'done':''}" id="kase-${k.id}">
-    <div class="k1"><span class="kn">${k.name}</span>${tags}</div>
-    <div class="kmeta">${k.org}</div>
-    <div class="kmeta">担当：${k.staff}</div>
-    ${q}
-    <textarea data-ccmt="${k.id}" placeholder="管理者コメント（この案件宛）">${lsGet('kanribu_ccomment_'+k.id,'')}</textarea>
-    <div class="krow">
-      <button class="kbtn" onclick="alert('案件を開く（サンプル）')"><i class="ti ti-external-link"></i>開く</button>
-      <button class="kforce" onclick="alert('「${k.staff}」に強制表示（サンプル）')"><i class="ti ti-speakerphone"></i>強制表示</button>
-      <label class="kdone ${done?'on':''}"><input type="checkbox" data-cdone="${k.id}" ${done?'checked':''}><i class="ti ti-${done?'circle-check-filled':'circle-check'}"></i>対応済み</label>
-      <span class="csaved" id="csaved-${k.id}">保存</span>
-    </div>
-  </div>`;
-}
-function renderSub(){
-  const c=cats.find(x=>x.id===curSubCat); if(!c){ view='dash'; return renderMain(); }
-  const s=c.subs.find(x=>x.id===curSub); if(!s){ view=c.id; return renderMain(); }
-  const staffSet=[]; (s.cases||[]).forEach(k=>{const pp=primaryStaff(k.staff); if(pp&&pp!=='書類部'&&!staffSet.includes(pp)) staffSet.push(pp);}); staffSet.sort();
-  const flist=(s.cases||[]).filter(k=>!catFilter||(k.staff&&k.staff.includes(catFilter)));
-  const total=(typeof s.count==='number')?s.count:flist.length;
-  let cards=flist.map(subCard).join(''); let remaining=0;
-  if(!catFilter){
-    const target=Math.min(CARD_CAP,total); const fillN=Math.max(0,target-flist.length);
-    for(let i=0;i<fillN;i++) cards+=fillerCard(s,i);
-    remaining=total-flist.length-fillN;
-  }
-  const empty=(!flist.length && (catFilter||total===0)) ? `<div class="empty">${catFilter?'この担当の案件はありません':(total===0?'該当なし 🎉':'（サンプル未設定）')}</div>` : '';
-  const more=remaining>0 ? `<div class="empty">…他 ${remaining.toLocaleString()}件（実データ連携で全件表示）</div>` : '';
-  const tone=s.count===null?'none':s.tone;
-  document.getElementById('main').innerHTML=`
-    <button class="back" onclick="openCat('${c.id}')"><i class="ti ti-arrow-left"></i>${c.name}（全項目）へ</button>
-    <div class="cathead"><span class="dot d-${tone}" style="width:11px;height:11px"></span><h2>${s.label}</h2>
-      <span class="tot" style="background:var(${totBg[tone]});color:var(${totFg[tone]})">${typeof s.count==='number'?(s.count.toLocaleString()+'件'):'—'}</span></div>
-    <div class="ctrls">
-      <span class="cl"><i class="ti ti-user" style="font-size:15px"></i>担当：
-        <select id="staffFilter"><option value="">全担当</option>${staffSet.map(pp=>`<option value="${pp}" ${catFilter===pp?'selected':''}>${pp}</option>`).join('')}</select></span>
-      <button class="clearbtn" id="clearFilter"><i class="ti ti-x" style="font-size:14px"></i>クリア</button>
-      ${catFilter?`<span class="fnote"><i class="ti ti-filter" style="font-size:13px"></i>「${catFilter}」で絞込中</span>`:''}
-    </div>
-    <div class="subgrid">${empty}${cards}${more}</div>`;
-  document.querySelectorAll('[data-cdone]').forEach(el=>el.onchange=e=>{
-    const id=e.target.dataset.cdone; lsSet('kanribu_cdone_'+id, e.target.checked?'1':'0');
-    const kase=document.getElementById('kase-'+id); if(kase) kase.classList.toggle('done', e.target.checked);
-    const lab=e.target.closest('.kdone'); lab.classList.toggle('on', e.target.checked);
-    lab.querySelector('i').className='ti ti-'+(e.target.checked?'circle-check-filled':'circle-check');
-  });
-  document.querySelectorAll('[data-ccmt]').forEach(el=>{
-    let t; el.oninput=e=>{const id=e.target.dataset.ccmt; clearTimeout(t); t=setTimeout(()=>{lsSet('kanribu_ccomment_'+id,e.target.value); const sv=document.getElementById('csaved-'+id); if(sv){sv.classList.add('show'); setTimeout(()=>sv.classList.remove('show'),1000);}},400);};
-  });
-  const sf=document.getElementById('staffFilter'); if(sf) sf.onchange=e=>{catFilter=e.target.value; renderSub();};
-  const cf=document.getElementById('clearFilter'); if(cf) cf.onclick=()=>{catFilter=''; renderSub();};
-}
 function goDash(){view='dash'; catFilter=''; renderNav(); renderMain();}
 
-// カテゴリ一覧の開閉
-(function(){
-  const btn=document.getElementById('catToggle');
-  const list=document.getElementById('catnav');
-  if(!btn||!list) return;
-  function apply(collapsed){ btn.classList.toggle('collapsed', collapsed); list.classList.toggle('collapsed', collapsed); }
-  apply(lsGet('kanribu_catcollapsed','0')==='1');
-  btn.onclick=()=>{ const now=!list.classList.contains('collapsed'); apply(now); lsSet('kanribu_catcollapsed', now?'1':'0'); };
-})();
-// 外部サイドバー（index.html本体）から呼ぶ入口
-window.openDash = ()=>{ view='dash'; renderNav(); renderMain(); };
-window.openCat  = (id)=>{ view=id; renderNav(); renderMain(); };
-window.openSub  = (catId, subId)=>{ curSubCat=catId; curSub=subId; view='sub'; catFilter=''; renderNav(); renderMain(); };
-
-// 親(index.html)から実データを受け取り、追完対応(tsuikan)を実データ化
-window.addEventListener('message', function(ev){
-  var d=ev&&ev.data; if(!d) return;
-  if(d.type==='kanri-data' && d.cat==='tsuikan'){
-    var cat=cats.find(function(x){return x.id==='tsuikan';}); if(!cat) return;
-    cat.subs.forEach(function(s){
-      if(d.subs && d.subs[s.id]){ s.cases=d.subs[s.id]; s.count=(d.counts&&typeof d.counts[s.id]==='number')?d.counts[s.id]:s.cases.length; s._real=true; }
-    });
-    try{ if(view==='dash'||view==='tsuikan'||(view==='sub'&&curSubCat==='tsuikan')){ renderNav(); renderMain(); } }catch(e){}
-  }
-});
-try{ (window.parent && window.parent!==window ? window.parent : window).postMessage({type:'kanri-req', cat:'tsuikan'}, '*'); }catch(e){}
 renderNav(); renderMain();
 </script>
 </body>
