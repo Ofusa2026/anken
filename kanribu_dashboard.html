@@ -232,6 +232,8 @@ function catTotal(c){return c.subs.reduce((s,x)=>s+(typeof x.count==='number'?x.
 let view='dash';
 let catFilter='';
 function kanriGo(cat, sub){ try{ (window.parent && window.parent!==window ? window.parent : window).postMessage({type:'kanri-nav', cat:cat, sub:sub||''}, '*'); }catch(e){} }
+function kanriOpen(id){ if(id && String(id).indexOf('f_')!==0){ try{ (window.parent && window.parent!==window ? window.parent : window).postMessage({type:'kanri-open', id:id}, '*'); }catch(e){} } else { alert('案件を開く（サンプル）'); } }
+document.addEventListener('click', function(e){ var b=e.target && e.target.closest ? e.target.closest('.kbtn') : null; if(!b) return; var ks=b.closest('.kase'); if(!ks||!ks.id) return; var _id=ks.id.replace(/^kase-/,''); if(_id && _id.indexOf('f_')!==0){ e.stopImmediatePropagation(); e.preventDefault(); kanriOpen(_id); } }, true);
 let curSub=null, curSubCat=null;
 
 function renderNav(){
@@ -247,7 +249,7 @@ function renderNav(){
     const nb = tot>0 ? `<span class="nb" style="background:var(${totBg[tone]});color:var(${totFg[tone]})">${tot>999?(Math.floor(tot/1000)+'k+'):tot}</span>` : '';
     return `<button class="navitem" data-view="${c.id}"><i class="ti ${c.icon} ic"></i><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.name}</span>${nb}</button>`;
   }).join('');
-  document.querySelectorAll('.navitem').forEach(b=>{ b.classList.toggle('on', b.dataset.view===view); b.onclick=()=>{ var _v=b.dataset.view; if(_v!=='dash'&&_v!=='shonin'){ kanriGo(_v); return; } view=_v; catFilter=''; renderNav(); renderMain(); }; });
+  document.querySelectorAll('.navitem').forEach(b=>{ b.classList.toggle('on', b.dataset.view===view); b.onclick=()=>{ var _v=b.dataset.view; if(_v!=='dash'&&_v!=='shonin'&&_v!=='tsuikan'){ kanriGo(_v); return; } view=_v; catFilter=''; renderNav(); renderMain(); }; });
 }
 
 function renderMain(){
@@ -283,7 +285,7 @@ function renderDash(){
     <p class="dsub">全画面の件数を1画面で確認。カテゴリ名・項目をクリックすると詳細（案件一覧）へ。見たら「本日確認済み」でチェック。</p>
     <div class="grid">${cards}</div>`;
 
-  document.querySelectorAll('[data-goto]').forEach(el=>el.onclick=()=>{ kanriGo(el.dataset.goto, el.dataset.gotosub||''); });
+  document.querySelectorAll('[data-goto]').forEach(el=>el.onclick=()=>{ var g=el.dataset.goto, sb=el.dataset.gotosub||''; if(g==='tsuikan'){ if(sb){ curSubCat='tsuikan'; curSub=sb; view='sub'; } else { view='tsuikan'; } catFilter=''; renderNav(); renderMain(); var mn=document.getElementById('main'); if(mn) mn.scrollTop=0; return; } kanriGo(g, sb); });
   document.querySelectorAll('[data-chk]').forEach(el=>el.onchange=e=>{
     const id=e.target.dataset.chk; lsSet('kanribu_chk_'+id, e.target.checked?'1':'0'); renderDash();
   });
@@ -499,6 +501,18 @@ window.openDash = ()=>{ view='dash'; renderNav(); renderMain(); };
 window.openCat  = (id)=>{ view=id; renderNav(); renderMain(); };
 window.openSub  = (catId, subId)=>{ curSubCat=catId; curSub=subId; view='sub'; catFilter=''; renderNav(); renderMain(); };
 
+// 親(index.html)から実データを受け取り、追完対応(tsuikan)を実データ化
+window.addEventListener('message', function(ev){
+  var d=ev&&ev.data; if(!d) return;
+  if(d.type==='kanri-data' && d.cat==='tsuikan'){
+    var cat=cats.find(function(x){return x.id==='tsuikan';}); if(!cat) return;
+    cat.subs.forEach(function(s){
+      if(d.subs && d.subs[s.id]){ s.cases=d.subs[s.id]; s.count=(d.counts&&typeof d.counts[s.id]==='number')?d.counts[s.id]:s.cases.length; s._real=true; }
+    });
+    try{ if(view==='dash'||view==='tsuikan'||(view==='sub'&&curSubCat==='tsuikan')){ renderNav(); renderMain(); } }catch(e){}
+  }
+});
+try{ (window.parent && window.parent!==window ? window.parent : window).postMessage({type:'kanri-req', cat:'tsuikan'}, '*'); }catch(e){}
 renderNav(); renderMain();
 </script>
 </body>
