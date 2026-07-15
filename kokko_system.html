@@ -3803,32 +3803,6 @@ async function _shkFuyo(cid){
     var cnt=document.getElementById('shinkiCount'); if(cnt) cnt.textContent='（未振り分け '+(window._shinkiUnlinked||[]).length+'件）';
   }catch(e){ toast('対象外の設定に失敗: '+(e.message||e)); }
 }
-// ver.20260715.15: 「他のラウンドから探す」検索（全ステータスのカードが対象）
-function _shkFilterAll(safe){
-  var q=(document.getElementById('shkq_'+safe)||{}).value||'';
-  var sel=document.getElementById('shkall_'+safe); if(!sel) return;
-  var key=_normSearch(q);
-  var all=window._shinkiKokko||[];
-  var list=!key?[]:all.filter(function(k){
-    var a=_normSearch(k.kikan_name||''), b=_normSearch(k.company_name||'');
-    return (a&&a.indexOf(key)>=0)||(b&&b.indexOf(key)>=0);
-  }).slice(0,50);
-  // 申請カードを先頭に（補正・完了は後ろ）
-  list.sort(function(x,y){ return (APPLY_STATUSES.indexOf(y.status)>=0?1:0)-(APPLY_STATUSES.indexOf(x.status)>=0?1:0); });
-  sel.innerHTML=list.length
-    ? list.map(function(k){
-        var tag=(HOSEI_STATUSES.indexOf(k.status)>=0)?'[補正]':((COMPLETE_STATUSES.indexOf(k.status)>=0)?'[完了]':'[申請]');
-        return '<option value="'+esc(k.id)+'">'+tag+' '+esc(k.kikan_name||k.company_name||'(無題)')+(k.dan!=null?(' 第'+k.dan+'弾'):'')+'｜'+esc(k.status)+'</option>';
-      }).join('')
-    : (key?'<option value="" disabled>該当なし</option>':'<option value="" disabled>会社名を入力してください</option>');
-}
-// 選択されたカードID（検索側が優先）
-function _shkPickedId(safe){
-  var a=document.getElementById('shkall_'+safe);
-  if(a && a.value) return a.value;
-  var s=document.getElementById('shksel_'+safe);
-  return s?s.value:'';
-}
 function _shkGroupHtml(key, g, cands, rows, safe){
   var h='<div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:12px;padding:12px 14px;">';
   h+='<div style="font-weight:800;color:#0f2040;font-size:14px;margin-bottom:8px;">🏭 '+esc(g.name)+' <span style="font-size:12px;color:#64748b;font-weight:600;">（未振り分け '+rows.length+'名）</span>'
@@ -3837,18 +3811,14 @@ function _shkGroupHtml(key, g, cands, rows, safe){
   if(cands.length){
     h+='<div style="font-size:11px;color:#64748b;margin-bottom:4px;">紐付け先（申請・補正ラウンド）を選択：</div>';
     h+='<select id="shksel_'+safe+'" style="width:100%;padding:7px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:12px;margin-bottom:8px;">';
-    cands.forEach(function(k){ h+='<option value="'+esc(k.id)+'">'+esc(k.kikan_name||k.company_name||'(無題)')+(k.dan!=null?(' 第'+k.dan+'弾'):'')+'｜'+esc(k.status||'')+'</option>'; });
+    cands.forEach(function(k){
+      var tag=(HOSEI_STATUSES.indexOf(k.status)>=0)?'[補正] ':((COMPLETE_STATUSES.indexOf(k.status)>=0)?'[完了] ':'[申請] ');
+      h+='<option value="'+esc(k.id)+'">'+tag+esc(k.kikan_name||k.company_name||'(無題)')+(k.dan!=null?(' 第'+k.dan+'弾'):'')+'｜'+esc(k.status||'')+'</option>';
+    });
     h+='</select>';
   }else{
-    h+='<div style="font-size:11px;color:#b45309;margin-bottom:6px;">この会社のラウンドが自動で見つかりませんでした。下の検索から選ぶか、「新規作成して紐付け」を使ってください。</div>';
+    h+='<div style="font-size:11px;color:#b45309;margin-bottom:8px;">この会社のラウンド（kokko_cases）が見つかりません。「新規作成して紐付け」を使ってください。</div>';
   }
-  // ver.20260715.15: 全カード（申請・補正・完了すべて）から検索して紐付け先に選べる
-  h+='<div style="border:1px dashed #cbd5e1;border-radius:8px;padding:8px 10px;margin-bottom:8px;background:#f8fafc;">'
-    +'<div style="font-size:11px;color:#64748b;margin-bottom:5px;">🔍 他のラウンドから探す（補正カンバンのカードもここに出ます）</div>'
-    +'<input id="shkq_'+safe+'" oninput="_shkFilterAll(\''+safe+'\')" placeholder="会社名で検索…（例: 九州第一）" style="width:100%;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;margin-bottom:6px;box-sizing:border-box;">'
-    +'<select id="shkall_'+safe+'" size="4" style="width:100%;padding:5px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;box-sizing:border-box;"></select>'
-    +'<div style="font-size:10px;color:#94a3b8;margin-top:4px;">※ここで選ぶと、上の「選択を紐付け」はこちらの選択が優先されます</div>'
-    +'</div>';
   h+='<div style="margin-bottom:8px;">';
   rows.forEach(function(c){
     var st='';  /* 写し廃止: 個人別の国交省ステータスは保持しない（正は kokko_cases） */
@@ -3903,7 +3873,7 @@ function _shkGroupHtml(key, g, cands, rows, safe){
   h+='<div style="font-size:11px;color:#64748b;margin:8px 0 4px;">国交省ステータス（紐付けた全員に即統一）：</div>';
   h+='<select id="shkstat_'+safe+'" style="width:100%;padding:7px;border:1.5px solid #cbd5e1;border-radius:6px;font-size:12px;margin-bottom:8px;"><option value="">（紐付け先の現ステータスに統一）</option>'+(typeof ALL_STATUSES!=='undefined'?ALL_STATUSES:[]).map(function(s){return '<option value="'+esc(s)+'">'+esc(s)+'</option>';}).join('')+'</select>';
   h+='<div style="display:flex;gap:8px;">';
-  h+='<button class="btn btn-primary" onclick="_shkLink(\''+safe+'\',\''+esc(key)+'\')">選択を紐付け</button>';
+  if(cands.length) h+='<button class="btn btn-primary" onclick="_shkLink(\''+safe+'\',\''+esc(key)+'\')">選択を紐付け</button>';
   h+='<button class="btn" onclick="_shkCreate(\''+safe+'\',\''+esc(key)+'\')">新規作成して紐付け</button>';
   h+='</div>';
   h+='</div>';
@@ -3986,10 +3956,7 @@ async function _orgFromCases(ids){
   return '';
 }
 async function _shkLink(safe, key){
-  // ver.20260715.15: 検索側(shkall_)で選んだカードを優先。無ければ従来のセレクト
-  var pickedId=_shkPickedId(safe);
-  if(!pickedId){ toast('紐付け先を選択してください'); return; }
-  var sel={value:pickedId};
+  var sel=document.getElementById('shksel_'+safe); if(!sel||!sel.value){ toast('紐付け先を選択してください'); return; }
   var ids=_shkCheckedIds(key); if(!ids.length){ toast('人材を選択してください'); return; }
   var statEl=document.getElementById('shkstat_'+safe); var st=statEl?statEl.value:'';
   try{
