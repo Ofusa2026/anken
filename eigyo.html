@@ -77,11 +77,13 @@ tbody tr:hover{background:#f7fafc;}
 .sub{color:var(--muted);font-size:11px;}
 .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap;}
 .b-未接触{background:#edf2f7;color:#4a5568;}
-.b-架電済{background:#ebf8ff;color:#2b6cb0;}
-.b-資料送付済{background:#faf5ff;color:#6b46c1;}
+.b-接触済み{background:#ebf8ff;color:#2b6cb0;}
+.b-商談予定{background:#e6fffa;color:#285e61;}
 .b-商談中{background:#fffaf0;color:#c05621;}
+.b-勝確{background:#fefcbf;color:#975a16;}
+.b-要経過観察{background:#faf5ff;color:#6b46c1;}
+.b-見込みなし{background:#fff5f5;color:#c53030;}
 .b-成約{background:#f0fff4;color:#276749;}
-.b-見送り{background:#fff5f5;color:#c53030;}
 .b-対象外{background:#f7fafc;color:#a0aec0;}
 .tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;margin-left:4px;}
 .t-client{background:#f0fff4;color:#276749;border:1px solid #9ae6b4;}
@@ -145,10 +147,11 @@ tbody tr:hover{background:#f7fafc;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260723.04</div>
+      <div class="ver">ver.20260723.05</div>
     </div>
     <div class="toolbar">
-      <button class="btn btn-primary" onclick="el('csvFile').click()">📥 CSV取込</button>
+      <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
+      <button class="btn" onclick="el('csvFile').click()">📥 CSV取込</button>
       <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="importCsv(this)">
       <button class="btn" onclick="exportCsv()">⬇ 表示中をCSV</button>
       <button class="btn" onclick="load()">↻ 再読込</button>
@@ -173,6 +176,8 @@ tbody tr:hover{background:#f7fafc;}
     <select id="fStatus"><option value="">全ステータス</option></select>
     <select id="fStaff"><option value="">全担当者</option></select>
     <select id="fEntity"><option value="">全区分</option></select>
+    <select id="fIndustry"><option value="">全業種</option></select>
+    <select id="fSelf"><option value="">自社支援：全て</option></select>
     <select id="fSort">
       <option value="next">次回アクション日順</option>
       <option value="name">名称順</option>
@@ -216,6 +221,39 @@ tbody tr:hover{background:#f7fafc;}
 </div>
 
 <div class="overlay" id="ov" onclick="closeDrawer()"></div>
+
+<!-- 新規登録モーダル -->
+<div class="overlay" id="nvOv" onclick="closeNew()"></div>
+<div id="nvBox" style="display:none;position:fixed;z-index:61;top:50%;left:50%;transform:translate(-50%,-50%);
+     width:min(560px,94vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;
+     padding:22px 24px;box-shadow:0 8px 30px rgba(0,0,0,.18);">
+  <h2 style="margin:0 0 4px;font-size:18px;color:var(--accent);">リードを新規登録</h2>
+  <p style="margin:0 0 16px;font-size:12px;color:var(--muted);">登録簿に無い先を手動で追加します。</p>
+  <div id="nvMsg" class="msg"></div>
+  <div class="form">
+    <label>名称 <span style="color:#c53030;">*</span></label><input type="text" id="vName" placeholder="株式会社○○">
+    <label>登録番号</label><input type="text" id="vRegNo" placeholder="空欄なら自動採番（M-…）">
+    <label>都道府県</label><select id="vPref"><option value="">（未設定）</option></select>
+    <label>市区町村</label><input type="text" id="vCity">
+    <label>住所</label><input type="text" id="vAddress">
+    <label>電話</label><input type="text" id="vTel">
+    <label>代表者</label><input type="text" id="vRep">
+    <label>事業者区分</label><select id="vEntity"></select>
+    <label>業種</label><select id="vIndustry"><option value="">（未設定）</option></select>
+    <label>自社支援</label><select id="vSelf"><option value="">（未設定）</option></select>
+    <label>被保険者数</label><input type="number" id="vInsured">
+    <label>支援者数</label><input type="number" id="vSupporter">
+    <label>上場</label><select id="vListed"><option value="">未確認</option><option value="1">上場</option><option value="0">非上場</option></select>
+    <label>ステータス</label><select id="vStatus"></select>
+    <label>担当者</label><select id="vStaff"><option value="">（未設定）</option></select>
+    <label>次回予定日</label><input type="date" id="vNextDate">
+    <label>メモ</label><textarea id="vMemo"></textarea>
+  </div>
+  <div style="margin-top:16px;text-align:right;display:flex;gap:8px;justify-content:flex-end;">
+    <button class="btn" onclick="closeNew()">キャンセル</button>
+    <button class="btn btn-primary" onclick="saveNew()">登録する</button>
+  </div>
+</div>
 <div class="drawer" id="dw">
   <div class="dhead">
     <h2 class="dtitle" id="dTitle">-</h2>
@@ -231,9 +269,14 @@ var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-var STATUSES = ['未接触','架電済','資料送付済','商談中','成約','見送り','対象外'];
+var STATUSES = ['未接触','接触済み','商談予定','商談中','勝確','要経過観察','見込みなし','成約','対象外'];
+// KPIカードに出すステータス（対象外は除く）
+var KPI_STATUSES = ['未接触','接触済み','商談予定','商談中','勝確','要経過観察','見込みなし','成約'];
 var KINDS    = ['架電','メール','訪問','郵送','その他'];
 var PRIOS    = ['','A','B','C'];
+var INDUSTRIES = ['介護','ビルクリーニング','工業製品製造業','建設','造船・舶用工業','自動車整備',
+  '航空','宿泊','自動車運送業','鉄道','農業','漁業','飲食料品製造業','外食業','林業','木材産業','その他'];
+var SELF_SUPPORTS = ['自社支援','委託','併用','未確認'];
 var PREFS = ['北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県','新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県','鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県','海外'];
 
 // 地方ごとにまとめて表示する
@@ -296,8 +339,12 @@ function initUi(){
   STATUSES.forEach(function(x){ s.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
   var en = el('fEntity');
   ENTITIES.forEach(function(x){ en.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
+  var ind = el('fIndustry');
+  INDUSTRIES.forEach(function(x){ ind.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
+  var sf = el('fSelf');
+  SELF_SUPPORTS.forEach(function(x){ sf.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
   buildPrefButtons();
-  ['fQ','fPref','fStatus','fStaff','fEntity','fSort','fDue','fHideShigyo','fHideClient','fHideSusp'].forEach(function(id){
+  ['fQ','fPref','fStatus','fStaff','fEntity','fIndustry','fSelf','fSort','fDue','fHideShigyo','fHideClient','fHideSusp'].forEach(function(id){
     var e = el(id);
     var ev = (e.type==='text') ? 'input' : 'change';
     var t;
@@ -365,6 +412,7 @@ function loadPrefCounts(){
 }
 function resetFilters(){
   el('fQ').value=''; el('fPref').value=''; el('fStatus').value=''; el('fStaff').value=''; el('fEntity').value='';
+  el('fIndustry').value=''; el('fSelf').value='';
   el('fSort').value='next'; el('fDue').checked=false;
   el('fHideShigyo').checked=true;
   el('fHideClient').checked=true; el('fHideSusp').checked=true;
@@ -394,6 +442,8 @@ function buildQuery(forCount){
   if(el('fStatus').value) q = q.eq('status', el('fStatus').value);
   if(el('fStaff').value)  q = q.eq('staff', el('fStaff').value);
   if(el('fEntity').value) q = q.eq('entity_type', el('fEntity').value);
+  if(el('fIndustry').value) q = q.eq('industry', el('fIndustry').value);
+  if(el('fSelf').value)     q = q.eq('self_support', el('fSelf').value);
   if(el('fHideShigyo').checked) q = q.not('entity_type','in','("'+SHIGYO.join('","')+'")');
   if(el('fHideClient').checked) q = q.eq('is_client', false);
   if(el('fHideSusp').checked)   q = q.eq('is_suspended', false);
@@ -445,7 +495,8 @@ function render(){
     return '<tr onclick="openDrawer(\''+esc(x.reg_no)+'\')">'
       + '<td class="sub">'+esc(x.reg_no)+'</td>'
       + '<td><span class="nm">'+esc(x.name)+'</span>'+tags
-      +   '<div class="sub">'+esc(x.entity_type||'')+(x.entity_type?' ／ ':'')+esc(x.address||'')+(x.office_count>1?'（事務所'+x.office_count+'）':'')+'</div></td>'
+      +   '<div class="sub">'+[esc(x.entity_type||''),esc(x.industry||''),esc(x.self_support||'')].filter(Boolean).join(' ／ ')
+      +   (x.entity_type||x.industry||x.self_support?' ／ ':'')+esc(x.address||'')+(x.office_count>1?'（事務所'+x.office_count+'）':'')+'</div></td>'
       + '<td>'+esc(x.pref||'')+'</td>'
       + '<td style="text-align:right;">'+num(x.insured_count)+'</td>'
       + '<td style="text-align:right;">'+num(x.supporter_count)+'</td>'
@@ -470,25 +521,19 @@ function nextPage(){ if((page+1)*PAGE < total){ page++; load(); window.scrollTo(
 
 /* ---------------- KPI ---------------- */
 function loadKpis(){
-  var defs = [
-    {k:'要対応',   cls:'s5', f:function(q){ return q.lte('next_action_date', today()); }},
-    {k:'未接触',   cls:'s0', f:function(q){ return q.eq('status','未接触'); }},
-    {k:'架電済',   cls:'s1', f:function(q){ return q.eq('status','架電済'); }},
-    {k:'資料送付済',cls:'s2', f:function(q){ return q.eq('status','資料送付済'); }},
-    {k:'商談中',   cls:'s3', f:function(q){ return q.eq('status','商談中'); }},
-    {k:'成約',     cls:'s4', f:function(q){ return q.eq('status','成約'); }}
-  ];
+  var CLS = { '未接触':'s0','接触済み':'s1','商談予定':'s1','商談中':'s3',
+              '勝確':'s3','要経過観察':'s2','見込みなし':'s5','成約':'s4' };
   var box = el('kpis');
-  box.innerHTML = defs.map(function(d){
-    return '<div class="kpi '+d.cls+'" data-k="'+esc(d.k)+'"><div class="k">'+esc(d.k)+'</div><div class="v">…</div></div>';
+  box.innerHTML = KPI_STATUSES.map(function(k){
+    return '<div class="kpi '+(CLS[k]||'s0')+'" data-k="'+esc(k)+'"><div class="k">'+esc(k)+'</div><div class="v">…</div></div>';
   }).join('');
-  defs.forEach(function(d,i){
+  KPI_STATUSES.forEach(function(k,i){
     var q = _sb.from('eigyo_leads').select('reg_no', { count:'exact', head:true });
     if(el('fHideShigyo').checked) q = q.not('entity_type','in','("'+SHIGYO.join('","')+'")');
     if(el('fHideClient').checked) q = q.eq('is_client', false);
     if(el('fHideSusp').checked)   q = q.eq('is_suspended', false);
     if(el('fPref').value)         q = q.eq('pref', el('fPref').value);
-    d.f(q).then(function(r){
+    q.eq('status', k).then(function(r){
       var card = box.children[i];
       if(card) card.querySelector('.v').textContent = (r.count||0).toLocaleString();
     });
@@ -496,8 +541,7 @@ function loadKpis(){
   Array.prototype.forEach.call(box.children, function(c){
     c.onclick = function(){
       var k = c.getAttribute('data-k');
-      if(k==='要対応'){ el('fDue').checked = !el('fDue').checked; el('fStatus').value=''; }
-      else { el('fDue').checked=false; el('fStatus').value = (el('fStatus').value===k ? '' : k); }
+      el('fStatus').value = (el('fStatus').value===k ? '' : k);
       page=0; load();
     };
   });
@@ -562,6 +606,10 @@ function renderDrawer(){
   +     '<option value="0"'+(x.is_listed===false?' selected':'')+'>非上場</option></select>'
   +   '<label>法人番号</label><input type="text" id="eCorpNo" value="'+esc(x.corp_no||'')+'" placeholder="13桁">'
   +   '<label>事業者区分</label><select id="eEntity">'+ENTITIES.map(function(t){return '<option'+(t===x.entity_type?' selected':'')+'>'+esc(t)+'</option>';}).join('')+'</select>'
+  +   '<label>業種</label><select id="eIndustry"><option value="">（未設定）</option>'
+  +     INDUSTRIES.map(function(t){return '<option'+(t===x.industry?' selected':'')+'>'+esc(t)+'</option>';}).join('')+'</select>'
+  +   '<label>自社支援</label><select id="eSelf"><option value="">（未設定）</option>'
+  +     SELF_SUPPORTS.map(function(t){return '<option'+(t===x.self_support?' selected':'')+'>'+esc(t)+'</option>';}).join('')+'</select>'
   + '</div><div style="margin-top:10px;text-align:right;"><button class="btn" onclick="saveProfile()">プロフィールを保存</button></div></div>'
 
   + '<div class="sec"><h3>対応履歴を追加</h3><div class="form">'
@@ -610,7 +658,9 @@ function saveProfile(){
     supporter_count: sv==='' ? null : parseInt(sv,10),
     is_listed:       lv==='' ? null : (lv==='1'),
     corp_no:         el('eCorpNo').value.trim() || null,
-    entity_type:     el('eEntity').value || null
+    entity_type:     el('eEntity').value || null,
+    industry:        el('eIndustry').value || null,
+    self_support:    el('eSelf').value || null
   };
   _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
     if(r.error){ showMsg('dMsg','保存に失敗しました：'+r.error.message,'err'); return; }
@@ -662,6 +712,80 @@ function addNote(){
       loadNotes(curLead.reg_no);
       load();
     });
+  });
+}
+
+/* ---------------- 新規登録 ---------------- */
+var _nvReady = false;
+function openNew(){
+  if(!_nvReady){
+    var fill = function(id, arr, blank){
+      var s = el(id);
+      arr.forEach(function(x){ s.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
+    };
+    fill('vPref', PREFS);
+    fill('vEntity', ENTITIES);
+    fill('vIndustry', INDUSTRIES);
+    fill('vSelf', SELF_SUPPORTS);
+    fill('vStatus', STATUSES);
+    fill('vStaff', staffOptions);
+    _nvReady = true;
+  }
+  ['vName','vRegNo','vCity','vAddress','vTel','vRep','vInsured','vSupporter','vNextDate','vMemo'].forEach(function(id){ el(id).value=''; });
+  el('vPref').value=''; el('vIndustry').value=''; el('vSelf').value='';
+  el('vListed').value=''; el('vStaff').value='';
+  el('vEntity').value='法人'; el('vStatus').value='未接触';
+  showMsg('nvMsg','','');
+  el('nvOv').classList.add('on');
+  el('nvBox').style.display='block';
+}
+function closeNew(){
+  el('nvOv').classList.remove('on');
+  el('nvBox').style.display='none';
+}
+function saveNew(){
+  var name = el('vName').value.trim();
+  if(!name){ showMsg('nvMsg','名称は必須です','err'); return; }
+  var regNo = el('vRegNo').value.trim();
+  if(!regNo){
+    regNo = 'M-' + today().replace(/-/g,'') + '-' + String(Date.now()).slice(-6);
+  }
+  var iv = el('vInsured').value.trim(), sv = el('vSupporter').value.trim(), lv = el('vListed').value;
+  var rec = {
+    reg_no:          regNo,
+    name:            name,
+    pref:            el('vPref').value || null,
+    city:            el('vCity').value.trim() || null,
+    address:         el('vAddress').value.trim() || null,
+    tel:             el('vTel').value.trim().replace(/[^0-9]/g,'') || null,
+    rep_name:        el('vRep').value.trim() || null,
+    entity_type:     el('vEntity').value || null,
+    industry:        el('vIndustry').value || null,
+    self_support:    el('vSelf').value || null,
+    insured_count:   iv==='' ? null : parseInt(iv,10),
+    supporter_count: sv==='' ? null : parseInt(sv,10),
+    is_listed:       lv==='' ? null : (lv==='1'),
+    status:          el('vStatus').value,
+    staff:           el('vStaff').value || null,
+    next_action_date:el('vNextDate').value || null,
+    memo:            el('vMemo').value.trim() || null,
+    offices:         [],
+    office_count:    0,
+    is_suspended:    false,
+    is_client:       false,
+    is_manual:       true,
+    source:          '手動登録'
+  };
+  _sb.from('eigyo_leads').insert(rec).then(function(r){
+    if(r.error){
+      var m = r.error.message;
+      if(/duplicate|unique/i.test(m)) m = 'この登録番号はすでに登録されています：'+regNo;
+      showMsg('nvMsg','登録に失敗しました：'+m,'err');
+      return;
+    }
+    closeNew();
+    showMsg('topMsg','「'+name+'」を登録しました（'+regNo+'）','ok');
+    page = 0; load(); loadPrefCounts();
   });
 }
 
@@ -776,7 +900,7 @@ function runImport(recs){
 /* ---------------- CSV出力 ---------------- */
 function exportCsv(){
   if(!curRows.length){ showMsg('topMsg','出力する行がありません','err'); return; }
-  var cols = ['reg_no','name','entity_type','pref','city','address','tel','rep_name','languages','insured_count','supporter_count','is_listed','corp_no','status','staff','priority','next_action','next_action_date','last_contact_date','memo'];
+  var cols = ['reg_no','name','entity_type','pref','city','address','tel','rep_name','languages','industry','self_support','insured_count','supporter_count','is_listed','corp_no','status','staff','priority','next_action','next_action_date','last_contact_date','memo'];
   var lines = [cols.join(',')];
   curRows.forEach(function(x){
     lines.push(cols.map(function(c){
@@ -791,7 +915,7 @@ function exportCsv(){
   a.click();
 }
 
-document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeDrawer(); });
+document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ closeDrawer(); closeNew(); } });
 boot();
 </script>
 </body>
