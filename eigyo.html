@@ -147,7 +147,7 @@ tbody tr:hover{background:#f7fafc;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260723.05</div>
+      <div class="ver">ver.20260723.06</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -185,10 +185,6 @@ tbody tr:hover{background:#f7fafc;}
       <option value="new">登録日が新しい順</option>
       <option value="insured">被保険者数が多い順</option>
     </select>
-    <label class="chk"><input type="checkbox" id="fDue"> 要対応のみ</label>
-    <label class="chk"><input type="checkbox" id="fHideShigyo" checked> 士業・個人を除く</label>
-    <label class="chk"><input type="checkbox" id="fHideClient" checked> 既存顧客を除く</label>
-    <label class="chk"><input type="checkbox" id="fHideSusp" checked> 休止中を除く</label>
     <button class="btn btn-sm" onclick="resetFilters()">クリア</button>
   </div>
 
@@ -344,19 +340,13 @@ function initUi(){
   var sf = el('fSelf');
   SELF_SUPPORTS.forEach(function(x){ sf.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
   buildPrefButtons();
-  ['fQ','fPref','fStatus','fStaff','fEntity','fIndustry','fSelf','fSort','fDue','fHideShigyo','fHideClient','fHideSusp'].forEach(function(id){
+  ['fQ','fPref','fStatus','fStaff','fEntity','fIndustry','fSelf','fSort'].forEach(function(id){
     var e = el(id);
     var ev = (e.type==='text') ? 'input' : 'change';
     var t;
     e.addEventListener(ev, function(){
       clearTimeout(t);
-      t = setTimeout(function(){
-        page=0;
-        syncPrefButtons();
-        // 除外条件が変わると各県の件数も変わるので数え直す
-        if(id==='fHideShigyo'||id==='fHideClient'||id==='fHideSusp') loadPrefCounts();
-        load();
-      }, e.type==='text'?350:0);
+      t = setTimeout(function(){ page=0; syncPrefButtons(); load(); }, e.type==='text'?350:0);
     });
   });
 }
@@ -394,11 +384,7 @@ function syncPrefButtons(){
 // 各都道府県の件数（現在の除外条件を反映）
 function loadPrefCounts(){
   function baseQ(){
-    var q = _sb.from('eigyo_leads').select('reg_no', { count:'exact', head:true });
-    if(el('fHideShigyo').checked) q = q.not('entity_type','in','("'+SHIGYO.join('","')+'")');
-    if(el('fHideClient').checked) q = q.eq('is_client', false);
-    if(el('fHideSusp').checked)   q = q.eq('is_suspended', false);
-    return q;
+    return applyExclusions(_sb.from('eigyo_leads').select('reg_no', { count:'exact', head:true }));
   }
   baseQ().then(function(r){
     var e = el('pn-all'); if(e) e.textContent = r.count ? '('+r.count.toLocaleString()+')' : '';
@@ -413,9 +399,7 @@ function loadPrefCounts(){
 function resetFilters(){
   el('fQ').value=''; el('fPref').value=''; el('fStatus').value=''; el('fStaff').value=''; el('fEntity').value='';
   el('fIndustry').value=''; el('fSelf').value='';
-  el('fSort').value='next'; el('fDue').checked=false;
-  el('fHideShigyo').checked=true;
-  el('fHideClient').checked=true; el('fHideSusp').checked=true;
+  el('fSort').value='next';
   page=0; syncPrefButtons(); loadPrefCounts(); load();
 }
 // 担当者は営業担当の4名に固定
@@ -428,6 +412,13 @@ function loadStaff(){
 }
 
 /* ---------------- 一覧 ---------------- */
+// 営業対象外はリストに出さない（士業・個人／既存顧客／支援業務休止中）
+function applyExclusions(q){
+  return q.not('entity_type','in','("'+SHIGYO.join('","')+'")')
+          .eq('is_client', false)
+          .eq('is_suspended', false);
+}
+
 function buildQuery(forCount){
   var q = _sb.from('eigyo_leads').select('*', { count: forCount ? 'exact' : undefined });
   var kw = el('fQ').value.trim();
@@ -444,10 +435,7 @@ function buildQuery(forCount){
   if(el('fEntity').value) q = q.eq('entity_type', el('fEntity').value);
   if(el('fIndustry').value) q = q.eq('industry', el('fIndustry').value);
   if(el('fSelf').value)     q = q.eq('self_support', el('fSelf').value);
-  if(el('fHideShigyo').checked) q = q.not('entity_type','in','("'+SHIGYO.join('","')+'")');
-  if(el('fHideClient').checked) q = q.eq('is_client', false);
-  if(el('fHideSusp').checked)   q = q.eq('is_suspended', false);
-  if(el('fDue').checked)        q = q.lte('next_action_date', today());
+  q = applyExclusions(q);
 
   var sort = el('fSort').value;
   if(sort==='next')         q = q.order('next_action_date',{ascending:true,nullsFirst:false}).order('name',{ascending:true});
@@ -529,10 +517,8 @@ function loadKpis(){
   }).join('');
   KPI_STATUSES.forEach(function(k,i){
     var q = _sb.from('eigyo_leads').select('reg_no', { count:'exact', head:true });
-    if(el('fHideShigyo').checked) q = q.not('entity_type','in','("'+SHIGYO.join('","')+'")');
-    if(el('fHideClient').checked) q = q.eq('is_client', false);
-    if(el('fHideSusp').checked)   q = q.eq('is_suspended', false);
-    if(el('fPref').value)         q = q.eq('pref', el('fPref').value);
+    q = applyExclusions(q);
+    if(el('fPref').value) q = q.eq('pref', el('fPref').value);
     q.eq('status', k).then(function(r){
       var card = box.children[i];
       if(card) card.querySelector('.v').textContent = (r.count||0).toLocaleString();
