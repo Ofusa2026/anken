@@ -60,6 +60,8 @@ body{
 .prefrow{display:flex;gap:8px;margin-bottom:8px;align-items:flex-start;}
 .prefrow:last-child{margin-bottom:0;}
 .reglab{flex:0 0 68px;font-size:11px;color:var(--muted);font-weight:700;padding-top:5px;}
+.reg-click{cursor:pointer;user-select:none;}
+.reg-click:hover{color:var(--accent);text-decoration:underline;}
 .prefbtns{display:flex;flex-wrap:wrap;gap:5px;}
 .pbtn{padding:4px 9px;border:1px solid var(--line);border-radius:6px;background:#fff;font-size:12px;cursor:pointer;color:var(--text);white-space:nowrap;}
 .pbtn:hover{background:#edf2f7;}
@@ -163,7 +165,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260724.04</div>
+      <div class="ver">ver.20260724.05</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -193,7 +195,6 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
 
   <div class="filters">
     <input type="text" id="fQ" placeholder="名称・住所・代表者・電話で検索">
-    <select id="fPref"><option value="">全都道府県</option></select>
     <select id="fStatus"><option value="">全ステータス</option></select>
     <select id="fStaff"><option value="">全担当者</option></select>
     <select id="fEntity"><option value="">全区分</option></select>
@@ -329,6 +330,7 @@ var SHIGYO = ['個人事業主','行政書士事務所','社労士事務所','�
 
 var PAGE = 50;
 var page = 0, total = 0, curRows = [], staffOptions = [], me = '';
+var selPrefs = [];   // 選択中の都道府県（複数可）
 
 function esc(s){
   if(s===null||s===undefined) return '';
@@ -366,8 +368,6 @@ function onLoggedIn(session){
 
 /* ---------------- 初期化 ---------------- */
 function initUi(){
-  var p = el('fPref');
-  PREFS.forEach(function(x){ p.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
   var s = el('fStatus');
   STATUSES.forEach(function(x){ s.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
   var en = el('fEntity');
@@ -377,7 +377,7 @@ function initUi(){
   var sf = el('fSelf');
   SELF_SUPPORTS.forEach(function(x){ sf.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
   buildPrefButtons();
-  ['fQ','fPref','fStatus','fStaff','fEntity','fIndustry','fSelf','fSort'].forEach(function(id){
+  ['fQ','fStatus','fStaff','fEntity','fIndustry','fSelf','fSort'].forEach(function(id){
     var e = el(id);
     var ev = (e.type==='text') ? 'input' : 'change';
     var t;
@@ -394,8 +394,8 @@ function buildPrefButtons(){
   html += '<div class="prefrow"><div class="reglab">全国</div><div class="prefbtns">'
         + '<button class="pbtn on" data-pref="" onclick="pickPref(\'\')">すべて<span class="n" id="pn-all"></span></button>'
         + '</div></div>';
-  REGIONS.forEach(function(rg){
-    html += '<div class="prefrow"><div class="reglab">'+esc(rg[0])+'</div><div class="prefbtns">'
+  REGIONS.forEach(function(rg, ri){
+    html += '<div class="prefrow"><div class="reglab reg-click" onclick="pickRegion('+ri+')" title="この地方をまとめて選択／解除">'+esc(rg[0])+'</div><div class="prefbtns">'
       + rg[1].map(function(pf){
           return '<button class="pbtn" data-pref="'+esc(pf)+'" onclick="pickPref(\''+esc(pf)+'\')">'
                + esc(pf.replace(/[都道府県]$/,'')) + '<span class="n" id="pn-'+esc(pf)+'"></span></button>';
@@ -406,17 +406,36 @@ function buildPrefButtons(){
   loadPrefCounts();
 }
 function pickPref(pf){
-  el('fPref').value = pf;
-  page = 0;
-  syncPrefButtons();
-  load();
+  if(pf === ''){ selPrefs = []; }                 // 「すべて」
+  else {
+    var i = selPrefs.indexOf(pf);
+    if(i >= 0) selPrefs.splice(i,1); else selPrefs.push(pf);
+  }
+  page = 0; syncPrefButtons(); load();
+}
+// 地方単位でまとめて選択／解除
+function pickRegion(ri){
+  var list = REGIONS[ri][1];
+  var allOn = list.every(function(pf){ return selPrefs.indexOf(pf) >= 0; });
+  list.forEach(function(pf){
+    var i = selPrefs.indexOf(pf);
+    if(allOn){ if(i >= 0) selPrefs.splice(i,1); }
+    else     { if(i < 0)  selPrefs.push(pf); }
+  });
+  page = 0; syncPrefButtons(); load();
 }
 function syncPrefButtons(){
-  var cur = el('fPref').value;
   Array.prototype.forEach.call(el('prefBox').querySelectorAll('.pbtn'), function(b){
-    if(b.getAttribute('data-pref') === cur) b.classList.add('on');
-    else b.classList.remove('on');
+    var pf = b.getAttribute('data-pref');
+    var on = (pf === '') ? (selPrefs.length === 0) : (selPrefs.indexOf(pf) >= 0);
+    b.classList.toggle('on', on);
   });
+}
+// 都道府県の絞り込みをクエリに適用
+function applyPrefFilter(q){
+  if(selPrefs.length === 1) return q.eq('pref', selPrefs[0]);
+  if(selPrefs.length > 1)   return q.in('pref', selPrefs);
+  return q;
 }
 // 各都道府県の件数（現在の除外条件を反映）
 function loadPrefCounts(){
@@ -434,7 +453,7 @@ function loadPrefCounts(){
   });
 }
 function resetFilters(){
-  el('fQ').value=''; el('fPref').value=''; el('fStatus').value=''; el('fStaff').value=''; el('fEntity').value='';
+  el('fQ').value=''; selPrefs=[]; el('fStatus').value=''; el('fStaff').value=''; el('fEntity').value='';
   el('fIndustry').value=''; el('fSelf').value='';
   el('fSort').value='new';
   page=0; syncPrefButtons(); loadPrefCounts(); load();
@@ -466,7 +485,7 @@ function buildQuery(forCount){
       q = q.or('name.ilike.*'+safe+'*,address.ilike.*'+safe+'*,rep_name.ilike.*'+safe+'*,tel.ilike.*'+safe+'*');
     }
   }
-  if(el('fPref').value)   q = q.eq('pref', el('fPref').value);
+  q = applyPrefFilter(q);
   if(el('fStatus').value) q = q.eq('status', el('fStatus').value);
   if(el('fStaff').value)  q = q.eq('staff', el('fStaff').value);
   if(el('fEntity').value) q = q.eq('entity_type', el('fEntity').value);
@@ -618,7 +637,7 @@ function loadKpis(){
   KPI_STATUSES.forEach(function(k,i){
     var q = _sb.from('eigyo_leads').select('reg_no', { count:'exact', head:true });
     q = applyExclusions(q);
-    if(el('fPref').value) q = q.eq('pref', el('fPref').value);
+    q = applyPrefFilter(q);
     q.eq('status', k).then(function(r){
       var card = box.children[i];
       if(card) card.querySelector('.v').textContent = (r.count||0).toLocaleString();
