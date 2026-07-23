@@ -147,7 +147,7 @@ tbody tr:hover{background:#f7fafc;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260723.06</div>
+      <div class="ver">ver.20260723.08</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -192,6 +192,7 @@ tbody tr:hover{background:#f7fafc;}
     <table>
       <thead><tr>
         <th style="width:104px;">登録番号</th>
+        <th style="width:92px;">登録日</th>
         <th>名称 / 所在地</th>
         <th style="width:80px;">都道府県</th>
         <th style="width:76px;">被保険者</th>
@@ -202,7 +203,7 @@ tbody tr:hover{background:#f7fafc;}
         <th style="width:92px;">担当</th>
         <th style="width:100px;">次回</th>
       </tr></thead>
-      <tbody id="rows"><tr><td colspan="10" class="loading">読み込み中...</td></tr></tbody>
+      <tbody id="rows"><tr><td colspan="11" class="loading">読み込み中...</td></tr></tbody>
     </table>
   </div>
 
@@ -234,6 +235,7 @@ tbody tr:hover{background:#f7fafc;}
     <label>住所</label><input type="text" id="vAddress">
     <label>電話</label><input type="text" id="vTel">
     <label>代表者</label><input type="text" id="vRep">
+    <label>HP URL</label><input type="text" id="vSite" placeholder="https://example.co.jp">
     <label>事業者区分</label><select id="vEntity"></select>
     <label>業種</label><select id="vIndustry"><option value="">（未設定）</option></select>
     <label>自社支援</label><select id="vSelf"><option value="">（未設定）</option></select>
@@ -447,10 +449,10 @@ function buildQuery(forCount){
 }
 
 function load(){
-  el('rows').innerHTML = '<tr><td colspan="10" class="loading">読み込み中...</td></tr>';
+  el('rows').innerHTML = '<tr><td colspan="11" class="loading">読み込み中...</td></tr>';
   buildQuery(true).range(page*PAGE, page*PAGE+PAGE-1).then(function(r){
     if(r.error){
-      el('rows').innerHTML = '<tr><td colspan="10" class="empty">読み込みエラー：'+esc(r.error.message)+'</td></tr>';
+      el('rows').innerHTML = '<tr><td colspan="11" class="empty">読み込みエラー：'+esc(r.error.message)+'</td></tr>';
       return;
     }
     curRows = r.data || [];
@@ -462,7 +464,7 @@ function load(){
 
 function render(){
   if(!curRows.length){
-    el('rows').innerHTML = '<tr><td colspan="10" class="empty">該当するリードがありません。<br><span class="sub">まだ取り込んでいない場合は、右上の「📥 CSV取込」から eigyo_leads.csv を読み込んでください。</span></td></tr>';
+    el('rows').innerHTML = '<tr><td colspan="11" class="empty">該当するリードがありません。<br><span class="sub">まだ取り込んでいない場合は、右上の「📥 CSV取込」から eigyo_leads.csv を読み込んでください。</span></td></tr>';
     el('cntTxt').textContent = '0 件';
     el('pageTxt').textContent = '-';
     return;
@@ -480,9 +482,14 @@ function render(){
     if(x.is_suspended) tags += '<span class="tag t-susp">休止</span>';
     var listed = (x.is_listed===true) ? '<b>上場</b>' : (x.is_listed===false ? '<span class="sub">非上場</span>' : '<span class="sub">—</span>');
     var num = function(v){ return (v===null||v===undefined) ? '<span class="sub">—</span>' : Number(v).toLocaleString(); };
+    var site = x.website
+      ? ' <a href="'+esc(x.website)+'" target="_blank" rel="noopener" onclick="event.stopPropagation();" '
+        + 'style="font-size:11px;text-decoration:none;" title="'+esc(x.website)+'">🔗HP</a>'
+      : '';
     return '<tr onclick="openDrawer(\''+esc(x.reg_no)+'\')">'
       + '<td class="sub">'+esc(x.reg_no)+'</td>'
-      + '<td><span class="nm">'+esc(x.name)+'</span>'+tags
+      + '<td class="sub">'+esc(x.reg_date||'')+'</td>'
+      + '<td><span class="nm">'+esc(x.name)+'</span>'+site+tags
       +   '<div class="sub">'+[esc(x.entity_type||''),esc(x.industry||''),esc(x.self_support||'')].filter(Boolean).join(' ／ ')
       +   (x.entity_type||x.industry||x.self_support?' ／ ':'')+esc(x.address||'')+(x.office_count>1?'（事務所'+x.office_count+'）':'')+'</div></td>'
       + '<td>'+esc(x.pref||'')+'</td>'
@@ -591,6 +598,7 @@ function renderDrawer(){
   +     '<option value="1"'+(x.is_listed===true?' selected':'')+'>上場</option>'
   +     '<option value="0"'+(x.is_listed===false?' selected':'')+'>非上場</option></select>'
   +   '<label>法人番号</label><input type="text" id="eCorpNo" value="'+esc(x.corp_no||'')+'" placeholder="13桁">'
+  +   '<label>HP URL</label><input type="text" id="eSite" value="'+esc(x.website||'')+'" placeholder="https://example.co.jp">'
   +   '<label>事業者区分</label><select id="eEntity">'+ENTITIES.map(function(t){return '<option'+(t===x.entity_type?' selected':'')+'>'+esc(t)+'</option>';}).join('')+'</select>'
   +   '<label>業種</label><select id="eIndustry"><option value="">（未設定）</option>'
   +     INDUSTRIES.map(function(t){return '<option'+(t===x.industry?' selected':'')+'>'+esc(t)+'</option>';}).join('')+'</select>'
@@ -612,6 +620,7 @@ function renderDrawer(){
   +   '<div class="k">所在地</div><div>〒'+esc(x.zip||'')+'<br>'+esc(x.address||'')+'</div>'
   +   '<div class="k">電話</div><div>'+esc(x.tel||'')+'</div>'
   +   '<div class="k">代表者</div><div>'+esc(x.rep_name||'')+'</div>'
+  +   '<div class="k">HP</div><div>'+(x.website?'<a href="'+esc(x.website)+'" target="_blank" rel="noopener">'+esc(x.website)+'</a>':'-')+'</div>'
   +   '<div class="k">対応言語</div><div>'+esc(x.languages||'')+'</div>'
   +   '<div class="k">支援開始</div><div>'+esc(x.support_start_date||'')+'</div>'
   +   '<div class="k">備考</div><div>'+esc(x.bikou||'-')+'</div>'
@@ -637,6 +646,13 @@ function saveLead(){
   });
 }
 
+function normUrl(v){
+  v = (v||'').trim();
+  if(!v) return null;
+  if(!/^https?:\/\//i.test(v)) v = 'https://' + v;
+  return v;
+}
+
 function saveProfile(){
   var iv = el('eInsured').value.trim(), sv = el('eSupporter').value.trim(), lv = el('eListed').value;
   var patch = {
@@ -644,6 +660,7 @@ function saveProfile(){
     supporter_count: sv==='' ? null : parseInt(sv,10),
     is_listed:       lv==='' ? null : (lv==='1'),
     corp_no:         el('eCorpNo').value.trim() || null,
+    website:         normUrl(el('eSite').value),
     entity_type:     el('eEntity').value || null,
     industry:        el('eIndustry').value || null,
     self_support:    el('eSelf').value || null
@@ -717,7 +734,7 @@ function openNew(){
     fill('vStaff', staffOptions);
     _nvReady = true;
   }
-  ['vName','vRegNo','vCity','vAddress','vTel','vRep','vInsured','vSupporter','vNextDate','vMemo'].forEach(function(id){ el(id).value=''; });
+  ['vName','vRegNo','vCity','vAddress','vTel','vRep','vSite','vInsured','vSupporter','vNextDate','vMemo'].forEach(function(id){ el(id).value=''; });
   el('vPref').value=''; el('vIndustry').value=''; el('vSelf').value='';
   el('vListed').value=''; el('vStaff').value='';
   el('vEntity').value='法人'; el('vStatus').value='未接触';
@@ -745,6 +762,7 @@ function saveNew(){
     address:         el('vAddress').value.trim() || null,
     tel:             el('vTel').value.trim().replace(/[^0-9]/g,'') || null,
     rep_name:        el('vRep').value.trim() || null,
+    website:         normUrl(el('vSite').value),
     entity_type:     el('vEntity').value || null,
     industry:        el('vIndustry').value || null,
     self_support:    el('vSelf').value || null,
@@ -886,7 +904,7 @@ function runImport(recs){
 /* ---------------- CSV出力 ---------------- */
 function exportCsv(){
   if(!curRows.length){ showMsg('topMsg','出力する行がありません','err'); return; }
-  var cols = ['reg_no','name','entity_type','pref','city','address','tel','rep_name','languages','industry','self_support','insured_count','supporter_count','is_listed','corp_no','status','staff','priority','next_action','next_action_date','last_contact_date','memo'];
+  var cols = ['reg_no','name','entity_type','pref','city','address','tel','rep_name','languages','website','industry','self_support','insured_count','supporter_count','is_listed','corp_no','status','staff','priority','next_action','next_action_date','last_contact_date','memo'];
   var lines = [cols.join(',')];
   curRows.forEach(function(x){
     lines.push(cols.map(function(c){
