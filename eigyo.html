@@ -134,9 +134,11 @@ tbody tr:hover{background:#f7fafc;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260723.01</div>
+      <div class="ver">ver.20260723.02</div>
     </div>
     <div class="toolbar">
+      <button class="btn btn-primary" onclick="el('csvFile').click()">📥 CSV取込</button>
+      <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="importCsv(this)">
       <button class="btn" onclick="exportCsv()">⬇ 表示中をCSV</button>
       <button class="btn" onclick="load()">↻ 再読込</button>
       <a class="btn" href="./index.html">← 案シスへ</a>
@@ -144,6 +146,12 @@ tbody tr:hover{background:#f7fafc;}
   </div>
 
   <div id="topMsg" class="msg"></div>
+  <div id="impBox" style="display:none;background:#fff;border-radius:10px;padding:14px 16px;margin-bottom:14px;box-shadow:0 2px 6px rgba(0,0,0,.04);">
+    <div id="impTxt" style="font-size:13px;margin-bottom:8px;">準備中...</div>
+    <div style="height:8px;background:#edf2f7;border-radius:999px;overflow:hidden;">
+      <div id="impBar" style="height:100%;width:0%;background:var(--accent);transition:width .2s;"></div>
+    </div>
+  </div>
   <div class="kpis" id="kpis"></div>
 
   <div class="filters">
@@ -532,6 +540,114 @@ function addNote(){
       load();
     });
   });
+}
+
+/* ---------------- CSV取込 ---------------- */
+// RFC4180準拠の簡易パーサ（引用符内のカンマ・改行・""エスケープに対応）
+function parseCsv(text){
+  if(text.charCodeAt(0)===0xFEFF) text = text.slice(1);   // BOM除去
+  var rows=[], row=[], f='', q=false, i=0;
+  while(i < text.length){
+    var c = text[i];
+    if(q){
+      if(c === '"'){
+        if(text[i+1] === '"'){ f+='"'; i+=2; continue; }
+        q=false; i++; continue;
+      }
+      f+=c; i++; continue;
+    }
+    if(c === '"'){ q=true; i++; continue; }
+    if(c === ','){ row.push(f); f=''; i++; continue; }
+    if(c === '\r'){ i++; continue; }
+    if(c === '\n'){ row.push(f); rows.push(row); row=[]; f=''; i++; continue; }
+    f+=c; i++;
+  }
+  if(f !== '' || row.length){ row.push(f); rows.push(row); }
+  return rows;
+}
+
+var DATE_COLS = ['reg_date','support_start_date','source_date','next_action_date','last_contact_date'];
+var BOOL_COLS = ['is_suspended','is_client'];
+var INT_COLS  = ['office_count'];
+
+function toRecord(header, cells){
+  var o = {};
+  for(var i=0;i<header.length;i++){
+    var k = header[i], v = (cells[i]===undefined ? '' : cells[i]);
+    if(v === ''){ o[k] = null; continue; }
+    if(BOOL_COLS.indexOf(k)>=0){ o[k] = (v==='true'||v==='TRUE'||v==='1'); continue; }
+    if(INT_COLS.indexOf(k)>=0){ var n=parseInt(v,10); o[k] = isNaN(n)?null:n; continue; }
+    if(k === 'offices'){ try{ o[k] = JSON.parse(v); }catch(e){ o[k] = []; } continue; }
+    o[k] = v;
+  }
+  DATE_COLS.forEach(function(k){ if(o[k]==='') o[k]=null; });
+  return o;
+}
+
+function importCsv(input){
+  var file = input.files && input.files[0];
+  input.value = '';
+  if(!file) return;
+  if(!confirm('「'+file.name+'」を eigyo_leads に取り込みます。\n登録番号が同じ行は上書きされます（営業ステータスも上書きされるので注意）。\n実行しますか？')) return;
+
+  el('impBox').style.display='block';
+  el('impTxt').textContent = 'ファイルを読み込んでいます...';
+  el('impBar').style.width = '0%';
+  showMsg('topMsg','','');
+
+  var fr = new FileReader();
+  fr.onerror = function(){ el('impTxt').textContent='ファイルの読み込みに失敗しました。'; };
+  fr.onload = function(){
+    var rows;
+    try{ rows = parseCsv(String(fr.result)); }
+    catch(e){ el('impTxt').textContent='CSVの解析に失敗しました：'+e.message; return; }
+
+    if(rows.length < 2){ el('impTxt').textContent='データ行がありません。'; return; }
+    var header = rows[0].map(function(h){ return h.trim(); });
+    if(header.indexOf('reg_no') < 0){
+      el('impTxt').textContent='1行目に reg_no 列が見つかりません。想定と違うCSVのようです。';
+      return;
+    }
+    var recs = [];
+    for(var i=1;i<rows.length;i++){
+      if(rows[i].length === 1 && rows[i][0] === '') continue;   // 末尾の空行
+      var r = toRecord(header, rows[i]);
+      if(r.reg_no) recs.push(r);
+    }
+    if(!recs.length){ el('impTxt').textContent='取り込める行がありませんでした。'; return; }
+    runImport(recs);
+  };
+  fr.readAsText(file, 'UTF-8');
+}
+
+function runImport(recs){
+  var CH = 500, done = 0, ng = 0, firstErr = '';
+  function step(){
+    if(done >= recs.length){
+      el('impBar').style.width = '100%';
+      if(ng){
+        el('impTxt').textContent = '完了：'+(recs.length-ng).toLocaleString()+'件を取り込み、'+ng.toLocaleString()+'件が失敗しました。';
+        showMsg('topMsg','一部失敗しました：'+firstErr,'err');
+      }else{
+        el('impTxt').textContent = '完了：'+recs.length.toLocaleString()+'件を取り込みました。';
+        showMsg('topMsg','取込が完了しました','ok');
+      }
+      page = 0; load();
+      setTimeout(function(){ el('impBox').style.display='none'; }, 4000);
+      return;
+    }
+    var chunk = recs.slice(done, done+CH);
+    _sb.from('eigyo_leads').upsert(chunk, { onConflict:'reg_no' }).then(function(r){
+      if(r.error){ ng += chunk.length; if(!firstErr) firstErr = r.error.message; }
+      done += chunk.length;
+      var pct = Math.round(done/recs.length*100);
+      el('impBar').style.width = pct+'%';
+      el('impTxt').textContent = '取込中... '+done.toLocaleString()+' / '+recs.length.toLocaleString()+'（'+pct+'%）';
+      setTimeout(step, 0);
+    });
+  }
+  el('impTxt').textContent = '取込中... 0 / '+recs.length.toLocaleString()+'（0%）';
+  step();
 }
 
 /* ---------------- CSV出力 ---------------- */
