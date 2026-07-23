@@ -55,6 +55,17 @@ body{
 .filters input[type=text]{min-width:220px;}
 .chk{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer;}
 
+/* 都道府県ボタン */
+.prefbox{background:#fff;border-radius:10px;padding:12px 14px;margin-bottom:14px;box-shadow:0 2px 6px rgba(0,0,0,.04);}
+.prefrow{display:flex;gap:8px;margin-bottom:8px;align-items:flex-start;}
+.prefrow:last-child{margin-bottom:0;}
+.reglab{flex:0 0 68px;font-size:11px;color:var(--muted);font-weight:700;padding-top:5px;}
+.prefbtns{display:flex;flex-wrap:wrap;gap:5px;}
+.pbtn{padding:4px 9px;border:1px solid var(--line);border-radius:6px;background:#fff;font-size:12px;cursor:pointer;color:var(--text);white-space:nowrap;}
+.pbtn:hover{background:#edf2f7;}
+.pbtn.on{background:var(--accent);color:#fff;border-color:var(--accent);}
+.pbtn .n{font-size:10px;opacity:.65;margin-left:3px;}
+
 /* テーブル */
 .tablewrap{background:#fff;border-radius:10px;box-shadow:0 2px 6px rgba(0,0,0,.04);overflow:auto;}
 table{width:100%;border-collapse:collapse;font-size:12.5px;}
@@ -134,7 +145,7 @@ tbody tr:hover{background:#f7fafc;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260723.02</div>
+      <div class="ver">ver.20260723.03</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="el('csvFile').click()">📥 CSV取込</button>
@@ -154,18 +165,23 @@ tbody tr:hover{background:#f7fafc;}
   </div>
   <div class="kpis" id="kpis"></div>
 
+  <div class="prefbox" id="prefBox"></div>
+
   <div class="filters">
     <input type="text" id="fQ" placeholder="名称・住所・代表者・電話で検索">
     <select id="fPref"><option value="">全都道府県</option></select>
     <select id="fStatus"><option value="">全ステータス</option></select>
     <select id="fStaff"><option value="">全担当者</option></select>
+    <select id="fEntity"><option value="">全区分</option></select>
     <select id="fSort">
       <option value="next">次回アクション日順</option>
       <option value="name">名称順</option>
       <option value="reg">登録番号順</option>
       <option value="new">登録日が新しい順</option>
+      <option value="insured">被保険者数が多い順</option>
     </select>
     <label class="chk"><input type="checkbox" id="fDue"> 要対応のみ</label>
+    <label class="chk"><input type="checkbox" id="fHideShigyo" checked> 士業・個人を除く</label>
     <label class="chk"><input type="checkbox" id="fHideClient" checked> 既存顧客を除く</label>
     <label class="chk"><input type="checkbox" id="fHideSusp" checked> 休止中を除く</label>
     <button class="btn btn-sm" onclick="resetFilters()">クリア</button>
@@ -176,14 +192,16 @@ tbody tr:hover{background:#f7fafc;}
       <thead><tr>
         <th style="width:104px;">登録番号</th>
         <th>名称 / 所在地</th>
-        <th style="width:88px;">都道府県</th>
-        <th style="width:112px;">電話</th>
-        <th style="width:110px;">代表者</th>
+        <th style="width:80px;">都道府県</th>
+        <th style="width:76px;">被保険者</th>
+        <th style="width:66px;">支援者</th>
+        <th style="width:56px;">上場</th>
+        <th style="width:110px;">電話</th>
         <th style="width:92px;">ステータス</th>
-        <th style="width:96px;">担当</th>
+        <th style="width:92px;">担当</th>
         <th style="width:100px;">次回</th>
       </tr></thead>
-      <tbody id="rows"><tr><td colspan="8" class="loading">読み込み中...</td></tr></tbody>
+      <tbody id="rows"><tr><td colspan="10" class="loading">読み込み中...</td></tr></tbody>
     </table>
   </div>
 
@@ -217,6 +235,21 @@ var STATUSES = ['未接触','架電済','資料送付済','商談中','成約','
 var KINDS    = ['架電','メール','訪問','郵送','その他'];
 var PRIOS    = ['','A','B','C'];
 var PREFS = ['北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県','新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県','鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県','海外'];
+
+// 地方ごとにまとめて表示する
+var REGIONS = [
+  ['北海道・東北', ['北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県']],
+  ['関東',         ['茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県']],
+  ['中部',         ['新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県']],
+  ['近畿',         ['三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県']],
+  ['中国・四国',   ['鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県']],
+  ['九州・沖縄',   ['福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県']],
+  ['その他',       ['海外']]
+];
+
+var ENTITIES = ['法人','個人事業主','行政書士事務所','社労士事務所','弁護士事務所','税理士事務所','その他'];
+// 「士業・個人を除く」でリストから落とす区分
+var SHIGYO = ['個人事業主','行政書士事務所','社労士事務所','弁護士事務所'];
 
 var PAGE = 50;
 var page = 0, total = 0, curRows = [], staffOptions = [], me = '';
@@ -261,21 +294,81 @@ function initUi(){
   PREFS.forEach(function(x){ p.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
   var s = el('fStatus');
   STATUSES.forEach(function(x){ s.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
-  ['fQ','fPref','fStatus','fStaff','fSort','fDue','fHideClient','fHideSusp'].forEach(function(id){
+  var en = el('fEntity');
+  ENTITIES.forEach(function(x){ en.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
+  buildPrefButtons();
+  ['fQ','fPref','fStatus','fStaff','fEntity','fSort','fDue','fHideShigyo','fHideClient','fHideSusp'].forEach(function(id){
     var e = el(id);
     var ev = (e.type==='text') ? 'input' : 'change';
     var t;
     e.addEventListener(ev, function(){
       clearTimeout(t);
-      t = setTimeout(function(){ page=0; load(); }, e.type==='text'?350:0);
+      t = setTimeout(function(){
+        page=0;
+        syncPrefButtons();
+        // 除外条件が変わると各県の件数も変わるので数え直す
+        if(id==='fHideShigyo'||id==='fHideClient'||id==='fHideSusp') loadPrefCounts();
+        load();
+      }, e.type==='text'?350:0);
+    });
+  });
+}
+
+/* 都道府県ボタン */
+function buildPrefButtons(){
+  var html = '';
+  html += '<div class="prefrow"><div class="reglab">全国</div><div class="prefbtns">'
+        + '<button class="pbtn on" data-pref="" onclick="pickPref(\'\')">すべて<span class="n" id="pn-all"></span></button>'
+        + '</div></div>';
+  REGIONS.forEach(function(rg){
+    html += '<div class="prefrow"><div class="reglab">'+esc(rg[0])+'</div><div class="prefbtns">'
+      + rg[1].map(function(pf){
+          return '<button class="pbtn" data-pref="'+esc(pf)+'" onclick="pickPref(\''+esc(pf)+'\')">'
+               + esc(pf.replace(/[都道府県]$/,'')) + '<span class="n" id="pn-'+esc(pf)+'"></span></button>';
+        }).join('')
+      + '</div></div>';
+  });
+  el('prefBox').innerHTML = html;
+  loadPrefCounts();
+}
+function pickPref(pf){
+  el('fPref').value = pf;
+  page = 0;
+  syncPrefButtons();
+  load();
+}
+function syncPrefButtons(){
+  var cur = el('fPref').value;
+  Array.prototype.forEach.call(el('prefBox').querySelectorAll('.pbtn'), function(b){
+    if(b.getAttribute('data-pref') === cur) b.classList.add('on');
+    else b.classList.remove('on');
+  });
+}
+// 各都道府県の件数（現在の除外条件を反映）
+function loadPrefCounts(){
+  function baseQ(){
+    var q = _sb.from('eigyo_leads').select('reg_no', { count:'exact', head:true });
+    if(el('fHideShigyo').checked) q = q.not('entity_type','in','("'+SHIGYO.join('","')+'")');
+    if(el('fHideClient').checked) q = q.eq('is_client', false);
+    if(el('fHideSusp').checked)   q = q.eq('is_suspended', false);
+    return q;
+  }
+  baseQ().then(function(r){
+    var e = el('pn-all'); if(e) e.textContent = r.count ? '('+r.count.toLocaleString()+')' : '';
+  });
+  PREFS.forEach(function(pf){
+    baseQ().eq('pref', pf).then(function(r){
+      var e = el('pn-'+pf);
+      if(e) e.textContent = r.count ? '('+r.count.toLocaleString()+')' : '';
     });
   });
 }
 function resetFilters(){
-  el('fQ').value=''; el('fPref').value=''; el('fStatus').value=''; el('fStaff').value='';
+  el('fQ').value=''; el('fPref').value=''; el('fStatus').value=''; el('fStaff').value=''; el('fEntity').value='';
   el('fSort').value='next'; el('fDue').checked=false;
+  el('fHideShigyo').checked=true;
   el('fHideClient').checked=true; el('fHideSusp').checked=true;
-  page=0; load();
+  page=0; syncPrefButtons(); loadPrefCounts(); load();
 }
 // cases から担当者を拾うが、PostgRESTの行数上限で取りこぼす可能性があるため既知分を初期値にする
 var STAFF_SEED = ['大盛　南美','内田　海帆','マッタ　綾子','陳　雅琦','清水　星吏','冨島　有稀',
@@ -307,23 +400,26 @@ function buildQuery(forCount){
   if(el('fPref').value)   q = q.eq('pref', el('fPref').value);
   if(el('fStatus').value) q = q.eq('status', el('fStatus').value);
   if(el('fStaff').value)  q = q.eq('staff', el('fStaff').value);
+  if(el('fEntity').value) q = q.eq('entity_type', el('fEntity').value);
+  if(el('fHideShigyo').checked) q = q.not('entity_type','in','("'+SHIGYO.join('","')+'")');
   if(el('fHideClient').checked) q = q.eq('is_client', false);
   if(el('fHideSusp').checked)   q = q.eq('is_suspended', false);
   if(el('fDue').checked)        q = q.lte('next_action_date', today());
 
   var sort = el('fSort').value;
-  if(sort==='next')      q = q.order('next_action_date',{ascending:true,nullsFirst:false}).order('name',{ascending:true});
-  else if(sort==='name') q = q.order('name',{ascending:true});
-  else if(sort==='reg')  q = q.order('reg_no',{ascending:true});
-  else                   q = q.order('reg_date',{ascending:false,nullsFirst:false});
+  if(sort==='next')         q = q.order('next_action_date',{ascending:true,nullsFirst:false}).order('name',{ascending:true});
+  else if(sort==='name')    q = q.order('name',{ascending:true});
+  else if(sort==='reg')     q = q.order('reg_no',{ascending:true});
+  else if(sort==='insured') q = q.order('insured_count',{ascending:false,nullsFirst:false}).order('name',{ascending:true});
+  else                      q = q.order('reg_date',{ascending:false,nullsFirst:false});
   return q;
 }
 
 function load(){
-  el('rows').innerHTML = '<tr><td colspan="8" class="loading">読み込み中...</td></tr>';
+  el('rows').innerHTML = '<tr><td colspan="10" class="loading">読み込み中...</td></tr>';
   buildQuery(true).range(page*PAGE, page*PAGE+PAGE-1).then(function(r){
     if(r.error){
-      el('rows').innerHTML = '<tr><td colspan="8" class="empty">読み込みエラー：'+esc(r.error.message)+'</td></tr>';
+      el('rows').innerHTML = '<tr><td colspan="10" class="empty">読み込みエラー：'+esc(r.error.message)+'</td></tr>';
       return;
     }
     curRows = r.data || [];
@@ -335,7 +431,7 @@ function load(){
 
 function render(){
   if(!curRows.length){
-    el('rows').innerHTML = '<tr><td colspan="8" class="empty">該当するリードがありません。<br><span class="sub">まだCSVを取り込んでいない場合は、Supabase の Table Editor → eigyo_leads → Import data from CSV で投入してください。</span></td></tr>';
+    el('rows').innerHTML = '<tr><td colspan="10" class="empty">該当するリードがありません。<br><span class="sub">まだ取り込んでいない場合は、右上の「📥 CSV取込」から eigyo_leads.csv を読み込んでください。</span></td></tr>';
     el('cntTxt').textContent = '0 件';
     el('pageTxt').textContent = '-';
     return;
@@ -351,13 +447,17 @@ function render(){
     var tags = '';
     if(x.is_client)    tags += '<span class="tag t-client">既存</span>';
     if(x.is_suspended) tags += '<span class="tag t-susp">休止</span>';
+    var listed = (x.is_listed===true) ? '<b>上場</b>' : (x.is_listed===false ? '<span class="sub">非上場</span>' : '<span class="sub">—</span>');
+    var num = function(v){ return (v===null||v===undefined) ? '<span class="sub">—</span>' : Number(v).toLocaleString(); };
     return '<tr onclick="openDrawer(\''+esc(x.reg_no)+'\')">'
       + '<td class="sub">'+esc(x.reg_no)+'</td>'
       + '<td><span class="nm">'+esc(x.name)+'</span>'+tags
-      +   '<div class="sub">'+esc(x.address||'')+(x.office_count>1?'（事務所'+x.office_count+'）':'')+'</div></td>'
+      +   '<div class="sub">'+esc(x.entity_type||'')+(x.entity_type?' ／ ':'')+esc(x.address||'')+(x.office_count>1?'（事務所'+x.office_count+'）':'')+'</div></td>'
       + '<td>'+esc(x.pref||'')+'</td>'
+      + '<td style="text-align:right;">'+num(x.insured_count)+'</td>'
+      + '<td style="text-align:right;">'+num(x.supporter_count)+'</td>'
+      + '<td>'+listed+'</td>'
       + '<td class="sub">'+esc(x.tel||'')+'</td>'
-      + '<td>'+esc(x.rep_name||'')+'</td>'
       + '<td><span class="badge b-'+esc(x.status)+'">'+esc(x.status)+'</span></td>'
       + '<td class="sub">'+esc(x.staff||'')+'</td>'
       + '<td>'+due+'</td>'
@@ -391,8 +491,10 @@ function loadKpis(){
   }).join('');
   defs.forEach(function(d,i){
     var q = _sb.from('eigyo_leads').select('reg_no', { count:'exact', head:true });
+    if(el('fHideShigyo').checked) q = q.not('entity_type','in','("'+SHIGYO.join('","')+'")');
     if(el('fHideClient').checked) q = q.eq('is_client', false);
     if(el('fHideSusp').checked)   q = q.eq('is_suspended', false);
+    if(el('fPref').value)         q = q.eq('pref', el('fPref').value);
     d.f(q).then(function(r){
       var card = box.children[i];
       if(card) card.querySelector('.v').textContent = (r.count||0).toLocaleString();
@@ -458,6 +560,17 @@ function renderDrawer(){
   +   '<label>メモ</label><textarea id="eMemo" placeholder="社内メモ">'+esc(x.memo||'')+'</textarea>'
   + '</div><div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="saveLead()">保存</button></div></div>'
 
+  + '<div class="sec"><h3>企業プロフィール（登録簿には無い項目・手入力／外部データ）</h3><div class="form">'
+  +   '<label>被保険者数</label><input type="number" id="eInsured" value="'+(x.insured_count===null||x.insured_count===undefined?'':esc(x.insured_count))+'" placeholder="未取得">'
+  +   '<label>支援者数</label><input type="number" id="eSupporter" value="'+(x.supporter_count===null||x.supporter_count===undefined?'':esc(x.supporter_count))+'" placeholder="未取得">'
+  +   '<label>上場</label><select id="eListed">'
+  +     '<option value=""'+(x.is_listed===null||x.is_listed===undefined?' selected':'')+'>未確認</option>'
+  +     '<option value="1"'+(x.is_listed===true?' selected':'')+'>上場</option>'
+  +     '<option value="0"'+(x.is_listed===false?' selected':'')+'>非上場</option></select>'
+  +   '<label>法人番号</label><input type="text" id="eCorpNo" value="'+esc(x.corp_no||'')+'" placeholder="13桁">'
+  +   '<label>事業者区分</label><select id="eEntity">'+ENTITIES.map(function(t){return '<option'+(t===x.entity_type?' selected':'')+'>'+esc(t)+'</option>';}).join('')+'</select>'
+  + '</div><div style="margin-top:10px;text-align:right;"><button class="btn" onclick="saveProfile()">プロフィールを保存</button></div></div>'
+
   + '<div class="sec"><h3>対応履歴を追加</h3><div class="form">'
   +   '<label>日付</label><input type="date" id="nDate" value="'+today()+'">'
   +   '<label>種別</label><select id="nKind">'+KINDS.map(function(k){return '<option>'+esc(k)+'</option>';}).join('')+'</select>'
@@ -492,6 +605,23 @@ function saveLead(){
   _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
     if(r.error){ showMsg('dMsg','保存に失敗しました：'+r.error.message,'err'); return; }
     showMsg('dMsg','保存しました','ok');
+    Object.keys(patch).forEach(function(k){ curLead[k]=patch[k]; });
+    load();
+  });
+}
+
+function saveProfile(){
+  var iv = el('eInsured').value.trim(), sv = el('eSupporter').value.trim(), lv = el('eListed').value;
+  var patch = {
+    insured_count:   iv==='' ? null : parseInt(iv,10),
+    supporter_count: sv==='' ? null : parseInt(sv,10),
+    is_listed:       lv==='' ? null : (lv==='1'),
+    corp_no:         el('eCorpNo').value.trim() || null,
+    entity_type:     el('eEntity').value || null
+  };
+  _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
+    if(r.error){ showMsg('dMsg','保存に失敗しました：'+r.error.message,'err'); return; }
+    showMsg('dMsg','プロフィールを保存しました','ok');
     Object.keys(patch).forEach(function(k){ curLead[k]=patch[k]; });
     load();
   });
@@ -653,7 +783,7 @@ function runImport(recs){
 /* ---------------- CSV出力 ---------------- */
 function exportCsv(){
   if(!curRows.length){ showMsg('topMsg','出力する行がありません','err'); return; }
-  var cols = ['reg_no','name','pref','city','address','tel','rep_name','languages','status','staff','priority','next_action','next_action_date','last_contact_date','memo'];
+  var cols = ['reg_no','name','entity_type','pref','city','address','tel','rep_name','languages','insured_count','supporter_count','is_listed','corp_no','status','staff','priority','next_action','next_action_date','last_contact_date','memo'];
   var lines = [cols.join(',')];
   curRows.forEach(function(x){
     lines.push(cols.map(function(c){
