@@ -335,18 +335,37 @@ async function embedSignatureToPdf(){
   try{
     const {PDFDocument}=PDFLib;
     // ver.20260619.05: DBのsig_x/y/w/h/pageを優先使用（SIG_COORDSは旧データ用フォールバック）
-    const sc = (caseData && caseData.sig_x != null)
-      ? {page: caseData.sig_page||0, x: caseData.sig_x, y: caseData.sig_y, w: caseData.sig_w, h: caseData.sig_h}
-      : null; // 旧データ用フォールバック（座標なし）
-    console.log('[sign] sc:', sc);
     const sigDataUrl=canvas.toDataURL('image/png');
     const sigB64=sigDataUrl.split(',')[1];
     const sigBytes=Uint8Array.from(atob(sigB64),c=>c.charCodeAt(0));
     const doc=await PDFDocument.load(pdfBytes);
     const pages=doc.getPages();
-    const sigPage=pages[sc.page]||pages[pages.length-1];
     const img=await doc.embedPng(sigBytes);
-    sigPage.drawImage(img,{x:sc.x,y:sc.y,width:sc.w,height:sc.h});
+    // ver.20260724.01: Saysayの署名欄設定(sign_slots)由来の％座標に対応。
+    //   ％はHTMLの用紙基準（左上原点）なので、PDF(pdf-lib=左下原点)へ変換する。
+    //   従来の sig_x/y/w/h（pt直値）も引き続き使える。
+    const posList=[];
+    const sp=(caseData && Array.isArray(caseData.sig_positions)) ? caseData.sig_positions : null;
+    if(sp && sp.length){
+      sp.forEach(function(q){
+        const pi=Math.max(0,(q.page!=null?q.page:((q.page_no||1)-1)));
+        const pg=pages[pi]||pages[pages.length-1];
+        const W=pg.getWidth(), H=pg.getHeight();
+        if(q.x_pct!=null){
+          posList.push({pg:pg, x:W*q.x_pct/100, y:H*(100-(q.y_pct||0)-(q.h_pct||0))/100,
+                        w:W*(q.w_pct||0)/100, h:H*(q.h_pct||0)/100});
+        }else if(q.x!=null){
+          posList.push({pg:pg, x:q.x, y:q.y, w:q.w, h:q.h});
+        }
+      });
+    }
+    if(!posList.length && caseData && caseData.sig_x!=null){
+      const pg=pages[caseData.sig_page||0]||pages[pages.length-1];
+      posList.push({pg:pg, x:caseData.sig_x, y:caseData.sig_y, w:caseData.sig_w, h:caseData.sig_h});
+    }
+    if(!posList.length){ alert('署名位置が設定されていません。担当者にご連絡ください。'); return null; }
+    console.log('[sign] positions:', posList.length);
+    posList.forEach(function(q){ q.pg.drawImage(img,{x:q.x,y:q.y,width:q.w,height:q.h}); });
     return await doc.save();
   }catch(e){alert('PDF合成エラー: '+e.message);console.error('PDF合成エラー:',e);return null;}
 }
