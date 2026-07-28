@@ -165,10 +165,12 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260724.06</div>
+      <div class="ver">ver.20260724.07</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
+      <button class="btn btn-primary" onclick="openQuote()">📄 見積書作成</button>
+      <button class="btn" onclick="openQuoteList()">🗂 見積書履歴</button>
       <button class="btn" onclick="el('csvFile').click()">📥 CSV取込</button>
       <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="importCsv(this)">
       <button class="btn" onclick="exportCsv()">⬇ 表示中をCSV</button>
@@ -285,7 +287,94 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <button class="btn btn-primary" onclick="saveNew()">登録する</button>
   </div>
 </div>
-<div class="drawer" id="dw">
+
+<!-- 見積書作成モーダル -->
+<div class="overlay" id="qOv" onclick="closeQuote()"></div>
+<div id="qBox" style="display:none;position:fixed;z-index:61;top:50%;left:50%;transform:translate(-50%,-50%);
+     width:min(920px,96vw);max-height:92vh;overflow-y:auto;background:#fff;border-radius:12px;
+     padding:22px 24px;box-shadow:0 8px 30px rgba(0,0,0,.18);">
+  <h2 style="margin:0 0 14px;font-size:18px;color:var(--accent);" id="qTitle">見積書作成</h2>
+  <div id="qMsg" class="msg"></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 18px;">
+    <div class="form" style="grid-template-columns:88px 1fr;">
+      <label>取引先 <span style="color:#c53030;">*</span></label>
+      <div style="display:flex;gap:6px;">
+        <input type="text" id="qClient" placeholder="取引先名">
+        <select id="qHonor" style="flex:0 0 74px;"><option>御中</option><option>様</option></select>
+      </div>
+      <label>取引先詳細</label><textarea id="qClientDetail" style="min-height:48px;"></textarea>
+      <label>件名</label><input type="text" id="qSubject" placeholder="○○業務 御見積">
+    </div>
+    <div class="form" style="grid-template-columns:88px 1fr;">
+      <label>見積書番号</label><input type="text" id="qNo" readonly style="background:#f7fafc;">
+      <label>発行日 <span style="color:#c53030;">*</span></label><input type="date" id="qIssue">
+      <label>有効期限</label>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <input type="date" id="qExpiry">
+        <button class="btn btn-sm" type="button" onclick="qSetExpiry('month')">今月末</button>
+        <button class="btn btn-sm" type="button" onclick="qSetExpiry('next')">来月末</button>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="font-size:12px;color:var(--muted);margin:16px 0 6px;font-weight:700;">明細</h3>
+  <table style="width:100%;font-size:12.5px;">
+    <thead><tr>
+      <th style="text-align:left;">品目</th>
+      <th style="width:110px;text-align:right;">単価</th>
+      <th style="width:70px;text-align:right;">数量</th>
+      <th style="width:80px;">単位</th>
+      <th style="width:80px;">税率</th>
+      <th style="width:110px;text-align:right;">金額</th>
+      <th style="width:36px;"></th>
+    </tr></thead>
+    <tbody id="qItems"></tbody>
+  </table>
+  <button class="btn btn-sm" type="button" onclick="qAddItem()" style="margin-top:8px;">＋ 行を追加</button>
+
+  <div style="margin-top:14px;display:flex;justify-content:flex-end;">
+    <table style="font-size:13px;min-width:260px;">
+      <tr><td style="color:var(--muted);padding:3px 12px;">小計</td><td id="qSub" style="text-align:right;padding:3px 0;">0 円</td></tr>
+      <tr><td style="color:var(--muted);padding:3px 12px;">消費税</td><td id="qTax" style="text-align:right;padding:3px 0;">0 円</td></tr>
+      <tr style="font-weight:800;border-top:1px solid var(--line);"><td style="padding:5px 12px;">合計</td><td id="qTotal" style="text-align:right;padding:5px 0;">0 円</td></tr>
+    </table>
+  </div>
+
+  <div class="form" style="grid-template-columns:88px 1fr;margin-top:12px;">
+    <label>タグ</label><input type="text" id="qTag">
+    <label>メモ</label><input type="text" id="qMemoField" placeholder="見積書には印刷されません">
+  </div>
+
+  <div style="margin-top:18px;text-align:right;display:flex;gap:8px;justify-content:flex-end;">
+    <button class="btn" onclick="closeQuote()">キャンセル</button>
+    <button class="btn" onclick="printQuote()">🖨 PDF/印刷</button>
+    <button class="btn btn-primary" onclick="saveQuote()">保存</button>
+  </div>
+</div>
+
+<!-- 見積書履歴モーダル -->
+<div class="overlay" id="qlOv" onclick="closeQuoteList()"></div>
+<div id="qlBox" style="display:none;position:fixed;z-index:61;top:50%;left:50%;transform:translate(-50%,-50%);
+     width:min(900px,96vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;
+     padding:22px 24px;box-shadow:0 8px 30px rgba(0,0,0,.18);">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <h2 style="margin:0;font-size:18px;color:var(--accent);">見積書履歴</h2>
+    <button class="btn btn-sm" onclick="closeQuoteList()">✕</button>
+  </div>
+  <input type="text" id="qlSearch" placeholder="番号・取引先・件名で検索" oninput="loadQuoteList()"
+    style="width:100%;padding:8px 11px;border:1px solid var(--line);border-radius:8px;margin-bottom:12px;font-size:13px;">
+  <div class="tablewrap" style="box-shadow:none;border:1px solid var(--line);">
+    <table>
+      <thead><tr>
+        <th style="width:64px;">番号</th><th style="width:96px;">発行日</th>
+        <th>取引先 / 件名</th><th style="width:110px;text-align:right;">合計</th>
+        <th style="width:80px;">担当</th><th style="width:120px;"></th>
+      </tr></thead>
+      <tbody id="qlRows"><tr><td colspan="6" class="loading">読み込み中...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
   <div class="dhead">
     <h2 class="dtitle" id="dTitle">-</h2>
     <div class="sub" id="dSub"></div>
@@ -674,7 +763,8 @@ function renderDrawer(){
   el('dTitle').textContent = x.name || '';
   el('dSub').innerHTML = '<span class="sub">'+esc(x.reg_no)+' ／ 登録日 '+esc(x.reg_date||'-')+'</span>'
     + (x.is_client?'<span class="tag t-client">既存顧客</span>':'')
-    + (x.is_suspended?'<span class="tag t-susp">休止届出</span>':'');
+    + (x.is_suspended?'<span class="tag t-susp">休止届出</span>':'')
+    + '<div style="margin-top:8px;"><button class="btn btn-sm btn-primary" onclick="openQuote()">📄 この先の見積書を作成</button></div>';
 
   var offices = '';
   try{
@@ -853,6 +943,202 @@ function addNote(){
       loadNotes(curLead.reg_no);
       load();
     });
+  });
+}
+
+/* ---------------- 見積書 ---------------- */
+var qItems = [];
+var editingQuoteId = null;
+
+function yen(n){ return (Math.round(n||0)).toLocaleString() + ' 円'; }
+function endOfMonth(d){ var t=new Date(d.getFullYear(), d.getMonth()+1, 0); return t.toISOString().slice(0,10); }
+
+function openQuote(preset){
+  editingQuoteId = (preset && preset.id) || null;
+  el('qTitle').textContent = editingQuoteId ? '見積書を編集' : '見積書作成';
+  showMsg('qMsg','','');
+  // 取引先の初期値：詳細を開いていればそのリード
+  var lead = (preset && preset._lead) || curLead;
+  el('qClient').value      = (preset && preset.client_name) || (lead ? lead.name : '');
+  el('qHonor').value       = (preset && preset.client_honorific) || '御中';
+  el('qClientDetail').value= (preset && preset.client_detail) || (lead ? [lead.pref,lead.city,lead.address].filter(Boolean).join('') : '');
+  el('qSubject').value     = (preset && preset.subject) || '';
+  el('qIssue').value       = (preset && preset.issue_date) || today();
+  el('qExpiry').value      = (preset && preset.expiry_date) || '';
+  el('qTag').value         = (preset && preset.tag) || '';
+  el('qMemoField').value   = (preset && preset.memo) || '';
+  qItems = (preset && preset.items && preset.items.length) ? preset.items.slice()
+         : [{name:'',unit_price:0,qty:1,unit:'式',tax_rate:10}];
+  el('qReg') && (el('qReg').value = (preset && preset.reg_no) || (lead ? lead.reg_no : ''));
+  window._qRegNo = (preset && preset.reg_no) || (lead ? lead.reg_no : null);
+
+  if(editingQuoteId){ el('qNo').value = preset.quote_no; renderQuoteItems(); showQuote(); }
+  else {
+    el('qNo').value = '採番中...';
+    _sb.rpc('next_quote_no').then(function(r){
+      el('qNo').value = (r && !r.error && r.data!=null) ? r.data : '387';
+    });
+    renderQuoteItems(); showQuote();
+  }
+}
+function showQuote(){ el('qOv').classList.add('on'); el('qBox').style.display='block'; }
+function closeQuote(){ el('qOv').classList.remove('on'); el('qBox').style.display='none'; }
+
+function qSetExpiry(which){
+  var base = new Date((el('qIssue').value||today())+'T00:00:00');
+  if(which==='next') base.setMonth(base.getMonth()+1);
+  el('qExpiry').value = endOfMonth(base);
+}
+
+function qAddItem(){ qItems.push({name:'',unit_price:0,qty:1,unit:'式',tax_rate:10}); renderQuoteItems(); }
+function qDelItem(i){ qItems.splice(i,1); if(!qItems.length) qAddItem(); else renderQuoteItems(); }
+function qEdit(i, field, val){
+  if(field==='name'||field==='unit') qItems[i][field] = val;
+  else qItems[i][field] = parseFloat(val)||0;
+  qCalcTotals();
+}
+function renderQuoteItems(){
+  el('qItems').innerHTML = qItems.map(function(it,i){
+    var amt = (it.unit_price||0)*(it.qty||0);
+    return '<tr>'
+      + '<td><input type="text" value="'+esc(it.name||'')+'" oninput="qEdit('+i+',\'name\',this.value)" style="width:100%;padding:5px 7px;border:1px solid var(--line);border-radius:6px;"></td>'
+      + '<td><input type="number" value="'+(it.unit_price||0)+'" oninput="qEdit('+i+',\'unit_price\',this.value)" style="width:100%;padding:5px 7px;border:1px solid var(--line);border-radius:6px;text-align:right;"></td>'
+      + '<td><input type="number" value="'+(it.qty||0)+'" oninput="qEdit('+i+',\'qty\',this.value)" style="width:100%;padding:5px 7px;border:1px solid var(--line);border-radius:6px;text-align:right;"></td>'
+      + '<td><input type="text" value="'+esc(it.unit||'')+'" oninput="qEdit('+i+',\'unit\',this.value)" style="width:100%;padding:5px 7px;border:1px solid var(--line);border-radius:6px;"></td>'
+      + '<td><select onchange="qEdit('+i+',\'tax_rate\',this.value)" style="width:100%;padding:5px 4px;border:1px solid var(--line);border-radius:6px;">'
+      +   [10,8,0].map(function(t){return '<option value="'+t+'"'+(t==(it.tax_rate==null?10:it.tax_rate)?' selected':'')+'>'+t+'%</option>';}).join('')+'</select></td>'
+      + '<td style="text-align:right;">'+yen(amt)+'</td>'
+      + '<td style="text-align:center;"><span onclick="qDelItem('+i+')" style="cursor:pointer;color:#c53030;">🗑</span></td>'
+      + '</tr>';
+  }).join('');
+  qCalcTotals();
+}
+function qCalcTotals(){
+  var sub=0, tax=0;
+  qItems.forEach(function(it){
+    var a = (it.unit_price||0)*(it.qty||0);
+    sub += a; tax += a * ((it.tax_rate==null?10:it.tax_rate)/100);
+  });
+  el('qSub').textContent   = yen(sub);
+  el('qTax').textContent   = yen(tax);
+  el('qTotal').textContent = yen(sub+tax);
+  window._qTotals = { subtotal:Math.round(sub), tax:Math.round(tax), total:Math.round(sub+tax) };
+}
+
+function saveQuote(){
+  var client = el('qClient').value.trim();
+  if(!client){ showMsg('qMsg','取引先は必須です','err'); return; }
+  qCalcTotals();
+  var rec = {
+    quote_no:        parseInt(el('qNo').value,10) || null,
+    reg_no:          window._qRegNo || null,
+    client_name:     client,
+    client_honorific:el('qHonor').value,
+    client_detail:   el('qClientDetail').value.trim() || null,
+    subject:         el('qSubject').value.trim() || null,
+    issue_date:      el('qIssue').value || today(),
+    expiry_date:     el('qExpiry').value || null,
+    items:           qItems,
+    subtotal:        window._qTotals.subtotal,
+    tax:             window._qTotals.tax,
+    total:           window._qTotals.total,
+    tag:             el('qTag').value.trim() || null,
+    memo:            el('qMemoField').value.trim() || null,
+    created_by:      me || null
+  };
+  var op = editingQuoteId
+    ? _sb.from('eigyo_quotes').update(rec).eq('id', editingQuoteId)
+    : _sb.from('eigyo_quotes').insert(rec);
+  op.then(function(r){
+    if(r.error){ showMsg('qMsg','保存に失敗しました：'+r.error.message,'err'); return; }
+    closeQuote();
+    showMsg('topMsg','見積書 No.'+rec.quote_no+' を保存しました','ok');
+  });
+}
+
+/* 見積書PDF（別ウィンドウで印刷） */
+function printQuote(){
+  qCalcTotals();
+  var rows = qItems.map(function(it){
+    var a=(it.unit_price||0)*(it.qty||0);
+    return '<tr><td>'+escHtml(it.name||'')+'</td><td class="r">'+(it.unit_price||0).toLocaleString()
+      +'</td><td class="r">'+(it.qty||0)+'</td><td>'+escHtml(it.unit||'')+'</td><td class="r">'+a.toLocaleString()+'</td></tr>';
+  }).join('');
+  var t = window._qTotals;
+  var w = window.open('', '_blank', 'width=800,height=1000');
+  w.document.write(
+  '<html><head><meta charset="utf-8"><title>見積書 No.'+esc(el('qNo').value)+'</title><style>'
+  +'body{font-family:"Hiragino Sans","Yu Gothic",sans-serif;color:#1a202c;padding:36px 44px;font-size:13px;}'
+  +'h1{text-align:center;font-size:24px;letter-spacing:.3em;margin:0 0 24px;}'
+  +'.top{display:flex;justify-content:space-between;}'
+  +'.client{font-size:15px;font-weight:700;margin-bottom:6px;}'
+  +'.from{text-align:right;font-size:12px;line-height:1.7;}'
+  +'.from .nm{font-size:15px;font-weight:700;}'
+  +'.amt{font-size:18px;font-weight:800;margin:20px 0 8px;border-bottom:2px solid #1a365d;padding-bottom:6px;}'
+  +'table{width:100%;border-collapse:collapse;margin-top:8px;}'
+  +'th,td{border:1px solid #cbd5e0;padding:7px 9px;}th{background:#f7fafc;}'
+  +'td.r,th.r{text-align:right;}'
+  +'.sum{width:260px;margin-left:auto;margin-top:14px;}'
+  +'.sum td{border:none;padding:4px 8px;}.sum .tot{font-weight:800;border-top:1px solid #1a365d;}'
+  +'</style></head><body>'
+  +'<h1>見積書</h1>'
+  +'<div class="top"><div><div class="client">'+escHtml(el('qClient').value)+' '+esc(el('qHonor').value)+'</div>'
+  +'<div>'+escHtml(el('qClientDetail').value||'')+'</div></div>'
+  +'<div class="from"><div class="nm">大房行政書士法人</div>〒144-0052<br>東京都大田区蒲田５丁目１１－１０ FUNDES蒲田6階<br>'
+  +'TEL: 03-6424-8849　FAX: 03-6424-8854<br><br>見積書番号：'+esc(el('qNo').value)
+  +'<br>発行日：'+esc(el('qIssue').value)+'<br>有効期限：'+esc(el('qExpiry').value||'-')+'</div></div>'
+  +(el('qSubject').value?'<div style="margin-top:16px;">件名：'+escHtml(el('qSubject').value)+'</div>':'')
+  +'<div class="amt">御見積金額　'+t.total.toLocaleString()+' 円</div>'
+  +'<table><thead><tr><th>品目</th><th class="r">単価</th><th class="r">数量</th><th>単位</th><th class="r">金額</th></tr></thead><tbody>'+rows+'</tbody></table>'
+  +'<table class="sum"><tr><td>小計</td><td class="r">'+t.subtotal.toLocaleString()+' 円</td></tr>'
+  +'<tr><td>消費税</td><td class="r">'+t.tax.toLocaleString()+' 円</td></tr>'
+  +'<tr class="tot"><td>合計</td><td class="r">'+t.total.toLocaleString()+' 円</td></tr></table>'
+  +'<script>window.onload=function(){window.print();}<\/script></body></html>');
+  w.document.close();
+}
+function escHtml(s){ return esc(s).replace(/\n/g,'<br>'); }
+
+/* 見積書履歴 */
+function openQuoteList(){ el('qlOv').classList.add('on'); el('qlBox').style.display='block'; el('qlSearch').value=''; loadQuoteList(); }
+function closeQuoteList(){ el('qlOv').classList.remove('on'); el('qlBox').style.display='none'; }
+function loadQuoteList(){
+  var kw = el('qlSearch').value.trim();
+  var q = _sb.from('eigyo_quotes').select('*').order('quote_no',{ascending:false}).limit(200);
+  if(kw){
+    var safe = kw.replace(/[,()*"\\]/g,' ').trim();
+    if(/^\d+$/.test(safe)) q = q.eq('quote_no', parseInt(safe,10));
+    else if(safe) q = q.or('client_name.ilike.*'+safe+'*,subject.ilike.*'+safe+'*');
+  }
+  q.then(function(r){
+    var box = el('qlRows');
+    if(r.error){ box.innerHTML='<tr><td colspan="6" class="empty">エラー：'+esc(r.error.message)+'</td></tr>'; return; }
+    var d = r.data||[];
+    if(!d.length){ box.innerHTML='<tr><td colspan="6" class="empty">見積書がありません。</td></tr>'; return; }
+    box.innerHTML = d.map(function(x){
+      return '<tr>'
+        + '<td class="sub">'+esc(x.quote_no)+'</td>'
+        + '<td class="sub">'+esc(x.issue_date||'')+'</td>'
+        + '<td><b>'+esc(x.client_name)+'</b> '+esc(x.client_honorific||'')
+        +   (x.subject?'<div class="sub">'+esc(x.subject)+'</div>':'')+'</td>'
+        + '<td style="text-align:right;">'+yen(x.total)+'</td>'
+        + '<td class="sub">'+esc(x.created_by||'')+'</td>'
+        + '<td><button class="btn btn-sm" onclick=\'quoteEdit('+x.id+')\'>開く</button> '
+        +     '<button class="btn btn-sm" onclick="quoteDup('+x.id+')">複製</button></td>'
+        + '</tr>';
+    }).join('');
+  });
+}
+function quoteEdit(id){
+  _sb.from('eigyo_quotes').select('*').eq('id',id).single().then(function(r){
+    if(r.error||!r.data) return;
+    closeQuoteList(); openQuote(r.data);
+  });
+}
+function quoteDup(id){
+  _sb.from('eigyo_quotes').select('*').eq('id',id).single().then(function(r){
+    if(r.error||!r.data) return;
+    var p = r.data; p.id=null; p.quote_no=null; p.issue_date=today();
+    closeQuoteList(); openQuote(p);
   });
 }
 
@@ -1067,7 +1353,7 @@ function exportCsv(){
   a.click();
 }
 
-document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ closeDrawer(); closeNew(); } });
+document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ closeDrawer(); closeNew(); closeQuote(); closeQuoteList(); } });
 boot();
 </script>
 </body>
