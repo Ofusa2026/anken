@@ -165,7 +165,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260724.07</div>
+      <div class="ver">ver.20260724.08</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -341,6 +341,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
   </div>
 
   <div class="form" style="grid-template-columns:88px 1fr;margin-top:12px;">
+    <label>備考</label><textarea id="qRemarks" style="min-height:130px;font-size:12px;line-height:1.7;"></textarea>
     <label>タグ</label><input type="text" id="qTag">
     <label>メモ</label><input type="text" id="qMemoField" placeholder="見積書には印刷されません">
   </div>
@@ -950,6 +951,18 @@ function addNote(){
 var qItems = [];
 var editingQuoteId = null;
 
+// 備考の定型文（実物の見積書に準拠）
+var QUOTE_REMARKS_DEFAULT =
+'(1)お支払いに関しては、着手月末請求／翌月支払いとなります。\n'
++'(2)キャンセル時の返金につきましては、以下の通りです。\n'
++'　請求後申請前　　：70％ご返金\n'
++'　申請後審査完了前：50％ご返金\n'
++'　申請後審査完了後：0％ご返金\n'
++'(3) 収入印紙は現行の単価となります。政府からの発表のとおり、2026年10月以降値上げが見込まれ、値上げの実施後は、値上げ後の単価となります。\n'
++'(4) 収入印紙は特定技能1号変更申請時や、特定活動申請時等、入管で許可後の新しい在留カードを受け取る際に必要となります。\n\n'
++'※収入印紙代については、出入国在留管理庁より改定案が公表されております。そのため、記載しております金額は現時点でのものとなり、今後変更となる可能性がございます。あらかじめご了承くださいますようお願い申し上げます。\n'
++'なお、改定が実施された場合は、収入印紙代につきましては、出入国在留管理庁が定める金額に準じて改定させていただきます。その際、改定前の金額との差額につきましては、別途ご請求申し上げますので、併せてご了承くださいますようお願い申し上げます。';
+
 function yen(n){ return (Math.round(n||0)).toLocaleString() + ' 円'; }
 function endOfMonth(d){ var t=new Date(d.getFullYear(), d.getMonth()+1, 0); return t.toISOString().slice(0,10); }
 
@@ -967,6 +980,7 @@ function openQuote(preset){
   el('qExpiry').value      = (preset && preset.expiry_date) || '';
   el('qTag').value         = (preset && preset.tag) || '';
   el('qMemoField').value   = (preset && preset.memo) || '';
+  el('qRemarks').value     = (preset && preset.remarks!=null) ? preset.remarks : QUOTE_REMARKS_DEFAULT;
   qItems = (preset && preset.items && preset.items.length) ? preset.items.slice()
          : [{name:'',unit_price:0,qty:1,unit:'式',tax_rate:10}];
   el('qReg') && (el('qReg').value = (preset && preset.reg_no) || (lead ? lead.reg_no : ''));
@@ -1006,7 +1020,7 @@ function renderQuoteItems(){
       + '<td><input type="number" value="'+(it.qty||0)+'" oninput="qEdit('+i+',\'qty\',this.value)" style="width:100%;padding:5px 7px;border:1px solid var(--line);border-radius:6px;text-align:right;"></td>'
       + '<td><input type="text" value="'+esc(it.unit||'')+'" oninput="qEdit('+i+',\'unit\',this.value)" style="width:100%;padding:5px 7px;border:1px solid var(--line);border-radius:6px;"></td>'
       + '<td><select onchange="qEdit('+i+',\'tax_rate\',this.value)" style="width:100%;padding:5px 4px;border:1px solid var(--line);border-radius:6px;">'
-      +   [10,8,0].map(function(t){return '<option value="'+t+'"'+(t==(it.tax_rate==null?10:it.tax_rate)?' selected':'')+'>'+t+'%</option>';}).join('')+'</select></td>'
+      +   [['10','10%'],['8','8%'],['-1','不課税']].map(function(t){var v=(it.tax_rate==null?10:it.tax_rate); return '<option value="'+t[0]+'"'+(t[0]==v?' selected':'')+'>'+t[1]+'</option>';}).join('')+'</select></td>'
       + '<td style="text-align:right;">'+yen(amt)+'</td>'
       + '<td style="text-align:center;"><span onclick="qDelItem('+i+')" style="cursor:pointer;color:#c53030;">🗑</span></td>'
       + '</tr>';
@@ -1014,14 +1028,21 @@ function renderQuoteItems(){
   qCalcTotals();
 }
 function qCalcTotals(){
-  var sub=0, tax=0;
+  // 税区分ごとに集計（10% / 8% / 不課税(-1)）
+  var g = { '10':{base:0,tax:0}, '8':{base:0,tax:0}, '-1':{base:0,tax:0} };
   qItems.forEach(function(it){
     var a = (it.unit_price||0)*(it.qty||0);
-    sub += a; tax += a * ((it.tax_rate==null?10:it.tax_rate)/100);
+    var r = (it.tax_rate==null?10:parseInt(it.tax_rate,10));
+    var key = (r===8)?'8':(r===-1?'-1':'10');
+    g[key].base += a;
+    g[key].tax  += (r>0) ? a*r/100 : 0;
   });
+  var sub = g['10'].base + g['8'].base + g['-1'].base;
+  var tax = g['10'].tax  + g['8'].tax;
   el('qSub').textContent   = yen(sub);
   el('qTax').textContent   = yen(tax);
   el('qTotal').textContent = yen(sub+tax);
+  window._qBreakdown = g;
   window._qTotals = { subtotal:Math.round(sub), tax:Math.round(tax), total:Math.round(sub+tax) };
 }
 
@@ -1044,6 +1065,7 @@ function saveQuote(){
     total:           window._qTotals.total,
     tag:             el('qTag').value.trim() || null,
     memo:            el('qMemoField').value.trim() || null,
+    remarks:         el('qRemarks').value.trim() || null,
     created_by:      me || null
   };
   var op = editingQuoteId
@@ -1056,43 +1078,85 @@ function saveQuote(){
   });
 }
 
-/* 見積書PDF（別ウィンドウで印刷） */
+/* 見積書PDF（別ウィンドウで印刷）— 実物の書式に準拠 */
 function printQuote(){
   qCalcTotals();
+  var g = window._qBreakdown, t = window._qTotals;
   var rows = qItems.map(function(it){
     var a=(it.unit_price||0)*(it.qty||0);
-    return '<tr><td>'+escHtml(it.name||'')+'</td><td class="r">'+(it.unit_price||0).toLocaleString()
-      +'</td><td class="r">'+(it.qty||0)+'</td><td>'+escHtml(it.unit||'')+'</td><td class="r">'+a.toLocaleString()+'</td></tr>';
+    var nm = escHtml(it.name||'');
+    return '<tr><td class="pname">'+nm+'</td><td class="r">'+(it.unit_price||0).toLocaleString()
+      +'</td><td class="c">'+(it.qty||0)+'</td><td class="c">'+escHtml(it.unit||'')+'</td><td class="r">'+a.toLocaleString()+'</td></tr>';
   }).join('');
-  var t = window._qTotals;
-  var w = window.open('', '_blank', 'width=800,height=1000');
+
+  // 内訳（金額があるものだけ表示）
+  var bd = '';
+  if(g['10'].base>0) bd += '<tr><td>10%対象</td><td class="r">'+g['10'].base.toLocaleString()+' 円</td></tr>'
+    + '<tr><td></td><td class="r small">消費税 '+Math.round(g['10'].tax).toLocaleString()+' 円</td></tr>';
+  if(g['8'].base>0)  bd += '<tr><td>8%対象</td><td class="r">'+g['8'].base.toLocaleString()+' 円</td></tr>'
+    + '<tr><td></td><td class="r small">消費税 '+Math.round(g['8'].tax).toLocaleString()+' 円</td></tr>';
+  if(g['-1'].base>0) bd += '<tr><td>不課税対象</td><td class="r">'+g['-1'].base.toLocaleString()+' 円</td></tr>'
+    + '<tr><td></td><td class="r small">消費税 0 円</td></tr>';
+
+  var remarks = escHtml(el('qRemarks').value||'');
+  var logo   = window._quoteLogo   || '';   // 差し込み用（画像が来たら設定）
+  var kakuin = window._quoteKakuin || '';
+
+  var w = window.open('', '_blank', 'width=900,height=1200');
   w.document.write(
-  '<html><head><meta charset="utf-8"><title>見積書 No.'+esc(el('qNo').value)+'</title><style>'
-  +'body{font-family:"Hiragino Sans","Yu Gothic",sans-serif;color:#1a202c;padding:36px 44px;font-size:13px;}'
-  +'h1{text-align:center;font-size:24px;letter-spacing:.3em;margin:0 0 24px;}'
-  +'.top{display:flex;justify-content:space-between;}'
-  +'.client{font-size:15px;font-weight:700;margin-bottom:6px;}'
-  +'.from{text-align:right;font-size:12px;line-height:1.7;}'
-  +'.from .nm{font-size:15px;font-weight:700;}'
-  +'.amt{font-size:18px;font-weight:800;margin:20px 0 8px;border-bottom:2px solid #1a365d;padding-bottom:6px;}'
-  +'table{width:100%;border-collapse:collapse;margin-top:8px;}'
-  +'th,td{border:1px solid #cbd5e0;padding:7px 9px;}th{background:#f7fafc;}'
-  +'td.r,th.r{text-align:right;}'
-  +'.sum{width:260px;margin-left:auto;margin-top:14px;}'
-  +'.sum td{border:none;padding:4px 8px;}.sum .tot{font-weight:800;border-top:1px solid #1a365d;}'
+  '<html><head><meta charset="utf-8"><title>御見積書_'+esc(el('qClient').value)+'_'+esc(el('qHonor').value)+'</title><style>'
+  +'*{box-sizing:border-box;}'
+  +'body{font-family:"Hiragino Sans","Yu Gothic",sans-serif;color:#1a1a1a;padding:40px 46px;font-size:12px;line-height:1.6;}'
+  +'h1{text-align:center;font-size:26px;letter-spacing:.35em;margin:0 0 30px;font-weight:600;}'
+  +'.top{display:flex;justify-content:space-between;align-items:flex-start;}'
+  +'.client{font-size:15px;margin-bottom:8px;}'
+  +'.from{text-align:left;font-size:11.5px;line-height:1.75;position:relative;min-width:280px;}'
+  +'.from .logo{text-align:right;margin-bottom:6px;height:26px;}'
+  +'.from .logo img{height:26px;}'
+  +'.from .nm{font-size:14px;font-weight:700;margin-bottom:4px;}'
+  +'.from .seal{position:absolute;right:0;top:34px;width:60px;height:60px;}'
+  +'.qmeta{margin-top:14px;font-size:11.5px;line-height:1.7;}'
+  +'.amt{font-size:17px;font-weight:700;margin:26px 0 6px;}'
+  +'table.items{width:100%;border-collapse:collapse;margin-top:4px;}'
+  +'table.items th{border-bottom:2px solid #444;padding:7px 8px;font-weight:600;text-align:right;}'
+  +'table.items th:first-child{text-align:left;}'
+  +'table.items td{border-bottom:1px solid #ddd;padding:9px 8px;vertical-align:top;}'
+  +'table.items td.r{text-align:right;}table.items td.c{text-align:center;}'
+  +'.pname{white-space:pre-line;}'
+  +'.foot{display:flex;justify-content:flex-end;margin-top:6px;}'
+  +'.sum{border-collapse:collapse;min-width:320px;}'
+  +'.sum td{padding:5px 10px;border-bottom:1px solid #ddd;}.sum td.r{text-align:right;}'
+  +'.sum td.small{font-size:10px;color:#666;border-bottom:1px solid #ddd;}'
+  +'.remarks{margin-top:30px;}.remarks .lbl{font-size:11px;color:#555;margin-bottom:4px;}'
+  +'.remarks .box{border:1px solid #bbb;border-radius:2px;padding:12px 14px;font-size:11px;line-height:1.75;white-space:pre-wrap;}'
+  +'@media print{body{padding:24px 30px;}}'
   +'</style></head><body>'
   +'<h1>見積書</h1>'
-  +'<div class="top"><div><div class="client">'+escHtml(el('qClient').value)+' '+esc(el('qHonor').value)+'</div>'
-  +'<div>'+escHtml(el('qClientDetail').value||'')+'</div></div>'
-  +'<div class="from"><div class="nm">大房行政書士法人</div>〒144-0052<br>東京都大田区蒲田５丁目１１－１０ FUNDES蒲田6階<br>'
-  +'TEL: 03-6424-8849　FAX: 03-6424-8854<br><br>見積書番号：'+esc(el('qNo').value)
-  +'<br>発行日：'+esc(el('qIssue').value)+'<br>有効期限：'+esc(el('qExpiry').value||'-')+'</div></div>'
-  +(el('qSubject').value?'<div style="margin-top:16px;">件名：'+escHtml(el('qSubject').value)+'</div>':'')
+  +'<div class="top">'
+  +  '<div><div class="client">'+escHtml(el('qClient').value)+' '+esc(el('qHonor').value)+'</div>'
+  +    (el('qClientDetail').value?'<div style="font-size:11.5px;">'+escHtml(el('qClientDetail').value)+'</div>':'')+'</div>'
+  +  '<div class="from">'
+  +    '<div class="logo">'+(logo?'<img src="'+logo+'">':'<span style="font-size:14px;font-weight:700;color:#2b6cb0;">◎ 大房行政書士法人</span>')+'</div>'
+  +    (kakuin?'<img class="seal" src="'+kakuin+'">':'')
+  +    '<div class="nm">大房行政書士法人</div>'
+  +    '〒144-0052<br>東京都大田区<br>蒲田５丁目１１−１０ FUNDES蒲田8階<br>'
+  +    'TEL: 03-6424-8849<br>FAX: 03-6424-8854'
+  +    '<div class="qmeta">見積書番号：'+esc(el('qNo').value)
+  +      '<br>発行日：　　'+esc(el('qIssue').value)
+  +      '<br>有効期限：　'+esc(el('qExpiry').value||'-')+'</div>'
+  +  '</div>'
+  +'</div>'
+  +(el('qSubject').value?'<div style="margin-top:18px;font-size:13px;">件名：'+escHtml(el('qSubject').value)+'</div>':'')
   +'<div class="amt">御見積金額　'+t.total.toLocaleString()+' 円</div>'
-  +'<table><thead><tr><th>品目</th><th class="r">単価</th><th class="r">数量</th><th>単位</th><th class="r">金額</th></tr></thead><tbody>'+rows+'</tbody></table>'
-  +'<table class="sum"><tr><td>小計</td><td class="r">'+t.subtotal.toLocaleString()+' 円</td></tr>'
-  +'<tr><td>消費税</td><td class="r">'+t.tax.toLocaleString()+' 円</td></tr>'
-  +'<tr class="tot"><td>合計</td><td class="r">'+t.total.toLocaleString()+' 円</td></tr></table>'
+  +'<table class="items"><thead><tr><th>品目</th><th>単価</th><th style="text-align:center;">数量</th><th style="text-align:center;">単位</th><th>価格</th></tr></thead><tbody>'+rows+'</tbody></table>'
+  +'<div class="foot"><table class="sum">'
+  +  '<tr><td>小計</td><td class="r">'+t.subtotal.toLocaleString()+' 円</td></tr>'
+  +  '<tr><td>消費税</td><td class="r">'+t.tax.toLocaleString()+' 円</td></tr>'
+  +  '<tr><td style="font-weight:700;">合計</td><td class="r" style="font-weight:700;">'+t.total.toLocaleString()+' 円</td></tr>'
+  +  '<tr><td style="padding-top:10px;">内訳</td><td></td></tr>'
+  +  bd
+  +'</table></div>'
+  +(remarks?'<div class="remarks"><div class="lbl">備考</div><div class="box">'+remarks+'</div></div>':'')
   +'<script>window.onload=function(){window.print();}<\/script></body></html>');
   w.document.close();
 }
