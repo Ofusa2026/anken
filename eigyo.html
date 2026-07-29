@@ -165,7 +165,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260724.08</div>
+      <div class="ver">ver.20260724.09</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -298,9 +298,10 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 18px;">
     <div class="form" style="grid-template-columns:88px 1fr;">
       <label>取引先 <span style="color:#c53030;">*</span></label>
-      <div style="display:flex;gap:6px;">
-        <input type="text" id="qClient" placeholder="取引先名">
+      <div style="display:flex;gap:6px;position:relative;">
+        <input type="text" id="qClient" name="qClient_nofill" placeholder="取引先名" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" role="combobox" aria-autocomplete="list" oninput="qClientSuggest(this.value)" onblur="setTimeout(qHideSuggest,150)">
         <select id="qHonor" style="flex:0 0 74px;"><option>御中</option><option>様</option></select>
+        <div id="qSuggest" style="display:none;position:absolute;top:38px;left:0;right:80px;z-index:5;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.1);max-height:220px;overflow-y:auto;"></div>
       </div>
       <label>取引先詳細</label><textarea id="qClientDetail" style="min-height:48px;"></textarea>
       <label>件名</label><input type="text" id="qSubject" placeholder="○○業務 御見積">
@@ -331,6 +332,8 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <tbody id="qItems"></tbody>
   </table>
   <button class="btn btn-sm" type="button" onclick="qAddItem()" style="margin-top:8px;">＋ 行を追加</button>
+  <button class="btn btn-sm" type="button" onclick="openPriceMaster()" style="margin-top:8px;">📋 標準単価から追加</button>
+  <button class="btn btn-sm" type="button" onclick="openPriceAdmin()" style="margin-top:8px;color:var(--muted);">⚙ 単価マスタ管理</button>
 
   <div style="margin-top:14px;display:flex;justify-content:flex-end;">
     <table style="font-size:13px;min-width:260px;">
@@ -351,6 +354,41 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <button class="btn" onclick="printQuote()">🖨 PDF/印刷</button>
     <button class="btn btn-primary" onclick="saveQuote()">保存</button>
   </div>
+</div>
+
+<!-- 品目マスタ選択 -->
+<div class="overlay" id="pmOv" onclick="closePriceMaster()"></div>
+<div id="pmBox" style="display:none;position:fixed;z-index:63;top:50%;left:50%;transform:translate(-50%,-50%);
+     width:min(680px,96vw);max-height:86vh;overflow-y:auto;background:#fff;border-radius:12px;padding:20px 22px;box-shadow:0 8px 30px rgba(0,0,0,.2);">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <h2 style="margin:0;font-size:17px;color:var(--accent);">標準単価から追加</h2>
+    <button class="btn btn-sm" onclick="closePriceMaster()">✕</button>
+  </div>
+  <input type="text" id="pmSearch" placeholder="品目・カテゴリで絞り込み" oninput="renderPriceMaster()"
+    style="width:100%;padding:8px 11px;border:1px solid var(--line);border-radius:8px;margin-bottom:10px;font-size:13px;">
+  <div id="pmList"><div class="loading">読み込み中...</div></div>
+</div>
+
+<!-- 品目マスタ管理 -->
+<div class="overlay" id="paOv" onclick="closePriceAdmin()"></div>
+<div id="paBox" style="display:none;position:fixed;z-index:63;top:50%;left:50%;transform:translate(-50%,-50%);
+     width:min(760px,96vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;padding:20px 22px;box-shadow:0 8px 30px rgba(0,0,0,.2);">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <h2 style="margin:0;font-size:17px;color:var(--accent);">単価マスタ管理</h2>
+    <button class="btn btn-sm" onclick="closePriceAdmin()">✕</button>
+  </div>
+  <div id="paMsg" class="msg"></div>
+  <div style="background:#f7fafc;border-radius:8px;padding:12px;margin-bottom:14px;">
+    <div style="display:grid;grid-template-columns:1fr 2fr 90px 60px 90px auto;gap:8px;align-items:end;">
+      <div><div class="sub" style="margin-bottom:3px;">カテゴリ</div><input type="text" id="paCat" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;"></div>
+      <div><div class="sub" style="margin-bottom:3px;">品目名</div><input type="text" id="paName" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;"></div>
+      <div><div class="sub" style="margin-bottom:3px;">単価</div><input type="number" id="paPrice" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;text-align:right;"></div>
+      <div><div class="sub" style="margin-bottom:3px;">単位</div><input type="text" id="paUnit" value="式" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;"></div>
+      <div><div class="sub" style="margin-bottom:3px;">税区分</div><select id="paTax" style="width:100%;padding:6px 4px;border:1px solid var(--line);border-radius:6px;"><option value="10">10%</option><option value="8">8%</option><option value="-1">不課税</option></select></div>
+      <button class="btn btn-primary btn-sm" onclick="savePriceItem()">追加</button>
+    </div>
+  </div>
+  <div id="paList"><div class="loading">読み込み中...</div></div>
 </div>
 
 <!-- 見積書履歴モーダル -->
@@ -998,6 +1036,163 @@ function openQuote(preset){
 function showQuote(){ el('qOv').classList.add('on'); el('qBox').style.display='block'; }
 function closeQuote(){ el('qOv').classList.remove('on'); el('qBox').style.display='none'; }
 
+/* 取引先の予測変換（登録支援機関＋過去の見積先） */
+var _qSuggestTimer = null;
+function qClientSuggest(kw){
+  kw = (kw||'').trim();
+  if(kw.length < 1){ qHideSuggest(); return; }
+  clearTimeout(_qSuggestTimer);
+  _qSuggestTimer = setTimeout(function(){
+    var safe = kw.replace(/[,()*"\\%]/g,' ').trim();
+    if(!safe){ qHideSuggest(); return; }
+    // リード（登録支援機関）から前方一致
+    _sb.from('eigyo_leads').select('reg_no,name,pref,city,address').ilike('name','%'+safe+'%').limit(8)
+      .then(function(r){
+        var list = (r.data||[]).map(function(x){
+          return { name:x.name, detail:[x.pref,x.city,x.address].filter(Boolean).join(''), reg_no:x.reg_no };
+        });
+        renderSuggest(list);
+      });
+  }, 250);
+}
+function renderSuggest(list){
+  var box = el('qSuggest');
+  if(!list.length){ qHideSuggest(); return; }
+  box.innerHTML = list.map(function(it,i){
+    return '<div class="sgi" data-i="'+i+'" style="padding:8px 11px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;">'
+      + '<div style="font-weight:600;">'+esc(it.name)+'</div>'
+      + (it.detail?'<div class="sub" style="font-size:11px;">'+esc(it.detail)+'</div>':'')
+      + '</div>';
+  }).join('');
+  window._qSuggestList = list;
+  Array.prototype.forEach.call(box.querySelectorAll('.sgi'), function(d){
+    d.onmousedown = function(e){
+      e.preventDefault();
+      var it = window._qSuggestList[+d.getAttribute('data-i')];
+      el('qClient').value = it.name;
+      if(it.detail) el('qClientDetail').value = it.detail;
+      window._qRegNo = it.reg_no || null;
+      qHideSuggest();
+    };
+    d.onmouseenter = function(){ d.style.background='#f0f7ff'; };
+    d.onmouseleave = function(){ d.style.background='#fff'; };
+  });
+  box.style.display='block';
+}
+function qHideSuggest(){ var b=el('qSuggest'); if(b){ b.style.display='none'; b.innerHTML=''; } }
+
+/* ---------------- 品目マスタ ---------------- */
+var _priceCache = [];
+function loadPriceItems(cb){
+  _sb.from('eigyo_price_items').select('*').order('category',{ascending:true}).order('sort_order',{ascending:true}).order('id',{ascending:true})
+    .then(function(r){ _priceCache = (r.error?[]:(r.data||[])); if(cb) cb(); });
+}
+function taxLabel(t){ t=parseInt(t,10); return t===-1?'不課税':(t+'%'); }
+
+function openPriceMaster(){
+  el('pmOv').classList.add('on'); el('pmBox').style.display='block'; el('pmSearch').value='';
+  el('pmList').innerHTML='<div class="loading">読み込み中...</div>';
+  loadPriceItems(renderPriceMaster);
+}
+function closePriceMaster(){ el('pmOv').classList.remove('on'); el('pmBox').style.display='none'; }
+function renderPriceMaster(){
+  var kw = (el('pmSearch').value||'').trim();
+  var items = _priceCache.filter(function(x){
+    if(!kw) return true;
+    return (x.name||'').indexOf(kw)>=0 || (x.category||'').indexOf(kw)>=0;
+  });
+  if(!items.length){ el('pmList').innerHTML='<div class="empty" style="padding:20px;">品目がありません。「⚙ 単価マスタ管理」から登録してください。</div>'; return; }
+  // カテゴリごとにまとめる
+  var cats = {};
+  items.forEach(function(x){ var c=x.category||'（未分類）'; (cats[c]=cats[c]||[]).push(x); });
+  el('pmList').innerHTML = Object.keys(cats).map(function(c){
+    return '<div style="font-size:11px;color:var(--muted);font-weight:700;margin:10px 0 4px;">'+esc(c)+'</div>'
+      + cats[c].map(function(x){
+        return '<div onclick="pickPriceItem('+x.id+')" style="display:flex;justify-content:space-between;align-items:center;padding:8px 11px;border:1px solid var(--line);border-radius:8px;margin-bottom:5px;cursor:pointer;">'
+          + '<div><b>'+esc(x.name)+'</b> <span class="sub">'+esc(x.unit||'')+' ／ '+taxLabel(x.tax_rate)+'</span></div>'
+          + '<div style="font-weight:700;">'+Number(x.unit_price||0).toLocaleString()+' 円</div></div>';
+      }).join('');
+  }).join('');
+}
+function pickPriceItem(id){
+  var x = _priceCache.filter(function(p){ return p.id===id; })[0];
+  if(!x) return;
+  // 空の先頭行があればそこに、なければ追加
+  var empty = qItems.filter(function(it){ return !it.name && !it.unit_price; })[0];
+  var rec = { name:x.name, unit_price:Number(x.unit_price||0), qty:1, unit:x.unit||'式', tax_rate:(x.tax_rate==null?10:x.tax_rate) };
+  if(empty){ var idx=qItems.indexOf(empty); qItems[idx]=rec; } else qItems.push(rec);
+  renderQuoteItems();
+  closePriceMaster();
+}
+
+/* 品目マスタ管理 */
+function openPriceAdmin(){
+  el('paOv').classList.add('on'); el('paBox').style.display='block'; showMsg('paMsg','','');
+  el('paCat').value=''; el('paName').value=''; el('paPrice').value=''; el('paUnit').value='式'; el('paTax').value='10';
+  _paEditId = null;
+  el('paList').innerHTML='<div class="loading">読み込み中...</div>';
+  loadPriceItems(renderPriceAdmin);
+}
+function closePriceAdmin(){ el('paOv').classList.remove('on'); el('paBox').style.display='none'; }
+var _paEditId = null;
+function savePriceItem(){
+  var name = el('paName').value.trim();
+  if(!name){ showMsg('paMsg','品目名は必須です','err'); return; }
+  var rec = {
+    category:   el('paCat').value.trim() || null,
+    name:       name,
+    unit_price: parseFloat(el('paPrice').value)||0,
+    unit:       el('paUnit').value.trim() || '式',
+    tax_rate:   parseInt(el('paTax').value,10)
+  };
+  var op = _paEditId ? _sb.from('eigyo_price_items').update(rec).eq('id',_paEditId)
+                     : _sb.from('eigyo_price_items').insert(rec);
+  op.then(function(r){
+    if(r.error){ showMsg('paMsg','保存に失敗しました：'+r.error.message,'err'); return; }
+    showMsg('paMsg', _paEditId?'更新しました':'追加しました','ok');
+    el('paCat').value=''; el('paName').value=''; el('paPrice').value=''; el('paUnit').value='式'; el('paTax').value='10';
+    _paEditId = null;
+    loadPriceItems(renderPriceAdmin);
+  });
+}
+function paEdit(id){
+  var x = _priceCache.filter(function(p){ return p.id===id; })[0]; if(!x) return;
+  _paEditId = id;
+  el('paCat').value=x.category||''; el('paName').value=x.name||''; el('paPrice').value=x.unit_price||0;
+  el('paUnit').value=x.unit||'式'; el('paTax').value=(x.tax_rate==null?10:x.tax_rate);
+  showMsg('paMsg','編集中：保存で上書きされます','ok');
+}
+function paDelete(id){
+  if(!confirm('この品目を削除しますか？')) return;
+  _sb.from('eigyo_price_items').delete().eq('id',id).then(function(r){
+    if(r.error){ showMsg('paMsg','削除に失敗しました：'+r.error.message,'err'); return; }
+    loadPriceItems(renderPriceAdmin);
+  });
+}
+function renderPriceAdmin(){
+  if(!_priceCache.length){ el('paList').innerHTML='<div class="empty" style="padding:16px;">まだ品目がありません。上のフォームから追加してください。</div>'; return; }
+  el('paList').innerHTML = '<table style="width:100%;font-size:12.5px;"><thead><tr>'
+    + '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);">カテゴリ</th>'
+    + '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);">品目</th>'
+    + '<th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--line);">単価</th>'
+    + '<th style="padding:6px 8px;border-bottom:1px solid var(--line);">単位</th>'
+    + '<th style="padding:6px 8px;border-bottom:1px solid var(--line);">税</th>'
+    + '<th style="padding:6px 8px;border-bottom:1px solid var(--line);"></th></tr></thead><tbody>'
+    + _priceCache.map(function(x){
+        return '<tr>'
+          + '<td class="sub" style="padding:7px 8px;border-bottom:1px solid #eee;">'+esc(x.category||'')+'</td>'
+          + '<td style="padding:7px 8px;border-bottom:1px solid #eee;">'+esc(x.name)+'</td>'
+          + '<td style="text-align:right;padding:7px 8px;border-bottom:1px solid #eee;">'+Number(x.unit_price||0).toLocaleString()+'</td>'
+          + '<td style="padding:7px 8px;border-bottom:1px solid #eee;">'+esc(x.unit||'')+'</td>'
+          + '<td style="padding:7px 8px;border-bottom:1px solid #eee;">'+taxLabel(x.tax_rate)+'</td>'
+          + '<td style="padding:7px 8px;border-bottom:1px solid #eee;white-space:nowrap;">'
+          +   '<span onclick="paEdit('+x.id+')" style="cursor:pointer;color:#2b6cb0;">編集</span>　'
+          +   '<span onclick="paDelete('+x.id+')" style="cursor:pointer;color:#c53030;">削除</span></td>'
+          + '</tr>';
+      }).join('')
+    + '</tbody></table>';
+}
+
 function qSetExpiry(which){
   var base = new Date((el('qIssue').value||today())+'T00:00:00');
   if(which==='next') base.setMonth(base.getMonth()+1);
@@ -1417,7 +1612,7 @@ function exportCsv(){
   a.click();
 }
 
-document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ closeDrawer(); closeNew(); closeQuote(); closeQuoteList(); } });
+document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ closeDrawer(); closeNew(); closeQuote(); closeQuoteList(); closePriceMaster(); closePriceAdmin(); } });
 boot();
 </script>
 </body>
