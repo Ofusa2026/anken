@@ -165,7 +165,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260724.09</div>
+      <div class="ver">ver.20260729.02</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -379,13 +379,34 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
   </div>
   <div id="paMsg" class="msg"></div>
   <div style="background:#f7fafc;border-radius:8px;padding:12px;margin-bottom:14px;">
-    <div style="display:grid;grid-template-columns:1fr 2fr 90px 60px 90px auto;gap:8px;align-items:end;">
-      <div><div class="sub" style="margin-bottom:3px;">カテゴリ</div><input type="text" id="paCat" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;"></div>
-      <div><div class="sub" style="margin-bottom:3px;">品目名</div><input type="text" id="paName" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;"></div>
-      <div><div class="sub" style="margin-bottom:3px;">単価</div><input type="number" id="paPrice" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;text-align:right;"></div>
-      <div><div class="sub" style="margin-bottom:3px;">単位</div><input type="text" id="paUnit" value="式" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;"></div>
-      <div><div class="sub" style="margin-bottom:3px;">税区分</div><select id="paTax" style="width:100%;padding:6px 4px;border:1px solid var(--line);border-radius:6px;"><option value="10">10%</option><option value="8">8%</option><option value="-1">不課税</option></select></div>
-      <button class="btn btn-primary btn-sm" onclick="savePriceItem()">追加</button>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;align-items:end;">
+      <div><div class="sub" style="margin-bottom:3px;">区分</div>
+        <select id="paChannel" style="width:100%;padding:6px 4px;border:1px solid var(--line);border-radius:6px;">
+          <option value="via">経由</option><option value="direct">直依頼</option></select></div>
+      <div style="grid-column:span 2;"><div class="sub" style="margin-bottom:3px;">対象機関</div>
+        <input type="text" id="paOrg" placeholder="機関名" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;"></div>
+      <div><div class="sub" style="margin-bottom:3px;">在留資格</div>
+        <input type="text" id="paVisa" placeholder="特定技能1号 等" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;"></div>
+      <div><div class="sub" style="margin-bottom:3px;">申請種別</div>
+        <select id="paApp" style="width:100%;padding:6px 4px;border:1px solid var(--line);border-radius:6px;">
+          <option value="">全種別</option><option>認定</option><option>変更</option><option>更新</option></select></div>
+      <div><div class="sub" style="margin-bottom:3px;">単価(税抜)</div>
+        <input type="number" id="paPrice" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;text-align:right;"></div>
+      <div><div class="sub" style="margin-bottom:3px;">印紙枚数</div>
+        <input type="number" id="paStampCount" placeholder="0" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;text-align:right;"></div>
+      <div><div class="sub" style="margin-bottom:3px;">印紙単価</div>
+        <input type="number" id="paStampPrice" value="5500" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;text-align:right;"></div>
+      <div><div class="sub" style="margin-bottom:3px;">請求先</div>
+        <select id="paBilling" style="width:100%;padding:6px 4px;border:1px solid var(--line);border-radius:6px;">
+          <option value="">-</option><option>登録支援機関</option><option>所属機関</option></select></div>
+      <div><div class="sub" style="margin-bottom:3px;">kb</div>
+        <input type="number" id="paKb" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;text-align:right;"></div>
+      <div><div class="sub" style="margin-bottom:3px;">変動</div>
+        <select id="paVariable" style="width:100%;padding:6px 4px;border:1px solid var(--line);border-radius:6px;">
+          <option value="false">-</option><option value="true">変動あり</option></select></div>
+      <div style="grid-column:span 4;"><div class="sub" style="margin-bottom:3px;">備考</div>
+        <input type="text" id="paNote" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;"></div>
+      <button class="btn btn-primary btn-sm" onclick="savePriceItem()" style="height:34px;">追加</button>
     </div>
   </div>
   <div id="paList"><div class="loading">読み込み中...</div></div>
@@ -1084,10 +1105,16 @@ function qHideSuggest(){ var b=el('qSuggest'); if(b){ b.style.display='none'; b.
 /* ---------------- 品目マスタ ---------------- */
 var _priceCache = [];
 function loadPriceItems(cb){
-  _sb.from('eigyo_price_items').select('*').order('category',{ascending:true}).order('sort_order',{ascending:true}).order('id',{ascending:true})
+  _sb.from('eigyo_price_items').select('*').order('org_key',{ascending:true}).order('sort_order',{ascending:true})
     .then(function(r){ _priceCache = (r.error?[]:(r.data||[])); if(cb) cb(); });
 }
 function taxLabel(t){ t=parseInt(t,10); return t===-1?'不課税':(t+'%'); }
+
+function labelChannel(c){ return c==='direct'?'直依頼':'経由'; }
+function pcName(x){
+  // 明細の品目名を組み立てる（在留資格 種別）
+  return [x.visa||'', x.app_type||''].filter(Boolean).join('　') || (x.org_key||'単価');
+}
 
 function openPriceMaster(){
   el('pmOv').classList.add('on'); el('pmBox').style.display='block'; el('pmSearch').value='';
@@ -1099,17 +1126,18 @@ function renderPriceMaster(){
   var kw = (el('pmSearch').value||'').trim();
   var items = _priceCache.filter(function(x){
     if(!kw) return true;
-    return (x.name||'').indexOf(kw)>=0 || (x.category||'').indexOf(kw)>=0;
+    return [x.org_key,x.visa,x.app_type,x.billing_to,x.note].some(function(v){ return (v||'').indexOf(kw)>=0; });
   });
-  if(!items.length){ el('pmList').innerHTML='<div class="empty" style="padding:20px;">品目がありません。「⚙ 単価マスタ管理」から登録してください。</div>'; return; }
-  // カテゴリごとにまとめる
-  var cats = {};
-  items.forEach(function(x){ var c=x.category||'（未分類）'; (cats[c]=cats[c]||[]).push(x); });
-  el('pmList').innerHTML = Object.keys(cats).map(function(c){
+  if(!items.length){ el('pmList').innerHTML='<div class="empty" style="padding:20px;">単価がありません。「⚙ 単価マスタ管理」から登録してください。</div>'; return; }
+  // 対象機関ごとにまとめる
+  var orgs = {};
+  items.forEach(function(x){ var c=x.org_key||'（機関未設定）'; (orgs[c]=orgs[c]||[]).push(x); });
+  el('pmList').innerHTML = Object.keys(orgs).map(function(c){
     return '<div style="font-size:11px;color:var(--muted);font-weight:700;margin:10px 0 4px;">'+esc(c)+'</div>'
-      + cats[c].map(function(x){
-        return '<div onclick="pickPriceItem('+x.id+')" style="display:flex;justify-content:space-between;align-items:center;padding:8px 11px;border:1px solid var(--line);border-radius:8px;margin-bottom:5px;cursor:pointer;">'
-          + '<div><b>'+esc(x.name)+'</b> <span class="sub">'+esc(x.unit||'')+' ／ '+taxLabel(x.tax_rate)+'</span></div>'
+      + orgs[c].map(function(x){
+        var stamp = (x.stamp_count>0) ? '　印紙'+x.stamp_count+'枚' : '';
+        return '<div onclick="pickPriceItem(\''+x.id+'\')" style="display:flex;justify-content:space-between;align-items:center;padding:8px 11px;border:1px solid var(--line);border-radius:8px;margin-bottom:5px;cursor:pointer;">'
+          + '<div><b>'+esc(x.visa||'')+'</b> <span class="sub">'+esc(x.app_type||'全種別')+' ／ '+esc(x.billing_to||'-')+stamp+'</span></div>'
           + '<div style="font-weight:700;">'+Number(x.unit_price||0).toLocaleString()+' 円</div></div>';
       }).join('');
   }).join('');
@@ -1117,81 +1145,104 @@ function renderPriceMaster(){
 function pickPriceItem(id){
   var x = _priceCache.filter(function(p){ return p.id===id; })[0];
   if(!x) return;
-  // 空の先頭行があればそこに、なければ追加
+  var recs = [{ name:pcName(x), unit_price:Number(x.unit_price||0), qty:1, unit:'式', tax_rate:10 }];
+  // 印紙代があれば不課税行を自動追加
+  if(x.stamp_count>0){
+    recs.push({ name:'(5.5)収入印紙代', unit_price:Number(x.stamp_price||5500), qty:x.stamp_count, unit:'枚', tax_rate:-1 });
+  }
   var empty = qItems.filter(function(it){ return !it.name && !it.unit_price; })[0];
-  var rec = { name:x.name, unit_price:Number(x.unit_price||0), qty:1, unit:x.unit||'式', tax_rate:(x.tax_rate==null?10:x.tax_rate) };
-  if(empty){ var idx=qItems.indexOf(empty); qItems[idx]=rec; } else qItems.push(rec);
+  if(empty){ var idx=qItems.indexOf(empty); qItems.splice(idx,1); }
+  recs.forEach(function(r){ qItems.push(r); });
   renderQuoteItems();
   closePriceMaster();
 }
 
-/* 品目マスタ管理 */
+/* 単価マスタ管理（price_rules準拠） */
+function paClearForm(){
+  el('paChannel').value='via'; el('paOrg').value=''; el('paVisa').value=''; el('paApp').value='';
+  el('paPrice').value=''; el('paStampCount').value=''; el('paStampPrice').value='5500';
+  el('paBilling').value=''; el('paKb').value=''; el('paVariable').value='false'; el('paNote').value='';
+}
 function openPriceAdmin(){
   el('paOv').classList.add('on'); el('paBox').style.display='block'; showMsg('paMsg','','');
-  el('paCat').value=''; el('paName').value=''; el('paPrice').value=''; el('paUnit').value='式'; el('paTax').value='10';
-  _paEditId = null;
+  paClearForm(); _paEditId = null;
   el('paList').innerHTML='<div class="loading">読み込み中...</div>';
   loadPriceItems(renderPriceAdmin);
 }
 function closePriceAdmin(){ el('paOv').classList.remove('on'); el('paBox').style.display='none'; }
 var _paEditId = null;
 function savePriceItem(){
-  var name = el('paName').value.trim();
-  if(!name){ showMsg('paMsg','品目名は必須です','err'); return; }
+  var org = el('paOrg').value.trim();
+  var price = parseInt(el('paPrice').value,10);
+  if(!org){ showMsg('paMsg','対象機関は必須です','err'); return; }
+  if(isNaN(price)){ showMsg('paMsg','単価を入力してください','err'); return; }
+  var sc = el('paStampCount').value.trim();
+  var kb = el('paKb').value.trim();
   var rec = {
-    category:   el('paCat').value.trim() || null,
-    name:       name,
-    unit_price: parseFloat(el('paPrice').value)||0,
-    unit:       el('paUnit').value.trim() || '式',
-    tax_rate:   parseInt(el('paTax').value,10)
+    channel:      el('paChannel').value,
+    org_key:      org,
+    visa:         el('paVisa').value.trim() || null,
+    app_type:     el('paApp').value || null,
+    unit_price:   price,
+    stamp_price:  parseInt(el('paStampPrice').value,10) || 5500,
+    stamp_count:  sc===''? null : parseInt(sc,10),
+    billing_to:   el('paBilling').value || null,
+    kb:           kb===''? null : parseInt(kb,10),
+    variable_flag: el('paVariable').value==='true',
+    note:         el('paNote').value.trim() || null
   };
   var op = _paEditId ? _sb.from('eigyo_price_items').update(rec).eq('id',_paEditId)
                      : _sb.from('eigyo_price_items').insert(rec);
   op.then(function(r){
     if(r.error){ showMsg('paMsg','保存に失敗しました：'+r.error.message,'err'); return; }
     showMsg('paMsg', _paEditId?'更新しました':'追加しました','ok');
-    el('paCat').value=''; el('paName').value=''; el('paPrice').value=''; el('paUnit').value='式'; el('paTax').value='10';
-    _paEditId = null;
+    paClearForm(); _paEditId = null;
     loadPriceItems(renderPriceAdmin);
   });
 }
 function paEdit(id){
   var x = _priceCache.filter(function(p){ return p.id===id; })[0]; if(!x) return;
   _paEditId = id;
-  el('paCat').value=x.category||''; el('paName').value=x.name||''; el('paPrice').value=x.unit_price||0;
-  el('paUnit').value=x.unit||'式'; el('paTax').value=(x.tax_rate==null?10:x.tax_rate);
+  el('paChannel').value=x.channel||'via'; el('paOrg').value=x.org_key||''; el('paVisa').value=x.visa||'';
+  el('paApp').value=x.app_type||''; el('paPrice').value=x.unit_price||0;
+  el('paStampCount').value=(x.stamp_count==null?'':x.stamp_count); el('paStampPrice').value=(x.stamp_price==null?5500:x.stamp_price);
+  el('paBilling').value=x.billing_to||''; el('paKb').value=(x.kb==null?'':x.kb);
+  el('paVariable').value=(x.variable_flag?'true':'false'); el('paNote').value=x.note||'';
   showMsg('paMsg','編集中：保存で上書きされます','ok');
 }
 function paDelete(id){
-  if(!confirm('この品目を削除しますか？')) return;
+  if(!confirm('この単価を削除しますか？')) return;
   _sb.from('eigyo_price_items').delete().eq('id',id).then(function(r){
     if(r.error){ showMsg('paMsg','削除に失敗しました：'+r.error.message,'err'); return; }
     loadPriceItems(renderPriceAdmin);
   });
 }
 function renderPriceAdmin(){
-  if(!_priceCache.length){ el('paList').innerHTML='<div class="empty" style="padding:16px;">まだ品目がありません。上のフォームから追加してください。</div>'; return; }
-  el('paList').innerHTML = '<table style="width:100%;font-size:12.5px;"><thead><tr>'
-    + '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);">カテゴリ</th>'
-    + '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);">品目</th>'
-    + '<th style="text-align:right;padding:6px 8px;border-bottom:1px solid var(--line);">単価</th>'
-    + '<th style="padding:6px 8px;border-bottom:1px solid var(--line);">単位</th>'
-    + '<th style="padding:6px 8px;border-bottom:1px solid var(--line);">税</th>'
-    + '<th style="padding:6px 8px;border-bottom:1px solid var(--line);"></th></tr></thead><tbody>'
+  if(!_priceCache.length){ el('paList').innerHTML='<div class="empty" style="padding:16px;">まだ単価がありません。上のフォームから追加してください。</div>'; return; }
+  var th = function(t,al){ return '<th style="text-align:'+(al||'left')+';padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;">'+t+'</th>'; };
+  var td = function(v,al){ return '<td style="text-align:'+(al||'left')+';padding:7px 8px;border-bottom:1px solid #eee;">'+v+'</td>'; };
+  el('paList').innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;font-size:12px;border-collapse:collapse;"><thead><tr>'
+    + th('区分')+th('対象機関')+th('在留資格')+th('種別')+th('単価(税抜)','right')+th('印紙','center')+th('請求先')+th('変動','center')+th('kb','right')+th('備考')+th('')
+    + '</tr></thead><tbody>'
     + _priceCache.map(function(x){
         return '<tr>'
-          + '<td class="sub" style="padding:7px 8px;border-bottom:1px solid #eee;">'+esc(x.category||'')+'</td>'
-          + '<td style="padding:7px 8px;border-bottom:1px solid #eee;">'+esc(x.name)+'</td>'
-          + '<td style="text-align:right;padding:7px 8px;border-bottom:1px solid #eee;">'+Number(x.unit_price||0).toLocaleString()+'</td>'
-          + '<td style="padding:7px 8px;border-bottom:1px solid #eee;">'+esc(x.unit||'')+'</td>'
-          + '<td style="padding:7px 8px;border-bottom:1px solid #eee;">'+taxLabel(x.tax_rate)+'</td>'
-          + '<td style="padding:7px 8px;border-bottom:1px solid #eee;white-space:nowrap;">'
-          +   '<span onclick="paEdit('+x.id+')" style="cursor:pointer;color:#2b6cb0;">編集</span>　'
-          +   '<span onclick="paDelete('+x.id+')" style="cursor:pointer;color:#c53030;">削除</span></td>'
+          + td('<span class="sub">'+esc(labelChannel(x.channel))+'</span>')
+          + td('<b>'+esc(x.org_key||'')+'</b>')
+          + td(esc(x.visa||''))
+          + td(esc(x.app_type||'<span class="sub">全種別</span>'))
+          + td(Number(x.unit_price||0).toLocaleString(),'right')
+          + td((x.stamp_count==null?'<span class="sub">-</span>':x.stamp_count),'center')
+          + td('<span class="sub">'+esc(x.billing_to||'-')+'</span>')
+          + td(x.variable_flag?'⚠️':'','center')
+          + td((x.kb==null?'':Number(x.kb).toLocaleString()),'right')
+          + td('<span class="sub">'+esc(x.note||'')+'</span>')
+          + td('<span onclick="paEdit(\''+x.id+'\')" style="cursor:pointer;color:#2b6cb0;white-space:nowrap;">編集</span>　'
+             + '<span onclick="paDelete(\''+x.id+'\')" style="cursor:pointer;color:#c53030;">削除</span>')
           + '</tr>';
       }).join('')
-    + '</tbody></table>';
+    + '</tbody></table></div>';
 }
+
 
 function qSetExpiry(which){
   var base = new Date((el('qIssue').value||today())+'T00:00:00');
