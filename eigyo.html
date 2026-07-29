@@ -165,7 +165,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260729.02</div>
+      <div class="ver">ver.20260729.03</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -349,10 +349,15 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <label>メモ</label><input type="text" id="qMemoField" placeholder="見積書には印刷されません">
   </div>
 
-  <div style="margin-top:18px;text-align:right;display:flex;gap:8px;justify-content:flex-end;">
-    <button class="btn" onclick="closeQuote()">キャンセル</button>
-    <button class="btn" onclick="printQuote()">🖨 PDF/印刷</button>
-    <button class="btn btn-primary" onclick="saveQuote()">保存</button>
+  <div style="margin-top:18px;display:flex;gap:8px;justify-content:space-between;align-items:center;">
+    <label class="chk" style="color:var(--text);font-size:13px;">
+      <input type="checkbox" id="qPush"> 案件管理システムへ反映対象にする
+    </label>
+    <div style="display:flex;gap:8px;">
+      <button class="btn" onclick="closeQuote()">キャンセル</button>
+      <button class="btn" onclick="printQuote()">🖨 PDF/印刷</button>
+      <button class="btn btn-primary" onclick="saveQuote()">保存</button>
+    </div>
   </div>
 </div>
 
@@ -428,7 +433,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
       <thead><tr>
         <th style="width:64px;">番号</th><th style="width:96px;">発行日</th>
         <th>取引先 / 件名</th><th style="width:110px;text-align:right;">合計</th>
-        <th style="width:80px;">担当</th><th style="width:120px;"></th>
+        <th style="width:80px;">担当</th><th style="width:96px;text-align:center;">案件連携</th><th style="width:150px;"></th>
       </tr></thead>
       <tbody id="qlRows"><tr><td colspan="6" class="loading">読み込み中...</td></tr></tbody>
     </table>
@@ -1040,6 +1045,7 @@ function openQuote(preset){
   el('qTag').value         = (preset && preset.tag) || '';
   el('qMemoField').value   = (preset && preset.memo) || '';
   el('qRemarks').value     = (preset && preset.remarks!=null) ? preset.remarks : QUOTE_REMARKS_DEFAULT;
+  el('qPush').checked      = !!(preset && preset.push_to_anken);
   qItems = (preset && preset.items && preset.items.length) ? preset.items.slice()
          : [{name:'',unit_price:0,qty:1,unit:'式',tax_rate:10}];
   el('qReg') && (el('qReg').value = (preset && preset.reg_no) || (lead ? lead.reg_no : ''));
@@ -1222,9 +1228,12 @@ function renderPriceAdmin(){
   var th = function(t,al){ return '<th style="text-align:'+(al||'left')+';padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;">'+t+'</th>'; };
   var td = function(v,al){ return '<td style="text-align:'+(al||'left')+';padding:7px 8px;border-bottom:1px solid #eee;">'+v+'</td>'; };
   el('paList').innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;font-size:12px;border-collapse:collapse;"><thead><tr>'
-    + th('区分')+th('対象機関')+th('在留資格')+th('種別')+th('単価(税抜)','right')+th('印紙','center')+th('請求先')+th('変動','center')+th('kb','right')+th('備考')+th('')
+    + th('区分')+th('対象機関')+th('在留資格')+th('種別')+th('単価(税抜)','right')+th('印紙','center')+th('請求先')+th('変動','center')+th('kb','right')+th('案件連携','center')+th('備考')+th('')
     + '</tr></thead><tbody>'
     + _priceCache.map(function(x){
+        var on = !!x.push_to_anken;
+        var link = '<span onclick="togglePricePush(\''+x.id+'\','+(on?'false':'true')+')" style="cursor:pointer;font-weight:700;'
+          + (on?'color:#276749;':'color:#a0aec0;')+'">'+(on?'✅':'○')+'</span>';
         return '<tr>'
           + td('<span class="sub">'+esc(labelChannel(x.channel))+'</span>')
           + td('<b>'+esc(x.org_key||'')+'</b>')
@@ -1235,12 +1244,19 @@ function renderPriceAdmin(){
           + td('<span class="sub">'+esc(x.billing_to||'-')+'</span>')
           + td(x.variable_flag?'⚠️':'','center')
           + td((x.kb==null?'':Number(x.kb).toLocaleString()),'right')
+          + td(link,'center')
           + td('<span class="sub">'+esc(x.note||'')+'</span>')
           + td('<span onclick="paEdit(\''+x.id+'\')" style="cursor:pointer;color:#2b6cb0;white-space:nowrap;">編集</span>　'
              + '<span onclick="paDelete(\''+x.id+'\')" style="cursor:pointer;color:#c53030;">削除</span>')
           + '</tr>';
       }).join('')
     + '</tbody></table></div>';
+}
+function togglePricePush(id, on){
+  _sb.from('eigyo_price_items').update({ push_to_anken:(on===true||on==='true') }).eq('id',id).then(function(r){
+    if(r.error){ showMsg('paMsg','更新に失敗しました：'+r.error.message,'err'); return; }
+    loadPriceItems(renderPriceAdmin);
+  });
 }
 
 
@@ -1312,6 +1328,7 @@ function saveQuote(){
     tag:             el('qTag').value.trim() || null,
     memo:            el('qMemoField').value.trim() || null,
     remarks:         el('qRemarks').value.trim() || null,
+    push_to_anken:   el('qPush').checked,
     created_by:      me || null
   };
   var op = editingQuoteId
@@ -1421,10 +1438,15 @@ function loadQuoteList(){
   }
   q.then(function(r){
     var box = el('qlRows');
-    if(r.error){ box.innerHTML='<tr><td colspan="6" class="empty">エラー：'+esc(r.error.message)+'</td></tr>'; return; }
+    if(r.error){ box.innerHTML='<tr><td colspan="7" class="empty">エラー：'+esc(r.error.message)+'</td></tr>'; return; }
     var d = r.data||[];
-    if(!d.length){ box.innerHTML='<tr><td colspan="6" class="empty">見積書がありません。</td></tr>'; return; }
+    if(!d.length){ box.innerHTML='<tr><td colspan="7" class="empty">見積書がありません。</td></tr>'; return; }
     box.innerHTML = d.map(function(x){
+      var on = !!x.push_to_anken;
+      var link = '<span onclick="toggleQuotePush('+x.id+','+(on?'false':'true')+')" style="cursor:pointer;font-size:11px;font-weight:700;'
+        + (on?'color:#276749;':'color:#a0aec0;') + '" title="'+(on?'案件システムへ反映対象（クリックで解除）':'クリックで反映対象にする')+'">'
+        + (on?'✅ 反映':'○ 未反映') + '</span>'
+        + (x.pushed_at?'<div class="sub" style="font-size:10px;">取得済</div>':'');
       return '<tr>'
         + '<td class="sub">'+esc(x.quote_no)+'</td>'
         + '<td class="sub">'+esc(x.issue_date||'')+'</td>'
@@ -1432,10 +1454,17 @@ function loadQuoteList(){
         +   (x.subject?'<div class="sub">'+esc(x.subject)+'</div>':'')+'</td>'
         + '<td style="text-align:right;">'+yen(x.total)+'</td>'
         + '<td class="sub">'+esc(x.created_by||'')+'</td>'
+        + '<td style="text-align:center;">'+link+'</td>'
         + '<td><button class="btn btn-sm" onclick=\'quoteEdit('+x.id+')\'>開く</button> '
         +     '<button class="btn btn-sm" onclick="quoteDup('+x.id+')">複製</button></td>'
         + '</tr>';
     }).join('');
+  });
+}
+function toggleQuotePush(id, on){
+  _sb.from('eigyo_quotes').update({ push_to_anken: (on===true||on==='true') }).eq('id',id).then(function(r){
+    if(r.error){ showMsg('topMsg','更新に失敗しました：'+r.error.message,'err'); return; }
+    loadQuoteList();
   });
 }
 function quoteEdit(id){
