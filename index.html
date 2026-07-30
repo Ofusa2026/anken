@@ -4823,7 +4823,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260730.33';
+var OFUSA_VERSION = 'ver.20260730.34';
 // 確認済みで非表示にする取込メールの日付（キー=YYYY-MM-DD）
 var OFUSA_HIDE_MAIL_DATES = { '2026-04-17': 1 };
 window.OFUSA_HIDE_MAIL_DATES = OFUSA_HIDE_MAIL_DATES;
@@ -58656,9 +58656,137 @@ function onKokkoCompanyDriveUrlChange(el, companyId) {
 // chexkbox.data-opt から業種名を取得、persons.kokko_jyuji_koujigyo にカンマ区切りで保存
 
 // =============================================
-// ver.20260730.33: 技能実習職種・作業から業務区分→従事工事業を自動判定
+// ver.20260730.34: 技能実習職種・作業から業務区分→従事工事業を自動判定
 // gijutsuType(職種) + gijutsuWork(作業) → 業務区分 → 会社許可との積集合 → 自動チェック
 // =============================================
+
+
+// =============================================
+// ver.20260730.34: 業務区分自動判定（Phase 1）
+// =============================================
+var _PERMIT_TO_KUBUN = {
+  'さく井工事業':['土木'],'舗装工事業':['土木'],'しゅんせつ工事業':['土木'],'造園工事業':['土木'],
+  '大工工事業':['土木','建築'],'とび・土工工事業':['土木','建築'],'鋼構造物工事業':['土木','建築'],
+  '鉄筋工事業':['土木','建築'],'塗装工事業':['土木','建築'],'防水工事業':['土木','建築'],
+  '石工事業':['土木','建築'],'機械器具設置工事業':['土木','建築'],
+  '内装仕上工事業':['建築'],'建具工事業':['建築'],'左官工事業':['建築'],
+  'タイル・れんが・ブロック工事業':['建築'],'清掃施設工事業':['建築'],'屋根工事業':['建築'],
+  'ガラス工事業':['建築'],'解体工事業':['建築'],
+  '板金工事業':['建築','ライフライン・設備'],'熱絶縁工事業':['建築','ライフライン・設備'],
+  '管工事業':['ライフライン・設備'],'電気工事業':['ライフライン・設備'],
+  '電気通信工事業':['ライフライン・設備'],'水道施設工事業':['ライフライン・設備'],'消防施設工事業':['ライフライン・設備']
+};
+
+var _EXAM_SHOKUSHU_MAP = [
+  {re:/型枠施工/,shokushu:'型枠施工',sagyo:''},
+  {re:/コンクリート圧送/,shokushu:'コンクリート圧送施工',sagyo:''},
+  {re:/トンネル推進/,shokushu:'トンネル推進工',sagyo:''},
+  {re:/建設機械施工.*(押土|整地)/,shokushu:'建設機械施工',sagyo:'押土・整地'},
+  {re:/建設機械施工.*積込/,shokushu:'建設機械施工',sagyo:'積込み'},
+  {re:/建設機械施工.*掘削/,shokushu:'建設機械施工',sagyo:'掘削'},
+  {re:/建設機械施工.*締固/,shokushu:'建設機械施工',sagyo:'締固め'},
+  {re:/建設機械施工/,shokushu:'建設機械施工',sagyo:''},
+  {re:/鉄筋施工/,shokushu:'鉄筋施工',sagyo:''},
+  {re:/鉄筋継手/,shokushu:'鉄筋継手',sagyo:''},
+  {re:/とび/,shokushu:'とび',sagyo:''},
+  {re:/左官/,shokushu:'左官',sagyo:''},
+  {re:/屋根ふき|屋根葺/,shokushu:'屋根ふき',sagyo:''},
+  {re:/内装仕上/,shokushu:'内装仕上げ',sagyo:''},
+  {re:/表装/,shokushu:'表装',sagyo:''},
+  {re:/建築大工/,shokushu:'建築大工',sagyo:''},
+  {re:/建築板金/,shokushu:'建築板金',sagyo:''},
+  {re:/吹付ウレタン/,shokushu:'吹付ウレタン断熱',sagyo:''},
+  {re:/熱絶縁施工.*(保温|保冷)|保温保冷/,shokushu:'熱絶縁施工',sagyo:'保温保冷'},
+  {re:/熱絶縁施工/,shokushu:'熱絶縁施工',sagyo:''},
+  {re:/電気通信/,shokushu:'電気通信',sagyo:''},
+  {re:/配管/,shokushu:'配管',sagyo:''},
+  {re:/溶接/,shokushu:'溶接',sagyo:''},
+  {re:/塗装.*(建築|一般)|建築.*塗装/,shokushu:'塗装',sagyo:'建築塗装'},
+  {re:/塗装.*鋼橋|鋼橋.*塗装/,shokushu:'塗装',sagyo:'鋼橋塗装'},
+  {re:/塗装/,shokushu:'塗装',sagyo:''},
+  {re:/さく井/,shokushu:'さく井',sagyo:''},
+  {re:/土工/,shokushu:'土工',sagyo:''},
+  {re:/海洋土木/,shokushu:'海洋土木工',sagyo:''},
+];
+
+function _autoKubunFromExamName(examName){
+  var n=String(examName||'');
+  for(var i=0;i<_EXAM_SHOKUSHU_MAP.length;i++){
+    var m=_EXAM_SHOKUSHU_MAP[i];
+    if(m.re.test(n)) return {shokushu:m.shokushu,sagyo:m.sagyo};
+  }
+  return null;
+}
+
+function _autoDetectJobKubun(caseId){
+  var c=(typeof cases!=='undefined'?cases:[]).find(function(x){return x.id===caseId;});
+  if(!c) return null;
+  var field=c.applicantField||c.field||'';
+  if(field.indexOf('建設')<0&&(c.jobCategory||'').indexOf('建設')<0&&(c.name||'').indexOf('建設')<0) return null;
+  var p=(typeof personData!=='undefined'&&personData[caseId])||{};
+  var co=(typeof companies!=='undefined'?companies:[]).find(function(x){return x.id===c.companyId;})||{};
+  var score={'土木':0,'建築':0,'ライフライン・設備':0};
+
+  // ① 技能実習職種・作業（2点）
+  if(p.gijutsuType){
+    var k1=typeof _kokkoKubunFromShokushu==='function'?_kokkoKubunFromShokushu(p.gijutsuType,p.gijutsuWork||''):null;
+    if(k1){
+      if(k1.doboku)   score['土木']+=2;
+      if(k1.kenchiku) score['建築']+=2;
+      if(k1.lifeline) score['ライフライン・設備']+=2;
+    }
+  }
+
+  // ② 技能試験名（skillExam1/2/3）（1点）
+  ['skillExam1','skillExam2','skillExam3'].forEach(function(key){
+    var exam=p[key]||''; if(!exam) return;
+    var ex=_autoKubunFromExamName(exam); if(!ex) return;
+    var k2=typeof _kokkoKubunFromShokushu==='function'?_kokkoKubunFromShokushu(ex.shokushu,ex.sagyo):null;
+    if(k2){
+      if(k2.doboku)   score['土木']+=1;
+      if(k2.kenchiku) score['建築']+=1;
+      if(k2.lifeline) score['ライフライン・設備']+=1;
+    }
+  });
+
+  // ③ 会社の建設業許可（1点）
+  var permitArr=(co.permitTypes||'').split(/[,，、]/).map(function(s){return s.trim();}).filter(Boolean);
+  permitArr.forEach(function(permit){
+    (_PERMIT_TO_KUBUN[permit]||[]).forEach(function(kn){score[kn]+=1;});
+  });
+
+  var total=score['土木']+score['建築']+score['ライフライン・設備'];
+  if(!total) return null;
+
+  var maxScore=Math.max(score['土木'],score['建築'],score['ライフライン・設備']);
+  var winners=['土木','建築','ライフライン・設備'].filter(function(k){return score[k]===maxScore;});
+  var is2go=(field.indexOf('特定技能２号')>=0||(c.residenceStatus||'').indexOf('2号')>=0);
+  var suffix=is2go?'（建設分野・特定技能２号）':'（建設分野・特定技能１号）';
+
+  return {
+    kubun: winners[0]+suffix,
+    short: winners[0],
+    score: score,
+    confident: winners.length===1,
+    candidates: winners
+  };
+}
+
+function _applyAutoKubun(caseId, quiet){
+  var result=_autoDetectJobKubun(caseId);
+  if(!result) return;
+  var c=(typeof cases!=='undefined'?cases:[]).find(function(x){return x.id===caseId;});
+  if(!c) return;
+  if(c.jobCategory&&c.jobCategory===result.kubun) return;
+  autoSaveInfo('jobCategory', result.kubun);
+  var catEl=document.getElementById('ei-jobCategory');
+  if(catEl) catEl.value=result.kubun;
+  if(!quiet){
+    var msg='🏗️ 業務区分を自動判定：【'+result.short+'】';
+    if(!result.confident) msg+=' ※同点候補あり（確認推奨）';
+    showToast(msg);
+  }
+}
 
 var GIJUTSU_KUBUN_MAP = [
   // [職種(正規化),              作業(正規化・空なら全作業),   土木,  建築,  LL]
@@ -60160,8 +60288,9 @@ function showTab(tab) {
         var autoRe=(f.key==='pastEntry'||f.key==='pastCOE'||f.key==='deportation'||f.key==='skillEvalType'||f.key==='jpEvalType'||f.key==='spouse'||f.key==='totalStayYear'||f.key==='totalStayMonth');
         var isGijutsuType=(f.key==='gijutsuType');
         var isGijutsuWork=(f.key==='gijutsuWork');
+        var isSkillExam=(f.key==='skillExam1'||f.key==='skillExam2'||f.key==='skillExam3');
         var isStayPeriod=(f.key==='stayPeriod');
-        var _pfOc=autoRe?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');showTab(\'person\')':(isGijutsuType?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');updateGijutsuWorkSelect(this.value,\''+c.id+'\')':isGijutsuWork?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');_autoKokkoKubun((personData[\''+c.id+'\']||{}).gijutsuType||\'\',this.value,\''+c.id+'\')':isStayPeriod?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');var _ow=document.getElementById(\'pf-stayPeriodOther-wrap\');if(_ow)_ow.style.display=this.value===\'その他\'?\'block\':\'none\';':'');
+        var _pfOc=autoRe?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');showTab(\'person\')':(isGijutsuType?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');updateGijutsuWorkSelect(this.value,\''+c.id+'\')':isGijutsuWork?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');_autoKokkoKubun((personData[\''+c.id+'\']||{}).gijutsuType||\'\',this.value,\''+c.id+'\');_applyAutoKubun(\''+c.id+'\',false)':isSkillExam?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');setTimeout(function(){_applyAutoKubun(\''+c.id+'\',false);},80)':isStayPeriod?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');var _ow=document.getElementById(\'pf-stayPeriodOther-wrap\');if(_ow)_ow.style.display=this.value===\'その他\'?\'block\':\'none\';':'');
         h+='<select id="pf-'+f.key+'" '+(_pfOc?'onchange="'+_pfOc+'" ':'')+' style="width:100%;font-size:12px;padding:5px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;outline:none;">';
         h+='<option value="">— 選択 —</option>';
         var _pOpts=typeof f.opts==='function'?f.opts():(f.opts||[]);_pOpts.forEach(function(o){h+='<option value="'+o+'"'+(o===val?' selected':'')+'>'+o+'</option>';});
@@ -60866,6 +60995,13 @@ function showTab(tab) {
       if (_catEl) {
         _catEl.onchange = function(){ autoSaveInfo('jobCategory', this.value); };
       }
+      // ver.20260730.34: infoタブを開いたタイミングで業務区分を自動判定
+      (function(){
+        var _cid = c && c.id;
+        if(_cid && (c.applicantField||'').indexOf('建設')>=0) {
+          setTimeout(function(){ _applyAutoKubun(_cid, true); }, 100);
+        }
+      })();
     }, 0);
   }
   // LINEグループ名取得
