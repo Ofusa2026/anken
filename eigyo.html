@@ -165,7 +165,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260729.04</div>
+      <div class="ver">ver.20260730.01</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -703,7 +703,7 @@ function render(){
       ? '<a href="'+esc(x.website)+'" target="_blank" rel="noopener" onclick="event.stopPropagation();" '
         + 'style="text-decoration:none;" title="'+esc(x.website)+'">🔗開く</a>'
       : '<span class="sub">—</span>';
-    return '<tr class="'+rowCls+'" onclick="openDrawer(\''+esc(x.reg_no)+'\')">'
+    return '<tr class="'+rowCls+'" data-reg="'+esc(x.reg_no)+'" style="cursor:pointer;">'
       + '<td class="sub">'+esc(x.reg_no)+'</td>'
       + '<td class="sub">'+esc(x.reg_date||'')+'</td>'
       + '<td><span class="nm">'+esc(x.name)+'</span>'+tags
@@ -723,6 +723,17 @@ function render(){
       + '</tr>';
   }).join('');
   el('rows').innerHTML = html;
+  // 行クリック（イベント委譲）：セル・テキストどこを押しても行を開く
+  var tb = el('rows');
+  if(!tb._delegated){
+    tb._delegated = true;
+    tb.addEventListener('click', function(e){
+      // HPリンクや連携トグルなど、行内の操作要素を押したときは開かない
+      if(e.target.closest('a,button,input,select,[data-noopen]')) return;
+      var tr = e.target.closest('tr[data-reg]');
+      if(tr) openDrawer(tr.getAttribute('data-reg'));
+    });
+  }
   el('cntTxt').textContent = total.toLocaleString() + ' 件';
   var last = Math.max(1, Math.ceil(total/PAGE));
   el('pageTxt').textContent = (page+1) + ' / ' + last;
@@ -814,7 +825,8 @@ function openDrawer(regNo){
   _sb.from('eigyo_leads').select('*').eq('reg_no', regNo).single().then(function(r){
     if(r.error){ el('dBody').innerHTML='<div class="empty">読み込みエラー：'+esc(r.error.message)+'</div>'; return; }
     curLead = r.data;
-    renderDrawer();
+    try { renderDrawer(); }
+    catch(e){ el('dBody').innerHTML='<div class="empty">表示エラー：'+esc(e.message)+'<br><button class="btn btn-sm" onclick="closeDrawer()">閉じる</button></div>'; }
     loadNotes(regNo);
   });
 }
