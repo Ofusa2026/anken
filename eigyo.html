@@ -165,7 +165,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260730.02</div>
+      <div class="ver">ver.20260730.04</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -186,11 +186,6 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
       <div id="impBar" style="height:100%;width:0%;background:var(--accent);transition:width .2s;"></div>
     </div>
   </div>
-  <div class="alertbar" id="alertBar" onclick="toggleAlertOnly()">
-    <span class="ttl">⏰ ネクストアクション期限</span>
-    <span class="cnt" id="alertCnt">0</span>
-    <span class="hint" id="alertHint">クリックで該当分だけ表示</span>
-  </div>
   <div class="kpis" id="kpis"></div>
 
   <div class="prefbox" id="prefBox"></div>
@@ -201,7 +196,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <select id="fStaff"><option value="">全担当者</option></select>
     <select id="fEntity"><option value="">全区分</option></select>
     <select id="fIndustry"><option value="">全業種</option></select>
-    <select id="fSelf"><option value="">支援形態：全て</option></select>
+    <select id="fSelf"><option value="">主体：全て</option></select>
     <select id="fSort">
       <option value="new">登録日が新しい順</option>
       <option value="name">名称順</option>
@@ -263,9 +258,8 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <label>電話</label><input type="text" id="vTel">
     <label>代表者</label><input type="text" id="vRep">
     <label>HP URL</label><input type="text" id="vSite" placeholder="https://example.co.jp">
-    <label>事業者区分</label><select id="vEntity"></select>
     <label>業種</label><select id="vIndustry"><option value="">（未設定）</option></select>
-    <label>支援形態</label><select id="vSelf"></select>
+    <label>主体</label><select id="vSelf"></select>
     <label>被保険者数</label><input type="number" id="vInsured">
     <label>支援者数</label><input type="number" id="vSupporter">
     <label>上場</label><select id="vListed"><option value="">未確認</option><option value="1">上場</option><option value="0">非上場</option></select>
@@ -275,12 +269,12 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
       <input type="date" id="vFirstDate"><select id="vFirstKind" style="flex:0 0 130px;"><option value="">（経路）</option></select></div>
     <label>商談予定日</label><div style="display:flex;gap:6px;">
       <input type="date" id="vMeetDate"><select id="vMeetKind" style="flex:0 0 130px;"><option value="">（形式）</option></select></div>
-    <label>ネクストアクション日</label><input type="date" id="vNextDate">
-    <label>手段</label><div style="display:flex;gap:14px;align-items:center;">
-      <label class="chk" style="color:var(--text);"><input type="checkbox" id="vKindMail"> メール</label>
-      <label class="chk" style="color:var(--text);"><input type="checkbox" id="vKindTel"> 電話</label>
-    </div>
+    <label>ネクストアクション</label><select id="vNextKind"><option value="">（未設定）</option></select>
     <label>メモ</label><textarea id="vMemo"></textarea>
+    <label>担当者氏名</label><input type="text" id="vC0Name">
+    <label>役職</label><input type="text" id="vC0Title">
+    <label>メール</label><input type="text" id="vC0Email">
+    <label>電話(担当)</label><input type="text" id="vC0Tel">
   </div>
   <div style="margin-top:16px;text-align:right;display:flex;gap:8px;justify-content:flex-end;">
     <button class="btn" onclick="closeNew()">キャンセル</button>
@@ -461,10 +455,11 @@ var KPI_STATUSES = ['未接触','接触済み','商談予定','勝確','要経�
 var KINDS    = ['架電','メール','訪問','郵送','その他'];
 var FIRST_KINDS   = ['テレアポ（自社）','テレアポ（外注）','セミナー','交流会','紹介','問い合わせ'];
 var MEETING_KINDS = ['オンライン','訪問'];
+var NEXT_KINDS    = ['メール','電話','訪問','待ち'];
 var PRIOS    = ['','A','B','C'];
 var INDUSTRIES = ['介護','ビルクリーニング','工業製品製造業','建設','造船・舶用工業','自動車整備',
   '航空','宿泊','自動車運送業','鉄道','農業','漁業','飲食料品製造業','外食業','林業','木材産業','その他'];
-// 支援形態。登録簿由来は全て「登録支援機関」、手動登録で「自社支援」を選ぶことがある
+// 主体。登録簿由来は全て「登録支援機関」、手動登録で「自社支援」を選ぶことがある
 var SELF_SUPPORTS = ['登録支援機関','自社支援'];
 var PREFS = ['北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県','新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県','鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県','海外'];
 
@@ -647,9 +642,6 @@ function buildQuery(forCount){
   if(el('fIndustry').value) q = q.eq('industry', el('fIndustry').value);
   if(el('fSelf').value)     q = q.eq('self_support', el('fSelf').value);
   q = applyExclusions(q);
-  if(alertOnly){
-    q = q.not('next_action_date','is',null).lte('next_action_date', alertThreshold());
-  }
 
   var sort = el('fSort').value;
   if(sort==='name')           q = q.order('name',{ascending:true});
@@ -671,7 +663,6 @@ function load(){
     total = (r.count===null||r.count===undefined) ? curRows.length : r.count;
     render();
     loadKpis();
-    loadAlertCount();
   });
 }
 
@@ -682,19 +673,9 @@ function render(){
     el('pageTxt').textContent = '-';
     return;
   }
-  var td = today(), th = alertThreshold();
   var html = curRows.map(function(x){
-    var due = '', rowCls = '';
-    if(x.next_action_date){
-      var kind = x.next_action_kind ? '<span class="na-kind">'+esc(x.next_action_kind)+'</span>' : '';
-      var bd = bizDaysBetween(td, x.next_action_date);
-      var mark = '';
-      if(x.next_action_date < td){ mark = '<span class="nabadge na-over">'+Math.abs(bd)+'営業日超過</span>'; rowCls = 'row-over'; }
-      else if(x.next_action_date === td){ mark = '<span class="nabadge na-over">本日</span>'; rowCls = 'row-over'; }
-      else if(x.next_action_date <= th){ mark = '<span class="nabadge na-soon">あと'+bd+'営業日</span>'; rowCls = 'row-soon'; }
-      var cls = (x.next_action_date <= td) ? 'due' : (x.next_action_date <= th ? 'soon' : '');
-      due = kind + '<span class="'+cls+'">'+esc(x.next_action_date)+'</span>' + mark;
-    }
+    var rowCls = '';
+    var due = x.next_action_kind ? '<span class="na-kind">'+esc(x.next_action_kind)+'</span>' : '<span class="sub">—</span>';
     var tags = '';
     if(x.is_client)    tags += '<span class="tag t-client">既存</span>';
     if(x.is_suspended) tags += '<span class="tag t-susp">休止</span>';
@@ -772,22 +753,8 @@ function bizDaysBetween(from, to){
 function alertThreshold(){ return addBizDays(today(), 3); }
 
 var alertOnly = false;
-function toggleAlertOnly(){
-  alertOnly = !alertOnly;
-  el('alertBar').classList.toggle('active', alertOnly);
-  el('alertHint').textContent = alertOnly ? '解除するにはもう一度クリック' : 'クリックで該当分だけ表示';
-  page = 0; load();
-}
-function loadAlertCount(){
-  applyExclusions(_sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}))
-    .not('next_action_date','is',null)
-    .lte('next_action_date', alertThreshold())
-    .then(function(r){
-      var n = r.count || 0;
-      el('alertCnt').textContent = n.toLocaleString();
-      el('alertBar').classList.toggle('on', n > 0 || alertOnly);
-    });
-}
+function toggleAlertOnly(){ /* 廃止 */ }
+function loadAlertCount(){ /* アラート機能は廃止 */ }
 function prevPage(){ if(page>0){ page--; load(); window.scrollTo(0,0); } }
 function nextPage(){ if((page+1)*PAGE < total){ page++; load(); window.scrollTo(0,0); } }
 
@@ -873,13 +840,25 @@ function renderDrawer(){
   +     '<select id="eMeetKind" style="flex:0 0 130px;"><option value="">（形式）</option>'
   +       MEETING_KINDS.map(function(t){return '<option'+(t===x.meeting_kind?' selected':'')+'>'+esc(t)+'</option>';}).join('')
   +     '</select></div>'
-  +   '<label>ネクストアクション</label><div style="display:flex;gap:14px;align-items:center;">'
-  +     '<label class="chk" style="color:var(--text);"><input type="checkbox" id="eKindMail"'+((x.next_action_kind||'').indexOf('メール')>=0?' checked':'')+'> メール</label>'
-  +     '<label class="chk" style="color:var(--text);"><input type="checkbox" id="eKindTel"'+((x.next_action_kind||'').indexOf('電話')>=0?' checked':'')+'> 電話</label>'
-  +   '</div>'
-  +   '<label>ネクストアクション日</label><input type="date" id="eNextDate" value="'+esc(x.next_action_date||'')+'">'
+  +   '<label>ネクストアクション</label><select id="eNextKind"><option value="">（未設定）</option>'
+  +     NEXT_KINDS.map(function(k){return '<option'+(k===(x.next_action_kind||'')?' selected':'')+'>'+esc(k)+'</option>';}).join('')
+  +   '</select>'
   +   '<label>メモ</label><textarea id="eMemo" placeholder="社内メモ">'+esc(x.memo||'')+'</textarea>'
   + '</div><div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="saveLead()">保存</button></div></div>'
+
+  + '<div class="sec"><h3>先方の担当者（最大3名）</h3>'
+  +   [0,1,2].map(function(i){
+        var c = (curLead.contacts && curLead.contacts[i]) || {};
+        return '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px;">'
+          + '<div class="sub" style="margin-bottom:6px;font-weight:700;">担当者'+(i+1)+'</div>'
+          + '<div class="form" style="grid-template-columns:72px 1fr;">'
+          +   '<label>氏名</label><input type="text" id="eC'+i+'Name" value="'+esc(c.name||'')+'">'
+          +   '<label>役職</label><input type="text" id="eC'+i+'Title" value="'+esc(c.title||'')+'">'
+          +   '<label>メール</label><input type="text" id="eC'+i+'Email" value="'+esc(c.email||'')+'">'
+          +   '<label>電話</label><input type="text" id="eC'+i+'Tel" value="'+esc(c.tel||'')+'">'
+          + '</div></div>';
+      }).join('')
+  + '<div style="text-align:right;"><button class="btn btn-primary" onclick="saveContacts()">担当者を保存</button></div></div>'
 
   + '<div class="sec"><h3>企業プロフィール（登録簿には無い項目・手入力／外部データ）</h3>'
   + '<div style="background:#f7fafc;border-radius:8px;padding:8px 11px;margin-bottom:10px;font-size:12px;">'
@@ -892,14 +871,12 @@ function renderDrawer(){
   +     '<option value=""'+(x.is_listed===null||x.is_listed===undefined?' selected':'')+'>未確認</option>'
   +     '<option value="1"'+(x.is_listed===true?' selected':'')+'>上場</option>'
   +     '<option value="0"'+(x.is_listed===false?' selected':'')+'>非上場</option></select>'
-  +   '<label>法人番号</label><input type="text" id="eCorpNo" value="'+esc(x.corp_no||'')+'" placeholder="13桁">'
   +   '<label>HP URL</label><div style="display:flex;gap:6px;">'
   +     '<input type="text" id="eSite" value="'+esc(x.website||'')+'" placeholder="https://example.co.jp">'
   +     '<button class="btn btn-sm" style="white-space:nowrap;" onclick="searchSite()">🔍 検索</button></div>'
-  +   '<label>事業者区分</label><select id="eEntity">'+ENTITIES.map(function(t){return '<option'+(t===x.entity_type?' selected':'')+'>'+esc(t)+'</option>';}).join('')+'</select>'
   +   '<label>業種</label><select id="eIndustry"><option value="">（未設定）</option>'
   +     INDUSTRIES.map(function(t){return '<option'+(t===x.industry?' selected':'')+'>'+esc(t)+'</option>';}).join('')+'</select>'
-  +   '<label>支援形態</label><select id="eSelf"><option value="">（未設定）</option>'
+  +   '<label>主体</label><select id="eSelf"><option value="">（未設定）</option>'
   +     SELF_SUPPORTS.map(function(t){return '<option'+(t===x.self_support?' selected':'')+'>'+esc(t)+'</option>';}).join('')+'</select>'
   + '</div><div style="margin-top:10px;text-align:right;"><button class="btn" onclick="saveProfile()">プロフィールを保存</button></div></div>'
 
@@ -934,8 +911,7 @@ function saveLead(){
     first_contact_kind: el('eFirstKind').value || null,
     meeting_date:       el('eMeetDate').value || null,
     meeting_kind:       el('eMeetKind').value || null,
-    next_action_kind:  [el('eKindMail').checked?'メール':'', el('eKindTel').checked?'電話':''].filter(Boolean).join('・') || null,
-    next_action_date:  el('eNextDate').value || null,
+    next_action_kind:  el('eNextKind').value || null,
     memo:              el('eMemo').value.trim() || null
   };
   _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
@@ -960,15 +936,31 @@ function normUrl(v){
   return v;
 }
 
+function saveContacts(){
+  var contacts = [];
+  for(var i=0;i<3;i++){
+    var name  = el('eC'+i+'Name').value.trim();
+    var title = el('eC'+i+'Title').value.trim();
+    var email = el('eC'+i+'Email').value.trim();
+    var tel   = el('eC'+i+'Tel').value.trim();
+    if(name||title||email||tel){
+      contacts.push({ name:name||null, title:title||null, email:email||null, tel:tel||null });
+    }
+  }
+  _sb.from('eigyo_leads').update({ contacts: contacts }).eq('reg_no', curLead.reg_no).then(function(r){
+    if(r.error){ showMsg('dMsg','担当者の保存に失敗しました：'+r.error.message,'err'); return; }
+    showMsg('dMsg','担当者を保存しました','ok');
+    curLead.contacts = contacts;
+  });
+}
+
 function saveProfile(){
   var iv = el('eInsured').value.trim(), sv = el('eSupporter').value.trim(), lv = el('eListed').value;
   var patch = {
     insured_count:   iv==='' ? null : parseInt(iv,10),
     supporter_count: sv==='' ? null : parseInt(sv,10),
     is_listed:       lv==='' ? null : (lv==='1'),
-    corp_no:         el('eCorpNo').value.trim() || null,
     website:         normUrl(el('eSite').value),
-    entity_type:     el('eEntity').value || null,
     industry:        el('eIndustry').value || null,
     self_support:    el('eSelf').value || null
   };
@@ -1503,22 +1495,22 @@ function openNew(){
       arr.forEach(function(x){ s.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
     };
     fill('vPref', PREFS);
-    fill('vEntity', ENTITIES);
     fill('vIndustry', INDUSTRIES);
     fill('vSelf', SELF_SUPPORTS);
     fill('vStatus', STATUSES);
     fill('vFirstKind', FIRST_KINDS);
     fill('vMeetKind', MEETING_KINDS);
+    fill('vNextKind', NEXT_KINDS);
     fill('vStaff', staffOptions);
     _nvReady = true;
   }
-  ['vName','vRegNo','vCity','vAddress','vTel','vRep','vSite','vFirstDate','vMeetDate','vInsured','vSupporter','vNextDate','vMemo'].forEach(function(id){ el(id).value=''; });
+  ['vName','vRegNo','vCity','vAddress','vTel','vRep','vSite','vFirstDate','vMeetDate','vInsured','vSupporter','vMemo','vC0Name','vC0Title','vC0Email','vC0Tel'].forEach(function(id){ el(id).value=''; });
   el('vPref').value=''; el('vIndustry').value='';
   el('vSelf').value='登録支援機関';
-  el('vKindMail').checked=false; el('vKindTel').checked=false;
+  el('vNextKind').value='';
   el('vFirstKind').value=''; el('vMeetKind').value='';
   el('vListed').value=''; el('vStaff').value='';
-  el('vEntity').value='法人'; el('vStatus').value='未接触';
+  el('vStatus').value='未接触';
   showMsg('nvMsg','','');
   el('nvOv').classList.add('on');
   el('nvBox').style.display='block';
@@ -1544,7 +1536,6 @@ function saveNew(){
     tel:             el('vTel').value.trim().replace(/[^0-9]/g,'') || null,
     rep_name:        el('vRep').value.trim() || null,
     website:         normUrl(el('vSite').value),
-    entity_type:     el('vEntity').value || null,
     industry:        el('vIndustry').value || null,
     self_support:    el('vSelf').value || null,
     insured_count:   iv==='' ? null : parseInt(iv,10),
@@ -1556,13 +1547,16 @@ function saveNew(){
     first_contact_kind:el('vFirstKind').value || null,
     meeting_date:    el('vMeetDate').value || null,
     meeting_kind:    el('vMeetKind').value || null,
-    next_action_date:el('vNextDate').value || null,
-    next_action_kind:[el('vKindMail').checked?'メール':'', el('vKindTel').checked?'電話':''].filter(Boolean).join('・') || null,
+    next_action_kind:el('vNextKind').value || null,
     memo:            el('vMemo').value.trim() || null,
     offices:         [],
     office_count:    0,
     is_suspended:    false,
     is_client:       false,
+    contacts:        (function(){
+      var n=el('vC0Name').value.trim(), t=el('vC0Title').value.trim(), e=el('vC0Email').value.trim(), l=el('vC0Tel').value.trim();
+      return (n||t||e||l) ? [{name:n||null,title:t||null,email:e||null,tel:l||null}] : [];
+    })(),
     is_manual:       true,
     source:          '手動登録'
   };
@@ -1690,7 +1684,7 @@ function runImport(recs){
 /* ---------------- CSV出力 ---------------- */
 function exportCsv(){
   if(!curRows.length){ showMsg('topMsg','出力する行がありません','err'); return; }
-  var cols = ['reg_no','name','entity_type','pref','city','address','tel','rep_name','languages','website','industry','self_support','insured_count','supporter_count','is_listed','corp_no','status','staff','priority','first_contact_date','first_contact_kind','meeting_date','meeting_kind','next_action_kind','next_action_date','memo'];
+  var cols = ['reg_no','name','entity_type','pref','city','address','tel','rep_name','languages','website','industry','self_support','insured_count','supporter_count','is_listed','status','staff','priority','first_contact_date','first_contact_kind','meeting_date','meeting_kind','next_action_kind','memo'];
   var lines = [cols.join(',')];
   curRows.forEach(function(x){
     lines.push(cols.map(function(c){
