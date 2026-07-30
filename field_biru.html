@@ -138,6 +138,28 @@ input[type="file"]{display:none;}
       <p style="font-size:12px;color:var(--gray-700);line-height:1.8;margin-bottom:16px;">
         ビルクリーニング分野で特定技能外国人を受け入れるには、<strong>入管申請の前に</strong>協議会への加入が必要です。
       </p>
+
+      <!-- 誓約書ダウンロード -->
+      <div id="seiyakuDownloadArea" style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:10px;padding:14px 16px;margin-bottom:16px;display:none;">
+        <div style="font-size:12px;font-weight:700;color:#15803d;margin-bottom:8px;">📄 STEP 0：誓約書のダウンロード・押印</div>
+        <p style="font-size:12px;color:#374151;line-height:1.7;margin-bottom:10px;">
+          担当者が作成した誓約書（PDF）をダウンロードし、<strong>代表者印を押印</strong>してください。<br>
+          押印済みの誓約書は、STEP 2のアップロードで一緒にご提出ください。
+        </p>
+        <a id="seiyakuFolderLink" href="#" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px 16px;background:white;border:1.5px solid #16a34a;border-radius:8px;text-decoration:none;color:#15803d;">
+          <span style="font-size:20px;">📂</span>
+          <span style="flex:1;font-size:13px;font-weight:700;">誓約書フォルダを開く（Googleドライブ）</span>
+          <span>↗</span>
+        </a>
+        <p style="font-size:11px;color:#6b7280;margin-top:8px;">※ フォルダ内のPDFをダウンロードして押印してください</p>
+      </div>
+      <div id="seiyakuNotReadyArea" style="background:#fef9c3;border:1.5px solid #fde047;border-radius:10px;padding:12px 16px;margin-bottom:16px;">
+        <div style="font-size:12px;font-weight:700;color:#854d0e;margin-bottom:4px;">⏳ 誓約書を準備中です</div>
+        <p style="font-size:12px;color:#713f12;line-height:1.6;">
+          担当者が誓約書を作成中です。完成しだいご連絡します。<br>
+          誓約書の準備ができたら、このページを再度開いてご確認ください。
+        </p>
+      </div>
       <ol class="flow-list">
         <li class="flow-item">
           <div class="flow-num">1</div>
@@ -258,8 +280,45 @@ input[type="file"]{display:none;}
   </div>
 </div>
 <script>
+
+// 誓約書フォルダURLをSupabaseから取得して表示
+async function loadSeiyakuFolderUrl(caseId) {
+  if (!caseId) return;
+  try {
+    const res = await fetch(
+      'https://ehwlgbwpycglmopiqyty.supabase.co/rest/v1/cases?id=eq.' + encodeURIComponent(caseId) + '&select=seiyaku_folder_url,applicant,company',
+      { headers: { 'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVod2xnYndweWNnbG1vcGlxeXR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE2OTU4NjM3NzQsImV4cCI6MjAxMTQzOTc3NH0.qMRT_oe_5rMFCL8GjhvxNHQENSt_MWkuAi5S93VGYOI', 'Accept': 'application/json' } }
+    );
+    const data = await res.json();
+    if (data && data[0]) {
+      const row = data[0];
+      // 案件情報を表示
+      if (row.company) document.getElementById('companyName').textContent = row.company;
+      if (row.applicant) {
+        const meta = document.querySelector('.case-meta');
+        if (meta) {
+          const el = document.createElement('div');
+          el.className = 'case-meta-item';
+          el.innerHTML = '申請人：<span>' + row.applicant + '</span>';
+          meta.appendChild(el);
+        }
+      }
+      // 誓約書フォルダURL
+      if (row.seiyaku_folder_url) {
+        document.getElementById('seiyakuDownloadArea').style.display = 'block';
+        document.getElementById('seiyakuNotReadyArea').style.display = 'none';
+        document.getElementById('seiyakuFolderLink').href = row.seiyaku_folder_url;
+      }
+    }
+  } catch(e) {
+    console.warn('Supabase取得エラー:', e);
+  }
+}
+
 const params = new URLSearchParams(location.search);
-document.getElementById('caseId').textContent = params.get('case_id') || '—';
+const _caseId = params.get('case_id') || '';
+document.getElementById('caseId').textContent = _caseId || '—';
+if (_caseId) loadSeiyakuFolderUrl(_caseId);
 let selectedFiles = [];
 function goStep2() {
   document.getElementById('sectionStep1').style.display='none';
