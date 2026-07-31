@@ -4823,7 +4823,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260730.34';
+var OFUSA_VERSION = 'ver.20260730.35';
 // 確認済みで非表示にする取込メールの日付（キー=YYYY-MM-DD）
 var OFUSA_HIDE_MAIL_DATES = { '2026-04-17': 1 };
 window.OFUSA_HIDE_MAIL_DATES = OFUSA_HIDE_MAIL_DATES;
@@ -46779,7 +46779,10 @@ function renderCompanyDetail(co){
           h+='</div>';
           // 建設業の種類（カンマ区切り）
           h+='<div style="margin-top:10px;">';
-          h+='<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:3px;">建設業の種類（カンマ区切り）</div>';
+          h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">';
+          h+='<span style="font-size:10px;font-weight:700;color:#64748b;">建設業の種類（カンマ区切り）</span>';
+          h+='<button onclick="scanKensetsuPermit(\''+co.id+'\')" style="font-size:11px;padding:3px 10px;background:#1e40af;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">🏗️ 許可証を自動取得</button>';
+          h+='</div>';
           h+='<input type="text" id="cf_permitTypes_'+co.id+'" value="'+esc(co.permitTypes||'')+'" placeholder="例: 土木工事業,とび・土工工事業,鉄筋工事業" onchange="autoSaveCompanyField(\''+co.id+'\',\'permitTypes\',this.value)" style="width:100%;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;box-sizing:border-box;background:white;">';
           h+='</div>';
           // 2段目: 受入事業実施法人/建設業団体 + 過去5年間の監督処分の有無
@@ -58656,13 +58659,13 @@ function onKokkoCompanyDriveUrlChange(el, companyId) {
 // chexkbox.data-opt から業種名を取得、persons.kokko_jyuji_koujigyo にカンマ区切りで保存
 
 // =============================================
-// ver.20260730.34: 技能実習職種・作業から業務区分→従事工事業を自動判定
+// ver.20260730.35: 技能実習職種・作業から業務区分→従事工事業を自動判定
 // gijutsuType(職種) + gijutsuWork(作業) → 業務区分 → 会社許可との積集合 → 自動チェック
 // =============================================
 
 
 // =============================================
-// ver.20260730.34: 業務区分自動判定（Phase 1）
+// ver.20260730.35: 業務区分自動判定（Phase 1）
 // =============================================
 var _PERMIT_TO_KUBUN = {
   'さく井工事業':['土木'],'舗装工事業':['土木'],'しゅんせつ工事業':['土木'],'造園工事業':['土木'],
@@ -58707,6 +58710,29 @@ var _EXAM_SHOKUSHU_MAP = [
   {re:/さく井/,shokushu:'さく井',sagyo:''},
   {re:/土工/,shokushu:'土工',sagyo:''},
   {re:/海洋土木/,shokushu:'海洋土木工',sagyo:''},
+  // 防水施工
+  {re:/防水施工.*シーリング|シーリング.*防水/,shokushu:'防水施工',sagyo:'シーリング防水工事'},
+  {re:/防水施工.*ウレタン|ウレタン.*防水/,shokushu:'防水施工',sagyo:'ウレタンゴム系塗膜防水工事'},
+  {re:/防水施工.*FRP|FRP.*防水/,shokushu:'防水施工',sagyo:'FRP防水工事'},
+  {re:/防水施工/,shokushu:'防水施工',sagyo:''},
+  // 建築系追加
+  {re:/タイル張り/,shokushu:'タイル張り',sagyo:''},
+  {re:/石材施工/,shokushu:'石材施工',sagyo:''},
+  {re:/ガラス施工/,shokushu:'ガラス施工',sagyo:''},
+  {re:/サッシ施工/,shokushu:'サッシ施工',sagyo:''},
+  {re:/建具製作/,shokushu:'建具製作',sagyo:''},
+  {re:/解体/,shokushu:'解体',sagyo:''},
+  // LL追加
+  {re:/電気工事/,shokushu:'電気工事',sagyo:''},
+  {re:/消防設備/,shokushu:'消防設備',sagyo:''},
+  {re:/空調/,shokushu:'空調',sagyo:''},
+  {re:/管工事/,shokushu:'管工事',sagyo:''},
+  // 特定技能評価試験名のパターン
+  {re:/建設分野特定技能.*土木|土木.*建設分野/,shokushu:'土工',sagyo:''},
+  {re:/建設分野特定技能.*建築|建築.*建設分野/,shokushu:'左官',sagyo:''},
+  {re:/建設分野特定技能.*ライフライン|ライフライン.*建設分野/,shokushu:'配管',sagyo:''},
+  {re:/建設分野特定技能.*配管|配管.*建設分野/,shokushu:'配管',sagyo:''},
+  {re:/建設分野特定技能.*電気通信|電気通信.*建設分野/,shokushu:'電気通信',sagyo:''},
 ];
 
 function _autoKubunFromExamName(examName){
@@ -58716,6 +58742,72 @@ function _autoKubunFromExamName(examName){
     if(m.re.test(n)) return {shokushu:m.shokushu,sagyo:m.sagyo};
   }
   return null;
+}
+
+
+// =============================================
+// ver.20260730.35: 企業ドライブから建設業許可証を自動スキャン→permit_types保存
+// =============================================
+async function scanKensetsuPermit(coId) {
+  var co = companies.find(function(x){ return x.id===coId; });
+  if(!co){ showToast('会社が見つかりません','error'); return; }
+  if(!co.driveUrl){ showToast('⚠️ ドライブURLが未登録です。先に会社ドライブURLを設定してください','error'); return; }
+
+  var folderId = (typeof extractDriveFolderId==='function') ? extractDriveFolderId(co.driveUrl) : '';
+  if(!folderId){ showToast('⚠️ ドライブURLからフォルダIDが取得できません','error'); return; }
+
+  showToast('🔍 建設業許可証をドライブから検索中…');
+
+  try {
+    var r = await _sb.functions.invoke('scan-kensetsu-permit', {
+      body: {
+        folder_id: folderId,
+        gas_url: GAS_URL,
+        drive_access_token: null  // GAS経由なのでtokenは不要
+      }
+    });
+
+    if(r.error){ showToast('エラー: '+(r.error.message||r.error),'error'); return; }
+    var d = r.data;
+
+    if(!d || !d.ok){
+      showToast('⚠️ '+(d&&d.error||'許可証PDFが見つかりませんでした（スキャン: '+(d&&d.files_scanned||0)+'件）'),'error');
+      return;
+    }
+
+    if(!d.permit_types || !d.permit_types.length){
+      showToast('📄 許可証PDF発見（'+d.file_name+'）しましたが許可業種の読み取りに失敗しました','error');
+      return;
+    }
+
+    var permitStr = d.permit_types.join(',');
+
+    // 確認して保存
+    if(!confirm('【'+co.name+'】
+
+📄 ファイル: '+d.file_name+'
+
+以下の許可業種を登録しますか？
+
+・'+d.permit_types.join('
+・'))){
+      return;
+    }
+
+    // DBに保存
+    co.permitTypes = permitStr;
+    var upd = {}; upd['permit_types'] = permitStr;
+    await _sb.from('companies').update(upd).eq('id', coId);
+
+    // UIのinputも更新
+    var inp = document.getElementById('cf_permitTypes_'+coId);
+    if(inp) inp.value = permitStr;
+
+    showToast('✅ 許可業種を登録しました（'+d.permit_types.length+'件）');
+
+  } catch(e) {
+    showToast('エラー: '+(e&&e.message||String(e)),'error');
+  }
 }
 
 function _autoDetectJobKubun(caseId){
@@ -58790,6 +58882,7 @@ function _applyAutoKubun(caseId, quiet){
 
 var GIJUTSU_KUBUN_MAP = [
   // [職種(正規化),              作業(正規化・空なら全作業),   土木,  建築,  LL]
+  // ── 土木 ──
   ['さく井',              '',                                 true,  false, false],
   ['型枠施工',            '',                                 true,  true,  false],
   ['コンクリート圧送施工','',                                 true,  true,  false],
@@ -58805,25 +58898,56 @@ var GIJUTSU_KUBUN_MAP = [
   ['とび',               '',                                  true,  true,  false],
   ['海洋土木工',          '',                                 true,  false, false],
   ['鉄工',              '構造物鉄工',                         true,  false, false],
+  ['溶接',               '',                                  true,  false, false],
+  // ── 土木・建築共通 ──
   ['塗装',              '建築塗装',                           true,  true,  false],
   ['塗装',              '鋼橋塗装',                           true,  false, false],
   ['塗装',               '',                                  true,  true,  false],
-  ['溶接',               '',                                  true,  false, false],
+  // ── 建築 ──
   ['左官',               '',                                  false, true,  false],
   ['屋根ふき',            '',                                 false, true,  false],
+  ['屋根葺き',            '',                                 false, true,  false],
   ['鉄筋継手',            '',                                 false, true,  false],
   ['内装仕上げ',          '',                                 false, true,  false],
   ['内装仕上',            '',                                 false, true,  false],
   ['表装',               '',                                  false, true,  false],
   ['建築大工',            '',                                 false, true,  false],
-  ['建築板金',            '',                                 false, true,  true],
   ['吹付ウレタン断熱',    '',                                 false, true,  false],
+  // 防水施工（建築分野・建設分野対応）
+  ['防水施工',           'シーリング防水工事',                false, true,  false],
+  ['防水施工',           'ウレタンゴム系塗膜防水工事',        false, true,  false],
+  ['防水施工',           'アクリルゴム系塗膜防水工事',        false, true,  false],
+  ['防水施工',           'セメント系防水工事',                false, true,  false],
+  ['防水施工',           'FRP防水工事',                       false, true,  false],
+  ['防水施工',            '',                                 false, true,  false],
+  // タイル張り
+  ['タイル張り',          '',                                 false, true,  false],
+  // 石材施工
+  ['石材施工',            '',                                 false, true,  false],
+  // ガラス施工
+  ['ガラス施工',          '',                                 false, true,  false],
+  // サッシ施工
+  ['サッシ施工',          '',                                 false, true,  false],
+  // 建具製作
+  ['建具製作',            '',                                 false, true,  false],
+  // 解体
+  ['解体',               '',                                  false, true,  false],
+  // ── 建築・LL共通 ──
+  ['建築板金',            '',                                 false, true,  true],
   ['熱絶縁施工',         '保温保冷',                          false, false, true],
   ['熱絶縁施工',         '吹付ウレタン断熱',                  false, true,  false],
   ['熱絶縁施工',          '',                                 false, false, true],
+  // ── ライフライン・設備 ──
   ['電気通信',            '',                                 false, false, true],
+  ['電気工事',            '',                                 false, false, true],
   ['配管',               '',                                  false, false, true],
+  ['配管',              '建築配管',                           false, false, true],
+  ['配管',              '給排水衛生設備配管',                 false, false, true],
+  ['配管',              'ガス配管',                           false, false, true],
   ['保温保冷',            '',                                 false, false, true],
+  ['消防設備',            '',                                 false, false, true],
+  ['空調',               '',                                  false, false, true],
+  ['管工事',              '',                                 false, false, true],
 ];
 
 var KUBUN_TO_KOUJIGYO = {
@@ -60995,7 +61119,7 @@ function showTab(tab) {
       if (_catEl) {
         _catEl.onchange = function(){ autoSaveInfo('jobCategory', this.value); };
       }
-      // ver.20260730.34: infoタブを開いたタイミングで業務区分を自動判定
+      // ver.20260730.35: infoタブを開いたタイミングで業務区分を自動判定
       (function(){
         var _cid = c && c.id;
         if(_cid && (c.applicantField||'').indexOf('建設')>=0) {
