@@ -37851,17 +37851,46 @@ function _shiftGroupOf(taskIdx){
   return 'other';
 }
 
-/** 同一案件で過去に担当した人を探す（同じ班の中で） */
+/** ver.20260803.14: その案件が属するグループの全case_idを返す（属さなければ自分だけ）*/
+function _caseIdsInSameGroup(caseId){
+  try{
+    var g = (typeof caseGroups!=='undefined' ? caseGroups : []).find(function(gr){
+      return gr && gr.caseIds && gr.caseIds.indexOf(caseId) >= 0;
+    });
+    if(g && g.caseIds && g.caseIds.length) return g.caseIds.slice();
+  }catch(e){}
+  return [caseId];
+}
+
+/** 同一案件（＋同じグループの案件）で既に担当している人を探す。
+ *  グループ案件をバラバラの人に振らないための要。*/
 function _prevAssigneeForCase(caseId, groupKey){
   var members = (currentShiftTerm()[groupKey]) || [];
   if(!members.length) return null;
-  var counts = {};
-  for(var i=0; i<TASK_NAMES.length; i++){
-    var a = taskAssignee[caseId+'_'+i];
-    if(a && members.indexOf(a) >= 0) counts[a] = (counts[a]||0) + 1;
-  }
+  var ids = _caseIdsInSameGroup(caseId);
+  // ① まず同じ班のタスクで、グループ内の誰かが担当していればその人（最優先）
+  var sameGroupCounts = {};
+  var groupTaskIdx = (SHIFT_GROUPS[groupKey] && SHIFT_GROUPS[groupKey].taskIdx) || null;
+  ids.forEach(function(cid){
+    for(var i=0; i<TASK_NAMES.length; i++){
+      if(groupTaskIdx && groupTaskIdx.indexOf(i) < 0) continue;  // 同じ班のタスクだけ見る
+      var a = taskAssignee[cid+'_'+i];
+      if(a && members.indexOf(a) >= 0) sameGroupCounts[a] = (sameGroupCounts[a]||0) + 1;
+    }
+  });
   var best=null, bestN=0;
-  Object.keys(counts).forEach(function(k){ if(counts[k]>bestN){best=k;bestN=counts[k];} });
+  Object.keys(sameGroupCounts).forEach(function(k){ if(sameGroupCounts[k]>bestN){best=k;bestN=sameGroupCounts[k];} });
+  if(best) return best;
+  // ② 班を問わず、グループ内の案件を担当している人がいればその人
+  var anyCounts = {};
+  ids.forEach(function(cid){
+    for(var i=0; i<TASK_NAMES.length; i++){
+      var a2 = taskAssignee[cid+'_'+i];
+      if(a2 && members.indexOf(a2) >= 0) anyCounts[a2] = (anyCounts[a2]||0) + 1;
+    }
+  });
+  best=null; bestN=0;
+  Object.keys(anyCounts).forEach(function(k){ if(anyCounts[k]>bestN){best=k;bestN=anyCounts[k];} });
   return best;
 }
 
@@ -38216,7 +38245,7 @@ function renderMyTaskBanner(){
     + (urgentN>0 ? '<div style="font-size:11px;font-weight:800;color:var(--red);background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:4px 10px;">🔥 至急 '+urgentN+'件</div>' : '')
     + '<div style="flex:1;"></div>'
     + (total>0
-        ? '<button onclick="openMyWorkQueue()" style="background:var(--blue);color:var(--white);border:none;border-radius:7px;padding:9px 18px;font-size:12px;font-weight:800;cursor:pointer;box-shadow:0 1px 4px rgba(37,99,235,.3);">▶ 順に取り組む</button>'
+        ? '<button onclick="openMyWorkQueue()" style="background:var(--blue);color:var(--white);border:none;border-radius:7px;padding:9px 18px;font-size:12px;font-weight:800;cursor:pointer;box-shadow:0 1px 4px rgba(37,99,235,.3);">📋 タスク一覧を見る</button>'
         : '<span style="font-size:12px;color:var(--green);font-weight:700;">✅ 未完了のタスクはありません</span>')
     + (docsStaffFilter === me
         ? '<button onclick="docsStaffFilter=\'all\';docsTeamFilter=\'all\';_populateDocsStaffFilter();renderDocsContent();renderMyTaskBanner();" style="background:var(--gray-100);color:var(--gray-700);border:1px solid var(--gray-200);border-radius:7px;padding:9px 14px;font-size:12px;font-weight:700;cursor:pointer;">✕ 絞り込み解除</button>'
@@ -38224,18 +38253,17 @@ function renderMyTaskBanner(){
     + '</div>';
 }
 
-// ===== ver.20260803.13: 自分のタスクを1件ずつ順に処理するワークキュー =====
-var _wqItems = [], _wqPos = 0;
+// ===== ver.20260803.14: 自分のタスクを「一覧」で見るモーダル（グループ単位で集約）=====
+var _wqItems = [];
 function openMyWorkQueue(){
   _wqItems = _myTaskItems();
   if(!_wqItems.length){ showToast('✅ 未完了のタスクはありません'); return; }
-  _wqPos = 0;
   var m = document.getElementById('myWorkQueueModal');
   if(!m){
     m = document.createElement('div');
     m.id='myWorkQueueModal';
     m.style.cssText='position:fixed;inset:0;background:rgba(15,32,64,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
-    m.innerHTML='<div style="background:var(--white);border-radius:12px;max-width:640px;width:100%;max-height:90vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.3);"><div id="myWorkQueueBody"></div></div>';
+    m.innerHTML='<div style="background:var(--white);border-radius:12px;max-width:1000px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,.3);overflow:hidden;"><div id="myWorkQueueBody" style="display:flex;flex-direction:column;min-height:0;flex:1;"></div></div>';
     document.body.appendChild(m);
   }
   m.style.display='flex';
@@ -38248,90 +38276,127 @@ function closeMyWorkQueue(){
 function renderMyWorkQueue(){
   var el = document.getElementById('myWorkQueueBody');
   if(!el) return;
-  if(_wqPos >= _wqItems.length){
-    el.innerHTML = '<div style="padding:44px 30px;text-align:center;">'
-      + '<div style="font-size:40px;margin-bottom:10px;">🎉</div>'
-      + '<div style="font-size:17px;font-weight:800;color:var(--navy);margin-bottom:6px;">すべて確認しました</div>'
-      + '<div style="font-size:12px;color:var(--gray-400);margin-bottom:22px;">'+_wqItems.length+'件のタスクを見終わりました。</div>'
-      + '<button onclick="closeMyWorkQueue()" style="background:var(--blue);color:white;border:none;border-radius:8px;padding:11px 30px;font-size:13px;font-weight:800;cursor:pointer;">閉じる</button></div>';
-    return;
-  }
-  var it = _wqItems[_wqPos];
-  var c = it.c;
+  _wqItems = _myTaskItems();
+  var me = (typeof currentUser!=='undefined' && currentUser) ? currentUser : '';
   var ST_LABEL=['未着手','依頼','着手中','確認','完了','不要'];
   var ST_COLOR=['var(--gray-400)','var(--blue)','var(--purple)','var(--orange)','var(--green)','#d97706'];
   var today = new Date().toISOString().slice(0,10);
-  var dlLate = it.deadline && it.deadline < today;
 
-  var h = '';
-  // ヘッダ（進捗バー）
-  h += '<div style="background:var(--navy);color:white;padding:14px 20px;border-radius:12px 12px 0 0;display:flex;align-items:center;gap:12px;">'
-     + '<div style="font-size:14px;font-weight:800;">▶ 順に取り組む</div>'
-     + '<div style="font-size:12px;opacity:.75;">'+(_wqPos+1)+' / '+_wqItems.length+'</div>'
-     + '<div style="flex:1;height:5px;background:rgba(255,255,255,.2);border-radius:99px;overflow:hidden;">'
-     +   '<div style="height:100%;width:'+Math.round((_wqPos/_wqItems.length)*100)+'%;background:var(--blue);border-radius:99px;transition:width .25s;"></div></div>'
-     + '<button onclick="closeMyWorkQueue()" style="background:rgba(255,255,255,.15);color:white;border:none;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;">閉じる</button></div>';
+  // タスク種別 → グループ の2階層でまとめる
+  var byTask = {};
+  _wqItems.forEach(function(it){
+    if(!byTask[it.ti]) byTask[it.ti] = { name:it.taskName, groups:{} };
+    var g = null;
+    try{ g = (typeof caseGroups!=='undefined'?caseGroups:[]).find(function(gr){ return gr && gr.caseIds && gr.caseIds.indexOf(it.caseId)>=0; }); }catch(e){}
+    var gid = g ? g.id : ('__single__'+it.caseId);
+    var gname = g ? (g.name||'グループ') : '';
+    if(!byTask[it.ti].groups[gid]) byTask[it.ti].groups[gid] = { name:gname, isGroup:!!g, items:[] };
+    byTask[it.ti].groups[gid].items.push(it);
+  });
 
-  // 本体
-  h += '<div style="padding:20px;">';
-  h += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">'
-     + '<span style="background:'+ST_COLOR[it.st]+';color:white;font-size:11px;font-weight:800;border-radius:5px;padding:3px 10px;">'+ST_LABEL[it.st]+'</span>'
-     + '<span style="font-size:16px;font-weight:800;color:var(--navy);">'+esc(it.taskName)+'</span>'
-     + (it.urgent ? '<span style="background:#fef2f2;color:var(--red);border:1px solid #fecaca;font-size:11px;font-weight:800;border-radius:5px;padding:3px 8px;">🔥 至急</span>' : '')
-     + (it.deadline ? '<span style="font-size:11px;font-weight:700;color:'+(dlLate?'var(--red)':'var(--gray-700)')+';">📅 期日 '+esc(it.deadline)+(dlLate?'（超過）':'')+'</span>' : '')
-     + '</div>';
-  h += '<div style="background:var(--gray-100);border-radius:8px;padding:13px 15px;margin-bottom:14px;font-size:13px;line-height:1.9;">'
-     + '<div style="font-weight:800;color:var(--navy);font-size:14px;">'+esc(c.applicant||c.id)+'</div>'
-     + '<div style="color:var(--gray-700);">'+esc(c.company||'')+'</div>'
-     + '<div style="font-size:11px;color:var(--gray-400);margin-top:4px;">'
-     +   (c.appType?esc(c.appType)+'　':'') + (c.applicantField?esc(c.applicantField)+'　':'')
-     +   (c.residenceStatus?esc(c.residenceStatus):'') + '</div>'
-     + (c.status ? '<div style="font-size:11px;color:var(--gray-400);">ステータス：'+esc(c.status)+'</div>' : '')
-     + '</div>';
-  var memo = taskMemo[it.key];
-  if(memo){
-    h += '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:11px 14px;margin-bottom:14px;font-size:12px;color:#78350f;line-height:1.75;">'
-       + '<b>メモ</b><br>'+esc(memo)+'</div>';
+  var urgentN = _wqItems.filter(function(i){ return i.urgent; }).length;
+  var lateN   = _wqItems.filter(function(i){ return i.deadline && i.deadline < today; }).length;
+
+  // ヘッダ
+  var h = '<div style="background:var(--navy);color:white;padding:14px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;flex-shrink:0;">'
+        + '<div style="font-size:15px;font-weight:800;">📋 '+esc(me)+' さんのタスク一覧</div>'
+        + '<div style="font-size:12px;opacity:.8;">全 '+_wqItems.length+' 件</div>'
+        + (urgentN>0?'<div style="font-size:11px;font-weight:800;background:var(--red);border-radius:5px;padding:3px 9px;">🔥 至急 '+urgentN+'</div>':'')
+        + (lateN>0?'<div style="font-size:11px;font-weight:800;background:#b91c1c;border-radius:5px;padding:3px 9px;">⚠ 期日超過 '+lateN+'</div>':'')
+        + '<div style="flex:1;"></div>'
+        + '<button onclick="closeMyWorkQueue()" style="background:rgba(255,255,255,.15);color:white;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;">閉じる</button></div>';
+
+  h += '<div style="flex:1;overflow-y:auto;background:var(--gray-100);padding:14px;min-height:0;">';
+
+  Object.keys(byTask).sort(function(a,b){return a-b;}).forEach(function(ti){
+    var t = byTask[ti];
+    var n = 0; Object.keys(t.groups).forEach(function(gid){ n += t.groups[gid].items.length; });
+    h += '<div style="margin-bottom:16px;">'
+       + '<div style="display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--navy);color:white;border-radius:7px 7px 0 0;">'
+       +   '<span style="font-size:13px;font-weight:800;">'+esc(t.name)+'</span>'
+       +   '<span style="font-size:11px;background:rgba(255,255,255,.2);border-radius:99px;padding:1px 9px;">'+n+'件</span></div>'
+       + '<div style="background:white;border:1px solid var(--gray-200);border-top:none;border-radius:0 0 7px 7px;overflow:hidden;">';
+
+    Object.keys(t.groups).forEach(function(gid){
+      var grp = t.groups[gid];
+      // グループ見出し（複数件のグループのみ）
+      if(grp.isGroup && grp.items.length > 0){
+        h += '<div style="display:flex;align-items:center;gap:8px;padding:7px 13px;background:#f5f3ff;border-bottom:1px solid var(--gray-200);">'
+           + '<span style="font-size:12px;">🔗</span>'
+           + '<span style="font-size:12px;font-weight:800;color:#5b21b6;">'+esc(grp.name)+'</span>'
+           + '<span style="font-size:10px;color:#7c3aed;">（'+grp.items.length+'件・同じ担当）</span>'
+           + '<div style="flex:1;"></div>'
+           + '<button onclick="_wqBulkComplete(\''+esc(gid)+'\','+ti+')" style="background:var(--green);color:white;border:none;border-radius:5px;padding:4px 12px;font-size:11px;font-weight:800;cursor:pointer;">⚡ '+grp.items.length+'件まとめて完了</button></div>';
+      }
+      grp.items.forEach(function(it){
+        var c = it.c;
+        var dlLate = it.deadline && it.deadline < today;
+        h += '<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--gray-100);flex-wrap:wrap;'+(it.urgent?'background:#fffbfb;':'')+'">'
+           + '<div style="flex:1;min-width:220px;">'
+           +   '<div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">'
+           +     '<span style="font-size:13px;font-weight:800;color:var(--navy);">'+esc(c.applicant||c.id)+'</span>'
+           +     (it.urgent?'<span style="background:#fef2f2;color:var(--red);border:1px solid #fecaca;font-size:10px;font-weight:800;border-radius:4px;padding:1px 7px;">🔥急ぎ</span>':'')
+           +     (it.deadline?'<span style="font-size:11px;font-weight:700;color:'+(dlLate?'var(--red)':'var(--gray-400)')+';">📅'+esc(it.deadline)+(dlLate?' 超過':'')+'</span>':'')
+           +   '</div>'
+           +   '<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">'+esc(c.company||'')
+           +     (c.appType?'　'+esc(c.appType):'')+(c.status?'　'+esc(c.status):'')+'</div>'
+           + '</div>'
+           + '<span style="background:'+ST_COLOR[it.st]+';color:white;font-size:10px;font-weight:800;border-radius:4px;padding:3px 9px;">'+ST_LABEL[it.st]+'</span>'
+           + '<div style="display:flex;gap:5px;">';
+        if(it.st===1) h += '<button onclick="_wqSet(\''+esc(it.key)+'\',2)" style="background:white;color:var(--purple);border:1.5px solid var(--purple);border-radius:5px;padding:5px 11px;font-size:11px;font-weight:800;cursor:pointer;">着手</button>';
+        if(it.st<=2) h += '<button onclick="_wqSet(\''+esc(it.key)+'\',3)" style="background:white;color:var(--orange);border:1.5px solid var(--orange);border-radius:5px;padding:5px 11px;font-size:11px;font-weight:800;cursor:pointer;">確認へ</button>';
+        h += '<button onclick="_wqSet(\''+esc(it.key)+'\',4)" style="background:var(--green);color:white;border:none;border-radius:5px;padding:5px 13px;font-size:11px;font-weight:800;cursor:pointer;">完了</button>'
+           + '<button onclick="_wqOpen(\''+esc(it.caseId)+'\')" style="background:var(--gray-100);color:var(--gray-700);border:1px solid var(--gray-200);border-radius:5px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer;">開く</button>'
+           + '</div></div>';
+      });
+    });
+    h += '</div></div>';
+  });
+
+  if(!_wqItems.length){
+    h += '<div style="padding:44px;text-align:center;"><div style="font-size:36px;margin-bottom:8px;">🎉</div>'
+       + '<div style="font-size:15px;font-weight:800;color:var(--navy);">未完了のタスクはありません</div></div>';
   }
-  // アクション
-  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">';
-  if(it.st===1) h += '<button onclick="_wqSetStatus(2)" style="flex:1;min-width:120px;background:var(--purple);color:white;border:none;border-radius:8px;padding:12px;font-size:13px;font-weight:800;cursor:pointer;">▶ 着手する</button>';
-  if(it.st<=2) h += '<button onclick="_wqSetStatus(3)" style="flex:1;min-width:120px;background:var(--orange);color:white;border:none;border-radius:8px;padding:12px;font-size:13px;font-weight:800;cursor:pointer;">🔍 確認へ回す</button>';
-  h += '<button onclick="_wqSetStatus(4)" style="flex:1;min-width:120px;background:var(--green);color:white;border:none;border-radius:8px;padding:12px;font-size:13px;font-weight:800;cursor:pointer;">✅ 完了にする</button>';
-  h += '</div>';
-  h += '<div style="display:flex;gap:8px;">'
-     + '<button onclick="_wqOpenCase()" style="flex:1;background:var(--white);color:var(--blue);border:1.5px solid var(--blue);border-radius:8px;padding:11px;font-size:12px;font-weight:800;cursor:pointer;">📂 案件を開く</button>'
-     + '<button onclick="_wqMove(-1)"'+(_wqPos===0?' disabled':'')+' style="background:var(--gray-100);color:var(--gray-700);border:1px solid var(--gray-200);border-radius:8px;padding:11px 18px;font-size:12px;font-weight:700;cursor:'+(_wqPos===0?'not-allowed':'pointer')+';opacity:'+(_wqPos===0?'.45':'1')+';">← 前</button>'
-     + '<button onclick="_wqMove(1)" style="background:var(--gray-100);color:var(--gray-700);border:1px solid var(--gray-200);border-radius:8px;padding:11px 18px;font-size:12px;font-weight:700;cursor:pointer;">スキップ →</button>'
-     + '</div>';
   h += '</div>';
   el.innerHTML = h;
 }
-function _wqMove(d){
-  _wqPos += d;
-  if(_wqPos < 0) _wqPos = 0;
-  renderMyWorkQueue();
-}
-function _wqSetStatus(newSt){
-  var it = _wqItems[_wqPos];
-  if(!it) return;
-  docTaskStatus[it.key] = newSt;
+/** 1件のステータス変更 */
+function _wqSet(key, newSt){
+  var parts = key.split('_'); var ti = parseInt(parts[parts.length-1]);
+  var cid = parts.slice(0, parts.length-1).join('_');
+  docTaskStatus[key] = newSt;
   if(DB_READY){
-    _sb.from('doc_tasks').upsert({case_id:it.caseId, task_index:it.ti, status:newSt},{onConflict:'case_id,task_index'})
+    _sb.from('doc_tasks').upsert({case_id:cid, task_index:ti, status:newSt},{onConflict:'case_id,task_index'})
       .then(function(r){ if(r.error){ console.error('wq save err', r.error); showToast('⚠️ 保存に失敗しました'); } });
   }
   var LBL={2:'着手中',3:'確認',4:'完了'};
-  showToast('✅ '+it.taskName+' を「'+(LBL[newSt]||newSt)+'」にしました');
-  // 完了・確認へ回したら次へ進む。着手はその場に留まる
-  if(newSt>=3){ _wqPos++; }
-  else { it.st = newSt; }
+  showToast('✅ 「'+(LBL[newSt]||newSt)+'」にしました');
   renderMyWorkQueue();
 }
-function _wqOpenCase(){
-  var it = _wqItems[_wqPos];
-  if(!it) return;
+/** グループまとめて完了 */
+function _wqBulkComplete(gid, ti){
+  var target = _wqItems.filter(function(it){
+    if(it.ti !== parseInt(ti)) return false;
+    var g = null;
+    try{ g = (typeof caseGroups!=='undefined'?caseGroups:[]).find(function(gr){ return gr && gr.caseIds && gr.caseIds.indexOf(it.caseId)>=0; }); }catch(e){}
+    return (g ? g.id : ('__single__'+it.caseId)) === gid;
+  });
+  if(!target.length) return;
+  if(!confirm(target.length+'件をまとめて完了にしますか？')) return;
+  var rows = target.map(function(it){
+    docTaskStatus[it.key] = 4;
+    return { case_id:it.caseId, task_index:it.ti, status:4 };
+  });
+  if(DB_READY){
+    _sb.from('doc_tasks').upsert(rows,{onConflict:'case_id,task_index'})
+      .then(function(r){ if(r.error){ console.error('bulk err', r.error); showToast('⚠️ 一部保存に失敗しました'); } });
+  }
+  showToast('✅ '+target.length+'件を完了にしました');
+  renderMyWorkQueue();
+}
+function _wqOpen(caseId){
   closeMyWorkQueue();
-  try{ openCase(it.caseId); }catch(e){ console.error('openCase err', e); }
+  try{ openCase(caseId); }catch(e){ console.error('openCase err', e); }
 }
 
 /** 班編成の設定モーダルを開く（今期＋2期先まで） */
@@ -38497,7 +38562,23 @@ function setDocTaskStatus(caseId, taskIdx, status) {
           taskAssignee[_akey] = _picked;
           var _selEl = document.getElementById('taskAssignee_'+taskIdx);
           if(_selEl) _selEl.value = _picked;
-          showToast('👤 担当を自動セット：'+_picked+'（'+SHIFT_GROUPS[_shiftGroupOf(taskIdx)].label+'班）');
+          // ver.20260803.14: 同じグループの案件も、同じタスクは同じ人に揃える（バラけ防止）
+          var _gids = _caseIdsInSameGroup(caseId).filter(function(x){ return x !== caseId; });
+          var _synced = 0;
+          _gids.forEach(function(gid){
+            var gk = gid+'_'+taskIdx;
+            var gst = docTaskStatus[gk]||0;
+            if(taskAssignee[gk]) return;        // 既に誰かが入っているなら触らない
+            if(gst >= 4) return;                // 完了済みは触らない
+            taskAssignee[gk] = _picked;
+            _synced++;
+            if(DB_READY){
+              _sb.from('doc_tasks').upsert({case_id:gid, task_index:taskIdx, assignee:_picked},{onConflict:'case_id,task_index'})
+                 .then(function(r){ if(r.error) console.warn('group assignee sync err', gid, r.error); });
+            }
+          });
+          showToast('👤 担当を自動セット：'+_picked+'（'+SHIFT_GROUPS[_shiftGroupOf(taskIdx)].label+'班）'
+                    + (_synced>0 ? ' ／ 同じグループ'+_synced+'件も同じ担当にしました' : ''));
         }
       }catch(_ae){ console.error('autoPickAssignee err', _ae); }
     }
