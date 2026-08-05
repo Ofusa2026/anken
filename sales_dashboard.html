@@ -158,7 +158,7 @@ table.list tr:hover td { background:#f8fafc; }
   <aside class="side">
     <div class="brand">
       <h1>売上管理システム</h1>
-      <span class="ver">ver.20260805.09</span>
+      <span class="ver">ver.20260805.10</span>
     </div>
     <nav class="nav">
       <div class="nav-item active" data-page="dash" onclick="showPage('dash')"><span class="ic">📊</span><span class="txt">ダッシュボード</span></div>
@@ -327,11 +327,11 @@ table.list tr:hover td { background:#f8fafc; }
       <input type="checkbox" id="f-kb" onchange="document.getElementById('kbBox').classList.toggle('show', this.checked); recalcTotals()"> KBあり
     </label>
     <div class="kb-box" id="kbBox">
-      <div style="font-size:11px;font-weight:700;color:var(--amber)">KB（社内管理用・CSV出力には含まれません）</div>
-      <div class="kb-grid">
-        <div class="fg"><label>KB単価</label><input type="number" id="f-kbPrice" value="0" oninput="recalcTotals()"></div>
-        <div class="fg"><label>KB数量</label><input type="number" id="f-kbQty" value="0" oninput="recalcTotals()"></div>
-        <div class="fg"><label>KB金額</label><input type="number" id="f-kbAmount" value="0" readonly style="background:#f8fafc"></div>
+      <div style="font-size:11px;font-weight:700;color:var(--amber)">KB（社内管理用・CSV出力には含まれません）— 申請種類（認定/変更/更新）を品名から判定して計算します</div>
+      <div id="kbBreakdown" style="font-size:11.5px;color:var(--sub);margin:6px 0"></div>
+      <div style="display:flex;gap:10px;align-items:flex-end">
+        <div class="fg" style="width:140px"><label>KB金額（手動修正可）</label><input type="number" id="f-kbAmount" value="0" oninput="recalcTotals()" style="text-align:right"></div>
+        <button class="btn btn-sm" onclick="applyKbFromMaster(document.getElementById('f-org').value.trim(), true)">マスタから再計算</button>
       </div>
     </div>
 
@@ -378,13 +378,13 @@ table.list tr:hover td { background:#f8fafc; }
 
 <!-- ===== KB設定モーダル ===== -->
 <div class="overlay" id="kbOverlay">
-  <div class="modal" style="max-width:640px">
+  <div class="modal" style="max-width:820px">
     <h2>キックバック設定（支援機関ごとのKB単価）</h2>
     <div style="font-size:11.5px;color:var(--sub);margin-bottom:10px">売上登録で支援機関を選ぶと、ここで設定したKB単価が自動適用されます（売上ごとに手動で変更・解除も可能）。</div>
     <input type="search" id="kb-search" placeholder="番号・支援機関名で検索" style="width:100%;border:1px solid var(--line);border-radius:7px;padding:7px 10px;font-size:12.5px;margin-bottom:10px" oninput="renderKbSettings()">
     <div style="max-height:420px;overflow:auto">
       <table class="svc-table">
-        <thead><tr><th style="width:60px">No</th><th>支援機関名</th><th style="width:120px">KB単価</th><th style="width:60px"></th></tr></thead>
+        <thead><tr><th style="width:50px">No</th><th>支援機関名</th><th style="width:90px">認定</th><th style="width:90px">変更</th><th style="width:90px">更新</th><th style="width:90px">一律(他)</th><th style="width:55px"></th></tr></thead>
         <tbody id="kbBody"></tbody>
       </table>
     </div>
@@ -498,7 +498,7 @@ async function loadAll() {
     fetchAllRows('services?select=*&order=name'),
     fetchAllRows('companies?select=id,name,name_kana,pref,city,tel,rep_name,support_org_name,staff,ofusa_staff&order=name'),
     fetchAllRows('users?select=id,name&order=name'),
-    fetchAllRows('support_orgs?select=id,name,folder_no,kb_price&order=name')
+    fetchAllRows('support_orgs?select=id,name,folder_no,kb_price,kb_prices&order=name')
   ]);
   sales = dS;
   services = dSv;
@@ -827,9 +827,8 @@ function openSaleModal(id) {
   document.getElementById('f-memo').value = s ? (s.memo || '') : '';
   document.getElementById('f-kb').checked = s ? !!s.is_kb : false;
   document.getElementById('kbBox').classList.toggle('show', s ? !!s.is_kb : false);
-  document.getElementById('f-kbPrice').value = s ? (s.kb_price || 0) : 0;
-  document.getElementById('f-kbQty').value = s ? (s.kb_qty || 0) : 0;
   document.getElementById('f-kbAmount').value = s ? (s.kb_amount || 0) : 0;
+  document.getElementById('kbBreakdown').innerHTML = s && s.is_kb ? '保存済みのKB金額を表示中（「マスタから再計算」で種類別単価から再計算できます）' : '';
   document.getElementById('itemRows').innerHTML = '';
   const items = s && s.sale_items && s.sale_items.length ? s.sale_items : [null];
   items.forEach(it => addItemRow(it));
@@ -884,8 +883,7 @@ function collectItemRows() {
 }
 
 function recalcTotals() {
-  const kbAmount = (Number(document.getElementById('f-kbPrice').value) || 0) * (Number(document.getElementById('f-kbQty').value) || 0);
-  document.getElementById('f-kbAmount').value = kbAmount;
+  const kbAmount = Number(document.getElementById('f-kbAmount').value) || 0;
   const c = calcSale(collectItemRows(), document.getElementById('f-kb').checked ? kbAmount : 0);
   document.getElementById('t-subtotal').textContent = yen(c.subtotal);
   document.getElementById('t-tax').textContent = yen(c.tax);
@@ -902,9 +900,8 @@ async function saveSale() {
   try {
     const now = new Date().toISOString();
     const isKb = document.getElementById('f-kb').checked;
-    const kbPrice = isKb ? Number(document.getElementById('f-kbPrice').value) || 0 : 0;
-    const kbQty = isKb ? Number(document.getElementById('f-kbQty').value) || 0 : 0;
-    const kbAmount = kbPrice * kbQty;
+    const kbPrice = 0, kbQty = 0;  // 種類別計算に移行したため単価×数量は廃止（金額のみ保持）
+    const kbAmount = isKb ? Number(document.getElementById('f-kbAmount').value) || 0 : 0;
     const c = calcSale(items, kbAmount);
     const orgRaw = document.getElementById('f-org').value.trim();
     let orgVal = (orgRaw === 'すべての企業から選ぶ' || orgRaw === '（支援機関未設定の企業）') ? '' : orgRaw;
@@ -1062,38 +1059,78 @@ function renderKbSettings() {
   const q = (document.getElementById('kb-search').value || '').trim().toLowerCase();
   let list = orgsByFolder();
   if (q) list = list.filter(o => ((o.folder_no || '') + ' ' + (o.name || '')).toLowerCase().includes(q));
-  document.getElementById('kbBody').innerHTML = list.map(o => `<tr>
+  document.getElementById('kbBody').innerHTML = list.map(o => {
+    const p = o.kb_prices || {};
+    return `<tr>
     <td>${esc(o.folder_no || '-')}</td>
-    <td>${esc(o.name)}</td>
+    <td style="font-size:11.5px">${esc(o.name)}</td>
+    <td><input type="number" id="kbn-${esc(o.id)}" value="${Number(p['認定']) || 0}" style="text-align:right"></td>
+    <td><input type="number" id="kbh-${esc(o.id)}" value="${Number(p['変更']) || 0}" style="text-align:right"></td>
+    <td><input type="number" id="kbk-${esc(o.id)}" value="${Number(p['更新']) || 0}" style="text-align:right"></td>
     <td><input type="number" id="kbp-${esc(o.id)}" value="${o.kb_price || 0}" style="text-align:right"></td>
     <td><button class="btn btn-sm btn-primary" onclick="saveKbPrice('${esc(o.id)}')">保存</button></td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('');
 }
 async function saveKbPrice(orgId) {
-  const val = Number(document.getElementById('kbp-' + orgId).value) || 0;
+  const flat = Number(document.getElementById('kbp-' + orgId).value) || 0;
+  const prices = {
+    '認定': Number(document.getElementById('kbn-' + orgId).value) || 0,
+    '変更': Number(document.getElementById('kbh-' + orgId).value) || 0,
+    '更新': Number(document.getElementById('kbk-' + orgId).value) || 0
+  };
   const r = await fetch(`${SB_URL}/rest/v1/support_orgs?id=eq.${encodeURIComponent(orgId)}`, {
     method: 'PATCH', headers: sbHeaders(),
-    body: JSON.stringify({ kb_price: val, updated_at: new Date().toISOString() })
+    body: JSON.stringify({ kb_price: flat, kb_prices: prices, updated_at: new Date().toISOString() })
   });
   if (!r.ok) { toast('KB単価の保存に失敗: ' + await r.text()); return; }
   const o = supportOrgs.find(x => x.id === orgId);
-  if (o) o.kb_price = val;
+  if (o) { o.kb_price = flat; o.kb_prices = prices; }
   toast('KB単価を保存しました');
 }
-// 支援機関のKB単価を売上フォームに自動適用（手動上書き可）
+// 品名から申請種類を判定（認定/変更/更新）
+function detectAppType(itemName) {
+  const n = itemName || '';
+  if (n.includes('認定')) return '認定';
+  if (n.includes('変更')) return '変更';
+  if (n.includes('更新')) return '更新';
+  return null;
+}
+// 支援機関のKB単価（申請種類別）を売上フォームに自動適用（手動上書き可）
 let _kbAppliedOrg = null;
-function applyKbFromMaster(orgName) {
-  if (_kbAppliedOrg === orgName) return;   // 同じ機関で二重適用しない
+function applyKbFromMaster(orgName, force) {
+  if (!force && _kbAppliedOrg === orgName) return;   // 同じ機関で二重適用しない
   const o = supportOrgs.find(x => (x.name || '').trim() === orgName);
   _kbAppliedOrg = orgName;
-  if (!o || !(o.kb_price > 0)) return;     // マスタ未設定なら現状維持
-  const qty = Math.max(1, document.querySelectorAll('#itemRows .item-row').length);
+  const bd = document.getElementById('kbBreakdown');
+  if (!o) { if (force) toast('支援機関がマスタに見つかりません'); return; }
+  const prices = o.kb_prices || {};
+  const flat = Number(o.kb_price) || 0;
+  const hasAny = flat > 0 || Object.values(prices).some(v => Number(v) > 0);
+  if (!hasAny) { if (force) { bd.innerHTML = 'この支援機関にはKB単価が設定されていません（KB設定から登録）'; toast('KB単価未設定'); } return; }
+
+  // 明細行ごとに種類判定して単価を積み上げ
+  const parts = [];
+  let total = 0;
+  for (const it of collectItemRows()) {
+    if (!it.item_name && !it.unit_price) continue;
+    const type = detectAppType(it.item_name);
+    const price = type && Number(prices[type]) > 0 ? Number(prices[type]) : flat;
+    const label = type || 'その他';
+    if (price > 0) {
+      const qty = Number(it.qty) || 1;
+      total += price * qty;
+      parts.push(`${label} ¥${price.toLocaleString()}${qty > 1 ? '×' + qty : ''}`);
+    } else {
+      parts.push(`${label} 単価未設定`);
+    }
+  }
   document.getElementById('f-kb').checked = true;
   document.getElementById('kbBox').classList.add('show');
-  document.getElementById('f-kbPrice').value = o.kb_price;
-  document.getElementById('f-kbQty').value = qty;
+  document.getElementById('f-kbAmount').value = total;
+  bd.innerHTML = parts.length ? '内訳: ' + parts.map(esc).join(' ＋ ') + ` ＝ <b>¥${total.toLocaleString()}</b>` : '明細を入力してから「マスタから再計算」を押してください';
   recalcTotals();
-  toast(`KB自動適用: ${orgName} ¥${o.kb_price.toLocaleString()} ×${qty}`);
+  if (parts.length) toast(`KB自動適用: ${orgName} 計¥${total.toLocaleString()}`);
 }
 
 /* ================= サービスマスタ ================= */
