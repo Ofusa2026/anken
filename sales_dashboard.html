@@ -153,7 +153,7 @@ table.list tr:hover td { background:#f8fafc; }
   <aside class="side">
     <div class="brand">
       <h1>売上管理システム</h1>
-      <span class="ver">ver.20260805.04</span>
+      <span class="ver">ver.20260805.05</span>
     </div>
     <nav class="nav">
       <div class="nav-item active" data-page="dash" onclick="showPage('dash')"><span class="ic">📊</span><span class="txt">ダッシュボード</span></div>
@@ -282,14 +282,17 @@ table.list tr:hover td { background:#f8fafc; }
     <h2 id="saleModalTitle">売上登録</h2>
 
     <div class="form-grid">
+      <div class="fg">
+        <label>登録支援機関（先に選択）</label>
+        <select id="f-org" onchange="updateClientList()"></select>
+      </div>
       <div class="fg" style="grid-column:span 2">
         <label>得意先名（取引先名）※マネフォ取引先と一致させる</label>
-        <input id="f-client" list="clientList" placeholder="株式会社○○" autocomplete="off">
+        <input id="f-client" list="clientList" placeholder="先に登録支援機関を選択してください" autocomplete="off" disabled>
         <datalist id="clientList"></datalist>
       </div>
       <div class="fg"><label>取引先部門</label><input id="f-dept" placeholder="（任意）"></div>
       <div class="fg"><label>決定日</label><input type="date" id="f-decided"></div>
-      <div class="fg"><label>登録支援機関</label><input id="f-org" list="orgList" autocomplete="off"><datalist id="orgList"></datalist></div>
       <div class="fg"><label>担当スタッフ</label><input id="f-staff" list="staffList" autocomplete="off"><datalist id="staffList"></datalist></div>
       <div class="fg"><label>請求書ステータス</label>
         <select id="f-invoice"><option>未発行</option><option>発行済</option><option>入金済</option></select>
@@ -433,10 +436,42 @@ async function loadAll() {
 }
 
 function fillDatalists() {
-  document.getElementById('clientList').innerHTML = companies.map(c => `<option value="${esc(c.name)}">`).join('');
+  // 登録支援機関select：companiesに実在するsupport_org_nameから構築
+  const orgSet = new Set();
+  let hasNoOrg = false;
+  for (const c of companies) {
+    const o = (c.support_org_name || '').trim();
+    if (o) orgSet.add(o); else hasNoOrg = true;
+  }
+  const orgs = [...orgSet].sort((a, b) => a.localeCompare(b, 'ja'));
+  document.getElementById('f-org').innerHTML =
+    '<option value="">― 登録支援機関を選択 ―</option>' +
+    orgs.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('') +
+    (hasNoOrg ? '<option value="__none__">（支援機関未設定の企業）</option>' : '') +
+    '<option value="__all__">すべての企業から選ぶ</option>';
   document.getElementById('serviceList').innerHTML = services.map(s => `<option value="${esc(s.name)}">`).join('');
   document.getElementById('staffList').innerHTML = staffUsers.map(u => `<option value="${esc(u.name)}">`).join('');
-  document.getElementById('orgList').innerHTML = supportOrgs.map(o => `<option value="${esc(o.name)}">`).join('');
+}
+
+// 選択された支援機関の配下企業だけを得意先候補に表示
+function updateClientList(keepValue) {
+  const org = document.getElementById('f-org').value;
+  const input = document.getElementById('f-client');
+  let list;
+  if (!org) {
+    list = [];
+    input.disabled = true;
+    input.placeholder = '先に登録支援機関を選択してください';
+    if (!keepValue) input.value = '';
+  } else {
+    if (org === '__all__') list = companies;
+    else if (org === '__none__') list = companies.filter(c => !(c.support_org_name || '').trim());
+    else list = companies.filter(c => (c.support_org_name || '').trim() === org);
+    input.disabled = false;
+    input.placeholder = `${list.length}社から選択（自由入力も可）`;
+    if (!keepValue) input.value = '';
+  }
+  document.getElementById('clientList').innerHTML = list.map(c => `<option value="${esc(c.name)}">`).join('');
 }
 
 /* ================= 税計算 ================= */
@@ -661,10 +696,15 @@ function openSaleModal(id) {
   document.getElementById('saleModalTitle').textContent = id ? '売上編集' : '売上登録';
   document.getElementById('btnDeleteSale').style.display = id ? '' : 'none';
   const s = id ? sales.find(x => x.id === id) : null;
+  const orgSel = document.getElementById('f-org');
+  const savedOrg = s ? (s.support_org || '').trim() : '';
+  if (savedOrg && [...orgSel.options].some(o => o.value === savedOrg)) orgSel.value = savedOrg;
+  else if (s) orgSel.value = '__all__';   // 編集時：支援機関がマスタにない場合も得意先は表示
+  else orgSel.value = '';
+  updateClientList(true);
   document.getElementById('f-client').value = s ? (s.client_name || '') : '';
   document.getElementById('f-dept').value = s ? (s.client_dept || '') : '';
   document.getElementById('f-decided').value = s ? (s.decided_at || '') : new Date().toISOString().slice(0, 10);
-  document.getElementById('f-org').value = s ? (s.support_org || '') : '';
   document.getElementById('f-staff').value = s ? (s.staff || '') : '';
   document.getElementById('f-invoice').value = s ? (s.invoice_status || '未発行') : '未発行';
   document.getElementById('f-memo').value = s ? (s.memo || '') : '';
@@ -749,10 +789,17 @@ async function saveSale() {
     const kbQty = isKb ? Number(document.getElementById('f-kbQty').value) || 0 : 0;
     const kbAmount = kbPrice * kbQty;
     const c = calcSale(items, kbAmount);
+    const orgRaw = document.getElementById('f-org').value;
+    let orgVal = (orgRaw === '__all__' || orgRaw === '__none__' || !orgRaw) ? '' : orgRaw;
+    if (!orgVal) {
+      // すべて表示等で選んだ場合は企業マスタの支援機関を自動補完
+      const comp = companies.find(c => c.name === client);
+      if (comp) orgVal = (comp.support_org_name || '').trim();
+    }
     const salePayload = {
       client_name: client,
       client_dept: document.getElementById('f-dept').value.trim(),
-      support_org: document.getElementById('f-org').value.trim(),
+      support_org: orgVal,
       decided_at: document.getElementById('f-decided').value || null,
       subtotal: c.subtotal,
       tax_amount: c.tax,
