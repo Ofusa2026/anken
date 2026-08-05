@@ -158,7 +158,7 @@ table.list tr:hover td { background:#f8fafc; }
   <aside class="side">
     <div class="brand">
       <h1>売上管理システム</h1>
-      <span class="ver">ver.20260805.13</span>
+      <span class="ver">ver.20260805.18</span>
     </div>
     <nav class="nav">
       <div class="nav-item active" data-page="dash" onclick="showPage('dash')"><span class="ic">📊</span><span class="txt">ダッシュボード</span></div>
@@ -228,7 +228,8 @@ table.list tr:hover td { background:#f8fafc; }
             <thead><tr>
               <th style="width:28px"><input type="checkbox" id="checkAll" onchange="toggleAll(this)"></th>
               <th>決定日</th>
-              <th>得意先</th>
+              <th>受入企業／支援機関</th>
+              <th>請求先</th>
               <th>明細</th>
               <th>申請人</th>
               <th class="num">税抜</th>
@@ -299,10 +300,18 @@ table.list tr:hover td { background:#f8fafc; }
         <input id="f-org" list="orgDatalist" placeholder="番号か名前で検索" autocomplete="off" oninput="updateClientList()" onchange="updateClientList()">
         <datalist id="orgDatalist"></datalist>
       </div>
-      <div class="fg" style="grid-column:span 2">
-        <label>得意先名（取引先名）※マネフォ取引先と一致させる</label>
-        <input id="f-client" list="clientList" placeholder="先に登録支援機関を選択してください" autocomplete="off" disabled>
+      <div class="fg">
+        <label>受入企業（所属機関）</label>
+        <input id="f-company" list="clientList" placeholder="先に登録支援機関を選択" autocomplete="off" disabled>
         <datalist id="clientList"></datalist>
+      </div>
+      <div class="fg">
+        <label>請求先 ※マネフォ取引先と一致
+          <span style="font-weight:400;color:var(--accent);cursor:pointer" onclick="setBillTo('company')">[=受入企業]</span>
+          <span style="font-weight:400;color:var(--accent);cursor:pointer" onclick="setBillTo('org')">[=支援機関]</span>
+        </label>
+        <input id="f-client" list="billList" placeholder="請求する相手" autocomplete="off">
+        <datalist id="billList"></datalist>
       </div>
       <div class="fg"><label>取引先部門</label><input id="f-dept" placeholder="（任意）"></div>
       <div class="fg"><label>決定日</label><input type="date" id="f-decided"></div>
@@ -473,6 +482,16 @@ function genId(prefix) {
   return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 function yen(n) { return '¥' + (n || 0).toLocaleString(); }
+// 会社名の正規化：略記(㈱㈲・(株)(有)等・前後どちらでも)を正式表記に、先頭の記号を除去
+function normalizeCompanyName(s) {
+  let v = (s || '').trim();
+  v = v.replace(/^[.．・、,，･]+[ 　]*/, '');
+  v = v.replace(/㈱/g, '株式会社').replace(/㈲/g, '有限会社');
+  v = v.replace(/[ 　]*[（(][ 　]*株[ 　]*[)）][ 　]*/g, '株式会社');
+  v = v.replace(/[ 　]*[（(][ 　]*有[ 　]*[)）][ 　]*/g, '有限会社');
+  v = v.replace(/[ 　]*[（(][ 　]*同[ 　]*[)）][ 　]*/g, '合同会社');
+  return v.trim();
+}
 function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function toast(msg) {
   const t = document.getElementById('toast');
@@ -489,14 +508,28 @@ function showPage(name) {
 
 /* ================= 読み込み ================= */
 // Supabase RESTは1リクエスト最大1000行のため、offsetでページングして全件取得する
+// 一時的なネットワーク/CORSエラー（DB再起動中など）はページ単位で最大3回リトライし、
+// それでも失敗した場合は取得済み分だけ返して画面全体が死なないようにする
+const _sleep = ms => new Promise(r => setTimeout(r, ms));
 async function fetchAllRows(pathWithQuery, pageSize) {
   pageSize = pageSize || 1000;
   const all = [];
   for (let offset = 0; ; offset += pageSize) {
     const sep = pathWithQuery.includes('?') ? '&' : '?';
-    const res = await fetch(`${SB_URL}/rest/v1/${pathWithQuery}${sep}limit=${pageSize}&offset=${offset}`, { headers: sbHeaders() });
-    if (!res.ok) break;
-    const batch = await res.json();
+    const url = `${SB_URL}/rest/v1/${pathWithQuery}${sep}limit=${pageSize}&offset=${offset}`;
+    let batch = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const res = await fetch(url, { headers: sbHeaders() });
+        if (res.ok) { batch = await res.json(); break; }
+        if (res.status === 401) { toast('セッションが切れました。再ログインしてください'); return all; }
+      } catch (e) { /* ネットワーク/CORS失敗 → リトライ */ }
+      if (attempt < 3) await _sleep(700 * attempt);
+    }
+    if (batch === null) {
+      toast('⚠️ 一部データの取得に失敗しました（' + pathWithQuery.split('?')[0] + '）。再読み込みしてください');
+      return all;   // 取得済み分で継続
+    }
     all.push(...batch);
     if (batch.length < pageSize) break;
   }
@@ -553,12 +586,12 @@ function fillDatalists() {
 let _lastOrgExact = null;
 function updateClientList(keepValue) {
   const org = document.getElementById('f-org').value.trim();
-  const input = document.getElementById('f-client');
+  const input = document.getElementById('f-company');
   let list, exact = null;
   if (!org) {
     list = [];
     input.disabled = true;
-    input.placeholder = '先に登録支援機関を選択してください';
+    input.placeholder = '先に登録支援機関を選択';
   } else if (org === 'すべての企業から選ぶ') {
     list = companies;
     input.disabled = false;
@@ -581,10 +614,20 @@ function updateClientList(keepValue) {
       input.placeholder = '支援機関名が一致すると絞り込みます（全社表示中）';
     }
   }
-  // 支援機関を切り替えたら得意先をクリア（編集オープン時はkeepValueで保持）
+  // 支援機関を切り替えたら受入企業をクリア（編集オープン時はkeepValueで保持）
   if (!keepValue && _lastOrgExact !== exact) input.value = '';
   _lastOrgExact = exact;
   document.getElementById('clientList').innerHTML = list.map(c => `<option value="${esc(c.name)}">`).join('');
+  // 請求先候補：絞り込み企業＋現在の支援機関名
+  const bill = list.map(c => `<option value="${esc(c.name)}">`);
+  if (org && org !== 'すべての企業から選ぶ' && org !== '（支援機関未設定の企業）') bill.unshift(`<option value="${esc(org)}">`);
+  document.getElementById('billList').innerHTML = bill.join('');
+}
+// 請求先クイックセット
+function setBillTo(which) {
+  const v = which === 'org' ? document.getElementById('f-org').value.trim() : document.getElementById('f-company').value.trim();
+  if (!v || v === 'すべての企業から選ぶ' || v === '（支援機関未設定の企業）') { toast(which === 'org' ? '支援機関が未選択です' : '受入企業が未入力です'); return; }
+  document.getElementById('f-client').value = v;
 }
 
 /* ================= 税計算 ================= */
@@ -616,7 +659,7 @@ function filteredSales() {
     if (m && (!s.decided_at || !s.decided_at.startsWith(m))) return false;
     if (st && (s.invoice_status || '未発行') !== st) return false;
     if (q) {
-      const hay = [s.client_name, s.client_dept, s.support_org, s.staff, s.memo,
+      const hay = [s.client_name, s.company_name, s.client_dept, s.support_org, s.staff, s.memo,
         ...(s.sale_items || []).flatMap(i => [i.item_name, i.applicant, i.detail])]
         .join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
@@ -664,6 +707,7 @@ function render() {
     return `<tr>
       <td><input type="checkbox" class="row-check" data-id="${esc(s.id)}"></td>
       <td style="white-space:nowrap">${esc(s.decided_at || '-')}</td>
+      <td style="max-width:180px"><div style="font-weight:600">${esc(s.company_name || '-')}</div><div style="font-size:11px;color:var(--sub)">${esc(s.support_org || '-')}</div></td>
       <td><b>${esc(s.client_name)}</b>${s.dr_message_id ? '<span class="warn-badge" style="background:var(--accent-soft);color:var(--accent)" title="決定報告から取込">📋</span>' : ''}${s.client_dept ? `<div style="font-size:11px;color:var(--sub)">${esc(s.client_dept)}</div>` : ''}</td>
       <td class="items-summary">${summary || '-'}</td>
       <td class="items-summary" style="min-width:90px;max-width:140px">${appCol || '-'}</td>
@@ -850,13 +894,13 @@ function openSaleModal(id) {
   _lastOrgExact = null;
   _kbAppliedOrg = s ? (s.support_org || '').trim() : null;  // 編集時は自動適用しない
   updateClientList(true);
+  document.getElementById('f-company').value = s ? (s.company_name || '') : '';
   document.getElementById('f-client').value = s ? (s.client_name || '') : '';
   document.getElementById('f-dept').value = s ? (s.client_dept || '') : '';
   document.getElementById('f-decided').value = s ? (s.decided_at || '') : new Date().toISOString().slice(0, 10);
   document.getElementById('f-staff').value = s ? (s.staff || '') : '';
   document.getElementById('f-invoice').value = s ? (s.invoice_status || '未発行') : '未発行';
   document.getElementById('f-memo').value = s ? (s.memo || '') : '';
-  document.getElementById('kbBreakdown').innerHTML = s && s.is_kb ? '保存済みのKB金額を表示中（「マスタから再計算」で種類別単価から再計算できます）' : '';
   document.getElementById('itemRows').innerHTML = '';
   const items = s && s.sale_items && s.sale_items.length ? s.sale_items : [null];
   items.forEach(it => addItemRow(it));
@@ -922,8 +966,8 @@ function recalcTotals() {
 }
 
 async function saveSale() {
-  const client = document.getElementById('f-client').value.trim();
-  if (!client) { toast('得意先名を入力してください'); return; }
+  const client = normalizeCompanyName(document.getElementById('f-client').value);
+  if (!client) { toast('請求先を入力してください'); return; }
   const items = collectItemRows();
   if (!items.length) { toast('明細を1行以上入力してください'); return; }
   const btn = document.getElementById('btnSaveSale');
@@ -943,6 +987,7 @@ async function saveSale() {
     }
     const salePayload = {
       client_name: client,
+      company_name: normalizeCompanyName(document.getElementById('f-company').value),
       client_dept: document.getElementById('f-dept').value.trim(),
       support_org: orgVal,
       decided_at: document.getElementById('f-decided').value || null,
@@ -956,7 +1001,12 @@ async function saveSale() {
       memo: document.getElementById('f-memo').value.trim(),
       updated_at: now
     };
-    if (_drImportMsgId) salePayload.dr_message_id = _drImportMsgId;
+    if (_drImportMsgId) {
+      const prev = editingId ? ((sales.find(x => x.id === editingId) || {}).dr_message_id || '') : '';
+      const set = new Set(prev.split(',').filter(Boolean));
+      set.add(_drImportMsgId);
+      salePayload.dr_message_id = [...set].join(',');
+    }
     let saleId = editingId;
     if (editingId) {
       const r = await fetch(`${SB_URL}/rest/v1/sales?id=eq.${encodeURIComponent(editingId)}`, {
@@ -1163,9 +1213,12 @@ let _drImportMsgId = null;   // 取込元メッセージID（保存時にsales.d
 async function openDrImport() {
   document.getElementById('drOverlay').classList.add('show');
   document.getElementById('drList').innerHTML = '<div style="padding:16px;color:var(--sub)">読込中…</div>';
+  // 売上管理は2026年8月スタートのため、8/1以降の決定報告のみ対象
+  const DR_START = '2026-08-01';
   const q = 'line_messages?select=message_id,sent_by,line_timestamp,text_body'
     + '&is_outgoing=eq.true&text_body=ilike.' + encodeURIComponent('*【決定報告*')
-    + '&order=line_timestamp.desc&limit=100';
+    + '&line_timestamp=gte.' + DR_START
+    + '&order=line_timestamp.desc&limit=200';
   const res = await fetch(`${SB_URL}/rest/v1/${q}`, { headers: sbHeaders() });
   drMessages = res.ok ? await res.json() : [];
   renderDrList();
@@ -1219,13 +1272,13 @@ function parseDrText(text) {
 function renderDrList() {
   const q = (document.getElementById('dr-search').value || '').trim().toLowerCase();
   const hide = document.getElementById('dr-hideImported').checked;
-  const importedIds = new Set(sales.map(s => s.dr_message_id).filter(Boolean));
+  const importedIds = new Set(sales.flatMap(s => (s.dr_message_id || '').split(',')).filter(Boolean));
   let list = drMessages.map(msg => ({ msg, p: parseDrText(msg.text_body), done: importedIds.has(msg.message_id) }));
   if (hide) list = list.filter(x => !x.done);
   if (q) list = list.filter(x => [x.p.org, x.p.company, x.p.sender, x.msg.sent_by].join(' ').toLowerCase().includes(q));
   document.getElementById('drList').innerHTML = list.length ? list.map(x => {
     const d = (x.msg.line_timestamp || '').slice(0, 16).replace('T', ' ');
-    const meta = [x.p.visa && (x.p.visa + '・' + x.p.appType), x.p.applicants.length + '名', x.p.fee ? '¥' + x.p.fee.toLocaleString() + '/名' : '費用未記載'].filter(Boolean).join(' ／ ');
+    const meta = [x.p.visa && (x.p.visa + '・' + x.p.appType), x.p.applicants.length + '名', x.p.fee ? '¥' + x.p.fee.toLocaleString() + '/名' : '費用未記載', x.p.billing ? '請求先:' + x.p.billing : ''].filter(Boolean).join(' ／ ');
     return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid #f1f5f9">
       <div style="flex:1;min-width:0">
         <div style="font-size:12.5px;font-weight:700">${esc(x.p.org || '（直依頼）')} ▶ ${esc(x.p.company || '-')}
@@ -1241,37 +1294,69 @@ function importDr(messageId) {
   const msg = drMessages.find(m => m.message_id === messageId);
   if (!msg) return;
   const p = parseDrText(msg.text_body);
+  // 会社名は必ず正規化（(株)→株式会社 等）
+  const orgN = normalizeCompanyName(p.org);
+  const companyN = normalizeCompanyName(p.company);
+  // 請求先判定：「登録支援機関」→支援機関へ請求／「所属機関」→受入企業へ請求
+  const isOrgBilling = (p.billing || '').includes('支援機関');
+  let billTo = '';
+  if (isOrgBilling) billTo = orgN;
+  else if ((p.billing || '').includes('所属機関') || (p.billing || '').includes('受入')) billTo = companyN;
+  else if (p.billing) billTo = normalizeCompanyName(p.billing);
+  else billTo = companyN;
+
   document.getElementById('drOverlay').classList.remove('show');
-  openSaleModal();                       // 新規モードで開く
-  _drImportMsgId = messageId;            // openSaleModal内のリセット後に設定
-  // ヘッダ項目
-  document.getElementById('f-org').value = p.org || '';
-  _lastOrgExact = null; _kbAppliedOrg = null;
-  updateClientList(true);
-  document.getElementById('f-client').value = p.company || '';
-  document.getElementById('f-client').disabled = false;
-  document.getElementById('f-decided').value = (msg.line_timestamp || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
-  document.getElementById('f-staff').value = msg.sent_by || p.sender || '';
-  document.getElementById('f-memo').value = [p.billing ? '請求先：' + p.billing : '', p.note].filter(Boolean).join(' ／ ');
-  // 明細：申請人1名＝1行
-  document.getElementById('itemRows').innerHTML = '';
+
+  // 支援機関請求：同じ支援機関宛ての「未発行」売上があれば、そこに明細を追加していく
+  let appendTarget = null;
+  if (isOrgBilling && billTo) {
+    appendTarget = sales
+      .filter(s => (s.client_name || '') === billTo && (s.invoice_status || '未発行') === '未発行')
+      .sort((a, b) => (b.decided_at || '').localeCompare(a.decided_at || ''))[0] || null;
+  }
+
   const itemName = p.visa ? `在留資格申請「${p.visa}」${p.appType || ''}` : (p.appType ? `在留資格申請 ${p.appType}` : '在留資格申請');
   const apps = p.applicants.length ? p.applicants : [''];
-  apps.forEach(name => addItemRow({
-    item_name: itemName, applicant: name,
-    unit_price: p.fee || 0, qty: 1, unit: '件', detail: '',
-    tax_type: '10%', withholding: '対象外',
-    stamp_price: p.stampPrice || 0, stamp_qty: p.stampCount || 0, kb_price: 0
-  }));
-  // 追加費用行（人数分まとめて1行）
-  p.extraFees.forEach(f => addItemRow({
-    item_name: f.label, applicant: '', unit_price: f.amount, qty: f.n, unit: '件',
-    detail: '', tax_type: '10%', withholding: '対象外', stamp_price: 0, stamp_qty: 0, kb_price: 0
-  }));
-  applyKbFromMaster(p.org || '', true);  // KBマスタも自動適用
-  recalcTotals();
+  const makeRows = () => {
+    apps.forEach(name => addItemRow({
+      item_name: itemName, applicant: name,
+      unit_price: p.fee || 0, qty: 1, unit: '件', detail: '',
+      tax_type: '10%', withholding: '対象外',
+      stamp_price: p.stampPrice || 0, stamp_qty: p.stampCount || 0, kb_price: 0
+    }));
+    p.extraFees.forEach(f => addItemRow({
+      item_name: f.label, applicant: '', unit_price: f.amount, qty: f.n, unit: '件',
+      detail: '', tax_type: '10%', withholding: '対象外', stamp_price: 0, stamp_qty: 0, kb_price: 0
+    }));
+  };
+
+  if (appendTarget) {
+    // 既存の未発行売上を編集で開き、末尾に今回の明細を追加
+    openSaleModal(appendTarget.id);
+    _drImportMsgId = messageId;
+    makeRows();
+    applyKbFromMaster(orgN, true);
+    recalcTotals();
+    toast(`「${billTo}」の未発行売上に ${apps.length}名分を追加しました。保存で確定します`);
+  } else {
+    // 新規売上として展開
+    openSaleModal();
+    _drImportMsgId = messageId;
+    document.getElementById('f-org').value = orgN || '';
+    _lastOrgExact = null; _kbAppliedOrg = null;
+    updateClientList(true);
+    document.getElementById('f-company').value = companyN || '';
+    document.getElementById('f-company').disabled = false;
+    document.getElementById('f-client').value = billTo;
+    document.getElementById('f-decided').value = (msg.line_timestamp || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    document.getElementById('f-staff').value = msg.sent_by || p.sender || '';
+    document.getElementById('f-memo').value = p.note || '';
+    document.getElementById('itemRows').innerHTML = '';
+    makeRows();
+    applyKbFromMaster(orgN || '', true);
+    recalcTotals();
+  }
   if (!p.fee) toast('⚠️ 申請費用が未記載の報告です。単価を入力してください');
-  else toast('決定報告を展開しました。内容を確認して保存してください');
 }
 
 /* ================= サービスマスタ ================= */
