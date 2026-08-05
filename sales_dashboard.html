@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>売上管理システム</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/encoding-japanese/2.0.0/encoding.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
 :root {
   --bg: #f4f6f9;
@@ -153,13 +154,16 @@ table.list tr:hover td { background:#f8fafc; }
   <aside class="side">
     <div class="brand">
       <h1>売上管理システム</h1>
-      <span class="ver">ver.20260805.05</span>
+      <span class="ver">ver.20260805.06</span>
     </div>
     <nav class="nav">
       <div class="nav-item active" data-page="dash" onclick="showPage('dash')"><span class="ic">📊</span><span class="txt">ダッシュボード</span></div>
       <div class="nav-item" data-page="sales" onclick="showPage('sales')"><span class="ic">💴</span><span class="txt">売上管理</span></div>
       <div class="nav-item" data-page="clients" onclick="showPage('clients')"><span class="ic">🏢</span><span class="txt">取引先一覧</span></div>
     </nav>
+    <div style="margin-top:auto;padding:10px 8px">
+      <div class="nav-item" onclick="doLogout()"><span class="ic">🚪</span><span class="txt">ログアウト</span></div>
+    </div>
   </aside>
 
   <div class="main">
@@ -354,6 +358,18 @@ table.list tr:hover td { background:#f8fafc; }
   </div>
 </div>
 
+<!-- ===== ログイン ===== -->
+<div class="overlay show" id="loginOverlay" style="background:var(--side-bg)">
+  <div class="modal" style="max-width:360px;margin-top:10vh">
+    <h2 style="text-align:center">売上管理システム</h2>
+    <div class="fg" style="margin-bottom:10px"><label>メールアドレス</label><input type="email" id="login-email" autocomplete="username"></div>
+    <div class="fg" style="margin-bottom:14px"><label>パスワード</label><input type="password" id="login-pass" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <div id="login-err" style="color:var(--red);font-size:12px;margin-bottom:10px;display:none"></div>
+    <button class="btn btn-primary" style="width:100%" id="btnLogin" onclick="doLogin()">ログイン</button>
+    <div style="font-size:11px;color:var(--sub);margin-top:10px;text-align:center">案件管理システムと同じアカウントでログイン</div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -374,13 +390,51 @@ let staffUsers = [];
 let supportOrgs = [];
 let editingId = null;
 
+// Supabase Auth（index.htmlと同じアカウント）。RLSはauthenticatedのみ書込可のため必須
+const _sb = supabase.createClient(SB_URL, SB_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+});
+let ACCESS_TOKEN = '';
 function sbHeaders(extra) {
   return Object.assign({
     'apikey': SB_KEY,
-    'Authorization': 'Bearer ' + SB_KEY,
+    'Authorization': 'Bearer ' + (ACCESS_TOKEN || SB_KEY),
     'Content-Type': 'application/json',
     'Prefer': 'return=minimal'
   }, extra || {});
+}
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  const err = document.getElementById('login-err');
+  const btn = document.getElementById('btnLogin');
+  btn.disabled = true; err.style.display = 'none';
+  const { data, error } = await _sb.auth.signInWithPassword({ email, password: pass });
+  btn.disabled = false;
+  if (error || !data || !data.session) {
+    err.textContent = 'ログインに失敗しました：' + (error ? error.message : '不明なエラー');
+    err.style.display = 'block';
+    return;
+  }
+  ACCESS_TOKEN = data.session.access_token;
+  document.getElementById('loginOverlay').classList.remove('show');
+  loadAll();
+}
+async function doLogout() {
+  try { await _sb.auth.signOut(); } catch (e) {}
+  location.reload();
+}
+_sb.auth.onAuthStateChange((_evt, session) => {
+  ACCESS_TOKEN = session ? session.access_token : '';
+});
+async function initAuth() {
+  const { data } = await _sb.auth.getSession();
+  if (data && data.session) {
+    ACCESS_TOKEN = data.session.access_token;
+    document.getElementById('loginOverlay').classList.remove('show');
+    loadAll();
+  }
+  // セッションが無ければログイン画面のまま待機
 }
 function genId(prefix) {
   return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -974,7 +1028,7 @@ async function deleteService(id) {
 document.querySelectorAll('.overlay').forEach(ov => {
   ov.addEventListener('mousedown', e => { if (e.target === ov) ov.classList.remove('show'); });
 });
-loadAll();
+initAuth();
 </script>
 </body>
 </html>
