@@ -153,7 +153,7 @@ table.list tr:hover td { background:#f8fafc; }
   <aside class="side">
     <div class="brand">
       <h1>売上管理システム</h1>
-      <span class="ver">ver.20260805.03</span>
+      <span class="ver">ver.20260805.04</span>
     </div>
     <nav class="nav">
       <div class="nav-item active" data-page="dash" onclick="showPage('dash')"><span class="ic">📊</span><span class="txt">ダッシュボード</span></div>
@@ -398,19 +398,34 @@ function showPage(name) {
 }
 
 /* ================= 読み込み ================= */
+// Supabase RESTは1リクエスト最大1000行のため、offsetでページングして全件取得する
+async function fetchAllRows(pathWithQuery, pageSize) {
+  pageSize = pageSize || 1000;
+  const all = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const sep = pathWithQuery.includes('?') ? '&' : '?';
+    const res = await fetch(`${SB_URL}/rest/v1/${pathWithQuery}${sep}limit=${pageSize}&offset=${offset}`, { headers: sbHeaders() });
+    if (!res.ok) break;
+    const batch = await res.json();
+    all.push(...batch);
+    if (batch.length < pageSize) break;
+  }
+  return all;
+}
+
 async function loadAll() {
-  const [rS, rSv, rC, rU, rO] = await Promise.all([
-    fetch(`${SB_URL}/rest/v1/sales?select=*,sale_items(*)&order=decided_at.desc,created_at.desc`, { headers: sbHeaders() }),
-    fetch(`${SB_URL}/rest/v1/services?select=*&order=name`, { headers: sbHeaders() }),
-    fetch(`${SB_URL}/rest/v1/companies?select=id,name,name_kana,pref,city,tel,rep_name,support_org_name,staff,ofusa_staff&order=name&limit=2000`, { headers: sbHeaders() }),
-    fetch(`${SB_URL}/rest/v1/users?select=id,name&order=name&limit=100`, { headers: sbHeaders() }),
-    fetch(`${SB_URL}/rest/v1/support_orgs?select=id,name&order=name&limit=300`, { headers: sbHeaders() })
+  const [dS, dSv, dC, dU, dO] = await Promise.all([
+    fetchAllRows('sales?select=*,sale_items(*)&order=decided_at.desc,created_at.desc'),
+    fetchAllRows('services?select=*&order=name'),
+    fetchAllRows('companies?select=id,name,name_kana,pref,city,tel,rep_name,support_org_name,staff,ofusa_staff&order=name'),
+    fetchAllRows('users?select=id,name&order=name'),
+    fetchAllRows('support_orgs?select=id,name&order=name')
   ]);
-  sales = rS.ok ? await rS.json() : [];
-  services = rSv.ok ? await rSv.json() : [];
-  companies = rC.ok ? await rC.json() : [];
-  staffUsers = rU.ok ? await rU.json() : [];
-  supportOrgs = rO.ok ? await rO.json() : [];
+  sales = dS;
+  services = dSv;
+  companies = dC;
+  staffUsers = dU;
+  supportOrgs = dO;
   sales.forEach(s => { (s.sale_items || []).sort((a,b) => (a.sort_order||0) - (b.sort_order||0)); });
   fillDatalists();
   render();
