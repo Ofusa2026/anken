@@ -95,7 +95,11 @@ table.list th { text-align:left; font-size:11px; color:var(--sub); font-weight:7
 table.list td { padding:8px 10px; border-bottom:1px solid #f1f5f9; vertical-align:top; }
 table.list tr:hover td { background:#f8fafc; }
 .num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
-.items-summary { font-size:11.5px; color:var(--sub); max-width:280px; }
+.items-summary { font-size:11.5px; color:var(--sub); min-width:240px; max-width:340px; }
+.item-line { display:flex; justify-content:space-between; gap:12px; padding:1px 0; }
+.item-line .il-name { flex:1; }
+.item-line .il-amt { font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--txt); font-weight:600; }
+.item-line.stamp .il-name, .item-line.stamp .il-amt { color:var(--amber); }
 .chip { display:inline-block; font-size:11px; font-weight:700; border-radius:99px; padding:2px 10px; cursor:pointer; user-select:none; }
 .chip.st-未発行 { background:var(--red-soft); color:var(--red); }
 .chip.st-発行済 { background:var(--amber-soft); color:var(--amber); }
@@ -154,7 +158,7 @@ table.list tr:hover td { background:#f8fafc; }
   <aside class="side">
     <div class="brand">
       <h1>売上管理システム</h1>
-      <span class="ver">ver.20260805.07</span>
+      <span class="ver">ver.20260805.08</span>
     </div>
     <nav class="nav">
       <div class="nav-item active" data-page="dash" onclick="showPage('dash')"><span class="ic">📊</span><span class="txt">ダッシュボード</span></div>
@@ -596,8 +600,18 @@ function render() {
   body.innerHTML = list.map(s => {
     const c = calcSale(s.sale_items || [], s.kb_amount);
     const st = s.invoice_status || '未発行';
-    const summary = (s.sale_items || []).map(i =>
-      esc(i.item_name) + (i.applicant ? `（${esc(i.applicant)}）` : '')).join(' / ');
+    const lines = [];
+    for (const i of (s.sale_items || [])) {
+      const amt = (Number(i.unit_price) || 0) * (Number(i.qty) || 0);
+      if (i.item_name || i.unit_price) {
+        lines.push(`<div class="item-line"><span class="il-name">${esc(i.item_name)}${i.applicant ? `（${esc(i.applicant)}）` : ''}</span><span class="il-amt">${yen(amt)}</span></div>`);
+      }
+      const stampAmt = (Number(i.stamp_price) || 0) * (Number(i.stamp_qty) || 0);
+      if (stampAmt > 0) {
+        lines.push(`<div class="item-line stamp"><span class="il-name">収入印紙${i.applicant ? `（${esc(i.applicant)}）` : ''}${(Number(i.stamp_qty) || 0) > 1 ? ` ×${i.stamp_qty}` : ''}</span><span class="il-amt">${yen(stampAmt)}</span></div>`);
+      }
+    }
+    const summary = lines.join('');
     return `<tr>
       <td><input type="checkbox" class="row-check" data-id="${esc(s.id)}"></td>
       <td style="white-space:nowrap">${esc(s.decided_at || '-')}</td>
