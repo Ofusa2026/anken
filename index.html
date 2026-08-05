@@ -3163,7 +3163,7 @@ details[open] > ._upDocSummary::before { content: '▼ '; }
       <button onclick="bulkCompleteCurrentTask()" id="docsAllCompleteBtn" style="display:none;font-size:11px;padding:4px 12px;background:#0891b2;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">⚡ 全件完了</button>
       <button onclick="showMyTasks()" id="docsMyTasksBtn" style="font-size:11px;padding:4px 12px;background:#dc2626;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:800;">👤 自分のタスク</button>
       <button onclick="openShiftRosterModal()" style="font-size:11px;padding:4px 12px;background:#0f766e;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">🔄 班編成</button>
-      <button onclick="bulkAssignPendingTasks()" style="font-size:11px;padding:4px 12px;background:#7c3aed;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">⚡ 未割当を一括振り分け</button>
+      <button id="bulkAssignBtn" onclick="bulkAssignPendingTasks()" style="font-size:11px;padding:4px 12px;background:#7c3aed;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">⚡ 未割当を一括振り分け<span id="bulkAssignBadge" style="display:none;margin-left:5px;background:#fff;color:#7c3aed;border-radius:99px;padding:0 7px;font-size:10px;font-weight:800;"></span></button>
       <button onclick="autoReadPersonFromDrive()" style="font-size:11px;padding:4px 12px;background:#7c3aed;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">🤖 ドライブ一括AI読取</button>
       <button onclick="autoReadExamFromDrive()" style="font-size:11px;padding:4px 12px;background:#6366f1;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">🔬 試験情報再スキャン</button>
       <select id="docsSortSel" onchange="docsSort=this.value;renderDocsContent()" style="font-size:12px;padding:4px 8px;border:1px solid var(--gray-200);border-radius:6px;background:white;">
@@ -4919,7 +4919,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260805.22';
+var OFUSA_VERSION = 'ver.20260805.23';
 // ver.20260804.22: 起動時刻。ページ読み込み直後のSIGNED_OUT誤検知を避けるために使う。
 window._appBootAt = Date.now();
 window._intentionalLogout = false;
@@ -27675,7 +27675,7 @@ function mtCardDrop(e,toLi,toCi){
   mtDragSrc={list:-1,card:-1};
   persistMyTasks();renderMyTaskBoard();
 }
-function openDocs()   { _populateDocsStaffFilter(); renderDocsContent(); try{ renderMyTaskBanner(); }catch(e){} switchPanel('docsScreen','nav-docs'); }
+function openDocs()   { _populateDocsStaffFilter(); renderDocsContent(); try{ renderMyTaskBanner(); }catch(e){} try{ updateBulkAssignBadge(); }catch(e){} switchPanel('docsScreen','nav-docs'); }
 
 // タスク一覧の担当者フィルタセレクトを更新（現在のチーム絞り込みに応じて）
 // ログインユーザ(currentUser)を先頭に表示
@@ -35984,6 +35984,8 @@ function renderDocsContent() {
   if (!el) return;
   // ver.20260804.04: 担当者で絞り込んでいるときは、その人の急ぎタスクを上部に出す
   try{ if(typeof renderStaffUrgentPanel==='function') renderStaffUrgentPanel(); }catch(e){}
+  // ver.20260805.23: 未割当の件数バッジを更新
+  try{ if(typeof updateBulkAssignBadge==='function') updateBulkAssignBadge(); }catch(e){}
   // ver.20260611.15: タブ分岐（申請以外は準備中プレースホルダ。申請タブ専用フィルタは申請時のみ表示）
   if(typeof _updateDocsTabBtns==='function') _updateDocsTabBtns();
   var _dtCur = window._docsTab || 'apply';
@@ -36561,7 +36563,7 @@ function buildDocCard(c,taskName,ti,st,key,deadline,today,ST_LABEL,ST_COLOR,ST_B
   var _metaRow = '';
   if(_taskAssign) _metaRow += '<span style="font-size:10px;color:#6366f1;font-weight:700;">👤 '+_taskAssign+'</span> ';
   if(_handler) _metaRow += '<span style="font-size:10px;color:#0369a1;font-weight:700;">🔧 '+_handler+'</span> ';
-  // ver.20260805.22: 期日は左端の日付列に移したため、ここでは出さない（変数削除に伴う参照エラーの修正）
+  // ver.20260805.23: 期日は左端の日付列に移したため、ここでは出さない（変数削除に伴う参照エラーの修正）
   h+='<div style="font-size:10px;color:var(--gray-400);'+(isUnnecessary?'text-decoration:line-through;':'')+'">';
   h+=c.name+'　'+c.team+'　'+c.staff;
   h+='</div>';
@@ -38443,6 +38445,44 @@ function showMyTasks(){
 }
 
 // ver.20260803.14: 既に「依頼」になっているのに対応者が空のタスクへ、まとめて振り分ける
+/** ver.20260805.23: 依頼済みなのに担当が空のタスク件数を数えてボタンにバッジ表示する。
+ *  依頼にする経路が複数あるため取りこぼしが起きうる。0件でないことに気づけるようにする。 */
+function countUnassignedTasks(){
+  var n = 0;
+  try{
+    var term = (typeof currentShiftTerm==='function') ? currentShiftTerm() : {};
+    (cData||[]).forEach(function(c){
+      if(!c || c.status === '完了') return;
+      for(var ti=0; ti<TASK_NAMES.length; ti++){
+        var key = c.id+'_'+ti;
+        var st = docTaskStatus[key]||0;
+        if(st!==1 && st!==2) continue;          // 依頼・着手中のみ
+        if(taskAssignee[key]) continue;          // 既に担当がいる
+        var g = _shiftGroupOf(ti);
+        if(!((term[g]||[]).length)) continue;    // その班が未設定なら振り分けようがない
+        n++;
+      }
+    });
+  }catch(e){ console.warn('countUnassignedTasks err', e); }
+  return n;
+}
+function updateBulkAssignBadge(){
+  var b = document.getElementById('bulkAssignBadge');
+  var btn = document.getElementById('bulkAssignBtn');
+  if(!b || !btn) return;
+  var n = countUnassignedTasks();
+  if(n > 0){
+    b.textContent = n;
+    b.style.display = 'inline-block';
+    btn.style.background = '#dc2626';           // 未割当があるときは赤で目立たせる
+    btn.title = '依頼済みなのに担当者が決まっていないタスクが '+n+' 件あります';
+  } else {
+    b.style.display = 'none';
+    btn.style.background = '#7c3aed';
+    btn.title = '未割当のタスクはありません';
+  }
+}
+
 function bulkAssignPendingTasks(){
   CAMBODIA_STAFF = _cambodiaStaff();
   var term = currentShiftTerm();
@@ -38506,6 +38546,7 @@ function bulkAssignPendingTasks(){
   if(!confirm(msg)){ _revertTmp(); shiftRoster.rrIndex = rrSnapshot; return; }  // キャンセル時は仮反映と回転位置を戻す
   // 反映
   var rows = [], _seenKey = {};
+  setTimeout(function(){ try{ updateBulkAssignBadge(); }catch(e){} }, 800);   // ver.20260805.23
   function _pushRow(key, who){
     if(_seenKey[key]) return; _seenKey[key] = 1;
     taskAssignee[key] = who;
@@ -88141,6 +88182,7 @@ function loadAllFromSupabase() {
         // タスク由来の画面を再描画（並列ロード完了後）
         try{ if(typeof renderDocsContent==='function' && document.getElementById('docsScreen') && document.getElementById('docsScreen').style.display!=='none') renderDocsContent(); }catch(e){}
         try{ if(typeof renderMyTaskBanner==='function') renderMyTaskBanner(); }catch(e){}
+        try{ if(typeof updateBulkAssignBadge==='function') updateBulkAssignBadge(); }catch(e){}
         try{ if(typeof updateReviewBadge==='function') updateReviewBadge(); }catch(e){}
     });
   });
