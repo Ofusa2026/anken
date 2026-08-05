@@ -158,7 +158,7 @@ table.list tr:hover td { background:#f8fafc; }
   <aside class="side">
     <div class="brand">
       <h1>売上管理システム</h1>
-      <span class="ver">ver.20260805.12</span>
+      <span class="ver">ver.20260805.13</span>
     </div>
     <nav class="nav">
       <div class="nav-item active" data-page="dash" onclick="showPage('dash')"><span class="ic">📊</span><span class="txt">ダッシュボード</span></div>
@@ -204,6 +204,7 @@ table.list tr:hover td { background:#f8fafc; }
       <div class="pagebar">
         <h2>売上管理</h2>
         <span class="spacer"></span>
+        <button class="btn" onclick="openDrImport()">📋 決定報告から取込</button>
         <button class="btn" onclick="openKbSettings()">KB設定</button>
         <button class="btn" onclick="openServices()">サービスマスタ</button>
         <button class="btn-green btn" onclick="exportMfCsv()">マネフォCSV出力</button>
@@ -385,6 +386,20 @@ table.list tr:hover td { background:#f8fafc; }
       </table>
     </div>
     <div style="text-align:right;margin-top:10px"><button class="btn" onclick="document.getElementById('kbOverlay').classList.remove('show')">閉じる</button></div>
+  </div>
+</div>
+
+<!-- ===== 決定報告 取込モーダル ===== -->
+<div class="overlay" id="drOverlay">
+  <div class="modal" style="max-width:760px">
+    <h2>決定報告から取込</h2>
+    <div style="font-size:11.5px;color:var(--sub);margin-bottom:10px">案シスからLINE送信された【決定報告】を読み込み、売上フォームに展開します。取り込んで保存すると「取込済」になります。</div>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <input type="search" id="dr-search" placeholder="機関名・企業名・担当で検索" style="flex:1;border:1px solid var(--line);border-radius:7px;padding:7px 10px;font-size:12.5px" oninput="renderDrList()">
+      <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" id="dr-hideImported" checked onchange="renderDrList()"> 取込済を隠す</label>
+    </div>
+    <div id="drList" style="max-height:440px;overflow:auto;border:1px solid var(--line);border-radius:8px"></div>
+    <div style="text-align:right;margin-top:10px"><button class="btn" onclick="document.getElementById('drOverlay').classList.remove('show')">閉じる</button></div>
   </div>
 </div>
 
@@ -649,7 +664,7 @@ function render() {
     return `<tr>
       <td><input type="checkbox" class="row-check" data-id="${esc(s.id)}"></td>
       <td style="white-space:nowrap">${esc(s.decided_at || '-')}</td>
-      <td><b>${esc(s.client_name)}</b>${s.client_dept ? `<div style="font-size:11px;color:var(--sub)">${esc(s.client_dept)}</div>` : ''}</td>
+      <td><b>${esc(s.client_name)}</b>${s.dr_message_id ? '<span class="warn-badge" style="background:var(--accent-soft);color:var(--accent)" title="決定報告から取込">📋</span>' : ''}${s.client_dept ? `<div style="font-size:11px;color:var(--sub)">${esc(s.client_dept)}</div>` : ''}</td>
       <td class="items-summary">${summary || '-'}</td>
       <td class="items-summary" style="min-width:90px;max-width:140px">${appCol || '-'}</td>
       <td class="num">${yen(c.subtotal)}</td>
@@ -827,6 +842,7 @@ function jumpToClient(name) {
 /* ================= 登録/編集モーダル ================= */
 function openSaleModal(id) {
   editingId = id || null;
+  _drImportMsgId = null;
   document.getElementById('saleModalTitle').textContent = id ? '売上編集' : '売上登録';
   document.getElementById('btnDeleteSale').style.display = id ? '' : 'none';
   const s = id ? sales.find(x => x.id === id) : null;
@@ -940,6 +956,7 @@ async function saveSale() {
       memo: document.getElementById('f-memo').value.trim(),
       updated_at: now
     };
+    if (_drImportMsgId) salePayload.dr_message_id = _drImportMsgId;
     let saleId = editingId;
     if (editingId) {
       const r = await fetch(`${SB_URL}/rest/v1/sales?id=eq.${encodeURIComponent(editingId)}`, {
@@ -1137,6 +1154,124 @@ function applyKbFromMaster(orgName, force) {
   recalcTotals();
   if (applied) toast('KB適用: ' + applied + '明細 計¥' + total.toLocaleString());
   else if (force) toast('適用対象の明細がありません（先に品名を入力）');
+}
+
+/* ================= 決定報告 取込 ================= */
+let drMessages = [];
+let _drImportMsgId = null;   // 取込元メッセージID（保存時にsales.dr_message_idへ）
+
+async function openDrImport() {
+  document.getElementById('drOverlay').classList.add('show');
+  document.getElementById('drList').innerHTML = '<div style="padding:16px;color:var(--sub)">読込中…</div>';
+  const q = 'line_messages?select=message_id,sent_by,line_timestamp,text_body'
+    + '&is_outgoing=eq.true&text_body=ilike.' + encodeURIComponent('*【決定報告*')
+    + '&order=line_timestamp.desc&limit=100';
+  const res = await fetch(`${SB_URL}/rest/v1/${q}`, { headers: sbHeaders() });
+  drMessages = res.ok ? await res.json() : [];
+  renderDrList();
+}
+
+// 決定報告テキストのパーサ（案シスの定型フォーマット準拠）
+function parseDrText(text) {
+  const t = text || '';
+  const lines = t.split('\n');
+  const stripNo = s => (s || '').replace(/^\d+\s+/, '').trim();
+  const r = { sender: '', org: '', company: '', visa: '', appType: '', applicants: [], fee: 0, feeCount: 0, extraFees: [], stampPrice: 0, stampCount: 0, billing: '', note: '' };
+  let m;
+  if ((m = t.match(/≪(.+?)≫/))) r.sender = m[1].trim();
+  if ((m = t.match(/登録支援機関名：（\s*(.+?)\s*）/))) r.org = stripNo(m[1]);
+  if ((m = t.match(/所属機関名：(.+)/))) r.company = stripNo(m[1]);
+  if ((m = t.match(/在留資格・種別：(.+?)・(.+)/))) { r.visa = m[1].trim(); r.appType = m[2].trim(); }
+  else {
+    if ((m = t.match(/在留資格：(.+)/))) r.visa = m[1].trim();
+    if ((m = t.match(/種別：(.+)/))) r.appType = m[1].trim();
+  }
+  // 申請人名（1行 or 番号付き複数行）
+  const idx = lines.findIndex(l => l.includes('申請人名：'));
+  if (idx >= 0) {
+    const same = lines[idx].split('申請人名：')[1].trim();
+    if (same) r.applicants.push(same);
+    for (let i2 = idx + 1; i2 < lines.length; i2++) {
+      const mm = lines[i2].match(/^[\s　]*\d+[.．]\s*(.+)$/);
+      if (mm) r.applicants.push(mm[1].trim()); else if (r.applicants.length) break;
+    }
+  }
+  // 費用行（申請費用＋追加項目）
+  for (const l of lines) {
+    const fm = l.match(/^(?:(.+?)：)?([\d,]+)円\(税抜\)\s*x\s*(\d+)名/);
+    if (!fm) continue;
+    const label = (fm[1] || '').trim();
+    const amount = parseInt(fm[2].replace(/,/g, ''), 10) || 0;
+    const n = parseInt(fm[3], 10) || 1;
+    if (!r.fee && (!label || label === '申請費用')) { r.fee = amount; r.feeCount = n; }
+    else r.extraFees.push({ label: label || 'その他費用', amount, n });
+  }
+  if ((m = t.match(/収入印紙：([\d,]+)円\(不課税\)\s*x\s*(\d+)枚/))) {
+    r.stampPrice = parseInt(m[1].replace(/,/g, ''), 10) || 0;
+    r.stampCount = parseInt(m[2], 10) || 1;
+  }
+  if ((m = t.match(/請求先：(.+)/))) r.billing = m[1].trim();
+  const ni = lines.findIndex(l => l.trim() === '■その他');
+  if (ni >= 0) r.note = lines.slice(ni + 1).join(' ').trim();
+  return r;
+}
+
+function renderDrList() {
+  const q = (document.getElementById('dr-search').value || '').trim().toLowerCase();
+  const hide = document.getElementById('dr-hideImported').checked;
+  const importedIds = new Set(sales.map(s => s.dr_message_id).filter(Boolean));
+  let list = drMessages.map(msg => ({ msg, p: parseDrText(msg.text_body), done: importedIds.has(msg.message_id) }));
+  if (hide) list = list.filter(x => !x.done);
+  if (q) list = list.filter(x => [x.p.org, x.p.company, x.p.sender, x.msg.sent_by].join(' ').toLowerCase().includes(q));
+  document.getElementById('drList').innerHTML = list.length ? list.map(x => {
+    const d = (x.msg.line_timestamp || '').slice(0, 16).replace('T', ' ');
+    const meta = [x.p.visa && (x.p.visa + '・' + x.p.appType), x.p.applicants.length + '名', x.p.fee ? '¥' + x.p.fee.toLocaleString() + '/名' : '費用未記載'].filter(Boolean).join(' ／ ');
+    return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid #f1f5f9">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12.5px;font-weight:700">${esc(x.p.org || '（直依頼）')} ▶ ${esc(x.p.company || '-')}
+          ${x.done ? '<span class="warn-badge" style="background:var(--green-soft);color:var(--green)">取込済</span>' : ''}</div>
+        <div style="font-size:11px;color:var(--sub)">${esc(d)} ／ ${esc(x.msg.sent_by || x.p.sender || '-')} ／ ${esc(meta)}</div>
+      </div>
+      <button class="btn btn-sm ${x.done ? '' : 'btn-primary'}" onclick="importDr('${esc(x.msg.message_id)}')">${x.done ? '再取込' : '取り込む'}</button>
+    </div>`;
+  }).join('') : '<div style="padding:16px;color:var(--sub)">該当する決定報告がありません</div>';
+}
+
+function importDr(messageId) {
+  const msg = drMessages.find(m => m.message_id === messageId);
+  if (!msg) return;
+  const p = parseDrText(msg.text_body);
+  document.getElementById('drOverlay').classList.remove('show');
+  openSaleModal();                       // 新規モードで開く
+  _drImportMsgId = messageId;            // openSaleModal内のリセット後に設定
+  // ヘッダ項目
+  document.getElementById('f-org').value = p.org || '';
+  _lastOrgExact = null; _kbAppliedOrg = null;
+  updateClientList(true);
+  document.getElementById('f-client').value = p.company || '';
+  document.getElementById('f-client').disabled = false;
+  document.getElementById('f-decided').value = (msg.line_timestamp || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+  document.getElementById('f-staff').value = msg.sent_by || p.sender || '';
+  document.getElementById('f-memo').value = [p.billing ? '請求先：' + p.billing : '', p.note].filter(Boolean).join(' ／ ');
+  // 明細：申請人1名＝1行
+  document.getElementById('itemRows').innerHTML = '';
+  const itemName = p.visa ? `在留資格申請「${p.visa}」${p.appType || ''}` : (p.appType ? `在留資格申請 ${p.appType}` : '在留資格申請');
+  const apps = p.applicants.length ? p.applicants : [''];
+  apps.forEach(name => addItemRow({
+    item_name: itemName, applicant: name,
+    unit_price: p.fee || 0, qty: 1, unit: '件', detail: '',
+    tax_type: '10%', withholding: '対象外',
+    stamp_price: p.stampPrice || 0, stamp_qty: p.stampCount || 0, kb_price: 0
+  }));
+  // 追加費用行（人数分まとめて1行）
+  p.extraFees.forEach(f => addItemRow({
+    item_name: f.label, applicant: '', unit_price: f.amount, qty: f.n, unit: '件',
+    detail: '', tax_type: '10%', withholding: '対象外', stamp_price: 0, stamp_qty: 0, kb_price: 0
+  }));
+  applyKbFromMaster(p.org || '', true);  // KBマスタも自動適用
+  recalcTotals();
+  if (!p.fee) toast('⚠️ 申請費用が未記載の報告です。単価を入力してください');
+  else toast('決定報告を展開しました。内容を確認して保存してください');
 }
 
 /* ================= サービスマスタ ================= */
