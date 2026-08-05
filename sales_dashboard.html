@@ -158,7 +158,7 @@ table.list tr:hover td { background:#f8fafc; }
   <aside class="side">
     <div class="brand">
       <h1>売上管理システム</h1>
-      <span class="ver">ver.20260805.16</span>
+      <span class="ver">ver.20260805.17</span>
     </div>
     <nav class="nav">
       <div class="nav-item active" data-page="dash" onclick="showPage('dash')"><span class="ic">📊</span><span class="txt">ダッシュボード</span></div>
@@ -228,7 +228,8 @@ table.list tr:hover td { background:#f8fafc; }
             <thead><tr>
               <th style="width:28px"><input type="checkbox" id="checkAll" onchange="toggleAll(this)"></th>
               <th>決定日</th>
-              <th>得意先</th>
+              <th>受入企業／支援機関</th>
+              <th>請求先</th>
               <th>明細</th>
               <th>申請人</th>
               <th class="num">税抜</th>
@@ -299,10 +300,18 @@ table.list tr:hover td { background:#f8fafc; }
         <input id="f-org" list="orgDatalist" placeholder="番号か名前で検索" autocomplete="off" oninput="updateClientList()" onchange="updateClientList()">
         <datalist id="orgDatalist"></datalist>
       </div>
-      <div class="fg" style="grid-column:span 2">
-        <label>得意先名（取引先名）※マネフォ取引先と一致させる</label>
-        <input id="f-client" list="clientList" placeholder="先に登録支援機関を選択してください" autocomplete="off" disabled>
+      <div class="fg">
+        <label>受入企業（所属機関）</label>
+        <input id="f-company" list="clientList" placeholder="先に登録支援機関を選択" autocomplete="off" disabled>
         <datalist id="clientList"></datalist>
+      </div>
+      <div class="fg">
+        <label>請求先 ※マネフォ取引先と一致
+          <span style="font-weight:400;color:var(--accent);cursor:pointer" onclick="setBillTo('company')">[=受入企業]</span>
+          <span style="font-weight:400;color:var(--accent);cursor:pointer" onclick="setBillTo('org')">[=支援機関]</span>
+        </label>
+        <input id="f-client" list="billList" placeholder="請求する相手" autocomplete="off">
+        <datalist id="billList"></datalist>
       </div>
       <div class="fg"><label>取引先部門</label><input id="f-dept" placeholder="（任意）"></div>
       <div class="fg"><label>決定日</label><input type="date" id="f-decided"></div>
@@ -567,12 +576,12 @@ function fillDatalists() {
 let _lastOrgExact = null;
 function updateClientList(keepValue) {
   const org = document.getElementById('f-org').value.trim();
-  const input = document.getElementById('f-client');
+  const input = document.getElementById('f-company');
   let list, exact = null;
   if (!org) {
     list = [];
     input.disabled = true;
-    input.placeholder = '先に登録支援機関を選択してください';
+    input.placeholder = '先に登録支援機関を選択';
   } else if (org === 'すべての企業から選ぶ') {
     list = companies;
     input.disabled = false;
@@ -595,10 +604,20 @@ function updateClientList(keepValue) {
       input.placeholder = '支援機関名が一致すると絞り込みます（全社表示中）';
     }
   }
-  // 支援機関を切り替えたら得意先をクリア（編集オープン時はkeepValueで保持）
+  // 支援機関を切り替えたら受入企業をクリア（編集オープン時はkeepValueで保持）
   if (!keepValue && _lastOrgExact !== exact) input.value = '';
   _lastOrgExact = exact;
   document.getElementById('clientList').innerHTML = list.map(c => `<option value="${esc(c.name)}">`).join('');
+  // 請求先候補：絞り込み企業＋現在の支援機関名
+  const bill = list.map(c => `<option value="${esc(c.name)}">`);
+  if (org && org !== 'すべての企業から選ぶ' && org !== '（支援機関未設定の企業）') bill.unshift(`<option value="${esc(org)}">`);
+  document.getElementById('billList').innerHTML = bill.join('');
+}
+// 請求先クイックセット
+function setBillTo(which) {
+  const v = which === 'org' ? document.getElementById('f-org').value.trim() : document.getElementById('f-company').value.trim();
+  if (!v || v === 'すべての企業から選ぶ' || v === '（支援機関未設定の企業）') { toast(which === 'org' ? '支援機関が未選択です' : '受入企業が未入力です'); return; }
+  document.getElementById('f-client').value = v;
 }
 
 /* ================= 税計算 ================= */
@@ -630,7 +649,7 @@ function filteredSales() {
     if (m && (!s.decided_at || !s.decided_at.startsWith(m))) return false;
     if (st && (s.invoice_status || '未発行') !== st) return false;
     if (q) {
-      const hay = [s.client_name, s.client_dept, s.support_org, s.staff, s.memo,
+      const hay = [s.client_name, s.company_name, s.client_dept, s.support_org, s.staff, s.memo,
         ...(s.sale_items || []).flatMap(i => [i.item_name, i.applicant, i.detail])]
         .join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
@@ -678,6 +697,7 @@ function render() {
     return `<tr>
       <td><input type="checkbox" class="row-check" data-id="${esc(s.id)}"></td>
       <td style="white-space:nowrap">${esc(s.decided_at || '-')}</td>
+      <td style="max-width:180px"><div style="font-weight:600">${esc(s.company_name || '-')}</div><div style="font-size:11px;color:var(--sub)">${esc(s.support_org || '-')}</div></td>
       <td><b>${esc(s.client_name)}</b>${s.dr_message_id ? '<span class="warn-badge" style="background:var(--accent-soft);color:var(--accent)" title="決定報告から取込">📋</span>' : ''}${s.client_dept ? `<div style="font-size:11px;color:var(--sub)">${esc(s.client_dept)}</div>` : ''}</td>
       <td class="items-summary">${summary || '-'}</td>
       <td class="items-summary" style="min-width:90px;max-width:140px">${appCol || '-'}</td>
@@ -864,6 +884,7 @@ function openSaleModal(id) {
   _lastOrgExact = null;
   _kbAppliedOrg = s ? (s.support_org || '').trim() : null;  // 編集時は自動適用しない
   updateClientList(true);
+  document.getElementById('f-company').value = s ? (s.company_name || '') : '';
   document.getElementById('f-client').value = s ? (s.client_name || '') : '';
   document.getElementById('f-dept').value = s ? (s.client_dept || '') : '';
   document.getElementById('f-decided').value = s ? (s.decided_at || '') : new Date().toISOString().slice(0, 10);
@@ -936,7 +957,7 @@ function recalcTotals() {
 
 async function saveSale() {
   const client = document.getElementById('f-client').value.trim();
-  if (!client) { toast('得意先名を入力してください'); return; }
+  if (!client) { toast('請求先を入力してください'); return; }
   const items = collectItemRows();
   if (!items.length) { toast('明細を1行以上入力してください'); return; }
   const btn = document.getElementById('btnSaveSale');
@@ -956,6 +977,7 @@ async function saveSale() {
     }
     const salePayload = {
       client_name: client,
+      company_name: document.getElementById('f-company').value.trim(),
       client_dept: document.getElementById('f-dept').value.trim(),
       support_org: orgVal,
       decided_at: document.getElementById('f-decided').value || null,
@@ -1241,7 +1263,7 @@ function renderDrList() {
   if (q) list = list.filter(x => [x.p.org, x.p.company, x.p.sender, x.msg.sent_by].join(' ').toLowerCase().includes(q));
   document.getElementById('drList').innerHTML = list.length ? list.map(x => {
     const d = (x.msg.line_timestamp || '').slice(0, 16).replace('T', ' ');
-    const meta = [x.p.visa && (x.p.visa + '・' + x.p.appType), x.p.applicants.length + '名', x.p.fee ? '¥' + x.p.fee.toLocaleString() + '/名' : '費用未記載'].filter(Boolean).join(' ／ ');
+    const meta = [x.p.visa && (x.p.visa + '・' + x.p.appType), x.p.applicants.length + '名', x.p.fee ? '¥' + x.p.fee.toLocaleString() + '/名' : '費用未記載', x.p.billing ? '請求先:' + x.p.billing : ''].filter(Boolean).join(' ／ ');
     return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid #f1f5f9">
       <div style="flex:1;min-width:0">
         <div style="font-size:12.5px;font-weight:700">${esc(x.p.org || '（直依頼）')} ▶ ${esc(x.p.company || '-')}
@@ -1264,11 +1286,18 @@ function importDr(messageId) {
   document.getElementById('f-org').value = p.org || '';
   _lastOrgExact = null; _kbAppliedOrg = null;
   updateClientList(true);
-  document.getElementById('f-client').value = p.company || '';
-  document.getElementById('f-client').disabled = false;
+  document.getElementById('f-company').value = p.company || '';
+  document.getElementById('f-company').disabled = false;
+  // 請求先判定：「登録支援機関」→支援機関へ請求／「所属機関」→受入企業へ請求
+  let billTo = '';
+  if ((p.billing || '').includes('支援機関')) billTo = p.org || '';
+  else if ((p.billing || '').includes('所属機関') || (p.billing || '').includes('受入')) billTo = p.company || '';
+  else if (p.billing) billTo = p.billing;
+  else billTo = p.company || '';
+  document.getElementById('f-client').value = billTo;
   document.getElementById('f-decided').value = (msg.line_timestamp || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
   document.getElementById('f-staff').value = msg.sent_by || p.sender || '';
-  document.getElementById('f-memo').value = [p.billing ? '請求先：' + p.billing : '', p.note].filter(Boolean).join(' ／ ');
+  document.getElementById('f-memo').value = p.note || '';
   // 明細：申請人1名＝1行
   document.getElementById('itemRows').innerHTML = '';
   const itemName = p.visa ? `在留資格申請「${p.visa}」${p.appType || ''}` : (p.appType ? `在留資格申請 ${p.appType}` : '在留資格申請');
