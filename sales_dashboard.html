@@ -158,7 +158,7 @@ table.list tr:hover td { background:#f8fafc; }
   <aside class="side">
     <div class="brand">
       <h1>売上管理システム</h1>
-      <span class="ver">ver.20260805.08</span>
+      <span class="ver">ver.20260805.09</span>
     </div>
     <nav class="nav">
       <div class="nav-item active" data-page="dash" onclick="showPage('dash')"><span class="ic">📊</span><span class="txt">ダッシュボード</span></div>
@@ -204,6 +204,7 @@ table.list tr:hover td { background:#f8fafc; }
       <div class="pagebar">
         <h2>売上管理</h2>
         <span class="spacer"></span>
+        <button class="btn" onclick="openKbSettings()">KB設定</button>
         <button class="btn" onclick="openServices()">サービスマスタ</button>
         <button class="btn-green btn" onclick="exportMfCsv()">マネフォCSV出力</button>
         <button class="btn btn-primary" onclick="openSaleModal()">＋ 売上登録</button>
@@ -375,6 +376,22 @@ table.list tr:hover td { background:#f8fafc; }
   </div>
 </div>
 
+<!-- ===== KB設定モーダル ===== -->
+<div class="overlay" id="kbOverlay">
+  <div class="modal" style="max-width:640px">
+    <h2>キックバック設定（支援機関ごとのKB単価）</h2>
+    <div style="font-size:11.5px;color:var(--sub);margin-bottom:10px">売上登録で支援機関を選ぶと、ここで設定したKB単価が自動適用されます（売上ごとに手動で変更・解除も可能）。</div>
+    <input type="search" id="kb-search" placeholder="番号・支援機関名で検索" style="width:100%;border:1px solid var(--line);border-radius:7px;padding:7px 10px;font-size:12.5px;margin-bottom:10px" oninput="renderKbSettings()">
+    <div style="max-height:420px;overflow:auto">
+      <table class="svc-table">
+        <thead><tr><th style="width:60px">No</th><th>支援機関名</th><th style="width:120px">KB単価</th><th style="width:60px"></th></tr></thead>
+        <tbody id="kbBody"></tbody>
+      </table>
+    </div>
+    <div style="text-align:right;margin-top:10px"><button class="btn" onclick="document.getElementById('kbOverlay').classList.remove('show')">閉じる</button></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -481,7 +498,7 @@ async function loadAll() {
     fetchAllRows('services?select=*&order=name'),
     fetchAllRows('companies?select=id,name,name_kana,pref,city,tel,rep_name,support_org_name,staff,ofusa_staff&order=name'),
     fetchAllRows('users?select=id,name&order=name'),
-    fetchAllRows('support_orgs?select=id,name&order=name')
+    fetchAllRows('support_orgs?select=id,name,folder_no,kb_price&order=name')
   ]);
   sales = dS;
   services = dSv;
@@ -546,6 +563,7 @@ function updateClientList(keepValue) {
       list = matched; exact = org;
       input.disabled = false;
       input.placeholder = `${list.length}社から選択（自由入力も可）`;
+      if (!keepValue && !editingId) applyKbFromMaster(org);
     } else {
       list = companies;
       input.disabled = false;
@@ -611,6 +629,9 @@ function render() {
         lines.push(`<div class="item-line stamp"><span class="il-name">収入印紙${i.applicant ? `（${esc(i.applicant)}）` : ''}${(Number(i.stamp_qty) || 0) > 1 ? ` ×${i.stamp_qty}` : ''}</span><span class="il-amt">${yen(stampAmt)}</span></div>`);
       }
     }
+    if (s.is_kb && (Number(s.kb_amount) || 0) > 0) {
+      lines.push(`<div class="item-line" style="color:var(--red)"><span class="il-name">KB${(Number(s.kb_qty) || 0) > 1 ? ` ×${s.kb_qty}` : ''}</span><span class="il-amt" style="color:var(--red)">▲${yen(s.kb_amount)}</span></div>`);
+    }
     const summary = lines.join('');
     return `<tr>
       <td><input type="checkbox" class="row-check" data-id="${esc(s.id)}"></td>
@@ -644,7 +665,11 @@ function renderKpi() {
     if ((s.invoice_status || '未発行') === '未発行') unbilled++;
   }
   document.getElementById('kpiSubtotal').textContent = yen(mSub);
-  document.getElementById('kpiTotal').textContent = '税込 ' + yen(mSub + mTax);
+  let mKb = 0;
+  for (const s of sales) {
+    if (s.decided_at && s.decided_at.startsWith(ym) && s.is_kb) mKb += Number(s.kb_amount) || 0;
+  }
+  document.getElementById('kpiTotal').textContent = '税込 ' + yen(mSub + mTax) + (mKb ? `　KB ▲${yen(mKb)}（純売上 ${yen(mSub - mKb)}）` : '');
   document.getElementById('kpiCount').textContent = mCnt + '件';
   document.getElementById('kpiUnbilled').textContent = unbilled + '件';
   document.getElementById('kpiYear').textContent = yen(ySub);
@@ -792,6 +817,7 @@ function openSaleModal(id) {
   const s = id ? sales.find(x => x.id === id) : null;
   document.getElementById('f-org').value = s ? (s.support_org || '') : '';
   _lastOrgExact = null;
+  _kbAppliedOrg = s ? (s.support_org || '').trim() : null;  // 編集時は自動適用しない
   updateClientList(true);
   document.getElementById('f-client').value = s ? (s.client_name || '') : '';
   document.getElementById('f-dept').value = s ? (s.client_dept || '') : '';
@@ -1015,6 +1041,59 @@ function exportMfCsv() {
   a.click();
   URL.revokeObjectURL(a.href);
   toast(`マネフォCSVを出力しました（明細${rows.length - 1}行）`);
+}
+
+/* ================= KB設定（支援機関ごとのKB単価） ================= */
+function orgsByFolder() {
+  return [...supportOrgs].sort((a, b) => {
+    const na = (a.folder_no || '') === '' ? Infinity : parseInt(a.folder_no, 10);
+    const nb = (b.folder_no || '') === '' ? Infinity : parseInt(b.folder_no, 10);
+    if (na !== nb) return na - nb;
+    if ((a.folder_no || '') !== (b.folder_no || '')) return (a.folder_no || '').localeCompare(b.folder_no || '');
+    return (a.name || '').localeCompare(b.name || '', 'ja');
+  });
+}
+function openKbSettings() {
+  document.getElementById('kb-search').value = '';
+  renderKbSettings();
+  document.getElementById('kbOverlay').classList.add('show');
+}
+function renderKbSettings() {
+  const q = (document.getElementById('kb-search').value || '').trim().toLowerCase();
+  let list = orgsByFolder();
+  if (q) list = list.filter(o => ((o.folder_no || '') + ' ' + (o.name || '')).toLowerCase().includes(q));
+  document.getElementById('kbBody').innerHTML = list.map(o => `<tr>
+    <td>${esc(o.folder_no || '-')}</td>
+    <td>${esc(o.name)}</td>
+    <td><input type="number" id="kbp-${esc(o.id)}" value="${o.kb_price || 0}" style="text-align:right"></td>
+    <td><button class="btn btn-sm btn-primary" onclick="saveKbPrice('${esc(o.id)}')">保存</button></td>
+  </tr>`).join('');
+}
+async function saveKbPrice(orgId) {
+  const val = Number(document.getElementById('kbp-' + orgId).value) || 0;
+  const r = await fetch(`${SB_URL}/rest/v1/support_orgs?id=eq.${encodeURIComponent(orgId)}`, {
+    method: 'PATCH', headers: sbHeaders(),
+    body: JSON.stringify({ kb_price: val, updated_at: new Date().toISOString() })
+  });
+  if (!r.ok) { toast('KB単価の保存に失敗: ' + await r.text()); return; }
+  const o = supportOrgs.find(x => x.id === orgId);
+  if (o) o.kb_price = val;
+  toast('KB単価を保存しました');
+}
+// 支援機関のKB単価を売上フォームに自動適用（手動上書き可）
+let _kbAppliedOrg = null;
+function applyKbFromMaster(orgName) {
+  if (_kbAppliedOrg === orgName) return;   // 同じ機関で二重適用しない
+  const o = supportOrgs.find(x => (x.name || '').trim() === orgName);
+  _kbAppliedOrg = orgName;
+  if (!o || !(o.kb_price > 0)) return;     // マスタ未設定なら現状維持
+  const qty = Math.max(1, document.querySelectorAll('#itemRows .item-row').length);
+  document.getElementById('f-kb').checked = true;
+  document.getElementById('kbBox').classList.add('show');
+  document.getElementById('f-kbPrice').value = o.kb_price;
+  document.getElementById('f-kbQty').value = qty;
+  recalcTotals();
+  toast(`KB自動適用: ${orgName} ¥${o.kb_price.toLocaleString()} ×${qty}`);
 }
 
 /* ================= サービスマスタ ================= */
