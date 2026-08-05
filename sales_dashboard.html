@@ -154,7 +154,7 @@ table.list tr:hover td { background:#f8fafc; }
   <aside class="side">
     <div class="brand">
       <h1>売上管理システム</h1>
-      <span class="ver">ver.20260805.06</span>
+      <span class="ver">ver.20260805.07</span>
     </div>
     <nav class="nav">
       <div class="nav-item active" data-page="dash" onclick="showPage('dash')"><span class="ic">📊</span><span class="txt">ダッシュボード</span></div>
@@ -287,8 +287,9 @@ table.list tr:hover td { background:#f8fafc; }
 
     <div class="form-grid">
       <div class="fg">
-        <label>登録支援機関（先に選択）</label>
-        <select id="f-org" onchange="updateClientList()"></select>
+        <label>登録支援機関（先に選択・入力可）</label>
+        <input id="f-org" list="orgDatalist" placeholder="番号か名前で検索" autocomplete="off" oninput="updateClientList()" onchange="updateClientList()">
+        <datalist id="orgDatalist"></datalist>
       </div>
       <div class="fg" style="grid-column:span 2">
         <label>得意先名（取引先名）※マネフォ取引先と一致させる</label>
@@ -490,41 +491,66 @@ async function loadAll() {
 }
 
 function fillDatalists() {
-  // 登録支援機関select：companiesに実在するsupport_org_nameから構築
+  // 登録支援機関候補：companiesに実在するsupport_org_nameを、support_orgsマスタのフォルダ番号順で並べる
   const orgSet = new Set();
   let hasNoOrg = false;
   for (const c of companies) {
     const o = (c.support_org_name || '').trim();
     if (o) orgSet.add(o); else hasNoOrg = true;
   }
-  const orgs = [...orgSet].sort((a, b) => a.localeCompare(b, 'ja'));
-  document.getElementById('f-org').innerHTML =
-    '<option value="">― 登録支援機関を選択 ―</option>' +
-    orgs.map(o => `<option value="${esc(o)}">${esc(o)}</option>`).join('') +
-    (hasNoOrg ? '<option value="__none__">（支援機関未設定の企業）</option>' : '') +
-    '<option value="__all__">すべての企業から選ぶ</option>';
+  const folderMap = {};
+  for (const o of supportOrgs) folderMap[(o.name || '').trim()] = (o.folder_no || '').trim();
+  const orgs = [...orgSet].sort((a, b) => {
+    const fa = folderMap[a], fb = folderMap[b];
+    const na = (fa === undefined || fa === '') ? Infinity : parseInt(fa, 10);
+    const nb = (fb === undefined || fb === '') ? Infinity : parseInt(fb, 10);
+    if (na !== nb) return na - nb;
+    if ((fa || '') !== (fb || '')) return (fa || '').localeCompare(fb || '');
+    return a.localeCompare(b, 'ja');
+  });
+  document.getElementById('orgDatalist').innerHTML =
+    orgs.map(o => `<option value="${esc(o)}" label="${esc(folderMap[o] !== undefined && folderMap[o] !== '' ? 'No.' + folderMap[o] : '')}"></option>`).join('') +
+    (hasNoOrg ? '<option value="（支援機関未設定の企業）"></option>' : '') +
+    '<option value="すべての企業から選ぶ"></option>';
   document.getElementById('serviceList').innerHTML = services.map(s => `<option value="${esc(s.name)}">`).join('');
   document.getElementById('staffList').innerHTML = staffUsers.map(u => `<option value="${esc(u.name)}">`).join('');
 }
 
-// 選択された支援機関の配下企業だけを得意先候補に表示
+// 支援機関の入力値に応じて得意先候補を絞り込む
+// 空=入力不可 / マスタ名と完全一致=配下企業のみ / 未一致(入力途中含む)=全社
+let _lastOrgExact = null;
 function updateClientList(keepValue) {
-  const org = document.getElementById('f-org').value;
+  const org = document.getElementById('f-org').value.trim();
   const input = document.getElementById('f-client');
-  let list;
+  let list, exact = null;
   if (!org) {
     list = [];
     input.disabled = true;
     input.placeholder = '先に登録支援機関を選択してください';
-    if (!keepValue) input.value = '';
-  } else {
-    if (org === '__all__') list = companies;
-    else if (org === '__none__') list = companies.filter(c => !(c.support_org_name || '').trim());
-    else list = companies.filter(c => (c.support_org_name || '').trim() === org);
+  } else if (org === 'すべての企業から選ぶ') {
+    list = companies;
+    input.disabled = false;
+    input.placeholder = `全${list.length}社から選択（自由入力も可）`;
+  } else if (org === '（支援機関未設定の企業）') {
+    list = companies.filter(c => !(c.support_org_name || '').trim());
     input.disabled = false;
     input.placeholder = `${list.length}社から選択（自由入力も可）`;
-    if (!keepValue) input.value = '';
+    exact = org;
+  } else {
+    const matched = companies.filter(c => (c.support_org_name || '').trim() === org);
+    if (matched.length) {
+      list = matched; exact = org;
+      input.disabled = false;
+      input.placeholder = `${list.length}社から選択（自由入力も可）`;
+    } else {
+      list = companies;
+      input.disabled = false;
+      input.placeholder = '支援機関名が一致すると絞り込みます（全社表示中）';
+    }
   }
+  // 支援機関を切り替えたら得意先をクリア（編集オープン時はkeepValueで保持）
+  if (!keepValue && _lastOrgExact !== exact) input.value = '';
+  _lastOrgExact = exact;
   document.getElementById('clientList').innerHTML = list.map(c => `<option value="${esc(c.name)}">`).join('');
 }
 
@@ -750,11 +776,8 @@ function openSaleModal(id) {
   document.getElementById('saleModalTitle').textContent = id ? '売上編集' : '売上登録';
   document.getElementById('btnDeleteSale').style.display = id ? '' : 'none';
   const s = id ? sales.find(x => x.id === id) : null;
-  const orgSel = document.getElementById('f-org');
-  const savedOrg = s ? (s.support_org || '').trim() : '';
-  if (savedOrg && [...orgSel.options].some(o => o.value === savedOrg)) orgSel.value = savedOrg;
-  else if (s) orgSel.value = '__all__';   // 編集時：支援機関がマスタにない場合も得意先は表示
-  else orgSel.value = '';
+  document.getElementById('f-org').value = s ? (s.support_org || '') : '';
+  _lastOrgExact = null;
   updateClientList(true);
   document.getElementById('f-client').value = s ? (s.client_name || '') : '';
   document.getElementById('f-dept').value = s ? (s.client_dept || '') : '';
@@ -843,8 +866,8 @@ async function saveSale() {
     const kbQty = isKb ? Number(document.getElementById('f-kbQty').value) || 0 : 0;
     const kbAmount = kbPrice * kbQty;
     const c = calcSale(items, kbAmount);
-    const orgRaw = document.getElementById('f-org').value;
-    let orgVal = (orgRaw === '__all__' || orgRaw === '__none__' || !orgRaw) ? '' : orgRaw;
+    const orgRaw = document.getElementById('f-org').value.trim();
+    let orgVal = (orgRaw === 'すべての企業から選ぶ' || orgRaw === '（支援機関未設定の企業）') ? '' : orgRaw;
     if (!orgVal) {
       // すべて表示等で選んだ場合は企業マスタの支援機関を自動補完
       const comp = companies.find(c => c.name === client);
