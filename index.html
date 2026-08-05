@@ -4721,7 +4721,7 @@ function openKanriDashboard(){
       <button onclick="var f=document.getElementById('amRangeFrom'),t=document.getElementById('amRangeTo');f.value='';t.value='';_amReRender();" style="font-size:10px;padding:3px 9px;background:white;color:#dc2626;border:1px solid #fecaca;border-radius:6px;cursor:pointer;">✕</button>
       <span id="amRangeCount" style="margin-left:auto;color:#94a3b8;"></span>
     </div>
-    <!-- ver.20260804.24: 担当者で並べ替え・絞り込み -->
+    <!-- ver.20260805.01: 担当者で並べ替え・絞り込み -->
     <div style="display:flex;align-items:center;gap:8px;padding:7px 20px;border-bottom:1px solid #e2e8f0;background:#fafcff;font-size:11px;flex-wrap:wrap;">
       <span style="color:#64748b;font-weight:700;">並び順</span>
       <select id="amSortMode" onchange="_amReRender()" style="font-size:11px;padding:3px 7px;border:1px solid #e2e8f0;border-radius:6px;">
@@ -4912,7 +4912,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260805.01';
+var OFUSA_VERSION = 'ver.20260805.03';
 // ver.20260804.22: 起動時刻。ページ読み込み直後のSIGNED_OUT誤検知を避けるために使う。
 window._appBootAt = Date.now();
 window._intentionalLogout = false;
@@ -38060,11 +38060,24 @@ function _taskIdxInSameShiftGroup(taskIdx){
 /** ver.20260803.14: その案件が属するグループの全case_idを返す（属さなければ自分だけ）*/
 function _caseIdsInSameGroup(caseId){
   try{
+    // ① 手動で作った案件グループ(caseGroups)に入っていれば、それを最優先
     var g = (typeof caseGroups!=='undefined' ? caseGroups : []).find(function(gr){
       return gr && gr.caseIds && gr.caseIds.indexOf(caseId) >= 0;
     });
     if(g && g.caseIds && g.caseIds.length) return g.caseIds.slice();
-  }catch(e){}
+    // ② ver.20260805: 手動グループが無くても「同じ案件名」なら同一グループとして扱う。
+    //    タスク一覧の表示(_getTaskGroupKey)が案件名でグループ化するのに合わせ、
+    //    担当者の自動振り分けも同名案件で揃うようにする（1件ずつ依頼してもバラけない）。
+    if(typeof cData !== 'undefined' && Array.isArray(cData)){
+      var self = cData.find(function(x){ return x.id === caseId; });
+      var nm = self && self.name ? String(self.name).trim() : '';
+      if(nm){
+        var sameName = cData.filter(function(x){ return x.name && String(x.name).trim() === nm; })
+                            .map(function(x){ return x.id; });
+        if(sameName.length > 1) return sameName;   // 同名が2件以上ある時だけグループ扱い
+      }
+    }
+  }catch(e){ console.warn('_caseIdsInSameGroup err', e); }
   return [caseId];
 }
 
@@ -39165,7 +39178,7 @@ function saveShiftRoster(){
   showToast('✅ 班編成を保存しました（稼働中：'+msg+'）');
 }
 
-/** ver.20260804.24: タスクを「依頼」にしたときの自動振り分け。
+/** ver.20260805.01: タスクを「依頼」にしたときの自動振り分け。
  *  setDocTaskStatus 以外の依頼ルート（1-6作成モーダル・所属機関/雇用条件モーダル・サイン書類再依頼）
  *  からも呼べるように関数として切り出した。これらの経路では担当者が入らないままだった。 */
 function _autoAssignOnRequest(caseId, taskIdx){
@@ -39181,7 +39194,7 @@ function _autoAssignOnRequest(caseId, taskIdx){
           //   例）情報入力班（所属機関・雇用条件・基本情報・人材データ）は必ず同一人物が担当する。
           var _gids = _caseIdsInSameGroup(caseId);              // グループ内の全案件（自分含む）
           var _tidx = _taskIdxInSameShiftGroup(taskIdx);        // 同じ班のタスク番号
-          // ver.20260804.24: 本体の担当もDBに保存する（setDocTaskStatus以外の経路では
+          // ver.20260805.01: 本体の担当もDBに保存する（setDocTaskStatus以外の経路では
           //   persistDocTaskStatus が担当を書かないことがあるため、ここで確実に入れる）
           var _syncRows = [{ case_id:caseId, task_index:taskIdx, assignee:_picked }];
           var _syncedCase = 0, _syncedTask = 0;
@@ -41096,7 +41109,7 @@ function _16reqSaveTask(caseId) {
     if (_16reqUrgentState[idx]) { taskUrgent[key] = true; try{localStorage.setItem('ofusa_taskUrgent',JSON.stringify(taskUrgent));}catch(e){} }
     var _cur = docTaskStatus[key] || 0;
     if (_cur < 4) {
-      try{ _autoAssignOnRequest(caseId, idx); }catch(e){ console.error('autoAssign err', e); }  // ver.20260804.24
+      try{ _autoAssignOnRequest(caseId, idx); }catch(e){ console.error('autoAssign err', e); }  // ver.20260805.01
       docTaskStatus[key] = 1; // 未着手→依頼
     }
     applied++;
@@ -41191,7 +41204,7 @@ function _signReqSaveTask(caseId) {
   if (checker)  { saveTaskChecker(key, checker); }
   if (comment)  { saveAssigneeComment(key, comment); }
   if (_signReqUrgent8) { taskUrgent[key] = true; try{localStorage.setItem('ofusa_taskUrgent',JSON.stringify(taskUrgent));}catch(e){} }
-  try{ _autoAssignOnRequest(caseId, 8); }catch(e){ console.error('autoAssign err', e); }  // ver.20260804.24
+  try{ _autoAssignOnRequest(caseId, 8); }catch(e){ console.error('autoAssign err', e); }  // ver.20260805.01
   docTaskStatus[key] = 1; // 再依頼: 未着手/完了問わず「依頼」状態に
   _signReqUrgent8 = false;
   persistTaskMeta(); // ver.20260607.04: 依頼時はコメントを即時保存
@@ -41397,7 +41410,7 @@ function _16saveTask(caseId) {
     // 既に完了済み(4)以上のときは上書きしない（未着手0 → 依頼1）
     var _cur = docTaskStatus[key1] || 0;
     if (_cur < 4) {
-      try{ _autoAssignOnRequest(caseId, 1); }catch(e){ console.error('autoAssign err', e); }  // ver.20260804.24
+      try{ _autoAssignOnRequest(caseId, 1); }catch(e){ console.error('autoAssign err', e); }  // ver.20260805.01
       docTaskStatus[key1] = 1;
     }
   }
