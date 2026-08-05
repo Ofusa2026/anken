@@ -36528,7 +36528,7 @@ function buildDocCard(c,taskName,ti,st,key,deadline,today,ST_LABEL,ST_COLOR,ST_B
   var _metaRow = '';
   if(_taskAssign) _metaRow += '<span style="font-size:10px;color:#6366f1;font-weight:700;">👤 '+_taskAssign+'</span> ';
   if(_handler) _metaRow += '<span style="font-size:10px;color:#0369a1;font-weight:700;">🔧 '+_handler+'</span> ';
-  // ver.20260805.18: 期日は左端の日付列に移したため、ここでは出さない（変数削除に伴う参照エラーの修正）
+  // ver.20260805.19: 期日は左端の日付列に移したため、ここでは出さない（変数削除に伴う参照エラーの修正）
   h+='<div style="font-size:10px;color:var(--gray-400);'+(isUnnecessary?'text-decoration:line-through;':'')+'">';
   h+=c.name+'　'+c.team+'　'+c.staff;
   h+='</div>';
@@ -64625,7 +64625,8 @@ function renderDocsTab(cas) {
         // ver.20260805.09: いつアップロードされたかを提出済バッジの横に出す
         var _upAt = (typeof _findUploadedDocAt==='function') ? _findUploadedDocAt(docName, cas.id) : '';
         // ver.20260805.17: クリックで画面内プレビュー（Driveのタブに飛ばずに中身を確認できる）
-        h += '<button onclick="event.stopPropagation();_openDocPreview(\''+esc(_upUrl)+'\',\''+esc(docName).replace(/'/g,"\\'")+'\')" style="font-size:10px;background:#1a73e8;color:white;border:none;border-radius:5px;padding:2px 7px;font-weight:700;white-space:nowrap;flex-shrink:0;cursor:pointer;" title="クリックで中身を表示' + (_upAt ? '（' + esc(_upAt) + ' にアップロード）' : '') + '">📎 提出済</button>';
+        // ver.20260805.19: 書類チェックと同じプレビューモードで開く（担当チェック・差戻もその場でできる）
+        h += '<button onclick="event.stopPropagation();_openSingleDocPreview(\''+esc(_upUrl)+'\',\''+esc(docName).replace(/'/g,"\\'")+'\',\'person\',\''+esc(cas.id)+'\')" style="font-size:10px;background:#1a73e8;color:white;border:none;border-radius:5px;padding:2px 7px;font-weight:700;white-space:nowrap;flex-shrink:0;cursor:pointer;" title="クリックで中身を表示' + (_upAt ? '（' + esc(_upAt) + ' にアップロード）' : '') + '">📎 提出済</button>';
         if(_upAt) h += '<span style="font-size:9px;color:#94a3b8;font-weight:700;white-space:nowrap;flex-shrink:0;" title="アップロード日時">' + esc(_upAt) + '</span>';
         h += '<button onclick="event.stopPropagation();_editPersonDocUrl(\'' + cas.id + '\',\'' + escDoc + '\')" style="font-size:10px;background:white;color:#6b7280;border:1px solid #d1d5db;border-radius:5px;padding:2px 5px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;" title="提出済みURLを手動で変更">✏️</button>';
       } else {
@@ -70518,7 +70519,8 @@ function renderCoDocsTabHtml(co) {
       // ver.20260805.09: アップロード日時を併記
       var _coUpAt = (typeof _findUploadedDocAtCo==='function') ? _findUploadedDocAtCo(docName, co.id) : '';
       // ver.20260805.17: クリックで画面内プレビュー
-      h += '<button onclick="event.stopPropagation();_openDocPreview(\''+esc(_coUpUrl)+'\',\''+esc(docName).replace(/'/g,"\\'")+'\')" style="font-size:10px;background:#1a73e8;color:white;border:none;border-radius:5px;padding:2px 7px;font-weight:700;white-space:nowrap;flex-shrink:0;cursor:pointer;" title="クリックで中身を表示' + (_coUpAt ? '（' + esc(_coUpAt) + ' にアップロード）' : '') + '">📎 提出済</button>';
+      // ver.20260805.19: 書類チェックと同じプレビューモードで開く
+      h += '<button onclick="event.stopPropagation();_openSingleDocPreview(\''+esc(_coUpUrl)+'\',\''+esc(docName).replace(/'/g,"\\'")+'\',\'co\',\''+esc(co.id)+'\')" style="font-size:10px;background:#1a73e8;color:white;border:none;border-radius:5px;padding:2px 7px;font-weight:700;white-space:nowrap;flex-shrink:0;cursor:pointer;" title="クリックで中身を表示' + (_coUpAt ? '（' + esc(_coUpAt) + ' にアップロード）' : '') + '">📎 提出済</button>';
       if(_coUpAt) h += '<span style="font-size:9px;color:#94a3b8;font-weight:700;white-space:nowrap;flex-shrink:0;" title="アップロード日時">' + esc(_coUpAt) + '</span>';
       h += '<button onclick="event.stopPropagation();_editCoDocUrl(\'' + co.id + '\',\'' + escDoc + '\')" style="font-size:10px;background:white;color:#6b7280;border:1px solid #d1d5db;border-radius:5px;padding:2px 5px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;" title="提出済みURLを手動で変更">✏️</button>';
     } else {
@@ -89064,7 +89066,28 @@ function _closeDocPreview(){
   if(nav) nav.style.display = 'none';
 }
 
-// ===== ver.20260805.18: 複数書類をまとめてプレビュー（前へ／次へで送れる）=====
+/** ver.20260805.19: 書類1件をプレビューモードで開く（担当チェック・差戻つき） */
+function _openSingleDocPreview(url, docName, scope, id){
+  if(!url) return;
+  if(typeof openDocsPreviewMode !== 'function'){ window.open(url,'_blank'); return; }
+  openDocsPreviewMode(docName || '書類',
+    [{ url:url, label:(docName||'書類'), docName:(docName||'') }],
+    { scope:(scope||'person'), id:(id||'') });
+}
+
+// ===== ver.20260805.19: 未確認UP書類から「プレビューモード」を開く =====
+//   書類チェック画面と同じ見た目（グリッド表示・担当チェック・差戻）で確認できる。
+function _openUploadPreviewMode(key){
+  var d = (window._upPvCache||{})[key];
+  if(!d){ showToast('⚠️ プレビュー情報が見つかりません'); return; }
+  if(typeof openDocsPreviewMode !== 'function'){ showToast('⚠️ プレビュー機能が読み込まれていません'); return; }
+  // 未確認UP書類のモーダルは閉じてから開く（重なり防止）
+  var m = document.getElementById('uploadNotifyModal');
+  if(m) m.remove();
+  openDocsPreviewMode(d.title, d.items, d.ctx);
+}
+
+// ===== ver.20260805.19: 複数書類をまとめてプレビュー（前へ／次へで送れる）=====
 function _openDocPreviewList(btn){
   var raw = btn && btn.getAttribute('data-pvlist');
   if(!raw) return;
@@ -89159,7 +89182,7 @@ function showUploadNotifyModal(activeTab) {
         h += '<div style="display:flex;align-items:center;gap:6px;font-size:11px;line-height:1.7;">'
           +    '<span style="color:#2563eb;">📄</span>'
           +    '<span style="flex:1;min-width:0;color:#334155;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(lbl)+n+'</span>'
-          +    (_du ? '<button onclick="event.stopPropagation();_openDocPreview(\''+esc(_du)+'\',\''+esc(lbl).replace(/'/g,"\\'")+'\')" style="flex-shrink:0;font-size:10px;font-weight:700;padding:1px 8px;border-radius:5px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;cursor:pointer;">👁 見る</button>' : '')
+          +    (_du ? '<button onclick="event.stopPropagation();document.getElementById(\'uploadNotifyModal\')&&document.getElementById(\'uploadNotifyModal\').remove();_openSingleDocPreview(\''+esc(_du)+'\',\''+esc(lbl).replace(/'/g,"\\'")+'\',\'person\',\''+esc(row.case_id||'')+'\')" style="flex-shrink:0;font-size:10px;font-weight:700;padding:1px 8px;border-radius:5px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;cursor:pointer;">👁 見る</button>' : '')
           +    '<span style="flex-shrink:0;color:#9ca3af;font-size:10px;">'+esc(t)+'</span>'
           +  '</div>';
       });
@@ -89169,18 +89192,23 @@ function showUploadNotifyModal(activeTab) {
     if (row.message) h += '<div style="font-size:12px;color:#374151;background:#fafafa;border:1px solid #e5e7eb;border-radius:6px;padding:4px 8px;margin-top:4px;">' + esc(row.message) + '</div>';
     h += '</div>';
     h += '<div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;margin-left:8px;">';
-    // ver.20260805.18: 内訳を開かなくても、ここから最新の書類をすぐプレビューできるようにする。
+    // ver.20260805.19: 内訳を開かなくても、ここから最新の書類をすぐプレビューできるようにする。
     //   複数ある場合は2件目以降も順に送れる（プレビュー画面の「次へ」）。
     (function(){
       var _pv = (_detailRows||[])
         .filter(function(d){ return d && d.drive_url; })
         .sort(function(a,b){ return (b.created_at||'').localeCompare(a.created_at||''); });
       if(!_pv.length) return;
+      // ver.20260805.19: 書類チェックと同じ「プレビューモード」で開く。
+      //   担当チェック・差戻もその場でできるよう、docName と案件IDを渡す。
       var _list = _pv.map(function(d){
-        return { url:d.drive_url, label:(d.doc_label || d.file_names || '書類') };
+        var _lbl = (d.doc_label || d.file_names || '書類');
+        return { url:d.drive_url, label:_lbl, docName:(d.doc_label || _lbl) };
       });
-      var _json = esc(JSON.stringify(_list)).replace(/"/g,'&quot;');
-      h += '<button onclick="event.stopPropagation();_openDocPreviewList(this)" data-pvlist="'+_json+'" style="font-size:10px;padding:3px 8px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;white-space:nowrap;font-weight:700;">👁 書類を見る'
+      window._upPvCache = window._upPvCache || {};
+      var _pvKey = 'pv_' + (row.case_id || '') + '_' + (row.id || Math.random().toString(36).slice(2));
+      window._upPvCache[_pvKey] = { title: personName.replace(/<[^>]*>/g,''), items: _list, ctx: { scope:'person', id: row.case_id || '' } };
+      h += '<button onclick="event.stopPropagation();_openUploadPreviewMode(\''+esc(_pvKey)+'\')" style="font-size:10px;padding:3px 8px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;white-space:nowrap;font-weight:700;">👁 書類を見る'
         + (_list.length>1 ? '<span style="font-weight:600;opacity:.75;">（'+_list.length+'）</span>' : '') + '</button>';
     })();
     h += '<button onclick="confirmUploadNotifyGroup(this)" data-ids="'+esc(idsAttr)+'" style="font-size:10px;padding:3px 8px;background:#dcfce7;color:#15803d;border:1px solid #86efac;border-radius:6px;cursor:pointer;white-space:nowrap;font-weight:700;">✓ 確認済み</button>';
