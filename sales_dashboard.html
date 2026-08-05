@@ -158,7 +158,7 @@ table.list tr:hover td { background:#f8fafc; }
   <aside class="side">
     <div class="brand">
       <h1>売上管理システム</h1>
-      <span class="ver">ver.20260805.17</span>
+      <span class="ver">ver.20260805.18</span>
     </div>
     <nav class="nav">
       <div class="nav-item active" data-page="dash" onclick="showPage('dash')"><span class="ic">📊</span><span class="txt">ダッシュボード</span></div>
@@ -482,6 +482,16 @@ function genId(prefix) {
   return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 function yen(n) { return '¥' + (n || 0).toLocaleString(); }
+// 会社名の正規化：略記(㈱㈲・(株)(有)等・前後どちらでも)を正式表記に、先頭の記号を除去
+function normalizeCompanyName(s) {
+  let v = (s || '').trim();
+  v = v.replace(/^[.．・、,，･]+[ 　]*/, '');
+  v = v.replace(/㈱/g, '株式会社').replace(/㈲/g, '有限会社');
+  v = v.replace(/[ 　]*[（(][ 　]*株[ 　]*[)）][ 　]*/g, '株式会社');
+  v = v.replace(/[ 　]*[（(][ 　]*有[ 　]*[)）][ 　]*/g, '有限会社');
+  v = v.replace(/[ 　]*[（(][ 　]*同[ 　]*[)）][ 　]*/g, '合同会社');
+  return v.trim();
+}
 function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function toast(msg) {
   const t = document.getElementById('toast');
@@ -956,7 +966,7 @@ function recalcTotals() {
 }
 
 async function saveSale() {
-  const client = document.getElementById('f-client').value.trim();
+  const client = normalizeCompanyName(document.getElementById('f-client').value);
   if (!client) { toast('請求先を入力してください'); return; }
   const items = collectItemRows();
   if (!items.length) { toast('明細を1行以上入力してください'); return; }
@@ -977,7 +987,7 @@ async function saveSale() {
     }
     const salePayload = {
       client_name: client,
-      company_name: document.getElementById('f-company').value.trim(),
+      company_name: normalizeCompanyName(document.getElementById('f-company').value),
       client_dept: document.getElementById('f-dept').value.trim(),
       support_org: orgVal,
       decided_at: document.getElementById('f-decided').value || null,
@@ -991,7 +1001,12 @@ async function saveSale() {
       memo: document.getElementById('f-memo').value.trim(),
       updated_at: now
     };
-    if (_drImportMsgId) salePayload.dr_message_id = _drImportMsgId;
+    if (_drImportMsgId) {
+      const prev = editingId ? ((sales.find(x => x.id === editingId) || {}).dr_message_id || '') : '';
+      const set = new Set(prev.split(',').filter(Boolean));
+      set.add(_drImportMsgId);
+      salePayload.dr_message_id = [...set].join(',');
+    }
     let saleId = editingId;
     if (editingId) {
       const r = await fetch(`${SB_URL}/rest/v1/sales?id=eq.${encodeURIComponent(editingId)}`, {
@@ -1257,7 +1272,7 @@ function parseDrText(text) {
 function renderDrList() {
   const q = (document.getElementById('dr-search').value || '').trim().toLowerCase();
   const hide = document.getElementById('dr-hideImported').checked;
-  const importedIds = new Set(sales.map(s => s.dr_message_id).filter(Boolean));
+  const importedIds = new Set(sales.flatMap(s => (s.dr_message_id || '').split(',')).filter(Boolean));
   let list = drMessages.map(msg => ({ msg, p: parseDrText(msg.text_body), done: importedIds.has(msg.message_id) }));
   if (hide) list = list.filter(x => !x.done);
   if (q) list = list.filter(x => [x.p.org, x.p.company, x.p.sender, x.msg.sent_by].join(' ').toLowerCase().includes(q));
@@ -1279,44 +1294,69 @@ function importDr(messageId) {
   const msg = drMessages.find(m => m.message_id === messageId);
   if (!msg) return;
   const p = parseDrText(msg.text_body);
-  document.getElementById('drOverlay').classList.remove('show');
-  openSaleModal();                       // 新規モードで開く
-  _drImportMsgId = messageId;            // openSaleModal内のリセット後に設定
-  // ヘッダ項目
-  document.getElementById('f-org').value = p.org || '';
-  _lastOrgExact = null; _kbAppliedOrg = null;
-  updateClientList(true);
-  document.getElementById('f-company').value = p.company || '';
-  document.getElementById('f-company').disabled = false;
+  // 会社名は必ず正規化（(株)→株式会社 等）
+  const orgN = normalizeCompanyName(p.org);
+  const companyN = normalizeCompanyName(p.company);
   // 請求先判定：「登録支援機関」→支援機関へ請求／「所属機関」→受入企業へ請求
+  const isOrgBilling = (p.billing || '').includes('支援機関');
   let billTo = '';
-  if ((p.billing || '').includes('支援機関')) billTo = p.org || '';
-  else if ((p.billing || '').includes('所属機関') || (p.billing || '').includes('受入')) billTo = p.company || '';
-  else if (p.billing) billTo = p.billing;
-  else billTo = p.company || '';
-  document.getElementById('f-client').value = billTo;
-  document.getElementById('f-decided').value = (msg.line_timestamp || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
-  document.getElementById('f-staff').value = msg.sent_by || p.sender || '';
-  document.getElementById('f-memo').value = p.note || '';
-  // 明細：申請人1名＝1行
-  document.getElementById('itemRows').innerHTML = '';
+  if (isOrgBilling) billTo = orgN;
+  else if ((p.billing || '').includes('所属機関') || (p.billing || '').includes('受入')) billTo = companyN;
+  else if (p.billing) billTo = normalizeCompanyName(p.billing);
+  else billTo = companyN;
+
+  document.getElementById('drOverlay').classList.remove('show');
+
+  // 支援機関請求：同じ支援機関宛ての「未発行」売上があれば、そこに明細を追加していく
+  let appendTarget = null;
+  if (isOrgBilling && billTo) {
+    appendTarget = sales
+      .filter(s => (s.client_name || '') === billTo && (s.invoice_status || '未発行') === '未発行')
+      .sort((a, b) => (b.decided_at || '').localeCompare(a.decided_at || ''))[0] || null;
+  }
+
   const itemName = p.visa ? `在留資格申請「${p.visa}」${p.appType || ''}` : (p.appType ? `在留資格申請 ${p.appType}` : '在留資格申請');
   const apps = p.applicants.length ? p.applicants : [''];
-  apps.forEach(name => addItemRow({
-    item_name: itemName, applicant: name,
-    unit_price: p.fee || 0, qty: 1, unit: '件', detail: '',
-    tax_type: '10%', withholding: '対象外',
-    stamp_price: p.stampPrice || 0, stamp_qty: p.stampCount || 0, kb_price: 0
-  }));
-  // 追加費用行（人数分まとめて1行）
-  p.extraFees.forEach(f => addItemRow({
-    item_name: f.label, applicant: '', unit_price: f.amount, qty: f.n, unit: '件',
-    detail: '', tax_type: '10%', withholding: '対象外', stamp_price: 0, stamp_qty: 0, kb_price: 0
-  }));
-  applyKbFromMaster(p.org || '', true);  // KBマスタも自動適用
-  recalcTotals();
+  const makeRows = () => {
+    apps.forEach(name => addItemRow({
+      item_name: itemName, applicant: name,
+      unit_price: p.fee || 0, qty: 1, unit: '件', detail: '',
+      tax_type: '10%', withholding: '対象外',
+      stamp_price: p.stampPrice || 0, stamp_qty: p.stampCount || 0, kb_price: 0
+    }));
+    p.extraFees.forEach(f => addItemRow({
+      item_name: f.label, applicant: '', unit_price: f.amount, qty: f.n, unit: '件',
+      detail: '', tax_type: '10%', withholding: '対象外', stamp_price: 0, stamp_qty: 0, kb_price: 0
+    }));
+  };
+
+  if (appendTarget) {
+    // 既存の未発行売上を編集で開き、末尾に今回の明細を追加
+    openSaleModal(appendTarget.id);
+    _drImportMsgId = messageId;
+    makeRows();
+    applyKbFromMaster(orgN, true);
+    recalcTotals();
+    toast(`「${billTo}」の未発行売上に ${apps.length}名分を追加しました。保存で確定します`);
+  } else {
+    // 新規売上として展開
+    openSaleModal();
+    _drImportMsgId = messageId;
+    document.getElementById('f-org').value = orgN || '';
+    _lastOrgExact = null; _kbAppliedOrg = null;
+    updateClientList(true);
+    document.getElementById('f-company').value = companyN || '';
+    document.getElementById('f-company').disabled = false;
+    document.getElementById('f-client').value = billTo;
+    document.getElementById('f-decided').value = (msg.line_timestamp || '').slice(0, 10) || new Date().toISOString().slice(0, 10);
+    document.getElementById('f-staff').value = msg.sent_by || p.sender || '';
+    document.getElementById('f-memo').value = p.note || '';
+    document.getElementById('itemRows').innerHTML = '';
+    makeRows();
+    applyKbFromMaster(orgN || '', true);
+    recalcTotals();
+  }
   if (!p.fee) toast('⚠️ 申請費用が未記載の報告です。単価を入力してください');
-  else toast('決定報告を展開しました。内容を確認して保存してください');
 }
 
 /* ================= サービスマスタ ================= */
