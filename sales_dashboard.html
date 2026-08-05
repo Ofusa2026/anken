@@ -120,7 +120,7 @@ table.list tr:hover td { background:#f8fafc; }
 .fg textarea { resize:vertical; min-height:34px; }
 
 /* items editor */
-.items-head, .item-row { display:grid; grid-template-columns:1.6fr 1fr 0.7fr 0.5fr 0.5fr 1fr 0.85fr 0.8fr 0.6fr 0.5fr 30px; gap:6px; align-items:center; }
+.items-head, .item-row { display:grid; grid-template-columns:1.5fr 1fr 0.7fr 0.45fr 0.45fr 0.9fr 0.8fr 0.75fr 0.6fr 0.45fr 0.65fr 26px; gap:5px; align-items:center; }
 .items-head { font-size:10.5px; color:var(--sub); font-weight:700; padding:0 2px 4px; }
 .item-row { margin-bottom:6px; }
 .item-row input, .item-row select { border:1px solid var(--line); border-radius:6px; padding:6px 7px; font-size:12px; width:100%; }
@@ -158,7 +158,7 @@ table.list tr:hover td { background:#f8fafc; }
   <aside class="side">
     <div class="brand">
       <h1>売上管理システム</h1>
-      <span class="ver">ver.20260805.11</span>
+      <span class="ver">ver.20260805.12</span>
     </div>
     <nav class="nav">
       <div class="nav-item active" data-page="dash" onclick="showPage('dash')"><span class="ic">📊</span><span class="txt">ダッシュボード</span></div>
@@ -233,6 +233,7 @@ table.list tr:hover td { background:#f8fafc; }
               <th class="num">税抜</th>
               <th class="num">消費税</th>
               <th class="num">税込</th>
+              <th class="num">KB</th>
               <th>請求書</th>
               <th>担当</th>
               <th></th>
@@ -312,28 +313,22 @@ table.list tr:hover td { background:#f8fafc; }
     </div>
 
     <div class="items-head">
-      <div>品名</div><div>申請人</div><div>単価</div><div>数量</div><div>単位</div><div>詳細</div><div>消費税</div><div>源泉</div><div>印紙単価</div><div>印紙数</div><div></div>
+      <div>品名</div><div>申請人</div><div>単価</div><div>数量</div><div>単位</div><div>詳細</div><div>消費税</div><div>源泉</div><div>印紙単価</div><div>印紙数</div><div>KB</div><div></div>
     </div>
     <div id="itemRows"></div>
     <button class="btn btn-sm" onclick="addItemRow()">＋ 明細行を追加</button>
     <datalist id="serviceList"></datalist>
 
+    <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+      <button class="btn btn-sm" onclick="applyKbFromMaster(document.getElementById('f-org').value.trim(), true)">KBをマスタから適用</button>
+      <span style="font-size:11px;color:var(--sub)">品名の申請種類（認定/変更/更新）×支援機関のKB単価を各明細のKB欄に入れます（手動修正可・CSV出力には含まれません）</span>
+    </div>
     <div class="totals-box">
       <span>税抜合計 <b id="t-subtotal">¥0</b></span>
       <span>消費税 <b id="t-tax">¥0</b></span>
       <span>税込合計 <b id="t-total">¥0</b></span>
-    </div>
-
-    <label style="font-size:12px;font-weight:700;cursor:pointer">
-      <input type="checkbox" id="f-kb" onchange="document.getElementById('kbBox').classList.toggle('show', this.checked); recalcTotals()"> KBあり
-    </label>
-    <div class="kb-box" id="kbBox">
-      <div style="font-size:11px;font-weight:700;color:var(--amber)">KB（社内管理用・CSV出力には含まれません）— 申請種類（認定/変更/更新）を品名から判定して計算します</div>
-      <div id="kbBreakdown" style="font-size:11.5px;color:var(--sub);margin:6px 0"></div>
-      <div style="display:flex;gap:10px;align-items:flex-end">
-        <div class="fg" style="width:140px"><label>KB金額（手動修正可）</label><input type="number" id="f-kbAmount" value="0" oninput="recalcTotals()" style="text-align:right"></div>
-        <button class="btn btn-sm" onclick="applyKbFromMaster(document.getElementById('f-org').value.trim(), true)">マスタから再計算</button>
-      </div>
+      <span style="color:var(--red)">KB <b id="t-kb" style="color:var(--red)">▲¥0</b></span>
+      <span>純売上 <b id="t-net">¥0</b></span>
     </div>
 
     <div class="modal-foot">
@@ -579,8 +574,8 @@ function updateClientList(keepValue) {
 
 /* ================= 税計算 ================= */
 // 明細行から売上単位の税額を計算（税率毎に合算→切り捨て）。印紙は不課税扱い。
-function calcSale(items, kbAmount) {
-  let subtotal = 0;
+function calcSale(items, kbFallback) {
+  let subtotal = 0, kbItems = 0;
   const byRate = {};
   for (const it of items) {
     const amt = (Number(it.unit_price) || 0) * (Number(it.qty) || 0);
@@ -589,10 +584,12 @@ function calcSale(items, kbAmount) {
     if (rate > 0) byRate[rate] = (byRate[rate] || 0) + amt;
     const stampAmt = (Number(it.stamp_price) || 0) * (Number(it.stamp_qty) || 0);
     subtotal += stampAmt; // 印紙は不課税で税抜合計に含める
+    kbItems += (Number(it.kb_price) || 0) * (Number(it.qty) || 1);
   }
   let tax = 0;
   for (const r in byRate) tax += Math.floor(byRate[r] * Number(r));
-  return { subtotal, tax, total: subtotal + tax, net: subtotal - (Number(kbAmount) || 0) };
+  const kb = kbItems > 0 ? kbItems : (Number(kbFallback) || 0);  // 明細KB優先・旧データは売上単位KB
+  return { subtotal, tax, total: subtotal + tax, kb, net: subtotal - kb };
 }
 
 /* ================= 売上一覧 ================= */
@@ -632,10 +629,21 @@ function render() {
         appLines.push(`<div class="item-line stamp"><span class="il-name">${esc(i.applicant || '')}&nbsp;</span></div>`);
       }
     }
-    if (s.is_kb && (Number(s.kb_amount) || 0) > 0) {
-      lines.push(`<div class="item-line" style="color:var(--red)"><span class="il-name">KB${(Number(s.kb_qty) || 0) > 1 ? ` ×${s.kb_qty}` : ''}</span><span class="il-amt" style="color:var(--red)">▲${yen(s.kb_amount)}</span></div>`);
-      appLines.push(`<div class="item-line"><span class="il-name">&nbsp;</span></div>`);
+    // KB列：明細行と行位置を揃えて1明細ごとに表示（旧データは合計を1行で）
+    const kbLines = [];
+    let anyItemKb = false;
+    for (const i of (s.sale_items || [])) {
+      if (i.item_name || i.unit_price) {
+        const kbAmt = (Number(i.kb_price) || 0) * (Number(i.qty) || 1);
+        if (kbAmt > 0) anyItemKb = true;
+        kbLines.push(`<div class="item-line"><span class="il-amt" style="color:${kbAmt ? 'var(--red)' : 'var(--sub)'};font-weight:${kbAmt ? '600' : '400'}">${kbAmt ? '▲' + yen(kbAmt) : '-'}</span></div>`);
+      }
+      if ((Number(i.stamp_price) || 0) * (Number(i.stamp_qty) || 0) > 0) {
+        kbLines.push(`<div class="item-line"><span class="il-name">&nbsp;</span></div>`);
+      }
     }
+    const kbCol = anyItemKb ? kbLines.join('')
+      : ((s.is_kb && (Number(s.kb_amount) || 0) > 0) ? `<div class="item-line"><span class="il-amt" style="color:var(--red)">▲${yen(s.kb_amount)}</span></div>` : '-');
     const summary = lines.join('');
     const appCol = appLines.join('');
     return `<tr>
@@ -647,6 +655,7 @@ function render() {
       <td class="num">${yen(c.subtotal)}</td>
       <td class="num">${yen(c.tax)}</td>
       <td class="num"><b>${yen(c.total)}</b></td>
+      <td class="num" style="vertical-align:top">${kbCol}</td>
       <td><span class="chip st-${st}" onclick="cycleStatus('${esc(s.id)}')">${st}</span></td>
       <td>${esc(s.staff || '-')}</td>
       <td><span class="link" onclick="openSaleModal('${esc(s.id)}')">編集</span></td>
@@ -673,7 +682,7 @@ function renderKpi() {
   document.getElementById('kpiSubtotal').textContent = yen(mSub);
   let mKb = 0;
   for (const s of sales) {
-    if (s.decided_at && s.decided_at.startsWith(ym) && s.is_kb) mKb += Number(s.kb_amount) || 0;
+    if (s.decided_at && s.decided_at.startsWith(ym)) mKb += calcSale(s.sale_items || [], s.kb_amount).kb;
   }
   document.getElementById('kpiTotal').textContent = '税込 ' + yen(mSub + mTax) + (mKb ? `　KB ▲${yen(mKb)}（純売上 ${yen(mSub - mKb)}）` : '');
   document.getElementById('kpiCount').textContent = mCnt + '件';
@@ -831,9 +840,6 @@ function openSaleModal(id) {
   document.getElementById('f-staff').value = s ? (s.staff || '') : '';
   document.getElementById('f-invoice').value = s ? (s.invoice_status || '未発行') : '未発行';
   document.getElementById('f-memo').value = s ? (s.memo || '') : '';
-  document.getElementById('f-kb').checked = s ? !!s.is_kb : false;
-  document.getElementById('kbBox').classList.toggle('show', s ? !!s.is_kb : false);
-  document.getElementById('f-kbAmount').value = s ? (s.kb_amount || 0) : 0;
   document.getElementById('kbBreakdown').innerHTML = s && s.is_kb ? '保存済みのKB金額を表示中（「マスタから再計算」で種類別単価から再計算できます）' : '';
   document.getElementById('itemRows').innerHTML = '';
   const items = s && s.sale_items && s.sale_items.length ? s.sale_items : [null];
@@ -857,6 +863,7 @@ function addItemRow(it) {
     <select class="i-wh">${WH_TYPES.map(w => `<option ${it && it.withholding === w ? 'selected' : ''}>${w}</option>`).join('')}</select>
     <input class="i-stamp" type="number" placeholder="0" value="${it ? (it.stamp_price || 0) : 0}">
     <input class="i-stampN" type="number" placeholder="0" value="${it ? (it.stamp_qty || 0) : 0}">
+    <input class="i-kb" type="number" placeholder="0" title="この明細のKB単価" value="${it ? (it.kb_price || 0) : 0}">
     <button class="del-row" title="行削除" onclick="this.parentElement.remove(); recalcTotals()">×</button>`;
   div.querySelectorAll('input,select').forEach(el => el.addEventListener('input', recalcTotals));
   // サービス選択時に単価・単位・消費税を自動補完
@@ -884,16 +891,18 @@ function collectItemRows() {
     tax_type: row.querySelector('.i-tax').value,
     withholding: row.querySelector('.i-wh').value,
     stamp_price: Number(row.querySelector('.i-stamp').value) || 0,
-    stamp_qty: Number(row.querySelector('.i-stampN').value) || 0
+    stamp_qty: Number(row.querySelector('.i-stampN').value) || 0,
+    kb_price: Number(row.querySelector('.i-kb').value) || 0
   })).filter(r => r.item_name || r.unit_price || r.stamp_price);
 }
 
 function recalcTotals() {
-  const kbAmount = Number(document.getElementById('f-kbAmount').value) || 0;
-  const c = calcSale(collectItemRows(), document.getElementById('f-kb').checked ? kbAmount : 0);
+  const c = calcSale(collectItemRows(), 0);
   document.getElementById('t-subtotal').textContent = yen(c.subtotal);
   document.getElementById('t-tax').textContent = yen(c.tax);
   document.getElementById('t-total').textContent = yen(c.total);
+  document.getElementById('t-kb').textContent = '▲' + yen(c.kb);
+  document.getElementById('t-net').textContent = yen(c.net);
 }
 
 async function saveSale() {
@@ -905,10 +914,10 @@ async function saveSale() {
   btn.disabled = true;
   try {
     const now = new Date().toISOString();
-    const isKb = document.getElementById('f-kb').checked;
-    const kbPrice = 0, kbQty = 0;  // 種類別計算に移行したため単価×数量は廃止（金額のみ保持）
-    const kbAmount = isKb ? Number(document.getElementById('f-kbAmount').value) || 0 : 0;
-    const c = calcSale(items, kbAmount);
+    const c = calcSale(items, 0);
+    const isKb = c.kb > 0;
+    const kbPrice = 0, kbQty = 0;  // 明細単位KBに移行（sales側は合計のみ保持）
+    const kbAmount = c.kb;
     const orgRaw = document.getElementById('f-org').value.trim();
     let orgVal = (orgRaw === 'すべての企業から選ぶ' || orgRaw === '（支援機関未設定の企業）') ? '' : orgRaw;
     if (!orgVal) {
@@ -1102,41 +1111,32 @@ function detectAppType(itemName) {
   if (n.includes('更新')) return '更新';
   return null;
 }
-// 支援機関のKB単価（申請種類別）を売上フォームに自動適用（手動上書き可）
+// 支援機関のKB単価（申請種類別）を各明細行のKB欄に自動適用（手動上書き可）
 let _kbAppliedOrg = null;
 function applyKbFromMaster(orgName, force) {
   if (!force && _kbAppliedOrg === orgName) return;   // 同じ機関で二重適用しない
   const o = supportOrgs.find(x => (x.name || '').trim() === orgName);
   _kbAppliedOrg = orgName;
-  const bd = document.getElementById('kbBreakdown');
   if (!o) { if (force) toast('支援機関がマスタに見つかりません'); return; }
   const prices = o.kb_prices || {};
   const flat = Number(o.kb_price) || 0;
   const hasAny = flat > 0 || Object.values(prices).some(v => Number(v) > 0);
-  if (!hasAny) { if (force) { bd.innerHTML = 'この支援機関にはKB単価が設定されていません（KB設定から登録）'; toast('KB単価未設定'); } return; }
+  if (!hasAny) { if (force) toast('この支援機関にはKB単価が未設定です（KB設定から登録）'); return; }
 
-  // 明細行ごとに種類判定して単価を積み上げ
-  const parts = [];
-  let total = 0;
-  for (const it of collectItemRows()) {
-    if (!it.item_name && !it.unit_price) continue;
-    const type = detectAppType(it.item_name);
-    const price = type && Number(prices[type]) > 0 ? Number(prices[type]) : flat;
-    const label = type || 'その他';
-    if (price > 0) {
-      const qty = Number(it.qty) || 1;
-      total += price * qty;
-      parts.push(`${label} ¥${price.toLocaleString()}${qty > 1 ? '×' + qty : ''}`);
-    } else {
-      parts.push(`${label} 単価未設定`);
-    }
-  }
-  document.getElementById('f-kb').checked = true;
-  document.getElementById('kbBox').classList.add('show');
-  document.getElementById('f-kbAmount').value = total;
-  bd.innerHTML = parts.length ? '内訳: ' + parts.map(esc).join(' ＋ ') + ` ＝ <b>¥${total.toLocaleString()}</b>` : '明細を入力してから「マスタから再計算」を押してください';
+  let applied = 0, total = 0;
+  document.querySelectorAll('#itemRows .item-row').forEach(row => {
+    const name = row.querySelector('.i-name').value.trim();
+    const price = Number(row.querySelector('.i-price').value) || 0;
+    if (!name && !price) return;
+    const type = detectAppType(name);
+    const kb = type && Number(prices[type]) > 0 ? Number(prices[type]) : flat;
+    row.querySelector('.i-kb').value = kb;
+    const qty = Number(row.querySelector('.i-qty').value) || 1;
+    if (kb > 0) { applied++; total += kb * qty; }
+  });
   recalcTotals();
-  if (parts.length) toast(`KB自動適用: ${orgName} 計¥${total.toLocaleString()}`);
+  if (applied) toast('KB適用: ' + applied + '明細 計¥' + total.toLocaleString());
+  else if (force) toast('適用対象の明細がありません（先に品名を入力）');
 }
 
 /* ================= サービスマスタ ================= */
