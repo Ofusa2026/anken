@@ -55225,7 +55225,7 @@ function moveMailData(skipPdf){
       moved++;
     } else if(m.badge==='審査完了'){
       entry.caseId = m.linkedCase || '';
-      if(!shinsaListData.some(function(x){return x.id===m.id;})){
+      if(!_mailIsDuplicate(shinsaListData, m, entry)){
         shinsaListData.push(entry); moved++;
       } else {
         // 既存エントリのcaseIdを更新
@@ -55252,7 +55252,7 @@ function moveMailData(skipPdf){
     } else if(m.badge==='認定証明書'){
       entry.caseId = m.linkedCase || '';
       var _certAdded = false;
-      if(!certListData.some(function(x){return x.id===m.id;})){
+      if(!_mailIsDuplicate(certListData, m, entry)){
         certListData.push(entry); moved++;
         _certAdded = true;
       }
@@ -55267,7 +55267,7 @@ function moveMailData(skipPdf){
       }
     } else if(m.badge==='受付番号'){
       entry.caseId=m.linkedCase||'';
-      if(!receiptListData.some(function(x){return x.id===m.id;})){
+      if(!_mailIsDuplicate(receiptListData, m, entry)){
         receiptListData.push(entry); moved++;
       }
       // 案件への受付番号転記
@@ -57740,13 +57740,44 @@ function runImport() { var skipPdf = false;
   next();
 }
 
+// ===== ver.20260805.11: 入管メール取込の重複ガード =====
+//   GmailのmessageIdはメールボックスごとに別採番されるため、普段と違うアカウントで取込むと
+//   同じメールが「新規」と誤判定され二重登録される（2026-08-04に21件発生）。
+//   messageIdだけでなく「同じ案件×同じ受信日時」でも既存とみなしてスキップする。
+function _mailIsDuplicate(list, m, entry){
+  if(!Array.isArray(list)) return false;
+  if(list.some(function(x){ return x.id === m.id; })) return true;
+  var _d = String((entry && entry.date) || m.date || '').trim();
+  if(!_d) return false;
+  var _cid = String((entry && entry.caseId) || m.linkedCase || '').trim();
+  var _cnoRaw = String((entry && entry.caseNo) || m.caseNo || '').trim();
+  var _cno = (typeof _normReceiptNo==='function') ? _normReceiptNo(_cnoRaw) : _cnoRaw;
+  if(_cid){
+    if(list.some(function(x){ return String(x.caseId||'') === _cid && String(x.date||'') === _d; })){
+      console.warn('[取込] 同じ案件・同じ受信日時の記録が既にあるためスキップ:', _cid, _d, m.name);
+      return true;
+    }
+    return false;
+  }
+  if(_cno){
+    if(list.some(function(x){
+      var xn = (typeof _normReceiptNo==='function') ? _normReceiptNo(x.caseNo||'') : String(x.caseNo||'');
+      return xn && xn === _cno && String(x.date||'') === _d;
+    })){
+      console.warn('[取込] 同じ受付番号・同じ受信日時の記録が既にあるためスキップ:', _cno, _d, m.name);
+      return true;
+    }
+  }
+  return false;
+}
+
 function _moveMailDataSilent(selected) {
   // PDF化完了後に自動呼び出し（確認ダイアログなし）
   var _receiptTransferQueue = [];
   selected.forEach(function(m){
     var entry={id:m.id, name:m.name, date:m.date, caseNo:m.caseNo||'', org:m.org||'', sub:m.sub||'', movedAt:new Date().toISOString().slice(0,10), caseId:m.linkedCase||'', pdfDone:true, driveUrl:m.driveUrl||''};
     if(m.badge==='審査完了'){
-      if(!shinsaListData.some(function(x){return x.id===m.id;})){
+      if(!_mailIsDuplicate(shinsaListData, m, entry)){
         shinsaListData.push(entry);
       }
       if(m.linkedCase){
@@ -57757,11 +57788,11 @@ function _moveMailDataSilent(selected) {
       }
       persistShinsaList(m.id);
     } else if(m.badge==='認定証明書'){
-      if(!certListData.some(function(x){return x.id===m.id;})) certListData.push(entry);
+      if(!_mailIsDuplicate(certListData, m, entry)) certListData.push(entry);
       persistCertList(m.id);
     } else if(m.badge==='受付番号'){
       entry.caseId=m.linkedCase||'';
-      if(!receiptListData.some(function(x){return x.id===m.id;})) receiptListData.push(entry);
+      if(!_mailIsDuplicate(receiptListData, m, entry)) receiptListData.push(entry);
       if(m.linkedCase){
         var c=cData.find(function(x){return x.id===m.linkedCase;});
         if(c){
