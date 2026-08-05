@@ -153,7 +153,7 @@ table.list tr:hover td { background:#f8fafc; }
   <aside class="side">
     <div class="brand">
       <h1>売上管理システム</h1>
-      <span class="ver">ver.20260805.02</span>
+      <span class="ver">ver.20260805.03</span>
     </div>
     <nav class="nav">
       <div class="nav-item active" data-page="dash" onclick="showPage('dash')"><span class="ic">📊</span><span class="txt">ダッシュボード</span></div>
@@ -239,11 +239,14 @@ table.list tr:hover td { background:#f8fafc; }
       <div class="pagebar">
         <h2>取引先一覧</h2>
         <span class="spacer"></span>
-        <span style="font-size:11px;color:var(--sub)">売上実績のある取引先（得意先名）ごとの集計</span>
+        <span style="font-size:11px;color:var(--sub)">companiesマスタ全件 ＋ 売上集計</span>
       </div>
       <div class="wrap">
         <div class="filter-bar">
-          <input type="search" id="fClientSearch" placeholder="取引先名で検索" oninput="renderClients()">
+          <input type="search" id="fClientSearch" placeholder="取引先名・かな・支援機関・担当で検索" oninput="renderClients()">
+          <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer">
+            <input type="checkbox" id="fClientSalesOnly" onchange="renderClients()"> 売上実績ありのみ
+          </label>
           <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer">
             <input type="checkbox" id="fClientWarn" onchange="renderClients()"> 表記ゆれ（(有)/（有）/㈲ 等）のみ表示
           </label>
@@ -253,11 +256,14 @@ table.list tr:hover td { background:#f8fafc; }
           <table class="list">
             <thead><tr>
               <th>取引先名</th>
+              <th>所在地</th>
+              <th>電話</th>
+              <th>代表者</th>
+              <th>登録支援機関</th>
+              <th>担当</th>
               <th class="num">売上件数</th>
               <th class="num">累計（税抜）</th>
-              <th class="num">累計（税込）</th>
               <th class="num">未入金（税込）</th>
-              <th>最終決定日</th>
               <th></th>
             </tr></thead>
             <tbody id="clientsBody"></tbody>
@@ -396,7 +402,7 @@ async function loadAll() {
   const [rS, rSv, rC, rU, rO] = await Promise.all([
     fetch(`${SB_URL}/rest/v1/sales?select=*,sale_items(*)&order=decided_at.desc,created_at.desc`, { headers: sbHeaders() }),
     fetch(`${SB_URL}/rest/v1/services?select=*&order=name`, { headers: sbHeaders() }),
-    fetch(`${SB_URL}/rest/v1/companies?select=id,name,name_kana&order=name&limit=1000`, { headers: sbHeaders() }),
+    fetch(`${SB_URL}/rest/v1/companies?select=id,name,name_kana,pref,city,tel,rep_name,support_org_name,staff,ofusa_staff&order=name&limit=2000`, { headers: sbHeaders() }),
     fetch(`${SB_URL}/rest/v1/users?select=id,name&order=name&limit=100`, { headers: sbHeaders() }),
     fetch(`${SB_URL}/rest/v1/support_orgs?select=id,name&order=name&limit=300`, { headers: sbHeaders() })
   ]);
@@ -564,38 +570,67 @@ async function cycleStatus(id) {
 /* ================= 取引先一覧 ================= */
 // 表記ゆれ検知：(有)/（有）/㈲/(株)/（株）/㈱ などの略記
 const ABBR_RE = /[㈲㈱]|[(（]\s*(有|株)\s*[)）]/;
-function clientStats() {
+function salesStatsByName() {
   const map = {};
   for (const s of sales) {
     const name = s.client_name || '(名称未設定)';
-    if (!map[name]) map[name] = { name, count: 0, subtotal: 0, total: 0, unpaid: 0, last: '' };
+    if (!map[name]) map[name] = { count: 0, subtotal: 0, unpaid: 0 };
     const c = calcSale(s.sale_items || [], 0);
-    const e = map[name];
-    e.count++;
-    e.subtotal += c.subtotal;
-    e.total += c.total;
-    if ((s.invoice_status || '未発行') !== '入金済') e.unpaid += c.total;
-    if (s.decided_at && s.decided_at > e.last) e.last = s.decided_at;
+    map[name].count++;
+    map[name].subtotal += c.subtotal;
+    if ((s.invoice_status || '未発行') !== '入金済') map[name].unpaid += c.total;
   }
-  return Object.values(map).sort((a, b) => b.subtotal - a.subtotal);
+  return map;
 }
 function renderClients() {
   const q = (document.getElementById('fClientSearch').value || '').trim().toLowerCase();
+  const salesOnly = document.getElementById('fClientSalesOnly').checked;
   const warnOnly = document.getElementById('fClientWarn').checked;
-  let list = clientStats();
-  if (q) list = list.filter(c => c.name.toLowerCase().includes(q));
+  const stats = salesStatsByName();
+
+  // companiesマスタ全件をベースに、売上を得意先名でマージ
+  let list = companies.map(c => {
+    const st = stats[c.name] || { count: 0, subtotal: 0, unpaid: 0 };
+    return {
+      name: c.name || '',
+      kana: c.name_kana || '',
+      addr: [c.pref, c.city].filter(Boolean).join(''),
+      tel: c.tel || '',
+      rep: c.rep_name || '',
+      org: c.support_org_name || '',
+      staff: c.ofusa_staff || c.staff || '',
+      count: st.count, subtotal: st.subtotal, unpaid: st.unpaid,
+      inMaster: true
+    };
+  });
+  // マスタ未登録だが売上実績がある得意先も末尾に表示
+  const masterNames = new Set(companies.map(c => c.name));
+  for (const name in stats) {
+    if (!masterNames.has(name)) {
+      list.push({ name, kana: '', addr: '', tel: '', rep: '', org: '', staff: '',
+        count: stats[name].count, subtotal: stats[name].subtotal, unpaid: stats[name].unpaid, inMaster: false });
+    }
+  }
+
+  if (q) list = list.filter(c => [c.name, c.kana, c.org, c.staff, c.rep].join(' ').toLowerCase().includes(q));
+  if (salesOnly) list = list.filter(c => c.count > 0);
   if (warnOnly) list = list.filter(c => ABBR_RE.test(c.name));
+
   document.getElementById('clientsBody').innerHTML = list.map(c => `<tr>
-    <td><b>${esc(c.name)}</b>${ABBR_RE.test(c.name) ? '<span class="warn-badge" title="略記・表記ゆれの可能性。マネフォ取引先名との一致を確認してください">表記注意</span>' : ''}</td>
-    <td class="num">${c.count}件</td>
-    <td class="num">${yen(c.subtotal)}</td>
-    <td class="num">${yen(c.total)}</td>
-    <td class="num">${c.unpaid ? `<b style="color:var(--red)">${yen(c.unpaid)}</b>` : '¥0'}</td>
-    <td style="white-space:nowrap">${esc(c.last || '-')}</td>
-    <td><span class="link" onclick="jumpToClient('${esc(c.name).replace(/'/g, "\\'")}')">売上を見る</span></td>
+    <td><b>${esc(c.name)}</b>${ABBR_RE.test(c.name) ? '<span class="warn-badge" title="略記・表記ゆれの可能性。マネフォ取引先名との一致を確認してください">表記注意</span>' : ''}${c.inMaster ? '' : '<span class="warn-badge" style="background:var(--red-soft);color:var(--red)" title="companiesマスタに存在しない得意先名です">マスタ未登録</span>'}${c.kana ? `<div style="font-size:10.5px;color:var(--sub)">${esc(c.kana)}</div>` : ''}</td>
+    <td style="white-space:nowrap">${esc(c.addr || '-')}</td>
+    <td style="white-space:nowrap">${esc(c.tel || '-')}</td>
+    <td style="white-space:nowrap">${esc(c.rep || '-')}</td>
+    <td>${esc(c.org || '-')}</td>
+    <td style="white-space:nowrap">${esc(c.staff || '-')}</td>
+    <td class="num">${c.count ? c.count + '件' : '-'}</td>
+    <td class="num">${c.count ? yen(c.subtotal) : '-'}</td>
+    <td class="num">${c.unpaid ? `<b style="color:var(--red)">${yen(c.unpaid)}</b>` : (c.count ? '¥0' : '-')}</td>
+    <td>${c.count ? `<span class="link" onclick="jumpToClient('${esc(c.name).replace(/'/g, "\\'")}')">売上を見る</span>` : ''}</td>
   </tr>`).join('');
   document.getElementById('clientsEmpty').style.display = list.length ? 'none' : 'block';
-  document.getElementById('clientCountInfo').textContent = `${list.length}社`;
+  const withSales = list.filter(c => c.count > 0).length;
+  document.getElementById('clientCountInfo').textContent = `${list.length}社（売上実績あり ${withSales}社）`;
 }
 function jumpToClient(name) {
   document.getElementById('fSearch').value = name;
