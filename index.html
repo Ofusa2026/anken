@@ -4919,7 +4919,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260806.05';
+var OFUSA_VERSION = 'ver.20260806.06';
 // ver.20260804.22: 起動時刻。ページ読み込み直後のSIGNED_OUT誤検知を避けるために使う。
 window._appBootAt = Date.now();
 window._intentionalLogout = false;
@@ -74086,7 +74086,42 @@ function renderMails() {
   _filteredMails = _filteredMails.filter(function(m){ return ((m.date||'').slice(0,10)) >= _gmailMinDate; });
   // ver.20260707.04: 確認済みの特定日付を非表示（2026-04-17は確認済みで問題なし）
   _filteredMails = _filteredMails.filter(function(m){ return !(window.OFUSA_HIDE_MAIL_DATES||{})[(m.date||'').slice(0,10)]; });
-  _filteredMails = _filteredMails.filter(function(m){return !_movedIdSet[m.id];});
+  // ver.20260806.06: id一致に加え「案件×受信日時 / 受付番号×受信日時」でも既存とみなして除外する。
+  //   Gmailのmessage-idはメールボックス毎に別採番されるため、別アカウントで届いた同一メールが
+  //   id一致をすり抜けて再表示される症状への対策。対象は審査完了/受付番号/認定証明書のみ（追完/申請内容は対象外）。
+  var _movedKeySet = {shinsa:{},receipt:{},cert:{}};
+  function _addMovedKeys(type, x){
+    var _d = String((x&&x.date)||'').trim(); if(!_d) return;
+    var _cid = String((x&&x.caseId)||'').trim();
+    var _cno = (typeof _normReceiptNo==='function') ? _normReceiptNo((x&&x.caseNo)||'') : String((x&&x.caseNo)||'').trim();
+    if(_cid) _movedKeySet[type][_cid+'|'+_d]=1;
+    if(_cno) _movedKeySet[type][_cno+'|'+_d]=1;
+  }
+  try { shinsaListData.forEach(function(x){ _addMovedKeys('shinsa', x); }); } catch(e){}
+  try { receiptListData.forEach(function(x){ _addMovedKeys('receipt', x); }); } catch(e){}
+  try { certListData.forEach(function(x){ _addMovedKeys('cert', x); }); } catch(e){}
+  try {
+    if(window._archivedMailKeySet){
+      ['shinsa','receipt','cert'].forEach(function(t){
+        var _src = window._archivedMailKeySet[t]||{};
+        Object.keys(_src).forEach(function(k){ _movedKeySet[t][k]=1; });
+      });
+    }
+  } catch(e){}
+  _filteredMails = _filteredMails.filter(function(m){
+    if(_movedIdSet[m.id]) return false;
+    var _bt = {'審査完了':'shinsa','受付番号':'receipt','認定証明書':'cert'}[m.badge];
+    if(_bt && _movedKeySet[_bt]){
+      var _md = String((m&&m.date)||'').trim();
+      if(_md){
+        var _mcid = String((m&&m.linkedCase)||'').trim();
+        if(_mcid && _movedKeySet[_bt][_mcid+'|'+_md]) return false;
+        var _mcno = (typeof _normReceiptNo==='function') ? _normReceiptNo((m&&m.caseNo)||'') : String((m&&m.caseNo)||'').trim();
+        if(_mcno && _movedKeySet[_bt][_mcno+'|'+_md]) return false;
+      }
+    }
+    return true;
+  });
   // 担当・支援機関フィルター適用
   var fStaff = (document.getElementById('gmailFilterStaff')||{}).value||'';
   var fOrg   = (document.getElementById('gmailFilterOrg')||{}).value||'';
@@ -80902,17 +80937,30 @@ function toggleMadoguchiPast(){
 // ver.20260608.18: 審査完了/受付番号/認定証の処理済みメールID(=Gmailメッセージid)をDBの各archiveから読み込む。
 //   localStorageのlistData頼みだと端末/キャッシュ消去で除外が消え、Gmail取込に過去分が大量表示されるため、DBを正にする。
 window._archivedMailIdSet = window._archivedMailIdSet || {};
+window._archivedMailKeySet = window._archivedMailKeySet || {shinsa:{},receipt:{},cert:{}};
 function _loadArchivedMailIds(cb){
   if(!DB_READY || !_sb){ if(cb) cb(); return; }
-  var tables = ['shinsa_archive','receipt_archive','cert_archive'];
+  // ver.20260806.06: id一致だけでは、Gmailのmessage-idがメールボックス毎に別採番されるため、
+  //   別アカウントで届いた同一メールがすり抜けて取込画面に再表示される。case_id/case_no/date も
+  //   取得し「案件×受信日時 / 受付番号×受信日時」のキー集合を作って除外に使う。
+  var tables = [['shinsa_archive','shinsa'],['receipt_archive','receipt'],['cert_archive','cert']];
   var pending = tables.length;
   var set = {};
-  function _maybeDone(){ if(--pending<=0){ window._archivedMailIdSet = set; if(cb) cb(); } }
-  tables.forEach(function(tbl){
+  var keySet = {shinsa:{},receipt:{},cert:{}};
+  function _addArcKeys(type,row){
+    var _d = String((row&&row.date)||'').trim(); if(!_d) return;
+    var _cid = String((row&&row.case_id)||'').trim();
+    var _cno = (typeof _normReceiptNo==='function') ? _normReceiptNo((row&&row.case_no)||'') : String((row&&row.case_no)||'').trim();
+    if(_cid) keySet[type][_cid+'|'+_d]=1;
+    if(_cno) keySet[type][_cno+'|'+_d]=1;
+  }
+  function _maybeDone(){ if(--pending<=0){ window._archivedMailIdSet = set; window._archivedMailKeySet = keySet; if(cb) cb(); } }
+  tables.forEach(function(pair){
+    var tbl = pair[0], type = pair[1];
     (function loadPage(from){
-      _sb.from(tbl).select('id').range(from, from+999).then(function(r){
+      _sb.from(tbl).select('id,case_id,case_no,date').range(from, from+999).then(function(r){
         if(!r.error && r.data && r.data.length){
-          r.data.forEach(function(row){ if(row && row.id) set[row.id]=1; });
+          r.data.forEach(function(row){ if(row && row.id){ set[row.id]=1; _addArcKeys(type,row); } });
           if(r.data.length === 1000){ loadPage(from+1000); return; }
         }
         _maybeDone();
