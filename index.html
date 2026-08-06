@@ -4919,7 +4919,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260806.04';
+var OFUSA_VERSION = 'ver.20260806.05';
 // ver.20260804.22: 起動時刻。ページ読み込み直後のSIGNED_OUT誤検知を避けるために使う。
 window._appBootAt = Date.now();
 window._intentionalLogout = false;
@@ -56347,8 +56347,21 @@ function markAnswerChecked(idOrTkey) {
   var me = currentUser || '';
   // taskNotificationsのtkeyの場合
   if(taskNotifications[idOrTkey]){
+    // ver.20260806.05: DB(doc_tasks.review_state)も更新しないと、
+    //   リロード時の整合性チェックで通知が復活し「何度も表示される」バグになる。
+    //   差戻し(state=3)は記録を確認済に化けさせないため review_state は触らない。
+    var _tnState = (taskNotifications[idOrTkey].state) || 1;
     delete taskNotifications[idOrTkey];
     _persistTaskNotifications();
+    if(_tnState !== 3 && DB_READY){
+      var _p = idOrTkey.split('_');
+      var _ti = parseInt(_p[_p.length-1]);
+      var _ci = _p.slice(0, _p.length-1).join('_');
+      if(!isNaN(_ti)){
+        taskReviewState[idOrTkey] = 2;
+        _sb.from('doc_tasks').upsert({case_id:_ci, task_index:_ti, review_state:'2'}, {onConflict:'case_id,task_index'}).then(function(){});
+      }
+    }
     updateReviewBadge();
     return;
   }
