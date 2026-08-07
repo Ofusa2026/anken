@@ -4919,7 +4919,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260806.10';
+var OFUSA_VERSION = 'ver.20260806.11';
 // ver.20260806.09: 表示用バージョンは常に OFUSA_VERSION から同期する（内部変数だけ上げて表示が古いまま残るミスを恒久防止）。
 try{ var _vEls=document.querySelectorAll('.js-app-version'); for(var _vi=0;_vi<_vEls.length;_vi++){ _vEls[_vi].textContent = OFUSA_VERSION; } }catch(e){}
 // ver.20260804.22: 起動時刻。ページ読み込み直後のSIGNED_OUT誤検知を避けるために使う。
@@ -66348,17 +66348,33 @@ function _toggleAutoReminderOk(caseId){
 // ver.20260720.18: 案件一覧のLINE列用に全紐づけを一括先読み（line_group_casesは小規模なので全件でOK）
 function _loadCaseLineMapAll(rerender){
   if(!(DB_READY && typeof _sb!=='undefined' && _sb)) return;
+  // ver.20260806.11: line_group_cases が1000行超（Supabase既定limit超過）だと新しい紐づけが取得されず、
+  //   登録済みでも未紐づけ表示になっていた。range で全件をページ取得する。
+  function _fetchAllRows(table, cols){
+    return new Promise(function(resolve){
+      var acc=[];
+      (function page(from){
+        _sb.from(table).select(cols).range(from, from+999).then(function(r){
+          if(r && r.error){ resolve(acc); return; }
+          var d=(r && r.data) || [];
+          acc=acc.concat(d);
+          if(d.length===1000){ page(from+1000); } else { resolve(acc); }
+        }).catch(function(){ resolve(acc); });
+      })(0);
+    });
+  }
   Promise.all([
-    _sb.from('line_group_cases').select('case_id,group_id'),
-    _sb.from('line_groups').select('group_id,group_name,is_hidden,last_seen_at')
+    _fetchAllRows('line_group_cases','case_id,group_id'),
+    _fetchAllRows('line_groups','group_id,group_name,is_hidden,last_seen_at')
   ]).then(function(rs){
-    if((rs[0]&&rs[0].error)||(rs[1]&&rs[1].error)) return;
+    var lgcRows = rs[0]||[];
+    var lgRows  = rs[1]||[];
     var gmap={};
     var nameMap={};
-    ((rs[1]&&rs[1].data)||[]).forEach(function(g){ if(!g.is_hidden){ gmap[g.group_id]={n:g.group_name||'(名称未取得)', ls:g.last_seen_at||''}; nameMap[g.group_id]=g.group_name||''; } });
+    lgRows.forEach(function(g){ if(!g.is_hidden){ gmap[g.group_id]={n:g.group_name||'(名称未取得)', ls:g.last_seen_at||''}; nameMap[g.group_id]=g.group_name||''; } });
     window._lineGroupNameMap = nameMap;   // ver.20260806.10: 旧line_group_id救済の名称解決に使う
     var map={};
-    ((rs[0]&&rs[0].data)||[]).forEach(function(x){
+    lgcRows.forEach(function(x){
       if(!gmap[x.group_id]) return;
       (map[x.case_id]=map[x.case_id]||[]).push({gid:x.group_id, gname:gmap[x.group_id].n, ls:gmap[x.group_id].ls});
     });
