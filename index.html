@@ -4919,7 +4919,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260806.06';
+var OFUSA_VERSION = 'ver.20260806.07';
 // ver.20260804.22: 起動時刻。ページ読み込み直後のSIGNED_OUT誤検知を避けるために使う。
 window._appBootAt = Date.now();
 window._intentionalLogout = false;
@@ -89753,10 +89753,36 @@ function _updatePvNav(){
     + '<button onclick="_pvMove(1)"'+(i===list.length-1?' disabled':'')+' style="font-size:12px;font-weight:700;padding:7px 16px;border-radius:7px;border:1px solid #e2e8f0;background:#fff;color:#475569;cursor:'+(i===list.length-1?'not-allowed':'pointer')+';opacity:'+(i===list.length-1?'.45':'1')+';">次へ →</button>';
 }
 
+// ver.20260806.07: 未確認UP書類パネルを閉じずに「背景に残す」。案件やプレビューを開くときは
+//   パネルを消さず一旦隠し、右下のフローティングボタンからワンクリックで戻れるようにする（スクロール位置も保持）。
+function _tuckUploadNotifyModal(){
+  var modal = document.getElementById('uploadNotifyModal');
+  if(!modal) return;
+  modal.style.display = 'none';
+  if(document.getElementById('uploadNotifyReturnChip')) return;
+  var chip = document.createElement('button');
+  chip.id = 'uploadNotifyReturnChip';
+  chip.type = 'button';
+  chip.textContent = '📤 未確認UP書類にもどる';
+  chip.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:10001;padding:11px 18px;background:#1d4ed8;color:#fff;border:none;border-radius:24px;font-size:13px;font-weight:800;box-shadow:0 6px 18px rgba(29,78,216,.35);cursor:pointer;';
+  chip.onclick = function(e){ e.stopPropagation(); _restoreUploadNotifyModal(); };
+  document.body.appendChild(chip);
+}
+function _restoreUploadNotifyModal(){
+  var chip = document.getElementById('uploadNotifyReturnChip');
+  if(chip) chip.remove();
+  var modal = document.getElementById('uploadNotifyModal');
+  if(modal){ modal.style.display = 'flex'; }
+  else { showUploadNotifyModal(); }
+}
+
 function showUploadNotifyModal(activeTab) {
   _augmentUploadList();
   var modal = document.getElementById('uploadNotifyModal');
   if (modal) modal.remove();
+  // ver.20260806.07: 「背景に残す」用の戻るボタンが残っていたら消す（開き直すときは新規表示）
+  var _staleChip = document.getElementById('uploadNotifyReturnChip');
+  if (_staleChip) _staleChip.remove();
   modal = document.createElement('div');
   modal.id = 'uploadNotifyModal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
@@ -89809,7 +89835,7 @@ function showUploadNotifyModal(activeTab) {
         h += '<div style="display:flex;align-items:center;gap:6px;font-size:11px;line-height:1.7;">'
           +    '<span style="color:#2563eb;">📄</span>'
           +    '<span style="flex:1;min-width:0;color:#334155;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(lbl)+n+'</span>'
-          +    (_du ? '<button onclick="event.stopPropagation();document.getElementById(\'uploadNotifyModal\')&&document.getElementById(\'uploadNotifyModal\').remove();_openSingleDocPreview(\''+esc(_du)+'\',\''+esc(lbl).replace(/'/g,"\\'")+'\',\'person\',\''+esc(row.case_id||'')+'\')" style="flex-shrink:0;font-size:10px;font-weight:700;padding:1px 8px;border-radius:5px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;cursor:pointer;">👁 見る</button>' : '')
+          +    (_du ? '<button onclick="event.stopPropagation();_tuckUploadNotifyModal();_openSingleDocPreview(\''+esc(_du)+'\',\''+esc(lbl).replace(/'/g,"\\'")+'\',\'person\',\''+esc(row.case_id||'')+'\')" style="flex-shrink:0;font-size:10px;font-weight:700;padding:1px 8px;border-radius:5px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;cursor:pointer;">👁 見る</button>' : '')
           +    '<span style="flex-shrink:0;color:#9ca3af;font-size:10px;">'+esc(t)+'</span>'
           +  '</div>';
       });
@@ -89840,7 +89866,7 @@ function showUploadNotifyModal(activeTab) {
     })();
     h += '<button onclick="confirmUploadNotifyGroup(this)" data-ids="'+esc(idsAttr)+'" style="font-size:10px;padding:3px 8px;background:#dcfce7;color:#15803d;border:1px solid #86efac;border-radius:6px;cursor:pointer;white-space:nowrap;font-weight:700;">✓ 確認済み</button>';
     if (row.case_id) {
-      h += '<button onclick="document.getElementById(&quot;uploadNotifyModal&quot;).remove();openCase(&quot;' + row.case_id + '&quot;)" style="font-size:10px;padding:3px 8px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;white-space:nowrap;">案件</button>';
+      h += '<button onclick="_tuckUploadNotifyModal();openCase(&quot;' + row.case_id + '&quot;)" style="font-size:10px;padding:3px 8px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;white-space:nowrap;">案件</button>';
     }
     h += '</div></div>';
     return h;
