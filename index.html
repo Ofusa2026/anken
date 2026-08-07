@@ -4919,7 +4919,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260806.09';
+var OFUSA_VERSION = 'ver.20260806.10';
 // ver.20260806.09: 表示用バージョンは常に OFUSA_VERSION から同期する（内部変数だけ上げて表示が古いまま残るミスを恒久防止）。
 try{ var _vEls=document.querySelectorAll('.js-app-version'); for(var _vi=0;_vi<_vEls.length;_vi++){ _vEls[_vi].textContent = OFUSA_VERSION; } }catch(e){}
 // ver.20260804.22: 起動時刻。ページ読み込み直後のSIGNED_OUT誤検知を避けるために使う。
@@ -66354,13 +66354,18 @@ function _loadCaseLineMapAll(rerender){
   ]).then(function(rs){
     if((rs[0]&&rs[0].error)||(rs[1]&&rs[1].error)) return;
     var gmap={};
-    ((rs[1]&&rs[1].data)||[]).forEach(function(g){ if(!g.is_hidden) gmap[g.group_id]={n:g.group_name||'(名称未取得)', ls:g.last_seen_at||''}; });
+    var nameMap={};
+    ((rs[1]&&rs[1].data)||[]).forEach(function(g){ if(!g.is_hidden){ gmap[g.group_id]={n:g.group_name||'(名称未取得)', ls:g.last_seen_at||''}; nameMap[g.group_id]=g.group_name||''; } });
+    window._lineGroupNameMap = nameMap;   // ver.20260806.10: 旧line_group_id救済の名称解決に使う
     var map={};
     ((rs[0]&&rs[0].data)||[]).forEach(function(x){
       if(!gmap[x.group_id]) return;
       (map[x.case_id]=map[x.case_id]||[]).push({gid:x.group_id, gname:gmap[x.group_id].n, ls:gmap[x.group_id].ls});
     });
     window._caseLineMap=map;
+    // ver.20260806.10: renderCases は未定義で再描画が発火せず、line_group_cases登録済みでも未紐づけ表示のまま残っていた。
+    //   実DOM上の紐づけバッジ・個別案内ボタンをその場で確実に貼り替える（案件一覧/申請記録/審査完了/認定証明書/書類回収 共通）。
+    if(rerender){ try{ _refreshOfficialAcctBadges(); }catch(e){} }
     if(rerender && typeof renderCases==='function'){ try{ renderCases(); }catch(e){} }
   });
 }
@@ -66410,6 +66415,15 @@ function _officialAcctLinks(cid){
   var cw = ((window._pdaCwMap||{})[cid] || []).map(function(l){
     return { ch:'cw', gid:l.rid, gname:l.rname };
   });
+  // ver.20260806.10: 正データは line_group_cases。そこに紐づけが無い場合のみ、旧データ救済として
+  //   persons.line_group_id（personData[cid].lineGroupId）を後方互換で見る。
+  if(!line.length && !cw.length){
+    var _legacy = ((typeof personData!=='undefined' ? (personData[cid]||{}) : {}).lineGroupId) || '';
+    if(_legacy){
+      var _nm = (window._lineGroupNameMap||{})[_legacy] || '(旧紐づけ)';
+      line = [{ ch:'line', gid:_legacy, gname:_nm }];
+    }
+  }
   // ver.20260731: Messenger紐づけ（フラグのみ・自動催促対象外）
   var ms = [];
   var _c = (typeof cData!=='undefined') ? (cData||[]).find(function(x){return x.id===cid;}) : null;
@@ -66487,20 +66501,42 @@ function _officialAcctBoxHtml(cid, opts){
     var _bg = _hasAuto ? '#dcfce7' : '#f1f5f9';
     var _bd = _hasAuto ? '#86efac' : '#cbd5e1';
     var _cl = _hasAuto ? '#15803d' : '#64748b';
-    return '<button data-oa-link="'+esc(cid)+'" data-pda-line="'+esc(cid)+'" onclick="event.stopPropagation();_openOfficialAcctMenu(event,\''+esc(cid)+'\')" title="'+esc(links.map(function(l){return l.gname;}).join(' / '))+'" style="'+w+'font-size:'+fs+';font-weight:700;padding:3px 8px;border-radius:5px;cursor:pointer;border:1.5px solid '+_bd+';background:'+_bg+';color:'+_cl+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;">✔ '+esc(nm)+'</button>';
+    return '<button data-oa-link="'+esc(cid)+'" data-oa-sz="'+esc(opts.size||'')+'" data-oa-w="'+esc(opts.width||'')+'" data-pda-line="'+esc(cid)+'" onclick="event.stopPropagation();_openOfficialAcctMenu(event,\''+esc(cid)+'\')" title="'+esc(links.map(function(l){return l.gname;}).join(' / '))+'" style="'+w+'font-size:'+fs+';font-weight:700;padding:3px 8px;border-radius:5px;cursor:pointer;border:1.5px solid '+_bd+';background:'+_bg+';color:'+_cl+';overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;">✔ '+esc(nm)+'</button>';
   }
-  return '<button data-oa-link="'+esc(cid)+'" data-pda-line="'+esc(cid)+'" onclick="event.stopPropagation();_openOfficialAcctMenu(event,\''+esc(cid)+'\')" style="'+w+'font-size:'+fs+';font-weight:700;padding:3px 8px;border-radius:5px;cursor:pointer;border:1.5px dashed #94a3b8;background:white;color:#475569;white-space:nowrap;">🔗 公式アカウント紐づけ ⌄</button>';
+  return '<button data-oa-link="'+esc(cid)+'" data-oa-sz="'+esc(opts.size||'')+'" data-oa-w="'+esc(opts.width||'')+'" data-pda-line="'+esc(cid)+'" onclick="event.stopPropagation();_openOfficialAcctMenu(event,\''+esc(cid)+'\')" style="'+w+'font-size:'+fs+';font-weight:700;padding:3px 8px;border-radius:5px;cursor:pointer;border:1.5px dashed #94a3b8;background:white;color:#475569;white-space:nowrap;">🔗 公式アカウント紐づけ ⌄</button>';
 }
 // 個別案内ボタン（未紐づけはグレーアウト）
 function _individualNoticeBtnHtml(cid, opts){
   opts = opts || {};
   var fs = (opts.size==='sm') ? '9px' : '10px';
   var w  = opts.width ? ('display:block;width:'+opts.width+';box-sizing:border-box;') : '';
+  var _da = ' data-oa-notice="'+esc(cid)+'" data-oa-nsz="'+esc(opts.size||'')+'" data-oa-nw="'+esc(opts.width||'')+'" data-oa-ndocs="'+(opts.docs?'1':'')+'"';
   var linked = _officialAcctLinks(cid).length > 0;
   if(!linked){
-    return '<button onclick="event.stopPropagation();showToast(\'先に公式アカウントを紐づけてください\')" style="'+w+'font-size:'+fs+';font-weight:700;padding:3px 8px;border-radius:5px;cursor:pointer;border:1.5px solid #e2e8f0;background:#f8fafc;color:#cbd5e1;white-space:nowrap;">📣 個別案内</button>';
+    return '<button'+_da+' onclick="event.stopPropagation();showToast(\'先に公式アカウントを紐づけてください\')" style="'+w+'font-size:'+fs+';font-weight:700;padding:3px 8px;border-radius:5px;cursor:pointer;border:1.5px solid #e2e8f0;background:#f8fafc;color:#cbd5e1;white-space:nowrap;">📣 個別案内</button>';
   }
-  return '<button onclick="event.stopPropagation();_openIndividualNoticeModal(\''+esc(cid)+'\',{docs:'+(opts.docs?'true':'false')+'})" style="'+w+'font-size:'+fs+';font-weight:700;padding:3px 8px;border-radius:5px;cursor:pointer;border:1.5px solid #85B7EB;background:#E6F1FB;color:#185FA5;white-space:nowrap;">📣 個別案内</button>';
+  return '<button'+_da+' onclick="event.stopPropagation();_openIndividualNoticeModal(\''+esc(cid)+'\',{docs:'+(opts.docs?'true':'false')+'})" style="'+w+'font-size:'+fs+';font-weight:700;padding:3px 8px;border-radius:5px;cursor:pointer;border:1.5px solid #85B7EB;background:#E6F1FB;color:#185FA5;white-space:nowrap;">📣 個別案内</button>';
+}
+// ver.20260806.10: 紐づけマップ読込後などに、実DOM上の紐づけバッジ・個別案内ボタンをその場で貼り替える。
+//   renderCases未定義で一覧が再描画されず、line_group_cases登録済みでも未紐づけ表示のまま残る問題への対処。
+//   各要素は自分の描画オプション(size/width/docs)をdata属性に持つので、元の見た目のまま作り直せる。
+function _refreshOfficialAcctBadges(){
+  try{
+    document.querySelectorAll('[data-oa-link]').forEach(function(el){
+      var cid = el.getAttribute('data-oa-link'); if(!cid) return;
+      var opts = {}; var _sz=el.getAttribute('data-oa-sz'); var _w=el.getAttribute('data-oa-w');
+      if(_sz) opts.size=_sz; if(_w) opts.width=_w;
+      el.outerHTML = _officialAcctBoxHtml(cid, opts);
+    });
+  }catch(e){}
+  try{
+    document.querySelectorAll('[data-oa-notice]').forEach(function(el){
+      var cid = el.getAttribute('data-oa-notice'); if(!cid) return;
+      var opts = {}; var _sz=el.getAttribute('data-oa-nsz'); var _w=el.getAttribute('data-oa-nw');
+      if(_sz) opts.size=_sz; if(_w) opts.width=_w; if(el.getAttribute('data-oa-ndocs')==='1') opts.docs=true;
+      el.outerHTML = _individualNoticeBtnHtml(cid, opts);
+    });
+  }catch(e){}
 }
 // チャネル3択メニュー
 // ver.20260731: Messenger紐づけフラグのトグル（自動催促の対象外・表記のみ）
