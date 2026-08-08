@@ -4935,7 +4935,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260808.01';
+var OFUSA_VERSION = 'ver.20260808.02';
 // ver.20260806.09: 表示用バージョンは常に OFUSA_VERSION から同期する（内部変数だけ上げて表示が古いまま残るミスを恒久防止）。
 try{ var _vEls=document.querySelectorAll('.js-app-version'); for(var _vi=0;_vi<_vEls.length;_vi++){ _vEls[_vi].textContent = OFUSA_VERSION; } }catch(e){}
 // ver.20260804.22: 起動時刻。ページ読み込み直後のSIGNED_OUT誤検知を避けるために使う。
@@ -84155,28 +84155,65 @@ function runFacePhotoProcess(caseId){
 }
 
 function findFacePhotoFile(caseId,files,btn,resEl){
-  var faceKw=['顔写真','写真','photo','face','kao','顔'];
-  var candidates=files.filter(function(f){
-    var nm=(f.name||'').toLowerCase();
-    return faceKw.some(function(kw){return nm.indexOf(kw.toLowerCase())>=0;}) && nm.match(/\.(png|jpg|jpeg|heic|webp)$/i);
-  });
-  // なければ画像ファイル全部を候補
-  if(!candidates.length){
-    candidates=files.filter(function(f){return (f.name||'').match(/\.(png|jpg|jpeg|heic|webp)$/i);});
-  }
-  if(!candidates.length){
+  // ver.20260808.02: 拡張子なしファイル対応＋「顔写真」完全一致優先＋重複除去
+  // - 画像判定: mimeType='image/*' もしくは拡張子（.png/.jpg/.jpeg/.heic/.webp/.gif/.bmp）
+  //   もしくは拡張子が無くても顔写真キーワードを含むファイル名（Google Driveで拡張子省略保存されるケース）
+  var IMG_EXT_RE=/\.(png|jpg|jpeg|heic|webp|gif|bmp)$/i;
+  var isImageFile=function(f){
+    var mt=String(f.mimeType||'').toLowerCase();
+    if(mt.indexOf('image/')===0) return true;
+    var nm=String(f.name||'');
+    if(IMG_EXT_RE.test(nm)) return true;
+    // 拡張子なし＋顔写真キーワード＝顔写真の可能性が高い（GAS側でmimeType未返却でも救う）
+    if(!/\.[a-z0-9]{2,5}$/i.test(nm) && /(顔写真|顔|写真|photo|face|kao)/i.test(nm)) return true;
+    return false;
+  };
+  // 重複除去（同じIDが複数回入っているケース対策）
+  var seen={};
+  files=files.filter(function(f){ if(!f||!f.id||seen[f.id]) return false; seen[f.id]=1; return true; });
+  // 画像だけ抽出
+  var imgs=files.filter(isImageFile);
+  if(!imgs.length){
     resEl.innerHTML='<div style="color:#dc2626;font-weight:700;">❌ 画像ファイルが見つかりませんでした。</div>';
     btn.disabled=false;btn.textContent='加工実行';return;
+  }
+  // 優先度スコアリング
+  // 100: 「顔写真」完全一致（拡張子有無問わず）
+  //  80: 「顔写真」を含む
+  //  60: 「写真」「photo」「face」「kao」「顔」を含む
+  //  10: それ以外の画像
+  var scoreOf=function(f){
+    var nm=String(f.name||'');
+    var base=nm.replace(IMG_EXT_RE,'').toLowerCase();
+    if(base==='顔写真') return 100;
+    if(nm.indexOf('顔写真')>=0) return 80;
+    if(/(写真|photo|face|kao|顔)/i.test(nm)) return 60;
+    return 10;
+  };
+  imgs.forEach(function(f){ f._score=scoreOf(f); });
+  imgs.sort(function(a,b){ return b._score-a._score; });
+  var topScore=imgs[0]._score;
+  var candidates;
+  if(topScore>=60){
+    // 顔写真らしいものが1件以上あるならそれだけを候補にする
+    candidates=imgs.filter(function(f){return f._score>=60;});
+  } else {
+    // なければ画像ファイル全部を候補
+    candidates=imgs;
   }
   if(candidates.length===1){
     executeFacePhotoProcess(caseId,candidates[0].id,candidates[0].name,btn,resEl);
     return;
   }
-  // 複数候補→選択UI
+  // 複数候補→選択UI（優先度順に表示、最上位候補はハイライト）
   var h='<div style="font-weight:700;color:#5b21b6;margin-bottom:8px;">📂 顔写真を選択してください：</div>';
-  candidates.forEach(function(f){
-    h+='<div onclick="executeFacePhotoProcess(\''+caseId+'\',\''+f.id+'\',\''+esc(f.name)+'\')" style="background:#f5f3ff;border:1.5px solid #c4b5fd;border-radius:8px;padding:10px 14px;margin-bottom:6px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:.2s;" onmouseover="this.style.borderColor=\'#7c3aed\'" onmouseout="this.style.borderColor=\'#c4b5fd\'">';
-    h+='<span style="font-size:20px;">🖼️</span><div style="font-weight:600;font-size:12px;color:var(--navy);">'+esc(f.name)+'</div></div>';
+  candidates.forEach(function(f,i){
+    var isTop=(f._score===topScore && i===0);
+    var borderCol=isTop?'#7c3aed':'#c4b5fd';
+    var bgCol=isTop?'#ede9fe':'#f5f3ff';
+    var badge=isTop?'<span style="margin-left:auto;font-size:10px;background:#7c3aed;color:white;padding:2px 8px;border-radius:6px;font-weight:700;">最有力</span>':'';
+    h+='<div onclick="executeFacePhotoProcess(\''+caseId+'\',\''+f.id+'\',\''+esc(f.name)+'\')" style="background:'+bgCol+';border:1.5px solid '+borderCol+';border-radius:8px;padding:10px 14px;margin-bottom:6px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:.2s;" onmouseover="this.style.borderColor=\'#7c3aed\'" onmouseout="this.style.borderColor=\''+borderCol+'\'">';
+    h+='<span style="font-size:20px;">🖼️</span><div style="font-weight:600;font-size:12px;color:var(--navy);flex:1;">'+esc(f.name)+'</div>'+badge+'</div>';
   });
   resEl.innerHTML=h;
   btn.disabled=false;btn.textContent='加工実行';
