@@ -4971,7 +4971,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260811.02';
+var OFUSA_VERSION = 'ver.20260811.03';
 // ver.20260810.28: ステータスバッジ共通スタイル（全画面統一）
 var _STATUS_STYLE={
   '未着手':['#f8fafc','#64748b','#e2e8f0'],
@@ -6958,14 +6958,14 @@ function persistShinsaData(specificCaseId){
   if(!DB_READY) return;
   // 特定case_idのみ同期（1件更新の場合）
   if(specificCaseId) {
-    if(!cData.find(function(c){return c.id===specificCaseId;})) return;
+    if(!_caseIndex()[specificCaseId]) return;
     var s = shinsaData[specificCaseId]||{};
     _sb.from('shinsa_data').upsert({case_id:specificCaseId, done:s.done||false, date:s.date||null, items:s},{onConflict:'case_id'}).then(function(r){if(r.error)console.error('shinsa sync err:',r.error);});
     return;
   }
   // 全件同期が必要な場合は50件ずつ直列バッチ処理（ERR_INSUFFICIENT_RESOURCES防止）
   var rows = Object.keys(shinsaData).filter(function(caseId){
-    return cData.find(function(c){return c.id===caseId;});
+    return _caseIndex()[caseId];
   }).map(function(caseId){
     var s = shinsaData[caseId]||{};
     return {case_id:caseId, done:s.done||false, date:s.date||null, items:s};
@@ -36954,7 +36954,7 @@ function updateReviewBadge() {
   Object.keys(caseNotes).forEach(function(id){
     var note = caseNotes[id];
     if(!note || (!note.confirm && note.confirmState !== 1) || note.replied) return;
-    var c = cData.find(function(x){return x.id===id;});
+    var c = _caseIndex()[id];
     if(note.assignee && note.assignee === me) { count++; return; }
     if(!note.assignee && c && (c.staff||'') === me) { count++; return; }
   });
@@ -36971,14 +36971,14 @@ function updateReviewBadge() {
     var tn = taskNotifications[tkey]; if(!tn) return;
     if((tn.to||'') !== me) return;
     if((tn.state||1) !== 1) return;
-    if(cData.find(function(x){ return x.id===tn.caseId; })) count++;
+    if(_caseIndex()[tn.caseId]) count++;
   });
   // 回答確認バッジ（専用バッジのみ更新・サイドバーには合算しない）
   var acCount = 0;
   Object.keys(taskNotifications).forEach(function(tkey){
     var tn = taskNotifications[tkey]; if(!tn) return;
     if((tn.to||'')=== me) {
-      var _cExist = cData.find(function(x){ return x.id===tn.caseId; });
+      var _cExist = _caseIndex()[tn.caseId];
       if(_cExist) { acCount++; }
     }
   });
@@ -43212,6 +43212,7 @@ function persistSupportOrgs(soId) {
 }
 var _persistCompaniesTimer = null;
 function persistCompanies(coId, silent) {
+  try{ _invalidateCompanyIndex(); }catch(e){}
   try { localStorage.setItem('ofusa_companies', JSON.stringify(companies)); } catch(e) {}
   if (coId) {
     // 特定1社だけ即時DB保存（updated_at更新あり）
@@ -59114,7 +59115,7 @@ function renderKanbanV() {
   caseGroups.forEach(function(g){
     if(!groupHasVisible[g.id]) return;
     (g.caseIds||[]).forEach(function(cid){
-      var c = cData.find(function(x){return x.id===cid;});
+      var c = _caseIndex()[cid];
       if(c) groupCaseMap[g.id].push(c);
     });
   });
@@ -59206,7 +59207,7 @@ function renderKanbanV() {
   _dragTarget.querySelectorAll('[draggable="true"]').forEach(function(card){
     card.addEventListener('dragstart', function(e){
       _kanbanDragCid = this.dataset.cid;
-      _kanbanDragStatus = (cData.find(function(x){return x.id===_kanbanDragCid;})||{}).status;
+      _kanbanDragStatus = (_caseIndex()[_kanbanDragCid]||{}).status;
       e.dataTransfer.effectAllowed='move';
       this.style.opacity='0.5';
     });
@@ -74791,15 +74792,13 @@ function _findDupCompanies(name, supportOrgName, exceptId){
 }
 function findCompanyByName(name, companyId) {
   if (!name && !companyId) return null;
-  // IDが指定されていればIDで優先マッチ
+  var _idx = _companyIndex();   // ver.20260811.03: O(1)索引参照
   if (companyId) {
-    var byId = companies.find(function(x){ return x.id === companyId; });
+    var byId = _idx.byId[companyId];
     if (byId) return byId;
   }
-  // 名前でフォールバック
   if (!name) return null;
-  var n = normalizeCoName(name);
-  return companies.find(function(x){ return normalizeCoName(x.name) === n; }) || null;
+  return _idx.byName[normalizeCoName(name)] || null;
 }
 
 function findCasesByName(mailName) {
@@ -74922,7 +74921,7 @@ function renderMails() {
   var fOrg   = (document.getElementById('gmailFilterOrg')||{}).value||'';
   if(fStaff || fOrg) {
     _filteredMails = _filteredMails.filter(function(m){
-      var lc = m.linkedCase ? cData.find(function(c){return c.id===m.linkedCase;}) : null;
+      var lc = m.linkedCase ? _caseIndex()[m.linkedCase] : null;
       var staff = lc ? (lc.staff||'') : '';
       var org   = lc ? (lc.org||lc.company||'') : (m.org||'');
       if(fStaff && staff !== fStaff) return false;
@@ -74936,7 +74935,7 @@ function renderMails() {
   if(staffSel && staffSel.options.length <= 1){
     var staffSet={}, orgSet={};
     MAILS.forEach(function(m){
-      var lc = m.linkedCase ? cData.find(function(c){return c.id===m.linkedCase;}) : null;
+      var lc = m.linkedCase ? _caseIndex()[m.linkedCase] : null;
       if(lc && lc.staff) staffSet[lc.staff]=1;
       var o = lc ? (lc.org||lc.company||'') : (m.org||'');
       if(o) orgSet[o]=1;
@@ -78984,6 +78983,17 @@ function _caseIndex(){
   return m;
 }
 function _invalidateCaseIndex(){ _caseIdxCache=null; _caseIdxLen=-1; }
+// ver.20260811.03: 企業索引（id・正規化名）。findCompanyByName の全走査＋毎回正規化を解消
+var _coIdxCache=null, _coIdxLen=-1;
+function _companyIndex(){
+  var len=(typeof companies!=='undefined'&&companies)?companies.length:0;
+  if(_coIdxCache && _coIdxLen===len) return _coIdxCache;
+  var byId={}, byName={};
+  for(var i=0;i<len;i++){ var c=companies[i]; if(!c)continue; if(c.id) byId[c.id]=c; if(c.name){ var nk=normalizeCoName(c.name); if(nk && !byName[nk]) byName[nk]=c; } }
+  _coIdxCache={byId:byId, byName:byName}; _coIdxLen=len;
+  return _coIdxCache;
+}
+function _invalidateCompanyIndex(){ _coIdxCache=null; _coIdxLen=-1; }
 // ver.20260724.16: 受付/審査/認定の各アーカイブを caseId で索引化（件数が変わったら作り直す）
 var _listIdxCache={}, _listIdxLen={};
 function _listIdxByCase(kind){
@@ -83276,7 +83286,7 @@ function openDuplicateCaseFromSel(){
   var MAX_COPIES = 20;
   if(ids.length === 1){
     var srcId = ids[0];
-    var sc = (typeof cData!=='undefined' && cData) ? cData.find(function(x){ return x.id===srcId; }) : null;
+    var sc = (typeof cData!=='undefined' && cData) ? _caseIndex()[srcId] : null;
     if(!sc){ showToast('⚠️ 複製元が見つかりません'); return; }
     var scName = sc.applicant || sc.name || '(名前未設定)';
     var ans = prompt('この案件を何件複製しますか？（1〜' + MAX_COPIES + '）\n\n📂 ' + scName + '\n🏢 ' + (sc.company||''), '1');
@@ -83309,7 +83319,7 @@ function openDuplicateCaseFromSel(){
   var names = [];
   ids.forEach(function(id, i){
     if(i >= MAX_LIST) return;
-    var c = (typeof cData!=='undefined' && cData) ? cData.find(function(x){ return x.id===id; }) : null;
+    var c = (typeof cData!=='undefined' && cData) ? _caseIndex()[id] : null;
     names.push('・' + ((c && (c.applicant || c.name)) || id));
   });
   if(ids.length > MAX_LIST) names.push('　…ほか ' + (ids.length - MAX_LIST) + ' 件');
@@ -89581,7 +89591,8 @@ function loadAllFromSupabase() {
   // 2. 企業（全件取得）
   fetchAllRows('companies', {order:'id',ascending:true}, function(rows) {
     if (rows.length) {
-      companies = rows.map(function(r) {
+      try{ _invalidateCompanyIndex(); }catch(e){}
+        companies = rows.map(function(r) {
         return {
           id:r.id, name:r.name||'', nameKana:r.name_kana||'', nameEn:r.name_en||'',
           corpNo:r.corp_no||'', empInsNo:r.emp_ins_no||'', laborInsNo:r.labor_ins_no||'',
@@ -94638,7 +94649,7 @@ function openTsuikan(){
     var staffs = [];
     TSUIKAN_MAILS.forEach(function(m){
       if(!m.linkedCase) return;
-      var lc=cData.find(function(c){return c.id===m.linkedCase;});
+      var lc=_caseIndex()[m.linkedCase];
       if(lc&&lc.staff&&staffs.indexOf(lc.staff)<0) staffs.push(lc.staff);
     });
     staffs.sort();
@@ -94652,7 +94663,7 @@ function openTsuikan(){
     var orgNames = [];
     TSUIKAN_MAILS.forEach(function(m){
       if(!m.linkedCase) return;
-      var lc=cData.find(function(c){return c.id===m.linkedCase;});
+      var lc=_caseIndex()[m.linkedCase];
       if(lc&&lc.org&&orgNames.indexOf(lc.org)<0) orgNames.push(lc.org);
     });
     // supportOrgsからfolderNoを引いてソート
