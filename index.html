@@ -4936,7 +4936,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260808.03';
+var OFUSA_VERSION = 'ver.20260808.05';
 // ver.20260806.09: 表示用バージョンは常に OFUSA_VERSION から同期する（内部変数だけ上げて表示が古いまま残るミスを恒久防止）。
 try{ var _vEls=document.querySelectorAll('.js-app-version'); for(var _vi=0;_vi<_vEls.length;_vi++){ _vEls[_vi].textContent = OFUSA_VERSION; } }catch(e){}
 // ver.20260804.22: 起動時刻。ページ読み込み直後のSIGNED_OUT誤検知を避けるために使う。
@@ -28075,7 +28075,7 @@ function openProgressCustomizeEdit(orgId){
       _shareLink.style.display = 'none';
     }
   }
-  // ver.20260808.03: 進捗URLの隣に閲覧パスワードを表示（クリックでコピー）
+  // ver.20260808.05: 進捗URLの隣に閲覧パスワードを表示（クリックでコピー）
   var _passBadge = document.getElementById('pcEditPassBadge');
   if(_passBadge){
     if(o.token && o.pass){
@@ -38300,11 +38300,128 @@ function autoPickAssignee(caseId, taskIdx){
   return pick;
 }
 
+function _openReassignPreview(){
+  _advanceShiftTermsToToday();
+  var changes=_computeShiftReassign();
+  if(!changes.length){ showToast('✅ 振り直しの対象はありません（全員が今週の班に居ます）'); return; }
+  var ex=document.getElementById('_reassignPreview'); if(ex) ex.remove();
+  var byCase={};
+  changes.forEach(function(ch){ (byCase[ch.caseName]=byCase[ch.caseName]||[]).push(ch); });
+  var rows='';
+  Object.keys(byCase).forEach(function(nm){
+    rows+='<div style="margin-bottom:8px;"><div style="font-size:12px;font-weight:800;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(nm)+'</div>';
+    byCase[nm].forEach(function(ch){
+      rows+='<div style="display:flex;align-items:center;gap:6px;font-size:11.5px;padding:2px 0 2px 8px;color:#334155;">'
+         +'<span style="min-width:70px;color:#64748b;">'+esc(ch.taskName)+'</span>'
+         +'<span style="color:#94a3b8;">'+esc(ch.groupLabel)+'班</span>'
+         +'<span style="margin-left:auto;"><span style="color:#dc2626;text-decoration:line-through;">'+esc(ch.from)+'</span> → <span style="color:#16a34a;font-weight:800;">'+esc(ch.to)+'</span></span></div>';
+    });
+    rows+='</div>';
+  });
+  var m=document.createElement('div'); m.id='_reassignPreview';
+  m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:10010;display:flex;align-items:center;justify-content:center;padding:18px;';
+  m.onclick=function(e){ if(e.target===m) m.remove(); };
+  m.innerHTML='<div style="background:#fff;border-radius:14px;max-width:560px;width:100%;max-height:86vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3);">'
+    +'<div style="padding:16px 20px;border-bottom:1px solid #e5e7eb;"><div style="font-size:15px;font-weight:900;color:#0f172a;">🔁 今週の班で振り直し</div>'
+    +'<div style="font-size:11.5px;color:#64748b;margin-top:3px;">今週の班から外れた担当（'+changes.length+'件）を、今週の班の人へ振り直します。今週も同じ班の人はそのままです。</div></div>'
+    +'<div style="flex:1;overflow-y:auto;padding:14px 20px;">'+rows+'</div>'
+    +'<div style="display:flex;gap:8px;padding:14px 20px;border-top:1px solid #e5e7eb;">'
+    +'<button onclick="_confirmReassignApply()" style="flex:1;padding:11px;background:#2563eb;color:#fff;border:none;border-radius:9px;font-weight:800;font-size:13px;cursor:pointer;">✅ 確認して振り直す（'+changes.length+'件）</button>'
+    +'<button onclick="document.getElementById(\'_reassignPreview\').remove()" style="padding:11px 18px;background:#f1f5f9;color:#475569;border:none;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;">キャンセル</button></div></div>';
+  document.body.appendChild(m);
+  window._reassignChanges=changes;
+}
+function _confirmReassignApply(){
+  var ch=window._reassignChanges||[];
+  _applyShiftReassign(ch);
+  var m=document.getElementById('_reassignPreview'); if(m) m.remove();
+  window._reassignChanges=null;
+}
 function persistShiftRoster(){
   if(!DB_READY) return;
   shiftRoster.updatedAt = new Date().toISOString();
   _sb.from('settings').upsert({key:'shiftRoster', value:JSON.stringify(shiftRoster)},{onConflict:'key'})
     .then(function(r){ if(r.error) console.error('shiftRoster save err', r.error); });
+}
+
+// ===== ver.20260808.05: 今週の班編成に合わせて担当を振り直す =====
+//   担当が今週の班から外れた人の名前を消し、今週の班の人へ再割り振り。
+//   今週も同じ班に残っている人はそのまま。完了・不要タスクは触らない。
+function _pickLeastLoadedForReassign(members, groupKey, work, rr){
+  var groupTaskIdx = (SHIFT_GROUPS[groupKey] && SHIFT_GROUPS[groupKey].taskIdx) || null;
+  var load = {}; members.forEach(function(m){ load[m]=0; });
+  (typeof cData!=='undefined'?cData:[]).forEach(function(c){
+    if(!c || c.status==='完了') return;
+    for(var i=0;i<TASK_NAMES.length;i++){
+      if(groupTaskIdx && groupTaskIdx.indexOf(i)<0) continue;
+      var key=c.id+'_'+i; var a=work[key];
+      if(!a || members.indexOf(a)<0) continue;
+      var st=docTaskStatus[key]||0; if(st<1||st>=4) continue;   // 依頼済み(1〜3)だけ負荷
+      load[a]=(load[a]||0)+1;
+    }
+  });
+  var minN=Infinity; members.forEach(function(m){ if((load[m]||0)<minN) minN=load[m]||0; });
+  var cand=members.filter(function(m){ return (load[m]||0)===minN; });
+  if(cand.length===1) return cand[0];
+  // 同着は回転で分散
+  rr.i = (rr.i||0);
+  var pick = cand[rr.i % cand.length];
+  rr.i++;
+  return pick;
+}
+function _computeShiftReassign(){
+  var changes=[];
+  if(typeof cData==='undefined' || !Array.isArray(cData)) return changes;
+  var work={}; Object.keys(taskAssignee||{}).forEach(function(k){ work[k]=taskAssignee[k]; });
+  function grpMembers(gk){ return (currentShiftTerm()[gk])||[]; }
+  function anchorKey(caseId, gk){ var ids=_caseIdsInSameGroup(caseId); return (ids.slice().sort().join(',')||caseId)+'|'+gk; }
+  var anchor={}, rr={i:0}, targets=[];
+  // ① 据え置き（今週の班に残っている担当）をアンカーに、外れた担当を対象に
+  cData.forEach(function(c){
+    if(!c) return;
+    for(var i=0;i<TASK_NAMES.length;i++){
+      var key=c.id+'_'+i; var cur=work[key];
+      if(!cur) continue;
+      var st=docTaskStatus[key]||0; if(st>=4) continue;            // 完了(4)・不要(5)は触らない
+      var gk=_shiftGroupOf(i); var mem=grpMembers(gk);
+      if(!mem.length) continue;                                    // 班未設定はスキップ（名前を消さない）
+      if(mem.indexOf(cur)>=0){ var ak0=anchorKey(c.id,gk); if(!anchor[ak0]) anchor[ak0]=cur; }
+      else { targets.push({c:c,i:i,key:key,cur:cur,gk:gk,mem:mem}); }
+    }
+  });
+  // ② 再割り振り（同案件・同班はそろえる → 無ければ班内で負荷最少）
+  targets.forEach(function(t){
+    var ak=anchorKey(t.c.id,t.gk);
+    var to=anchor[ak];
+    if(!to){ to=_pickLeastLoadedForReassign(t.mem,t.gk,work,rr); if(to) anchor[ak]=to; }
+    if(to && to!==t.cur){
+      work[t.key]=to;
+      changes.push({caseId:t.c.id, caseName:(t.c.name||t.c.id), taskIdx:t.i,
+        taskName:(TASK_NAMES[t.i]||('タスク'+t.i)),
+        groupLabel:(SHIFT_GROUPS[t.gk]&&SHIFT_GROUPS[t.gk].label)||t.gk,
+        from:t.cur, to:to});
+    }
+  });
+  return changes;
+}
+function _applyShiftReassign(changes){
+  if(!changes || !changes.length) return;
+  var rows=[];
+  changes.forEach(function(ch){
+    var key=ch.caseId+'_'+ch.taskIdx;
+    taskAssignee[key]=ch.to;
+    rows.push({case_id:ch.caseId, task_index:ch.taskIdx, assignee:ch.to});
+    var sel=document.getElementById('taskAssignee_'+ch.taskIdx);
+    if(sel && (currentCase && currentCase.id===ch.caseId)) sel.value=ch.to;
+  });
+  try{ localStorage.setItem('ofusa_taskAssignee', JSON.stringify(taskAssignee)); }catch(e){}
+  if(DB_READY && rows.length){
+    _sb.from('doc_tasks').upsert(rows,{onConflict:'case_id,task_index'})
+       .then(function(r){ if(r.error){ console.error('reassign upsert err', r.error); showToast('❌ 保存に一部失敗しました'); } });
+  }
+  showToast('🔁 '+changes.length+'件の担当を今週の班へ振り直しました');
+  try{ if(typeof applyFilters==='function') applyFilters(); }catch(e){}
+  try{ if(typeof renderTaskList==='function') renderTaskList(); }catch(e){}
 }
 
 // ===== ver.20260803.09: 担当者別 稼働ダッシュボード =====
@@ -39260,6 +39377,7 @@ function _wqOpen(caseId){
 var _shiftEditTerm = 0;   // 0=今期, 1=次期, 2=次々期
 function openShiftRosterModal(){
   _shiftEditTerm = 0;
+  _advanceShiftTermsToToday();   // ver.20260808.05: 期限切れなら今週へ繰り上げてから開く
   _ensureShiftTerms();
   var m = document.getElementById('shiftRosterModal');
   if(!m){
@@ -39273,6 +39391,36 @@ function openShiftRosterModal(){
   }
   m.style.display = 'flex';
   renderShiftRosterModal();
+}
+/** その日付の週の月曜（YYYY-MM-DD, JST基準）*/
+function _thisMonday(dstr){
+  var base = new Date((dstr || _localDateStr()) + 'T12:00:00Z');
+  var dow = base.getUTCDay();            // 0=日..6=土
+  var off = (dow === 0) ? -6 : (1 - dow); // 月曜開始
+  base.setUTCDate(base.getUTCDate() + off);
+  return base.toISOString().slice(0,10);
+}
+/** ver.20260808.05: 期限切れの班編成を「今週」へ繰り上げる。
+ *  ・今日をカバーする期があれば何もしない（先に組んだ次期があれば自動で稼働中になる）。
+ *  ・無ければ＝今期が期限切れ。班メンバーはそのまま維持し、日付だけ今週(月曜)に更新。開始が今週より前の古い期は消す。 */
+function _advanceShiftTermsToToday(){
+  try{
+    if(!shiftRoster || !shiftRoster.terms || !shiftRoster.terms.length) return false;
+    var today = _localDateStr();
+    var terms = shiftRoster.terms.slice().sort(function(a,b){ return (a.start||'').localeCompare(b.start||''); });
+    var covers = terms.some(function(t){ return t.start && t.start<=today && (!t.end || today<=t.end); });
+    if(covers) return false;   // 今日をカバーする期がある → 自動切替でOK、触らない
+    var mon = _thisMonday(today);
+    // 期限切れ(end<today)のうち最新の期を今週へ繰り上げ（無ければ先頭の期）。班メンバーは維持。
+    var expired = terms.filter(function(t){ return t.end && t.end < today; });
+    var base = expired.length ? expired[expired.length-1] : terms[0];
+    base.start = mon; base.end = _addDays(mon, 13);
+    // 今週より前に始まる古い期は落とす
+    shiftRoster.terms = terms.filter(function(t){ return !(t.start && t.start < mon); });
+    _ensureShiftTerms();       // 3期に整える（次期・次々期は空で補完）
+    persistShiftRoster();
+    return true;
+  }catch(e){ console.warn('_advanceShiftTermsToToday', e); return false; }
 }
 /** terms が足りなければ3期分を用意（開始日を2週間刻みで自動採番）*/
 function _ensureShiftTerms(){
@@ -39344,8 +39492,9 @@ function renderShiftRosterModal(){
     });
     h += '</div></div>';
   });
-  h += '<div style="display:flex;gap:8px;margin-top:6px;">'
-     + '<button onclick="saveShiftRoster()" style="flex:1;padding:11px;background:#2563eb;color:white;border:none;border-radius:9px;font-weight:800;font-size:13px;cursor:pointer;">💾 保存</button>'
+  h += '<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;">'
+     + '<button onclick="saveShiftRoster()" style="flex:1;min-width:120px;padding:11px;background:#2563eb;color:white;border:none;border-radius:9px;font-weight:800;font-size:13px;cursor:pointer;">💾 保存</button>'
+     + '<button onclick="_openReassignPreview()" style="flex:1;min-width:120px;padding:11px;background:#0f766e;color:white;border:none;border-radius:9px;font-weight:800;font-size:13px;cursor:pointer;">🔁 今週の班で振り直す</button>'
      + '<button onclick="_copyShiftTerm()" style="padding:11px 14px;background:#f1f5f9;color:#475569;border:none;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;">📋 次の期へコピー</button>'
      + '<button onclick="closeShiftRosterModal()" style="padding:11px 18px;background:#f1f5f9;color:#475569;border:none;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;">閉じる</button>'
      + '</div>';
@@ -89442,6 +89591,7 @@ function loadAllFromSupabase() {
               var _sr=JSON.parse(s.value);
               if(_sr && typeof _sr==='object'){
                 shiftRoster=_sr;
+                try{ _advanceShiftTermsToToday(); }catch(_adv){}   // ver.20260808.05: 期限切れなら今週へ繰り上げ
                 var _ct = (typeof currentShiftTerm==='function') ? currentShiftTerm() : null;
                 console.log('📦 班編成を読み込みました', _ct && _ct.start ? (_ct.start+'〜'+(_ct.end||'')) : '(有効な期なし)');
                 // 開いている画面があれば反映
