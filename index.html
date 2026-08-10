@@ -4960,7 +4960,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260810.17';
+var OFUSA_VERSION = 'ver.20260810.18';
 // ver.20260806.09: 表示用バージョンは常に OFUSA_VERSION から同期する（内部変数だけ上げて表示が古いまま残るミスを恒久防止）。
 try{ var _vEls=document.querySelectorAll('.js-app-version'); for(var _vi=0;_vi<_vEls.length;_vi++){ _vEls[_vi].textContent = OFUSA_VERSION; } }catch(e){}
 // ver.20260804.22: 起動時刻。ページ読み込み直後のSIGNED_OUT誤検知を避けるために使う。
@@ -45352,22 +45352,56 @@ function _sbOrgLinkBadgeHtml(orgId){
   if(!b) b='<span style="font-size:9.5px;color:#cbd5e1;margin-left:4px;">公式アカウント未連携（メールのみ）</span>';
   return b;
 }
-// ver.20260810.17: 支援機関の配信先メールを一覧から直接設定（配信モーダル・登録支援機関マスタの両方から）
+// ver.20260810.18: 支援機関の配信先メールを分かりやすいモーダルで設定（1行1メール）
 function _soSetEmailPrompt(orgId, mode){
   var o = (typeof supportOrgs!=='undefined'?(supportOrgs||[]):[]).find(function(x){return x.id===orgId;});
   if(!o){ return; }
-  var cur = (o.extra && Array.isArray(o.extra.emails)) ? o.extra.emails.join(', ') : '';
-  var input = prompt('「'+(o.name||'')+'」の配信先メールアドレスを入力してください。\n複数ある場合はカンマ区切り。（空にすると削除）', cur);
-  if(input===null) return;
-  var arr = String(input).split(/[,、\s]+/).map(function(e){return e.trim();}).filter(Boolean);
+  var cur = (o.extra && Array.isArray(o.extra.emails)) ? o.extra.emails : [];
+  window._soEmailModalCtx = { orgId: orgId, mode: mode };
+  var ov = document.getElementById('_soEmailModal');
+  if(!ov){
+    ov = document.createElement('div');
+    ov.id = '_soEmailModal';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:100000;display:flex;align-items:center;justify-content:center;padding:16px;';
+    ov.addEventListener('click', function(e){ if(e.target===ov) _soCloseEmailModal(); });
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML = ''
+    + '<div style="background:#fff;border-radius:14px;max-width:460px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;">'
+    +   '<div style="padding:16px 20px;background:#f8fafc;border-bottom:1px solid #e2e8f0;">'
+    +     '<div style="font-size:15px;font-weight:800;color:#0f172a;">✉️ 配信先メールアドレスの設定</div>'
+    +     '<div style="font-size:12px;color:#64748b;margin-top:2px;">'+esc(o.name||'')+'</div>'
+    +   '</div>'
+    +   '<div style="padding:18px 20px;">'
+    +     '<div style="font-size:12px;color:#475569;margin-bottom:8px;line-height:1.7;">配信先メールを <b>1行に1つずつ</b> 入力してください。<br>複数OK。空にして保存すると削除します。</div>'
+    +     '<textarea id="_soEmailModalTa" rows="5" placeholder="例）&#10;info@company.co.jp&#10;tanto@company.co.jp" style="width:100%;box-sizing:border-box;font-size:14px;padding:10px 12px;border:1.5px solid #cbd5e1;border-radius:8px;outline:none;resize:vertical;font-family:inherit;line-height:1.8;">'+esc(cur.join('\n'))+'</textarea>'
+    +     '<div id="_soEmailModalErr" style="font-size:11px;color:#dc2626;margin-top:6px;min-height:14px;"></div>'
+    +   '</div>'
+    +   '<div style="padding:0 20px 18px;display:flex;gap:8px;justify-content:flex-end;">'
+    +     '<button onclick="_soCloseEmailModal()" style="padding:9px 18px;background:#f1f5f9;color:#475569;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">キャンセル</button>'
+    +     '<button onclick="_soSaveEmailModal()" style="padding:9px 22px;background:#16a34a;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">💾 保存</button>'
+    +   '</div>'
+    + '</div>';
+  ov.style.display = 'flex';
+  var ta = document.getElementById('_soEmailModalTa'); if(ta){ ta.focus(); }
+}
+function _soCloseEmailModal(){ var ov=document.getElementById('_soEmailModal'); if(ov) ov.style.display='none'; }
+function _soSaveEmailModal(){
+  var ctx = window._soEmailModalCtx || {};
+  var o = (typeof supportOrgs!=='undefined'?(supportOrgs||[]):[]).find(function(x){return x.id===ctx.orgId;});
+  if(!o){ _soCloseEmailModal(); return; }
+  var ta = document.getElementById('_soEmailModalTa');
+  var arr = String(ta?ta.value:'').split(/[\n,、\s]+/).map(function(e){return e.trim();}).filter(Boolean);
   var bad = arr.filter(function(e){ return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e); });
-  if(bad.length){ if(typeof showToast==='function') showToast('⚠️ メール形式が不正です: '+bad.join('、')); return; }
+  var errEl = document.getElementById('_soEmailModalErr');
+  if(bad.length){ if(errEl) errEl.textContent = '⚠️ メール形式が正しくありません: '+bad.join('、'); return; }
   o.extra = (o.extra && typeof o.extra==='object') ? o.extra : {};
   o.extra.emails = arr;
   if(typeof persistSupportOrgs==='function') persistSupportOrgs(o.id);
-  if(typeof showToast==='function') showToast(arr.length ? ('✉️ メール設定：'+arr.join('、')) : '✉️ メールを削除しました');
+  if(typeof showToast==='function') showToast(arr.length ? ('✉️ メールを設定しました（'+arr.length+'件）') : '✉️ メールを削除しました');
+  _soCloseEmailModal();
   try{
-    if(mode==='list' && typeof renderSupportList==='function') renderSupportList();
+    if(ctx.mode==='list' && typeof renderSupportList==='function') renderSupportList();
     else if(typeof renderSupportBroadcastList==='function') renderSupportBroadcastList();
   }catch(e){}
 }
