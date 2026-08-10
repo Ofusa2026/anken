@@ -4971,7 +4971,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260810.28';
+var OFUSA_VERSION = 'ver.20260811.01';
 // ver.20260810.28: ステータスバッジ共通スタイル（全画面統一）
 var _STATUS_STYLE={
   '未着手':['#f8fafc','#64748b','#e2e8f0'],
@@ -75109,7 +75109,7 @@ function renderTsuikanMailItem(m){
   h += '</div></div>';
   // 紐づけエリア
   if(m.linkedCase){
-    var lc = cData.find(function(c){return c.id===m.linkedCase;});
+    var lc = _caseIndex()[m.linkedCase];
     var _lcC = lc ? (lc.company||lc.org||'') : '';
     h += '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 10px;">';
     h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
@@ -95069,6 +95069,9 @@ function tsuikanPendingForceShow(){
 
 function renderTsuikanMails(){
   var el=document.getElementById('tsuikanContent');if(!el)return;
+  // ver.20260810.29: 自動マッチ用の索引を1回だけ構築（従来はメール毎にcData全走査で激重）
+  var _tkRecIdx={}, _tkAppIdx={};
+  (function(){ var arr=(typeof cData!=='undefined'&&cData)?cData:[]; for(var _i=0;_i<arr.length;_i++){ var c=arr[_i]; if(!c)continue; if(c.receiptNo){ var rk=String(c.receiptNo).replace(/ /g,''); if(rk&&!_tkRecIdx[rk])_tkRecIdx[rk]=c; } var ak=String(c.applicant||'').replace(/ /g,'').toUpperCase(); if(ak&&!_tkAppIdx[ak])_tkAppIdx[ak]=c; } })();
   // 未追加と追加済に分ける
   var pending=TSUIKAN_MAILS.filter(function(m){return !m._addedToCard;});
   if(_tsuikanUnmatchedOnly) pending=pending.filter(function(m){ return _tsuikanIsUnmatched(m) && !m._addedToCard && !m._done; });
@@ -95104,8 +95107,8 @@ function renderTsuikanMails(){
         m._autoMatched=true;
         var mn=(m.name||'').replace(/ /g,'').toUpperCase();
         var mcn=(m.caseNo||'').replace(/ /g,'');
-        if(mcn){var mc1=cData.find(function(c){return c.receiptNo&&c.receiptNo.replace(/ /g,'')===mcn;});if(mc1)m.linkedCase=mc1.id;}
-        if(!m.linkedCase&&mn){var mc2=cData.find(function(c){return (c.applicant||'').replace(/ /g,'').toUpperCase()===mn;});if(mc2)m.linkedCase=mc2.id;}
+        if(mcn){var mc1=_tkRecIdx[mcn];if(mc1)m.linkedCase=mc1.id;}
+        if(!m.linkedCase&&mn){var mc2=_tkAppIdx[mn];if(mc2)m.linkedCase=mc2.id;}
       }
     });
     var staffSel2=document.getElementById('tsuikanFilterStaff');
@@ -95113,7 +95116,7 @@ function renderTsuikanMails(){
       var curS=staffSel2.value;
       var staffs2=[];
       TSUIKAN_MAILS.forEach(function(m){
-        var lc=m.linkedCase?cData.find(function(c){return c.id===m.linkedCase;}):null;
+        var lc=m.linkedCase?_caseIndex()[m.linkedCase]:null;
         if(lc&&lc.staff&&staffs2.indexOf(lc.staff)<0) staffs2.push(lc.staff);
       });
       staffs2.sort();
@@ -95124,7 +95127,7 @@ function renderTsuikanMails(){
       var curO=orgSel2.value;
       var orgNames2=[];
       TSUIKAN_MAILS.forEach(function(m){
-        var lc=m.linkedCase?cData.find(function(c){return c.id===m.linkedCase;}):null;
+        var lc=m.linkedCase?_caseIndex()[m.linkedCase]:null;
         if(lc&&lc.org&&orgNames2.indexOf(lc.org)<0) orgNames2.push(lc.org);
       });
       var orgItems2=orgNames2.map(function(name){
@@ -95140,7 +95143,7 @@ function renderTsuikanMails(){
   var filterStaff = (document.getElementById('tsuikanFilterStaff')||{}).value||'';
   if(filterStaff){
     pending=pending.filter(function(m){
-      var lc=m.linkedCase?cData.find(function(c){return c.id===m.linkedCase;}):null;
+      var lc=m.linkedCase?_caseIndex()[m.linkedCase]:null;
       return lc && lc.staff === filterStaff;
     });
   }
@@ -95148,7 +95151,7 @@ function renderTsuikanMails(){
   var filterOrg = (document.getElementById('tsuikanFilterOrg')||{}).value||'';
   if(filterOrg){
     pending=pending.filter(function(m){
-      var lc=m.linkedCase?cData.find(function(c){return c.id===m.linkedCase;}):null;
+      var lc=m.linkedCase?_caseIndex()[m.linkedCase]:null;
       return lc && lc.org === filterOrg;
     });
   }
@@ -95169,12 +95172,12 @@ function renderTsuikanMails(){
     }
     // 担当者フィルター（追加済にも適用）
     if(filterStaff){
-      var lc2=m.linkedCase?cData.find(function(c){return c.id===m.linkedCase;}):null;
+      var lc2=m.linkedCase?_caseIndex()[m.linkedCase]:null;
       if(!lc2||lc2.staff!==filterStaff) return false;
     }
     // 支援機関フィルター（追加済にも適用）
     if(filterOrg){
-      var lc3=m.linkedCase?cData.find(function(c){return c.id===m.linkedCase;}):null;
+      var lc3=m.linkedCase?_caseIndex()[m.linkedCase]:null;
       if(!lc3||lc3.org!==filterOrg) return false;
     }
     return true;
@@ -95194,8 +95197,8 @@ function renderTsuikanMails(){
       m._autoMatched=true;
       var mn=(m.name||'').replace(/ /g,'').toUpperCase();
       var mcn=(m.caseNo||'').replace(/ /g,'');
-      if(mcn){var mc1=cData.find(function(c){return c.receiptNo&&c.receiptNo.replace(/ /g,'')===mcn;});if(mc1){m.linkedCase=mc1.id;m._autoType='受付番号';}}
-      if(!m.linkedCase&&mn){var mc2=cData.find(function(c){var ca=(c.applicant||'').replace(/ /g,'').toUpperCase();return ca&&ca===mn;});if(mc2){m.linkedCase=mc2.id;m._autoType='氏名';}}
+      if(mcn){var mc1=_tkRecIdx[mcn];if(mc1){m.linkedCase=mc1.id;m._autoType='受付番号';}}
+      if(!m.linkedCase&&mn){var mc2=_tkAppIdx[mn];if(mc2){m.linkedCase=mc2.id;m._autoType='氏名';}}
     }
     var cbBg=sel?'#2563eb':'white';
     var cbBorder=sel?'#2563eb':'#94a3b8';
@@ -95218,7 +95221,7 @@ function renderTsuikanMails(){
     h+='</div></div>';
     // 紐付けエリア
     if(m.linkedCase){
-      var lc=cData.find(function(c){return c.id===m.linkedCase;});
+      var lc=_caseIndex()[m.linkedCase];
       var _mn=(m.name||'').replace(/ /g,'').toUpperCase();
       var _mcn=(m.caseNo||'').replace(/ /g,'');
       var _lcA=lc?(lc.applicant||'').replace(/ /g,'').toUpperCase():'';
@@ -95263,7 +95266,7 @@ function renderTsuikanMails(){
     var addedDone=added.filter(function(m){return !!m._done && !_hasUnfinishedFuCard(m);});         // ③ 確認済・対応済
     h+='<div style="margin-top:16px;border-top:1.5px solid var(--gray-200);padding-top:12px;">';
     function _rr(m, withCheck){
-      var lc=m.linkedCase?cData.find(function(c){return c.id===m.linkedCase;}):null;
+      var lc=m.linkedCase?_caseIndex()[m.linkedCase]:null;
       var isDone=!!m._done;
       var isUnhandled=isDone && _hasUnfinishedFuCard(m);
       // ②=黄系, ③=緑系, ①=グレー系
@@ -95342,7 +95345,7 @@ function renderTsuikanMails(){
     // ① 未確認 (ver.20260525.46: 一括選択+強制表示UI追加)
     var _pendingWithStaff = addedPending.filter(function(m){
       if(!m.linkedCase) return false;
-      var lc = cData.find(function(c){ return c.id === m.linkedCase; });
+      var lc = _caseIndex()[m.linkedCase];
       return !!(lc && lc.staff);
     });
     h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap;">';
