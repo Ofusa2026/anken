@@ -4936,7 +4936,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260808.05';
+var OFUSA_VERSION = 'ver.20260808.06';
 // ver.20260806.09: 表示用バージョンは常に OFUSA_VERSION から同期する（内部変数だけ上げて表示が古いまま残るミスを恒久防止）。
 try{ var _vEls=document.querySelectorAll('.js-app-version'); for(var _vi=0;_vi<_vEls.length;_vi++){ _vEls[_vi].textContent = OFUSA_VERSION; } }catch(e){}
 // ver.20260804.22: 起動時刻。ページ読み込み直後のSIGNED_OUT誤検知を避けるために使う。
@@ -28075,7 +28075,7 @@ function openProgressCustomizeEdit(orgId){
       _shareLink.style.display = 'none';
     }
   }
-  // ver.20260808.05: 進捗URLの隣に閲覧パスワードを表示（クリックでコピー）
+  // ver.20260808.06: 進捗URLの隣に閲覧パスワードを表示（クリックでコピー）
   var _passBadge = document.getElementById('pcEditPassBadge');
   if(_passBadge){
     if(o.token && o.pass){
@@ -38344,7 +38344,7 @@ function persistShiftRoster(){
     .then(function(r){ if(r.error) console.error('shiftRoster save err', r.error); });
 }
 
-// ===== ver.20260808.05: 今週の班編成に合わせて担当を振り直す =====
+// ===== ver.20260808.06: 今週の班編成に合わせて担当を振り直す =====
 //   担当が今週の班から外れた人の名前を消し、今週の班の人へ再割り振り。
 //   今週も同じ班に残っている人はそのまま。完了・不要タスクは触らない。
 function _pickLeastLoadedForReassign(members, groupKey, work, rr){
@@ -39377,7 +39377,7 @@ function _wqOpen(caseId){
 var _shiftEditTerm = 0;   // 0=今期, 1=次期, 2=次々期
 function openShiftRosterModal(){
   _shiftEditTerm = 0;
-  _advanceShiftTermsToToday();   // ver.20260808.05: 期限切れなら今週へ繰り上げてから開く
+  _advanceShiftTermsToToday();   // ver.20260808.06: 期限切れなら今週へ繰り上げてから開く
   _ensureShiftTerms();
   var m = document.getElementById('shiftRosterModal');
   if(!m){
@@ -39400,7 +39400,7 @@ function _thisMonday(dstr){
   base.setUTCDate(base.getUTCDate() + off);
   return base.toISOString().slice(0,10);
 }
-/** ver.20260808.05: 期限切れの班編成を「今週」へ繰り上げる。
+/** ver.20260808.06: 期限切れの班編成を「今週」へ繰り上げる。
  *  ・今日をカバーする期があれば何もしない（先に組んだ次期があれば自動で稼働中になる）。
  *  ・無ければ＝今期が期限切れ。班メンバーはそのまま維持し、日付だけ今週(月曜)に更新。開始が今週より前の古い期は消す。 */
 function _advanceShiftTermsToToday(){
@@ -39408,18 +39408,21 @@ function _advanceShiftTermsToToday(){
     if(!shiftRoster || !shiftRoster.terms || !shiftRoster.terms.length) return false;
     var today = _localDateStr();
     var terms = shiftRoster.terms.slice().sort(function(a,b){ return (a.start||'').localeCompare(b.start||''); });
+    var before = JSON.stringify(terms.map(function(t){ return (t.start||'')+'~'+(t.end||''); }));
+    // ① 完全に期限切れ(end < today)の期は先頭から落として繰り上げる（「今期」ラベルを今週の期に合わせる）。最低1期は残す。
+    var kept = terms.filter(function(t){ return !(t.end && t.end < today); });
+    terms = kept.length ? kept : [terms[terms.length-1]];
+    // ② 今日をカバーする期が無ければ、先頭の期を今週(月曜)へ更新（班メンバーは維持）。
     var covers = terms.some(function(t){ return t.start && t.start<=today && (!t.end || today<=t.end); });
-    if(covers) return false;   // 今日をカバーする期がある → 自動切替でOK、触らない
-    var mon = _thisMonday(today);
-    // 期限切れ(end<today)のうち最新の期を今週へ繰り上げ（無ければ先頭の期）。班メンバーは維持。
-    var expired = terms.filter(function(t){ return t.end && t.end < today; });
-    var base = expired.length ? expired[expired.length-1] : terms[0];
-    base.start = mon; base.end = _addDays(mon, 13);
-    // 今週より前に始まる古い期は落とす
-    shiftRoster.terms = terms.filter(function(t){ return !(t.start && t.start < mon); });
+    if(!covers){
+      var mon = _thisMonday(today);
+      terms[0].start = mon; terms[0].end = _addDays(mon, 13);
+    }
+    shiftRoster.terms = terms.sort(function(a,b){ return (a.start||'').localeCompare(b.start||''); });
     _ensureShiftTerms();       // 3期に整える（次期・次々期は空で補完）
-    persistShiftRoster();
-    return true;
+    var after = JSON.stringify((shiftRoster.terms||[]).map(function(t){ return (t.start||'')+'~'+(t.end||''); }));
+    if(after !== before){ persistShiftRoster(); return true; }
+    return false;
   }catch(e){ console.warn('_advanceShiftTermsToToday', e); return false; }
 }
 /** terms が足りなければ3期分を用意（開始日を2週間刻みで自動採番）*/
@@ -89591,7 +89594,7 @@ function loadAllFromSupabase() {
               var _sr=JSON.parse(s.value);
               if(_sr && typeof _sr==='object'){
                 shiftRoster=_sr;
-                try{ _advanceShiftTermsToToday(); }catch(_adv){}   // ver.20260808.05: 期限切れなら今週へ繰り上げ
+                try{ _advanceShiftTermsToToday(); }catch(_adv){}   // ver.20260808.06: 期限切れなら今週へ繰り上げ
                 var _ct = (typeof currentShiftTerm==='function') ? currentShiftTerm() : null;
                 console.log('📦 班編成を読み込みました', _ct && _ct.start ? (_ct.start+'〜'+(_ct.end||'')) : '(有効な期なし)');
                 // 開いている画面があれば反映
