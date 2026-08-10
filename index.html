@@ -3161,6 +3161,7 @@ details[open] > ._upDocSummary::before { content: '▼ '; }
     <div id="docsApplyFilters" style="display:flex;gap:8px;align-items:center;">
       <button onclick="bulkCompleteDocTasks()" id="docsBulkCompleteBtn" style="display:none;font-size:11px;padding:4px 12px;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">✅ 一括完了</button>
       <button onclick="bulkCompleteCurrentTask()" id="docsAllCompleteBtn" style="display:none;font-size:11px;padding:4px 12px;background:#0891b2;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">⚡ 全件完了</button>
+      <button onclick="exportTaskListXlsx()" title="表示中のタスク一覧をExcelでダウンロード" style="font-size:11px;padding:4px 12px;background:#16a34a;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">📥 Excel</button>
       <button onclick="showMyTasks()" id="docsMyTasksBtn" style="font-size:11px;padding:4px 12px;background:#dc2626;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:800;">👤 自分のタスク</button>
       <button onclick="openShiftRosterModal()" style="font-size:11px;padding:4px 12px;background:#0f766e;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">🔄 班編成</button>
       <button id="bulkAssignBtn" onclick="bulkAssignPendingTasks()" style="font-size:11px;padding:4px 12px;background:#7c3aed;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">⚡ 未割当を一括振り分け<span id="bulkAssignBadge" style="display:none;margin-left:5px;background:#fff;color:#7c3aed;border-radius:99px;padding:0 7px;font-size:10px;font-weight:800;"></span></button>
@@ -4936,7 +4937,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260810.03';
+var OFUSA_VERSION = 'ver.20260810.05';
 // ver.20260806.09: 表示用バージョンは常に OFUSA_VERSION から同期する（内部変数だけ上げて表示が古いまま残るミスを恒久防止）。
 try{ var _vEls=document.querySelectorAll('.js-app-version'); for(var _vi=0;_vi<_vEls.length;_vi++){ _vEls[_vi].textContent = OFUSA_VERSION; } }catch(e){}
 // ver.20260804.22: 起動時刻。ページ読み込み直後のSIGNED_OUT誤検知を避けるために使う。
@@ -36096,6 +36097,7 @@ function renderDocsContent() {
   var ST_COLOR = ['#94a3b8', '#2563eb', '#8b5cf6', '#f97316', '#16a34a', '#d97706'];
   var ST_BG    = ['white', '#eff6ff', '#faf5ff', '#fff7ed', '#f0fdf4', '#fffbeb'];
   var ST_BORDER = ['var(--gray-200)', '#93c5fd', '#c4b5fd', '#fdba74', '#86efac', '#fcd34d'];
+  window._taskExportRows = [];   // ver.20260810.04: Excel出力用（表示中タスクを収集）
   // ver.20260803.10: カンボジアはタスク担当(taskAssignee)で絞る（案件のteam/staffではない）
   var _isKh = (docsTeamFilter === 'カンボジア');
   var cases = cData.filter(function(c) {
@@ -36644,6 +36646,23 @@ function buildDocCard(c,taskName,ti,st,key,deadline,today,ST_LABEL,ST_COLOR,ST_B
   if(_dcAC) _dcParts.push(_dcAC);
   if(_dcMemo && _dcMemo!==_dcAC) _dcParts.push(_dcMemo);
   var _dcCmt = _dcParts.join('\n');
+  // ver.20260810.04: Excel出力用に表示中タスクを収集
+  try{
+    (window._taskExportRows = window._taskExportRows || []).push({
+      caseName: c.name||'',
+      applicant: (typeof getDisplayName==='function' ? getDisplayName(c) : (c.applicant||'')),
+      org: c.org||c.company||'',
+      taskName: taskName||'',
+      deadline: deadline||'',
+      urgent: (isUrg ? '急ぎ' : ''),
+      status: (ST_LABEL && ST_LABEL[st])||'',
+      comment: _dcCmt||'',
+      progress: (typeof caseNotes!=='undefined' && caseNotes[c.id]) ? (caseNotes[c.id].progressMemo||'') : '',
+      ofusaStaff: c.staff||'',
+      taskAssignee: (typeof taskAssignee!=='undefined' ? (taskAssignee[key]||'') : ''),
+      driveUrl: c.driveUrl||''
+    });
+  }catch(_ex){}
   h+='<div style="flex:1.5;min-width:0;padding:0 8px;cursor:pointer;" onclick="openCase(\''+c.id+'\')">';
   if(_dcCmt) h+='<div title="タスクのコメント" style="font-size:11px;color:#334155;line-height:1.4;white-space:pre-wrap;word-break:break-word;">💬 '+esc(_dcCmt)+'</div>';
   else h+='<div style="font-size:10px;color:#d1d5db;">コメントなし</div>';
@@ -36655,6 +36674,26 @@ function buildDocCard(c,taskName,ti,st,key,deadline,today,ST_LABEL,ST_COLOR,ST_B
   h+='<span style="font-size:11px;font-weight:800;color:'+ST_COLOR[st]+';">'+ST_LABEL[st]+'</span><div style="display:flex;gap:3px;">';
   for(var s=0;s<6;s++){if(s===st)continue;if(s===3&&_taskSkipsConfirm(taskName))continue;h+='<button onclick="event.stopPropagation();setDocTaskFromList(\''+c.id+'\','+ti+','+s+')" style="font-size:10px;padding:2px 7px;border:1.5px solid '+ST_BORDER[s]+';border-radius:5px;background:'+ST_BG[s]+';color:'+ST_COLOR[s]+';cursor:pointer;font-weight:700;">'+ST_LABEL[s]+'</button>';}
   h+='</div></div></div>';return h;
+}
+// ver.20260810.04: 表示中のタスク一覧をExcelでダウンロード
+function exportTaskListXlsx(){
+  var rows = window._taskExportRows || [];
+  if(!rows.length){ if(typeof showToast==='function') showToast('出力するタスクがありません'); return; }
+  if(!window.XLSX){ if(typeof showToast==='function') showToast('Excelライブラリが読み込まれていません'); return; }
+  var header = ['案件名','人材名','所属機関名','タスク','期日','急ぎ','ステータス','コメント','進捗状況','Ofusa担当','タスク担当者','フォルダURL'];
+  var aoa = [header];
+  rows.forEach(function(r){
+    aoa.push([r.caseName, r.applicant, r.org, r.taskName, r.deadline, r.urgent, r.status, r.comment, r.progress, r.ofusaStaff, r.taskAssignee, r.driveUrl]);
+  });
+  var ws = window.XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{wch:30},{wch:18},{wch:22},{wch:14},{wch:11},{wch:6},{wch:8},{wch:45},{wch:45},{wch:12},{wch:14},{wch:42}];
+  ws['!autofilter'] = { ref: 'A1:L1' };
+  var wb = window.XLSX.utils.book_new();
+  window.XLSX.utils.book_append_sheet(wb, ws, 'タスク一覧');
+  var d = new Date();
+  var fn = 'タスク一覧_' + d.getFullYear() + ('0'+(d.getMonth()+1)).slice(-2) + ('0'+d.getDate()).slice(-2) + '.xlsx';
+  window.XLSX.writeFile(wb, fn);
+  if(typeof showToast==='function') showToast('📥 '+rows.length+'件を出力しました');
 }
 function setDocTaskFromList(caseId,taskIdx,status){
   if(status===4){
