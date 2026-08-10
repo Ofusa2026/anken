@@ -4960,7 +4960,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260810.16';
+var OFUSA_VERSION = 'ver.20260810.17';
 // ver.20260806.09: 表示用バージョンは常に OFUSA_VERSION から同期する（内部変数だけ上げて表示が古いまま残るミスを恒久防止）。
 try{ var _vEls=document.querySelectorAll('.js-app-version'); for(var _vi=0;_vi<_vEls.length;_vi++){ _vEls[_vi].textContent = OFUSA_VERSION; } }catch(e){}
 // ver.20260804.22: 起動時刻。ページ読み込み直後のSIGNED_OUT誤検知を避けるために使う。
@@ -43972,7 +43972,7 @@ function renderSupportBroadcastList(){
     } else {
       html += '<div style="margin-top:3px;font-size:11px;"><span style="font-weight:800;color:#fff;background:#dc2626;border-radius:5px;padding:2px 9px;">⚠️ 送付先なし</span> <span style="color:#b91c1c;font-weight:700;">メール未登録・未連携 — 送信されません</span></div>';
     }
-    html += '<div style="margin-top:4px;"><button data-oid="'+esc(o.id)+'" onclick="event.preventDefault();event.stopPropagation();_sbOpenOrgAcctPicker(this.getAttribute(\'data-oid\'))" style="font-size:9.5px;font-weight:800;color:#7c3aed;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:5px;padding:1px 8px;cursor:pointer;">🔗 公式アカウントを紐づけ</button></div>';
+    html += '<div style="margin-top:4px;display:flex;gap:6px;flex-wrap:wrap;"><button data-oid="'+esc(o.id)+'" onclick="event.preventDefault();event.stopPropagation();_sbOpenOrgAcctPicker(this.getAttribute(\'data-oid\'))" style="font-size:9.5px;font-weight:800;color:#7c3aed;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:5px;padding:1px 8px;cursor:pointer;">🔗 公式アカウントを紐づけ</button><button onclick="event.preventDefault();event.stopPropagation();_soSetEmailPrompt(\''+esc(o.id)+'\',\'broadcast\')" style="font-size:9.5px;font-weight:800;color:'+(hasEmail?'#0369a1':'#b45309')+';background:'+(hasEmail?'#e0f2fe':'#fef3c7')+';border:1px solid '+(hasEmail?'#7dd3fc':'#fcd34d')+';border-radius:5px;padding:1px 8px;cursor:pointer;">✉️ '+(hasEmail?'メール編集':'メール設定')+'</button></div>';
     html += '</div>';
     if(_showMail){
       var sentToday = sbIsSentToday(lastSent);
@@ -45352,6 +45352,25 @@ function _sbOrgLinkBadgeHtml(orgId){
   if(!b) b='<span style="font-size:9.5px;color:#cbd5e1;margin-left:4px;">公式アカウント未連携（メールのみ）</span>';
   return b;
 }
+// ver.20260810.17: 支援機関の配信先メールを一覧から直接設定（配信モーダル・登録支援機関マスタの両方から）
+function _soSetEmailPrompt(orgId, mode){
+  var o = (typeof supportOrgs!=='undefined'?(supportOrgs||[]):[]).find(function(x){return x.id===orgId;});
+  if(!o){ return; }
+  var cur = (o.extra && Array.isArray(o.extra.emails)) ? o.extra.emails.join(', ') : '';
+  var input = prompt('「'+(o.name||'')+'」の配信先メールアドレスを入力してください。\n複数ある場合はカンマ区切り。（空にすると削除）', cur);
+  if(input===null) return;
+  var arr = String(input).split(/[,、\s]+/).map(function(e){return e.trim();}).filter(Boolean);
+  var bad = arr.filter(function(e){ return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e); });
+  if(bad.length){ if(typeof showToast==='function') showToast('⚠️ メール形式が不正です: '+bad.join('、')); return; }
+  o.extra = (o.extra && typeof o.extra==='object') ? o.extra : {};
+  o.extra.emails = arr;
+  if(typeof persistSupportOrgs==='function') persistSupportOrgs(o.id);
+  if(typeof showToast==='function') showToast(arr.length ? ('✉️ メール設定：'+arr.join('、')) : '✉️ メールを削除しました');
+  try{
+    if(mode==='list' && typeof renderSupportList==='function') renderSupportList();
+    else if(typeof renderSupportBroadcastList==='function') renderSupportBroadcastList();
+  }catch(e){}
+}
 // --- 紐づけピッカー ---
 function _sbOpenOrgAcctPicker(orgId, orgName){
   if(!orgName){ var _o=(typeof supportOrgs!=='undefined'?(supportOrgs||[]).find(function(x){return x.id===orgId;}):null); orgName=_o?(_o.name||''):''; }
@@ -45526,7 +45545,9 @@ function renderSupportList() {
     h+='<span style="font-size:10px;color:var(--gray-400);font-weight:700;white-space:nowrap;">📁</span>';
     h+='<input type="text" value="'+(o.folderNo||'')+'" placeholder="No." onchange="saveSupportFolderNo(\''+o.id+'\',this.value)" onclick="event.stopPropagation()" style="font-size:12px;font-weight:700;color:var(--navy);border:1px solid var(--gray-200);border-radius:5px;padding:2px 6px;width:70px;background:'+(o.folderNo?'#f0fdf4':'#f8fafc')+';">';
     // ver.20260807.09: 一覧の各行から直接、公式アカウント（LINE/Chatwork）を紐づけ・バッジ表示
-    h+='<div style="margin-left:auto;display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'+(typeof _sbOrgLinkBadgeHtml==='function'?_sbOrgLinkBadgeHtml(o.id):'')+'<button onclick="event.stopPropagation();_sbOpenOrgAcctPicker(\''+o.id+'\')" style="font-size:9.5px;font-weight:800;color:#7c3aed;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:5px;padding:2px 8px;cursor:pointer;white-space:nowrap;">🔗 紐づけ</button></div>';
+    var _soEmails = (o.extra && Array.isArray(o.extra.emails)) ? o.extra.emails : [];
+    var _soEmailBtn = '<button onclick="event.stopPropagation();_soSetEmailPrompt(\''+o.id+'\',\'list\')" title="'+(_soEmails.length?esc(_soEmails.join('、')):'配信先メール未設定')+'" style="font-size:9.5px;font-weight:800;color:'+(_soEmails.length?'#0369a1':'#b45309')+';background:'+(_soEmails.length?'#e0f2fe':'#fef3c7')+';border:1px solid '+(_soEmails.length?'#7dd3fc':'#fcd34d')+';border-radius:5px;padding:2px 8px;cursor:pointer;white-space:nowrap;">✉️ '+(_soEmails.length?'メール編集':'メール設定')+'</button>';
+    h+='<div style="margin-left:auto;display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:flex-end;">'+(typeof _sbOrgLinkBadgeHtml==='function'?_sbOrgLinkBadgeHtml(o.id):'')+_soEmailBtn+'<button onclick="event.stopPropagation();_sbOpenOrgAcctPicker(\''+o.id+'\')" style="font-size:9.5px;font-weight:800;color:#7c3aed;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:5px;padding:2px 8px;cursor:pointer;white-space:nowrap;">🔗 紐づけ</button></div>';
     // ver.20260727.41: 一覧のLINE管轄プルダウンは不要とのご指摘のため削除。
     //   設定が必要な場合は、別画面（LINEグループ管理）から変更できます。
     h+='</div></div>';
