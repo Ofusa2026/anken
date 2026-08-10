@@ -951,7 +951,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
        必要になったら display:none を外せば戻ります。 -->
   <div class="nav-item" id="nav-records-by-org" onclick="toggleRecordsByOrg()" style="display:none;padding-left:28px;font-size:11px;color:#6366f1;">📋 支援機関別に表示 <span id="recordsByOrgArrow">▶</span></div>
   <div id="recordsByOrgList" style="display:none;padding:0 8px 4px 28px;"></div>
-  <div class="nav-item" id="nav-tsuikan" onclick="openTsuikan()">⚠️ 要追完/指摘</div>
+  <div class="nav-item" id="nav-tsuikan" onclick="openTsuikan()">⚠️ 要追完/指摘<span id="tsuikanNavCount" style="font-size:10px;color:#fca5a5;margin-left:6px;font-weight:700;"></span></div>
   <div class="nav-item" id="nav-intake" onclick="showIntake()" style="position:relative;" data-tip-target="tip-nav-intake">📥 受信トレイ<span id="intakeBadge" style="display:none;position:absolute;right:12px;top:50%;transform:translateY(-50%);background:#dc2626;color:white;border-radius:99px;font-size:9px;padding:1px 6px;font-weight:700;"></span></div>
   <div class="nav-item" id="nav-decisionReport" onclick="showDecisionReport()">📋 決定報告</div>
   <!-- ver.20260725.01: ニュース候補の判定を案シスで行う画面。データ本体はスプシ（案シス ニュース ネタ管理）のまま、GAS Web App経由で読み書きする -->
@@ -4968,7 +4968,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260810.25';
+var OFUSA_VERSION = 'ver.20260810.26';
 // ver.20260806.09: 表示用バージョンは常に OFUSA_VERSION から同期する（内部変数だけ上げて表示が古いまま残るミスを恒久防止）。
 try{ var _vEls=document.querySelectorAll('.js-app-version'); for(var _vi=0;_vi<_vEls.length;_vi++){ _vEls[_vi].textContent = OFUSA_VERSION; } }catch(e){}
 // ver.20260804.22: 起動時刻。ページ読み込み直後のSIGNED_OUT誤検知を避けるために使う。
@@ -79230,18 +79230,21 @@ function _applyStaffGuard(rootId){
   });
 }
 
-// ver.20260810.25: 入管記録タブ＝全数、サイドバー＝残数(未対応) を反映
+// ver.20260810.26: 入管記録タブ・サイドバー＝未対応件数、要追完も追加
 function _updateNyukanCounts(){
   function cnt(arr){ arr=(arr&&arr.length)?arr:[]; return {total:arr.length, undone:arr.filter(function(d){return !d.reported;}).length}; }
   var r  = cnt(typeof receiptListData!=='undefined'?receiptListData:[]);
   var c  = cnt(typeof certListData!=='undefined'?certListData:[]);
   var sh = cnt(typeof shinsaListData!=='undefined'?shinsaListData:[]);
+  var tk = (typeof TSUIKAN_MAILS!=='undefined'&&TSUIKAN_MAILS) ? TSUIKAN_MAILS.filter(function(m){return !m._done;}).length : 0;
   try{
-    document.querySelectorAll('.nt-rec').forEach(function(e){ e.textContent = r.total?(' '+r.total):''; });
-    document.querySelectorAll('.nt-cert').forEach(function(e){ e.textContent = c.total?(' '+c.total):''; });
-    document.querySelectorAll('.nt-shinsa').forEach(function(e){ e.textContent = sh.total?(' '+sh.total):''; });
+    document.querySelectorAll('.nt-rec').forEach(function(e){ e.textContent = r.undone?(' '+r.undone):''; });
+    document.querySelectorAll('.nt-cert').forEach(function(e){ e.textContent = c.undone?(' '+c.undone):''; });
+    document.querySelectorAll('.nt-shinsa').forEach(function(e){ e.textContent = sh.undone?(' '+sh.undone):''; });
     var nav=document.getElementById('nyukanNavCount');
-    if(nav) nav.textContent = '('+r.total+'/'+c.total+'/'+sh.total+')';
+    if(nav) nav.textContent = '('+r.undone+'/'+c.undone+'/'+sh.undone+')';
+    var tn=document.getElementById('tsuikanNavCount');
+    if(tn) tn.textContent = tk?('('+tk+')'):'';
   }catch(e){}
 }
 function renderRecords() {
@@ -94664,6 +94667,7 @@ function fetchGmailTsuikan(){
     TSUIKAN_MAILS = allMails.filter(function(m){ return !!_validTsuikan[m.badge]; });
     tsuikanSel={};
     renderTsuikanMails();
+    try{ _updateNyukanCounts(); }catch(e){}
     showToast('未読 '+TSUIKAN_MAILS.length+'件取得');
     try{ _saveLastFetchTime('tsuikan'); }catch(e){}
   });
