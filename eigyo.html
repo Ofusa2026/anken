@@ -192,7 +192,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260730.10</div>
+      <div class="ver">ver.20260730.11</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -1768,8 +1768,11 @@ function exportCsv(){
 
 /* ================= KPI管理タブ ================= */
 var KPI_MONTH = (function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); })();
-var KPI_SUB = 'dash';           // dash | tasks
-var _kpiTargets = [], _kpiDaily = [], _kpiTasks = [];
+var KPI_SUB = 'dash';           // dash | week
+var _kpiTargets = [], _kpiDaily = [], _weekTargets = [], _weekDaily = [];
+function mondayOf(ds){ var d=new Date(ds+'T00:00:00'); var w=(d.getDay()+6)%7; d.setDate(d.getDate()-w); return d.toISOString().slice(0,10); }
+function addDays(ds,n){ var d=new Date(ds+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+var KPI_WEEK = mondayOf(today());
 
 function switchMain(which){
   var leads = which==='leads';
@@ -1782,14 +1785,17 @@ function switchMain(which){
 
 function loadKpiAll(){
   el('kpiPane').innerHTML = '<div class="kcard"><div class="loading">読み込み中...</div></div>';
+  var weekEnd = addDays(KPI_WEEK,6);
   Promise.all([
     _sb.from('eigyo_kpi_targets').select('*').eq('month',KPI_MONTH).order('sort_order'),
     _sb.from('eigyo_kpi_daily').select('*').gte('entry_date',KPI_MONTH+'-01').lte('entry_date',KPI_MONTH+'-31'),
-    _sb.from('eigyo_tasks').select('*').eq('month',KPI_MONTH).order('sort_order')
+    _sb.from('eigyo_week_targets').select('*').eq('week_start',KPI_WEEK).order('sort_order'),
+    _sb.from('eigyo_kpi_daily').select('*').gte('entry_date',KPI_WEEK).lte('entry_date',weekEnd)
   ]).then(function(res){
-    _kpiTargets = (res[0].data)||[];
-    _kpiDaily   = (res[1].data)||[];
-    _kpiTasks   = (res[2].data)||[];
+    _kpiTargets  = (res[0].data)||[];
+    _kpiDaily    = (res[1].data)||[];
+    _weekTargets = (res[2].data)||[];
+    _weekDaily   = (res[3].data)||[];
     renderKpi();
   }).catch(function(e){
     el('kpiPane').innerHTML = '<div class="kcard">読み込みエラー：'+esc(String(e))+'</div>';
@@ -1836,7 +1842,7 @@ function prow(label, section, route, metric, unit){
 }
 
 function renderKpi(){
-  if(KPI_SUB==='tasks'){ renderTasks(); return; }
+  if(KPI_SUB==='week'){ renderWeek(); return; }
   var dealCur = actual('共通',null,'受注'), dealTgt = targetOf('共通',null,'受注');
   var meetCur = actual(null,null,'商談');   // 全section横断で商談合計
   var meetTgt = targetOf('共通',null,'商談');
@@ -1884,7 +1890,7 @@ function renderKpi(){
 function subtabsHtml(){
   return '<div class="subtabs">'
     + '<button class="stab'+(KPI_SUB==='dash'?' stab-on':'')+'" onclick="setKpiSub(\'dash\')">📊 今月の計画 vs 実績</button>'
-    + '<button class="stab'+(KPI_SUB==='tasks'?' stab-on':'')+'" onclick="setKpiSub(\'tasks\')">✅ 段取りチェックリスト</button>'
+    + '<button class="stab'+(KPI_SUB==='week'?' stab-on':'')+'" onclick="setKpiSub(\'week\')">🎯 今週の行動目標</button>'
     + '</div>';
 }
 function monthbarHtml(){
@@ -1929,40 +1935,79 @@ function saveKpiInput(){
   });
 }
 
-/* ---- 段取りチェックリスト ---- */
-function renderTasks(){
-  var cats = {};
-  _kpiTasks.forEach(function(t){ (cats[t.category]=cats[t.category]||[]).push(t); });
-  var order = ['オンラインセミナー','リアルセミナー','メルマガ','ブログ','LP','その他'];
-  var keys = Object.keys(cats).sort(function(a,b){ var ia=order.indexOf(a),ib=order.indexOf(b); return (ia<0?99:ia)-(ib<0?99:ib); });
-  var todayStr = today();
-  var html = subtabsHtml() + monthbarHtml();
-  if(!keys.length){ html += '<div class="kcard">この月の段取りタスクはまだありません。</div>'; el('kpiPane').innerHTML=html; return; }
-  keys.forEach(function(cat){
-    var list = cats[cat];
-    var done = list.filter(function(t){return t.status==='完了';}).length;
-    html += '<div class="kcard"><h3>'+esc(cat)+' <span class="sub" style="font-weight:400;font-size:12px;">'+done+'/'+list.length+' 完了</span></h3>';
-    list.forEach(function(t){
-      var late = t.due_date && t.due_date<todayStr && t.status!=='完了';
-      html += '<div class="tk'+(t.status==='完了'?' tkdone':'')+(late?' tk-late':'')+'">'
-        + '<span class="tkph ph-'+esc(t.phase||'')+'">'+esc(t.phase||'')+'</span>'
-        + '<span class="tktitle">'+esc(t.title)+'</span>'
-        + '<span class="tkdue">'+ (t.due_date?('期限 '+esc(t.due_date)):'') + (late?' <b style=\"color:#c53030;\">超過</b>':'') +'</span>'
-        + '<select onchange="setTaskStatus('+t.id+',this.value)" style="padding:4px 8px;border:1px solid var(--line);border-radius:7px;font-size:12px;">'
-        +   ['未着手','進行中','完了'].map(function(s){return '<option'+(s===t.status?' selected':'')+'>'+s+'</option>';}).join('')
-        + '</select>'
+/* ---- 今週の行動目標 ---- */
+function weekActual(metric){
+  var s=0;
+  _weekDaily.forEach(function(d){ if(d.section==='行動' && d.metric===metric) s+=Number(d.value)||0; });
+  return s;
+}
+function renderWeek(){
+  var wStart=KPI_WEEK, wEnd=addDays(KPI_WEEK,6);
+  var html = subtabsHtml()
+    + '<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">'
+    +   '<button class="btn btn-sm" onclick="KPI_WEEK=addDays(KPI_WEEK,-7);loadKpiAll();">← 前の週</button>'
+    +   '<div style="font-size:15px;font-weight:700;">'+esc(wStart)+' 〜 '+esc(wEnd)+' の週</div>'
+    +   '<button class="btn btn-sm" onclick="KPI_WEEK=addDays(KPI_WEEK,7);loadKpiAll();">次の週 →</button>'
+    +   '<button class="btn btn-sm" onclick="KPI_WEEK=mondayOf(today());loadKpiAll();">今週</button>'
+    + '</div>'
+    + '<div class="kcard"><h3>🎯 今週の行動目標 <span class="sub" style="font-weight:400;font-size:12px;">商談目標を達成するための行動量。数字は毎日「＋入力」で積み上げます。目標値は直接書き換えて保存できます。</span></h3>';
+  if(!_weekTargets.length){
+    html += '<div style="padding:10px 0;color:var(--muted);">この週の目標がまだありません。'
+         +  '<button class="btn btn-sm btn-primary" style="margin-left:8px;" onclick="seedWeek()">先週の目標をコピー</button></div>';
+  } else {
+    _weekTargets.forEach(function(t){
+      var cur=weekActual(t.metric), tgt=Number(t.target_value)||0;
+      html += '<div class="prow">'
+        + '<div class="pname">'+esc(t.metric)+'</div>'
+        + bar(cur,tgt)
+        + '<div class="pnum"><b>'+cur+'</b> / '
+        +   '<input type="number" value="'+tgt+'" style="width:56px;padding:2px 4px;border:1px solid var(--line);border-radius:5px;text-align:right;font-size:13px;" '
+        +   'onchange="saveWeekTarget('+t.id+',this.value)"> '+esc(t.unit||'件')+'</div>'
+        + '<div class="padd"><button class="btn btn-sm" onclick="openWeekInput(\''+esc(t.metric)+'\',\''+esc(t.unit||'件')+'\')">＋入力</button></div>'
         + '</div>';
     });
-    html += '</div>';
-  });
+    html += '<div style="margin-top:10px;text-align:right;"><button class="btn btn-sm" onclick="addWeekMetric()">＋ 項目を追加</button></div>';
+  }
+  html += '</div>';
   el('kpiPane').innerHTML = html;
 }
-function setTaskStatus(id, status){
-  _sb.from('eigyo_tasks').update({status:status, updated_at:new Date().toISOString()}).eq('id',id).then(function(r){
-    if(r.error){ alert('更新エラー：'+r.error.message); return; }
-    var t=_kpiTasks.find(function(x){return x.id===id;}); if(t) t.status=status;
-    renderTasks();
+function saveWeekTarget(id, val){
+  var v=Number(val)||0;
+  _sb.from('eigyo_week_targets').update({target_value:v, updated_at:new Date().toISOString()}).eq('id',id).then(function(r){
+    if(r.error){ alert('目標の保存エラー：'+r.error.message); return; }
+    var t=_weekTargets.find(function(x){return x.id===id;}); if(t) t.target_value=v;
+    renderWeek();
   });
+}
+function addWeekMetric(){
+  var name=prompt('追加する行動項目の名前は？（例：ウェビナー、DM送信 など）'); if(!name) return;
+  var unit=prompt('単位は？（件／回／本 など）','件')||'件';
+  var maxSort=0; _weekTargets.forEach(function(x){ if(x.sort_order>maxSort) maxSort=x.sort_order; });
+  _sb.from('eigyo_week_targets').insert({week_start:KPI_WEEK, metric:name, target_value:0, unit:unit, sort_order:maxSort+10}).select().then(function(r){
+    if(r.error){ alert('追加エラー：'+r.error.message); return; }
+    loadKpiAll();
+  });
+}
+function seedWeek(){
+  var prev=addDays(KPI_WEEK,-7);
+  _sb.from('eigyo_week_targets').select('*').eq('week_start',prev).then(function(r){
+    var rows=(r.data)||[];
+    if(!rows.length){ alert('先週の目標が見つかりませんでした。「＋項目を追加」から作ってください。'); return; }
+    var ins=rows.map(function(x){ return {week_start:KPI_WEEK, metric:x.metric, target_value:x.target_value, unit:x.unit, sort_order:x.sort_order}; });
+    _sb.from('eigyo_week_targets').insert(ins).then(function(r2){
+      if(r2.error){ alert('コピーエラー：'+r2.error.message); return; }
+      loadKpiAll();
+    });
+  });
+}
+/* 週次の実績入力（section=行動 で eigyo_kpi_daily に保存） */
+function openWeekInput(metric, unit){
+  el('kiSection').value='行動'; el('kiRoute').value=''; el('kiMetric').value=metric; el('kiUnit').textContent=unit||'件';
+  el('kiTitle').textContent = '今週の行動：'+metric;
+  el('kiDate').value = today();
+  el('kiValue').value=''; el('kiMemo').value=''; el('kiMsg').innerHTML='';
+  el('kiOv').style.display='block'; el('kiBox').style.display='block';
+  setTimeout(function(){ el('kiValue').focus(); }, 50);
 }
 
 
