@@ -3376,9 +3376,15 @@ details[open] > ._upDocSummary::before { content: '▼ '; }
       <!-- ver.20260810.15: 送信方法は「公式アカウントで送付（未連携はメール）」の1モードのみ -->
       <div style="margin-bottom:14px;">
         <label style="font-size:12px;font-weight:700;color:var(--gray-400);display:block;margin-bottom:6px;">送信方法</label>
-        <div style="display:inline-flex;align-items:center;gap:10px;padding:9px 14px;border:2px solid #16a34a;background:#f0fdf4;border-radius:8px;">
-          <span style="font-size:13px;font-weight:800;color:#15803d;">🟢 公式アカウントで送付</span>
-          <span style="font-size:11px;color:#16a34a;font-weight:700;">未連携の機関はメールで送付</span>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div style="display:inline-flex;align-items:center;gap:10px;padding:9px 14px;border:2px solid #16a34a;background:#f0fdf4;border-radius:8px;">
+            <span style="font-size:13px;font-weight:800;color:#15803d;">🟢 公式アカウントで送付</span>
+            <span style="font-size:11px;color:#16a34a;font-weight:700;">未連携の機関はメールで送付</span>
+          </div>
+          <label style="display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border:1.5px solid #93c5fd;background:#eff6fb;border-radius:8px;cursor:pointer;">
+            <input type="checkbox" id="sbAlsoMail" onchange="renderSupportBroadcastList()" style="width:16px;height:16px;cursor:pointer;">
+            <span style="font-size:12.5px;font-weight:700;color:#0c447c;">未成約・既存以外でメールアドレスにも送付</span>
+          </label>
         </div>
         <div style="font-size:11px;color:#94a3b8;margin-top:6px;">連携済み＝公式（LINE/Chatwork）、未連携＝メールで送付します（二重送信なし・スキップなし）。期限切迫のExcel添付は全機関メールで送付します。</div>
       </div>
@@ -4960,7 +4966,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260810.19';
+var OFUSA_VERSION = 'ver.20260810.20';
 // ver.20260806.09: 表示用バージョンは常に OFUSA_VERSION から同期する（内部変数だけ上げて表示が古いまま残るミスを恒久防止）。
 try{ var _vEls=document.querySelectorAll('.js-app-version'); for(var _vi=0;_vi<_vEls.length;_vi++){ _vEls[_vi].textContent = OFUSA_VERSION; } }catch(e){}
 // ver.20260804.22: 起動時刻。ページ読み込み直後のSIGNED_OUT誤検知を避けるために使う。
@@ -45242,10 +45248,14 @@ async function sbSendBroadcast(){
   var isDeadline = (_sbType === 'deadline'); // 期限切迫はExcel添付のため全員メール（公式は添付不可）
   var officialable = isDeadline ? [] : items.filter(function(it){ var l=_sbOrgLinks(it.org.id); return (l.line.length + l.cw.length) > 0; });
   var _offIds = {}; officialable.forEach(function(it){ _offIds[it.org.id] = 1; });
+  // ver.20260810.20: 「メールアドレスにも送付」ON時は、連携済みの機関にも（メールがあれば）メールを追加送信する。
+  //   ※「未成約・既存以外」の絞り込みは、えいしすステータスの定義が決まってから追加予定（現状は対象を絞らず全機関）。
+  var _alsoMail = !!(document.getElementById('sbAlsoMail') && document.getElementById('sbAlsoMail').checked);
   var mailable = items.filter(function(it){
     if(it.emails.length === 0) return false;
     if(isDeadline) return true;        // 期限切迫は全員メール
-    return !_offIds[it.org.id];         // 未連携のみメール
+    if(_alsoMail) return true;          // メールにも送付ON → 連携済みでもメール
+    return !_offIds[it.org.id];         // 通常は未連携のみメール
   });
   var doMail = mailable.length > 0;
   var doOfficial = officialable.length > 0;
