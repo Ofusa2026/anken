@@ -5109,7 +5109,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260812.14';
+var OFUSA_VERSION = 'ver.20260812.15';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -58324,12 +58324,14 @@ function buildCaseRow(c, today, inGroup) {
   // 担当（小さめ）
   h += '<td data-col="team" style="'+cs+'font-size:10px;width:49px;"><div style="font-weight:600;">'+esc(teamShort)+'</div><div style="color:var(--gray-400);">'+esc(staffShort)+'</div></td>';
   // ステータス（小さめ）
-  h += '<td onclick="event.stopPropagation()" style="'+cs+'">';
+  h += '<td onclick="event.stopPropagation()" style="'+cs+'position:relative;">';
   if(c.status==='審査完了'||c.status==='完了'){
     h += '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:#f0fdf4;color:#16a34a;border:1px solid #86efac;display:inline-block;">\u2713完了</span>';
   } else {
     h += _statusBadge(c.status||'未着手');   // ver.20260810.28: 共通バッジに統一
   }
+  // ver.20260812.15: クイック編集トリガー
+  h += ' <button class="qa-trigger" onclick="event.stopPropagation();_qaOpen(\''+c.id+'\',this)" title="クイック編集（ステータス／申請日／進捗メモ）" style="background:transparent;border:none;padding:0 3px;cursor:pointer;color:#94a3b8;font-size:14px;line-height:1;vertical-align:middle;font-weight:700;">⋯</button>';
   var _fieldShort={'外食業':'外食','外食':'外食','介護':'介護','建設':'建設','飲食料品製造':'飲食','農業':'農業','漁業':'漁業','宿泊':'宿泊','ビルクリーニング':'ビル','自動車整備':'自動車','航空':'航空','造船':'造船','工業製品製造業':'製造','林業':'林業','木材産業':'木材'};
   var _af = c.applicantField||'';
   // 雇用条件セットの分野と一致しているか確認
@@ -87494,6 +87496,207 @@ function saveCaseField(caseId, field, value){
   }
   try{ showToast && showToast('ステータスを「'+value+'」に変更しました'); }catch(e){}
 }
+
+// ================== ver.20260812.15: クイック編集ポップアップ ==================
+// モーダルを開かず、ステータス／申請日／進捗メモをまとめて更新する。
+function _qaOpen(caseId, anchorEl){
+  var c = cData.find(function(x){return x.id===caseId;});
+  if(!c) return;
+  _qaClose();
+  var statuses = Object.keys(_STATUS_STYLE);
+  var stOpts = statuses.map(function(s){
+    return '<option value="'+esc(s)+'"'+(c.status===s?' selected':'')+'>'+esc(s)+'</option>';
+  }).join('');
+  var hasOA = false;
+  try{ hasOA = (typeof _officialAcctLinks==='function') && _officialAcctLinks(caseId).length>0; }catch(e){}
+  var isNumberWait = c.status === '申請済(番号待)';
+  var today = new Date().toISOString().slice(0,10);
+  var pop = document.createElement('div');
+  pop.id = '_qaPopup';
+  pop.style.cssText = 'position:absolute;background:white;border:1px solid #cbd5e1;border-radius:10px;padding:12px 14px;width:300px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:9999;font-size:12px;color:#0f172a;';
+  var noticeBtn = hasOA
+    ? '<button onclick="_qaSaveAndNotice(\''+esc(caseId)+'\')" style="background:#16a34a;color:white;border:none;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">保存＋📣案内</button>'
+    : '';
+  pop.innerHTML =
+    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">'
+      +'<span style="font-size:10px;color:#94a3b8;font-weight:700;">クイック編集</span>'
+      +'<span style="flex:1;"></span>'
+      +'<button onclick="_qaClose()" style="background:transparent;border:none;font-size:16px;color:#94a3b8;cursor:pointer;padding:0 2px;line-height:1;">×</button>'
+    +'</div>'
+    +'<div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(c.name||c.applicant||'')+'</div>'
+    +'<label style="display:block;font-size:10px;font-weight:700;color:#64748b;margin-bottom:3px;">ステータス</label>'
+    +'<select id="_qaStatus" onchange="_qaOnStatusChange()" style="width:100%;padding:5px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;box-sizing:border-box;margin-bottom:8px;background:white;">'+stOpts+'</select>'
+    +'<div id="_qaDateRow" style="display:'+(isNumberWait?'block':'none')+';margin-bottom:8px;">'
+      +'<label style="display:block;font-size:10px;font-weight:700;color:#64748b;margin-bottom:3px;">申請日（受付日）</label>'
+      +'<input type="date" id="_qaDate" value="'+esc(c.receiptDate||today)+'" style="width:100%;padding:5px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;box-sizing:border-box;">'
+    +'</div>'
+    +'<label style="display:block;font-size:10px;font-weight:700;color:#64748b;margin-bottom:3px;">進捗メモを追記</label>'
+    +'<textarea id="_qaMemo" placeholder="ここに追記（日付＋担当者名が自動で入ります）..." style="width:100%;height:60px;padding:5px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;resize:vertical;box-sizing:border-box;margin-bottom:10px;font-family:inherit;"></textarea>'
+    +'<div style="display:flex;gap:6px;">'
+      +'<button onclick="_qaSave(\''+esc(caseId)+'\')" style="flex:1;background:#2563eb;color:white;border:none;border-radius:6px;padding:7px;font-size:12px;font-weight:700;cursor:pointer;">保存</button>'
+      +noticeBtn
+    +'</div>'
+    +'<div style="margin-top:8px;padding-top:8px;border-top:1px dashed #e2e8f0;">'
+      +'<button onclick="_openAIDraftModal(\''+esc(caseId)+'\')" style="width:100%;background:#faf5ff;color:#7c3aed;border:1px solid #d8b4fe;border-radius:6px;padding:6px;font-size:11px;font-weight:700;cursor:pointer;">📧 AIメール下書き</button>'
+    +'</div>';
+  document.body.appendChild(pop);
+  // 位置調整（アンカー要素の下）
+  try{
+    var rect = anchorEl.getBoundingClientRect();
+    var top = rect.bottom + window.scrollY + 4;
+    var left = rect.left + window.scrollX;
+    if(left + 320 > window.innerWidth + window.scrollX) left = window.innerWidth + window.scrollX - 320;
+    if(left < 8) left = 8;
+    pop.style.top = top + 'px';
+    pop.style.left = left + 'px';
+  }catch(e){}
+  // 外側クリックで閉じる
+  setTimeout(function(){ document.addEventListener('mousedown', _qaOutsideClick, true); }, 0);
+  // メモ欄にフォーカス
+  setTimeout(function(){ var m=document.getElementById('_qaMemo'); if(m) m.focus(); }, 30);
+}
+function _qaOutsideClick(e){
+  var pop = document.getElementById('_qaPopup');
+  if(!pop) return;
+  if(pop.contains(e.target)) return;
+  // ⋯ ボタン自身のクリックは無視
+  if(e.target.classList && e.target.classList.contains('qa-trigger')) return;
+  _qaClose();
+}
+function _qaClose(){
+  var p = document.getElementById('_qaPopup');
+  if(p) p.remove();
+  document.removeEventListener('mousedown', _qaOutsideClick, true);
+}
+function _qaOnStatusChange(){
+  var sel = document.getElementById('_qaStatus');
+  var row = document.getElementById('_qaDateRow');
+  if(!sel||!row) return;
+  var show = (sel.value === '申請済(番号待)');
+  row.style.display = show ? 'block' : 'none';
+  // 番号待に切り替えた瞬間、値が空なら今日を入れる
+  if(show){
+    var d = document.getElementById('_qaDate');
+    if(d && !d.value) d.value = new Date().toISOString().slice(0,10);
+  }
+}
+function _qaSave(caseId, thenNotice){
+  var c = cData.find(function(x){return x.id===caseId;});
+  if(!c) return;
+  var newStatus = (document.getElementById('_qaStatus')||{}).value;
+  var newDate = (document.getElementById('_qaDate')||{}).value || '';
+  var memo = ((document.getElementById('_qaMemo')||{}).value||'').trim();
+  var changes = [];
+  var oldStatus = c.status;
+  if(newStatus && newStatus !== oldStatus){
+    c.status = newStatus;
+    changes.push('status');
+  }
+  if(newStatus === '申請済(番号待)' && newDate && newDate !== c.receiptDate){
+    c.receiptDate = newDate;
+    changes.push('receiptDate');
+  }
+  if(memo){
+    var who = (typeof currentUser!=='undefined' && currentUser) ? currentUser : '';
+    var stamp = new Date().toISOString().slice(0,10) + (who?' ['+who+']':'');
+    var existing = (c.progressMemo||'').trim();
+    c.progressMemo = (existing ? existing + '\n' : '') + stamp + '\n' + memo;
+    changes.push('progressMemo');
+  }
+  if(!changes.length){
+    _qaClose();
+    if(thenNotice){
+      try{ _openIndividualNoticeModal(caseId,{docs:false}); }catch(e){ console.error(e); }
+    }
+    return;
+  }
+  // 保存
+  _queueSaveCases();
+  try{ persistCasesToDB([c]); }catch(e){ console.error('_qaSave persist error:',e); }
+  // currentCase 同期
+  try{ if(typeof currentCase!=='undefined' && currentCase && currentCase.id===caseId){ changes.forEach(function(f){ currentCase[f]=c[f]; }); } }catch(e){}
+  // 再描画
+  try{ if(typeof applyFilters==='function') applyFilters(false); }catch(e){}
+  var msg = '✅ 保存';
+  if(changes.indexOf('status')>=0) msg += '（'+newStatus+'）';
+  try{ showToast(msg); }catch(e){}
+  _qaClose();
+  if(thenNotice){
+    try{ _openIndividualNoticeModal(caseId,{docs:false}); }catch(e){ console.error(e); }
+  }
+}
+function _qaSaveAndNotice(caseId){ _qaSave(caseId, true); }
+
+// ================== ver.20260812.15: AIメール下書きモーダル（形だけ・AI連携は今後） ==================
+function _openAIDraftModal(caseId){
+  var c = cData.find(function(x){return x.id===caseId;});
+  if(!c) return;
+  var old = document.getElementById('_aiDraftModal'); if(old) old.remove();
+  window._aiDraftCaseId = caseId;
+  var tags = [];
+  if(c.appType) tags.push(c.appType);
+  if(c.residenceStatus) tags.push(c.residenceStatus);
+  if(c.applicantField) tags.push(c.applicantField);
+  if(c.org) tags.push(c.org);
+  if(c.company) tags.push(c.company);
+  if(c.status) tags.push(c.status);
+  var tagsHtml = tags.map(function(t){return '<span style="font-size:11px;padding:2px 8px;border-radius:12px;background:#e0f2fe;color:#075985;font-weight:600;">'+esc(t)+'</span>';}).join('');
+  var modal = document.createElement('div');
+  modal.id = '_aiDraftModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML =
+    '<div style="background:white;border-radius:14px;width:600px;max-width:96vw;max-height:88vh;overflow:auto;box-shadow:0 12px 40px rgba(0,0,0,.3);display:flex;flex-direction:column;">'
+      +'<div style="padding:14px 18px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:10px;flex-shrink:0;">'
+        +'<span style="font-size:14px;font-weight:800;color:#0f172a;">📧 AIメール下書き</span>'
+        +'<span style="font-size:10px;padding:2px 8px;border-radius:12px;background:#ede9fe;color:#5b21b6;font-weight:700;">🚧 準備中</span>'
+        +'<span style="flex:1;"></span>'
+        +'<button onclick="document.getElementById(\'_aiDraftModal\').remove()" style="background:transparent;border:none;font-size:20px;cursor:pointer;color:#94a3b8;line-height:1;">×</button>'
+      +'</div>'
+      +'<div style="padding:10px 18px;background:#f8fafc;border-bottom:1px solid #e2e8f0;">'
+        +'<div style="font-size:10px;color:#64748b;font-weight:700;margin-bottom:5px;">参照する文脈</div>'
+        +'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">'
+          +'<span style="font-size:11px;padding:2px 8px;border-radius:12px;background:#dcfce7;color:#166534;font-weight:600;">👤 '+esc(c.name||c.applicant||'')+'</span>'
+          +tagsHtml
+        +'</div>'
+      +'</div>'
+      +'<div style="padding:12px 18px;border-bottom:1px solid #e2e8f0;">'
+        +'<label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;font-weight:700;">宛先</label>'
+        +'<input id="_aiDraftTo" type="text" placeholder="宛先メールアドレスを入力" style="width:100%;padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;box-sizing:border-box;">'
+      +'</div>'
+      +'<div style="padding:12px 18px;border-bottom:1px solid #e2e8f0;">'
+        +'<label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;font-weight:700;">件名</label>'
+        +'<input id="_aiDraftSubject" type="text" placeholder="件名を入力" style="width:100%;padding:6px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;box-sizing:border-box;">'
+      +'</div>'
+      +'<div style="padding:12px 18px;flex:1;">'
+        +'<label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;font-weight:700;">本文</label>'
+        +'<textarea id="_aiDraftBody" placeholder="ここに本文が生成される予定です。&#10;&#10;・上記の文脈タグから、担当者向けの連絡文を自動作成します。&#10;・件名・宛名・締めまで含めた完成形を生成します。&#10;・「再生成」で文体・トーンを変更できるようにします。&#10;&#10;※ AI連携は今後実装予定です。今は手入力で使えます。" style="width:100%;height:240px;padding:8px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;box-sizing:border-box;font-family:inherit;line-height:1.6;resize:vertical;"></textarea>'
+      +'</div>'
+      +'<div style="padding:10px 18px;background:#f8fafc;border-top:1px solid #e2e8f0;display:flex;gap:8px;align-items:center;flex-shrink:0;">'
+        +'<button disabled title="AI連携は今後実装" style="background:#e2e8f0;color:#94a3b8;border:none;border-radius:6px;padding:7px 14px;font-size:12px;font-weight:700;cursor:not-allowed;">✨ AI下書き生成</button>'
+        +'<button disabled title="AI連携は今後実装" style="background:transparent;color:#94a3b8;border:1px solid #e2e8f0;border-radius:6px;padding:7px 12px;font-size:12px;cursor:not-allowed;">🔄 再生成</button>'
+        +'<span style="flex:1;"></span>'
+        +'<button onclick="_aiCopyDraft()" style="background:white;border:1px solid #cbd5e1;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;font-weight:700;">📋 コピー</button>'
+        +'<button onclick="_aiOpenInGmail()" style="background:#2563eb;color:white;border:none;border-radius:6px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;">📧 Gmailで開く</button>'
+      +'</div>'
+    +'</div>';
+  modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+  document.body.appendChild(modal);
+  _qaClose();
+}
+function _aiCopyDraft(){
+  var s = (document.getElementById('_aiDraftSubject')||{}).value||'';
+  var b = (document.getElementById('_aiDraftBody')||{}).value||'';
+  var text = (s?'件名: '+s+'\n\n':'') + b;
+  try{ copyToClipboard(text, 'メール下書き'); }catch(e){ try{ navigator.clipboard.writeText(text); showToast('📋 コピーしました'); }catch(e2){} }
+}
+function _aiOpenInGmail(){
+  var to = encodeURIComponent((document.getElementById('_aiDraftTo')||{}).value||'');
+  var su = encodeURIComponent((document.getElementById('_aiDraftSubject')||{}).value||'');
+  var body = encodeURIComponent((document.getElementById('_aiDraftBody')||{}).value||'');
+  var url = 'https://mail.google.com/mail/?view=cm&fs=1&to='+to+'&su='+su+'&body='+body;
+  window.open(url, '_blank');
+}
+// ================================================================================
 
 // ver.20260608.07: 人材データタブの受付番号PDF/審査完了PDF URLを archive から読込
 function _loadCasePdfUrls(caseId){
