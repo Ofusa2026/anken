@@ -4987,7 +4987,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260811.15';
+var OFUSA_VERSION = 'ver.20260811.16';
 // ver.20260810.28: ステータスバッジ共通スタイル（全画面統一）
 var _STATUS_STYLE={
   '未着手':['#f8fafc','#64748b','#e2e8f0'],
@@ -7098,9 +7098,11 @@ function buildStaffFilter(){
   dd.innerHTML = '';
   // ver.20260811.13: 担当者ごとの案件数を集計。0件の担当者は選択肢から除外し、
   //   件数バッジを名前の右に表示（本人を探しやすくする）。
+  // ver.20260811.16: 完了案件は件数から除外（大量の過去案件で担当者を判別しにくい問題を解消）。
   var _staffCount = {}, _unsetCount = 0;
   try{
     (cData||[]).forEach(function(c){
+      if(c && c.status === '完了') return; // 完了は集計対象外
       var st = String(c.staff||'').trim();
       if(!st){ _unsetCount++; return; }
       // 複数担当（「A、B」等）に対応
@@ -79322,19 +79324,39 @@ function _populateListFilter(staffSelId, orgSelId, listData) {
   if(window._listFilterSig[staffSelId]===_sig && staffSel.options.length>1) return;
   window._listFilterSig[staffSelId]=_sig;
   var curStaff = staffSel.value, curOrg = orgSel.value;
-  var staffSet={}, orgSet={};
+  // ver.20260811.16: 完了案件を件数から除外＋担当者/機関ごとの件数を集計し、0件を非表示
+  var staffCnt={}, orgCnt={};
   listData.forEach(function(d){
     var lc = _getLinkedCase(d);
-    if(lc && lc.staff) staffSet[lc.staff]=1;
+    if(lc && lc.status === '完了') return; // 完了は集計対象外
+    if(lc && lc.staff){
+      String(lc.staff).split(/[、,／\/]/).forEach(function(one){
+        one = one.trim(); if(!one) return;
+        staffCnt[one] = (staffCnt[one]||0) + 1;
+      });
+    }
     var o = lc ? (lc.org||'') : (d.org||'');
-    if(o) orgSet[o]=1;
+    if(o) orgCnt[o] = (orgCnt[o]||0) + 1;
   });
-  // 担当者
+  // 担当者（0件は非表示、件数付き）
   staffSel.innerHTML='<option value="">全担当者</option>';
-  Object.keys(staffSet).sort().forEach(function(s){ var op=document.createElement('option');op.value=s;op.textContent=s;if(s===curStaff)op.selected=true;staffSel.appendChild(op); });
-  // 支援機関
+  Object.keys(staffCnt).sort().forEach(function(s){
+    var op=document.createElement('option'); op.value=s; op.textContent=s+'（'+staffCnt[s]+'件）';
+    if(s===curStaff) op.selected=true; staffSel.appendChild(op);
+  });
+  // 現在選択中の担当者が候補にない場合も残す（絞込中に切替を可能に）
+  if(curStaff && !staffCnt[curStaff]){
+    var op=document.createElement('option'); op.value=curStaff; op.textContent=curStaff+'（0件）'; op.selected=true; staffSel.appendChild(op);
+  }
+  // 支援機関（0件は非表示、件数付き）
   orgSel.innerHTML='<option value="">全支援機関</option>';
-  Object.keys(orgSet).sort().forEach(function(o){ var op=document.createElement('option');op.value=o;op.textContent=o.length>18?o.slice(0,18)+'…':o;if(o===curOrg)op.selected=true;orgSel.appendChild(op); });
+  Object.keys(orgCnt).sort().forEach(function(o){
+    var op=document.createElement('option'); op.value=o; op.textContent=(o.length>18?o.slice(0,18)+'…':o)+'（'+orgCnt[o]+'件）';
+    if(o===curOrg) op.selected=true; orgSel.appendChild(op);
+  });
+  if(curOrg && !orgCnt[curOrg]){
+    var op=document.createElement('option'); op.value=curOrg; op.textContent=(curOrg.length>18?curOrg.slice(0,18)+'…':curOrg)+'（0件）'; op.selected=true; orgSel.appendChild(op);
+  }
 }
 
 // ===== 申請記録：支援機関別サブメニュー =====
