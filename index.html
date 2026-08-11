@@ -77,6 +77,11 @@ html,body{height:100%;margin:0;padding:0;}body{font-family:-apple-system,BlinkMa
 .filter-label{font-size:10px;color:var(--gray-400);font-weight:700;white-space:nowrap;}
 .filter-select{border:1px solid var(--gray-200);border-radius:5px;padding:3px 6px;font-size:11px;color:var(--navy);background:white;cursor:pointer;}
 .filter-select:focus{outline:none;border-color:var(--blue);}
+.copy-chip{position:relative;cursor:pointer;padding-right:20px !important;transition:background-color .15s;}
+.copy-chip::after{content:"📋";position:absolute;right:4px;top:50%;transform:translateY(-50%);font-size:10px;opacity:0;transition:opacity .15s;pointer-events:none;}
+.copy-chip:hover{background-color:rgba(37,99,235,.08);}
+.copy-chip:hover::after{opacity:1;}
+.copy-chip:active{transform:scale(0.98);}
 .search-input{border:1px solid var(--gray-200);border-radius:6px;padding:6px 12px;font-size:12px;flex:1;min-width:160px;}
 .search-input:focus{outline:none;border-color:var(--blue);}
 
@@ -5014,7 +5019,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260811.21';
+var OFUSA_VERSION = 'ver.20260811.22';
 // ver.20260810.28: ステータスバッジ共通スタイル（全画面統一）
 var _STATUS_STYLE={
   '未着手':['#f8fafc','#64748b','#e2e8f0'],
@@ -5063,6 +5068,48 @@ function _debInput(key, fn, ms){ ms=ms||250; clearTimeout(_debTimers[key]); _deb
 // ver.20260811.12: 一括バーの「もっと」開閉
 function _bulkMoreToggle(e){ if(e){e.stopPropagation();} var dd=document.getElementById('bulkMoreDD'); if(!dd)return; var show=dd.style.display==='none'||!dd.style.display; dd.style.display=show?'block':'none'; if(show){setTimeout(function(){document.addEventListener('click', _bulkMoreClose, {once:true});},0);} }
 function _bulkMoreClose(){ var dd=document.getElementById('bulkMoreDD'); if(dd) dd.style.display='none'; }
+
+// ver.20260811.22: クリップボードコピー ユーティリティ
+//   - copyToClipboard(text, label) : プログラムから直接呼び出す
+//   - .copy-chip 要素（data-copy属性 or 中の.copy-value のテキスト）は自動でクリック可
+window.copyToClipboard = function(text, label){
+  if(!text) return;
+  var done = function(){
+    try{ showToast('📋 コピーしました' + (label?'：'+label:'')); }catch(e){}
+  };
+  var fail = function(err){
+    console.error('copy failed:', err);
+    try{ showToast('❌ コピーできませんでした'); }catch(e){}
+  };
+  try{
+    if(navigator.clipboard && window.isSecureContext){
+      navigator.clipboard.writeText(String(text)).then(done, fail);
+    } else {
+      // fallback: 一時 textarea
+      var ta = document.createElement('textarea');
+      ta.value = String(text);
+      ta.style.position='fixed'; ta.style.left='-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      ok ? done() : fail('execCommand');
+    }
+  }catch(e){ fail(e); }
+};
+// 全ページ横断のイベント委任：.copy-chip をクリックで data-copy をコピー
+document.addEventListener('click', function(e){
+  var chip = e.target && (e.target.closest ? e.target.closest('.copy-chip') : null);
+  if(!chip) return;
+  e.preventDefault(); e.stopPropagation();
+  var v = chip.getAttribute('data-copy') || '';
+  if(!v){
+    var vEl = chip.querySelector('.copy-value');
+    if(vEl) v = (vEl.textContent||'').trim();
+  }
+  var label = chip.getAttribute('data-copy-label') || '';
+  copyToClipboard(v, label);
+});
 
 // ver.20260811.18: グローバル検索（Cmd/Ctrl+K で開く）
 window._gsSelIdx = 0;
@@ -24154,10 +24201,10 @@ function renderKanriDocList(){
     // 受付番号 / 日付（期限アラートの「申請期限: XXX」と同形式）
     if(d.date){
       h += '<div style="font-size:11px;color:#64748b;margin-top:2px;">'+esc(cfg.dateLabel)+': <b style="color:#0f2040;">'+esc(String(d.date).slice(0,10))+'</b>';
-      if(d.caseNo) h += ' <span style="color:#94a3b8;margin-left:8px;">(受付番号: <b style="color:'+cfg.color+';">'+esc(d.caseNo)+'</b>)</span>';
+      if(d.caseNo) h += ' <span style="color:#94a3b8;margin-left:8px;">(受付番号: <b class="copy-chip" data-copy="'+esc(d.caseNo)+'" data-copy-label="受付番号" title="クリックでコピー" style="color:'+cfg.color+';">'+esc(d.caseNo)+'</b>)</span>';
       h += '</div>';
     } else if(d.caseNo){
-      h += '<div style="font-size:11px;color:#64748b;margin-top:2px;">受付番号: <b style="color:'+cfg.color+';">'+esc(d.caseNo)+'</b></div>';
+      h += '<div style="font-size:11px;color:#64748b;margin-top:2px;">受付番号: <b class="copy-chip" data-copy="'+esc(d.caseNo)+'" data-copy-label="受付番号" title="クリックでコピー" style="color:'+cfg.color+';">'+esc(d.caseNo)+'</b></div>';
     }
     // 進捗メモ（期限アラートと完全同じスタイル: 紫の左ボーダー、右下にタイムスタンプ）
     if(c){
@@ -59549,7 +59596,7 @@ function buildKanbanCard(c, today, statusColor) {
   h += '<div style="display:flex;flex-wrap:wrap;gap:3px;">';
   if(c.expire) h += '<span style="font-size:9px;color:'+expColor+';font-weight:700;">📅'+c.expire+(days!==null&&days<=30?' (あと'+days+'日)':'')+'</span>';
   if(c.tokureiDate) h += '<span style="font-size:9px;color:'+(tokDays!==null&&tokDays<=14?'#ea580c':'#0369a1')+';font-weight:700;">特例 '+c.tokureiDate+'</span>';
-  if(c.receiptNo) h += '<span style="font-size:9px;color:#2563eb;font-weight:700;">'+esc(c.receiptNo)+'</span>';
+  if(c.receiptNo) h += '<span class="copy-chip" data-copy="'+esc(c.receiptNo)+'" data-copy-label="受付番号" title="クリックでコピー" style="font-size:9px;color:#2563eb;font-weight:700;">'+esc(c.receiptNo)+'</span>';
   h += '</div>';
   // 進捗メモ
   if(pm) h += '<div style="font-size:9px;color:#64748b;margin-top:3px;padding-top:3px;border-top:1px solid #f1f5f9;line-height:1.4;max-height:40px;overflow:hidden;">'+esc(pm)+'</div>';
