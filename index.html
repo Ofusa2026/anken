@@ -4987,7 +4987,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260811.13';
+var OFUSA_VERSION = 'ver.20260811.14';
 // ver.20260810.28: ステータスバッジ共通スタイル（全画面統一）
 var _STATUS_STYLE={
   '未着手':['#f8fafc','#64748b','#e2e8f0'],
@@ -16425,7 +16425,66 @@ function _partEsc(v){
   return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ver.20260811.14: 自前の画面遷移履歴（戻るボタン用）
+// - スタック要素は {kind:'panel', panelId, navId} または {kind:'case', caseId, fromPanel, fromNav}
+// - switchPanel/openCase 呼び出しの直前に現在の状態をpushし、_goBack()でpop
+window._navHistory = window._navHistory || [];
+window._navSuppress = false; // _goBack実行中はpushしない
+function _navRecordCurrent(){
+  if(window._navSuppress) return;
+  try{
+    var cm = document.getElementById('caseModal');
+    var caseOpen = cm && cm.classList.contains('open') && window.currentCase && window.currentCase.id;
+    if(caseOpen){
+      window._navHistory.push({kind:'case', caseId:window.currentCase.id});
+    } else {
+      var vis = document.querySelector('.main-panel[style*="flex"]');
+      var pid = vis ? vis.id : (localStorage.getItem('ofusa_lastPanel')||'');
+      var nid = localStorage.getItem('ofusa_lastNav')||'';
+      if(pid) window._navHistory.push({kind:'panel', panelId:pid, navId:nid});
+    }
+    // 上限（暴走防止）
+    if(window._navHistory.length > 30) window._navHistory.shift();
+  }catch(e){}
+  _updateBackBtnEnabled();
+}
+function _goBack(){
+  var h = window._navHistory;
+  if(!h || !h.length){ return; }
+  // 直近と同じなら1つ飛ばす
+  var last = h.pop();
+  window._navSuppress = true;
+  try{
+    if(last.kind === 'case'){
+      // 案件詳細に戻る（存在すれば）
+      var c = null;
+      try{ c = (window.cData||[]).find(function(x){return String(x.id)===String(last.caseId);}); }catch(e){}
+      if(c && typeof openCase === 'function'){ openCase(last.caseId); }
+      else if(typeof switchPanel === 'function' && last.panelId){ switchPanel(last.panelId, last.navId); }
+    } else if(last.kind === 'panel'){
+      // 案件詳細が開いていれば閉じる
+      var cm = document.getElementById('caseModal');
+      if(cm){ cm.classList.remove('open'); document.body.classList.remove('case-modal-open'); }
+      if(typeof switchPanel === 'function' && last.panelId){ switchPanel(last.panelId, last.navId); }
+    }
+  }finally{
+    window._navSuppress = false;
+    _updateBackBtnEnabled();
+  }
+}
+function _updateBackBtnEnabled(){
+  try{
+    var b = document.getElementById('ofusa-back-btn');
+    if(!b) return;
+    var n = (window._navHistory||[]).length;
+    b.style.opacity = n>0 ? '1' : '0.35';
+    b.style.cursor = n>0 ? 'pointer' : 'default';
+    b.title = n>0 ? ('◀ 戻る（履歴 '+n+' 件）') : '戻り先がありません';
+  }catch(e){}
+}
+
 function switchPanel(panelId, navId) {
+  _navRecordCurrent();
   // ver.20260525.09: 書類不足モーダル(co_doc_missing)が表示中(hidden含む)は他メニュー遷移を禁止
   var forceModal = document.getElementById('_forceCaseAlertModal');
   if(forceModal){
@@ -60800,6 +60859,7 @@ function _ensureDocTasksForCase(caseId, cb){
 }
 
 function openCase(id) {
+  _navRecordCurrent();
   window._infoEditMode = false;
   try{ _ensureDocTasksForCase(id); }catch(e){}   // ver.20260805.25
   var c = cData.find(function(x) { return x.id === id; });
@@ -99637,7 +99697,9 @@ function openLineShare(url, docType) {
 .oc-kn-meta { font-size:9px; color:#a0aec0; margin-top:4px; }
 </style>
 
-<button id="ofusa-chat-btn" onclick="ocToggle()" title="AIアシスタント">🤖</button>
+<button id="ofusa-chat-btn" onclick="ocToggle()" title="AIアシスタント" style="display:none;" aria-hidden="true">🤖</button>
+
+<button id="ofusa-back-btn" onclick="_goBack()" title="◀ 戻る" aria-label="戻る">◀</button>
 
 <div id="ofusa-chat-panel">
   <!-- リサイズハンドル（左上） -->
@@ -100296,6 +100358,10 @@ async function ocKnDelete(id) {
 <style>
 #ofusa-chat-btn{position:fixed;bottom:80px;right:24px;z-index:9000;width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,#1a56db,#7c3aed);color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 4px 20px rgba(26,86,219,.45);display:flex;align-items:center;justify-content:center;transition:.2s;}
 #ofusa-chat-btn:hover{transform:scale(1.1);}
+#ofusa-back-btn{position:fixed;bottom:80px;right:24px;z-index:9001;width:54px;height:54px;border-radius:50%;background:#0f172a;color:#fff;border:none;font-size:22px;font-weight:700;cursor:pointer;box-shadow:0 4px 20px rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;transition:.2s;padding-right:3px;}
+#ofusa-back-btn:hover{transform:scale(1.1);background:#1e293b;}
+#ofusa-back-btn:active{transform:scale(0.95);}
+@media (max-width:480px){ #ofusa-back-btn { bottom:80px; right:16px; } }
 #ofusa-chat-panel{position:fixed;bottom:146px;right:24px;z-index:9000;width:400px;max-width:calc(100vw - 16px);height:580px;max-height:calc(100vh - 110px);background:#fff;border:1px solid #e2e8f0;border-radius:18px;box-shadow:0 12px 40px rgba(0,0,0,.18);display:none;flex-direction:column;overflow:hidden;transition:height .15s;}@media(max-width:480px){#ofusa-chat-panel{right:8px;left:8px;width:auto;bottom:140px;}#ofusa-chat-btn{bottom:80px;right:16px;}}
 #ofusa-chat-panel.open{display:flex;}
 .oc-head{padding:14px 16px;background:linear-gradient(135deg,#1a56db,#7c3aed);color:#fff;display:flex;align-items:center;gap:10px;flex-shrink:0;}
@@ -100336,7 +100402,7 @@ async function ocKnDelete(id) {
 .oc-kn-meta{font-size:9px;color:#a0aec0;margin-top:4px;}
 </style>
 
-<button id="ofusa-chat-btn" onclick="ocToggle()" title="AIアシスタント">🤖</button>
+<button id="ofusa-chat-btn" onclick="ocToggle()" title="AIアシスタント" style="display:none;" aria-hidden="true">🤖</button>
 
 <div id="ofusa-chat-panel">
   <div class="oc-head">
