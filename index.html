@@ -2783,8 +2783,6 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <!-- FILTERS -->
   <div class="filters-section">
     <div class="filters">
-      <!-- ver.20260812.16: マイ案件トグル（担当=自分のみ表示） -->
-      <button id="fMyOnlyBtn" onclick="toggleMyCasesOnly()" class="filter-select" style="cursor:pointer;min-width:110px;text-align:left;background:white;color:#64748b;font-weight:700;" title="自分が担当の案件だけ表示（Alt+M）">👤 マイ案件のみ</button>
       <div style="position:relative;display:inline-block;" id="fTeamWrap">
         <button id="fTeamBtn" onclick="toggleDropdown('fTeamDD','fTeamBtn','全チーム',event)" class="filter-select" style="cursor:pointer;min-width:80px;text-align:left;background:white;" title="チームで絞込">🏷️ 全チーム ▾</button>
         <div id="fTeamDD" style="display:none;position:absolute;top:100%;left:0;background:white;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.12);z-index:9999;padding:8px;min-width:120px;">
@@ -5111,7 +5109,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260812.16';
+var OFUSA_VERSION = 'ver.20260812.15';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -9261,8 +9259,6 @@ function completeLogin(userName, user) {
   updateReviewBadge();
   // lastPanelが保存されていればそちらを優先（リロード復元用）
   window._needFilterRestore = true;
-  // ver.20260812.16: マイ案件モードを初期化（初回はON）
-  try{ _initMyCasesOnly(); }catch(e){}
   var _lp = localStorage.getItem('ofusa_lastPanel');
   if(!_lp || _lp === 'casesScreen') showCases();
   // else: loadAllFromSupabase完了後にパネル復元される
@@ -60635,65 +60631,6 @@ function applyAgencyFilter(){
   applyFilters(true);
 }
 function applyTypeFilter(){var keys=['nintei','koshin','henkou','empty','noapp'];var labels={nintei:'認定',koshin:'更新',henkou:'変更',empty:'未入力',noapp:'申請なし'};var checked=keys.filter(function(k){var el=document.getElementById('fType_'+k);return el&&el.checked;});var btn=document.getElementById('fTypeBtn');if(btn)btn.textContent=(checked.length===0||checked.length===keys.length)?'全種別 ▾':checked.map(function(k){return labels[k];}).join('・')+' ▾';applyFilters(true);}
-
-// ver.20260812.16: マイ案件モード（担当=currentUserに強制絞込）
-window._myCasesOnly = false;
-function _myCasesKey(){ return 'ofusa_myOnly_' + (currentUser||''); }
-function _updateMyOnlyBtn(){
-  var btn = document.getElementById('fMyOnlyBtn');
-  if(!btn) return;
-  var on = !!window._myCasesOnly;
-  var userLabel = currentUser ? currentUser.split(/[\s\u3000]/)[0] : '';
-  if(on){
-    btn.textContent = '👤 ' + (userLabel||'マイ') + 'のみ ✓';
-    btn.style.background = '#2563eb';
-    btn.style.color = 'white';
-    btn.style.borderColor = '#2563eb';
-    btn.title = 'クリックで全担当表示に戻す';
-  } else {
-    btn.textContent = '👤 マイ案件のみ';
-    btn.style.background = 'white';
-    btn.style.color = '#64748b';
-    btn.style.borderColor = '';
-    btn.title = '自分が担当の案件だけ表示（Alt+M）';
-  }
-}
-function setMyCasesOnly(on, opts){
-  opts = opts || {};
-  if(!currentUser){ window._myCasesOnly=false; _updateMyOnlyBtn(); return; }
-  window._myCasesOnly = !!on;
-  try{ localStorage.setItem(_myCasesKey(), on ? '1' : '0'); }catch(e){}
-  _updateMyOnlyBtn();
-  if(!opts.silent){
-    try{ applyFilters(true); }catch(e){}
-    try{ showToast(on?('👤 '+currentUser+'の案件のみ表示中'):'👥 全担当を表示'); }catch(e){}
-  }
-}
-function toggleMyCasesOnly(){ setMyCasesOnly(!window._myCasesOnly); }
-// ログイン直後の初期適用（初回はONがデフォルト、以降はユーザー選択を尊重）
-function _initMyCasesOnly(){
-  if(!currentUser){ window._myCasesOnly=false; _updateMyOnlyBtn(); return; }
-  var v = null;
-  try{ v = localStorage.getItem(_myCasesKey()); }catch(e){}
-  if(v === null){
-    // 初回は自動でON（自分の担当だけ表示）
-    window._myCasesOnly = true;
-    try{ localStorage.setItem(_myCasesKey(), '1'); }catch(e){}
-  } else {
-    window._myCasesOnly = (v === '1');
-  }
-  _updateMyOnlyBtn();
-}
-// キーボードショートカット Alt+M
-document.addEventListener('keydown', function(e){
-  if(e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key==='m'||e.key==='M')){
-    // 入力欄で押下時は無視
-    var t = e.target;
-    if(t && (t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable)) return;
-    e.preventDefault();
-    toggleMyCasesOnly();
-  }
-});
 // リロード復元用フィルタ保存（buildStaff/OrgFilterがDOM構築時に参照）
 var _pendingFilterRestore = null;
 
@@ -60866,10 +60803,6 @@ function applyFilters(resetPage) {
   // 担当者（複数選択）
   var _staffVals = getCheckedValues('fStaffDD');
   var staff = _staffVals.length === 1 ? _staffVals[0] : (_staffVals.length > 1 ? _staffVals : '全担当者');
-  // ver.20260812.16: マイ案件モード — currentUserだけに強制絞込
-  if(window._myCasesOnly && typeof currentUser !== 'undefined' && currentUser){
-    staff = currentUser;
-  }
   // 支援機関（複数選択）
   var _orgVals = getCheckedValues('fOrgDD');
   var org = _orgVals.length === 1 ? _orgVals[0] : (_orgVals.length > 1 ? _orgVals : '');
@@ -93390,8 +93323,6 @@ rebuildLoginSelect();
       if (moreKanri2) moreKanri2.style.display = '';
       // lastPanelが保存されていれば復元（loadAllFromSupabase完了後に実行される）
       window._needFilterRestore = true;
-      // ver.20260812.16: マイ案件モードを初期化（初回はON）
-      try{ _initMyCasesOnly(); }catch(e){}
       var _lp2 = localStorage.getItem('ofusa_lastPanel');
       if(!_lp2 || _lp2 === 'casesScreen') showCases();
       // else: loadAllFromSupabase完了後にパネル復元される
