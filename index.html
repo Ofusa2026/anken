@@ -5109,7 +5109,86 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260812.13';
+var OFUSA_VERSION = 'ver.20260812.14';
+
+// ==================== ver.20260812.14: 全体最適ユーティリティ ====================
+// 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
+//   会社名 → 件数 の Map。cData 書き込み時に invalidate。
+//   使い方: var cnt = getCaseCountByCompany()[co.name]||0;
+var _caseCountByCompanyCache = null;
+function getCaseCountByCompany(){
+  if(_caseCountByCompanyCache) return _caseCountByCompanyCache;
+  var m = {};
+  if(typeof cData !== 'undefined' && cData && cData.forEach){
+    cData.forEach(function(c){
+      if(c && c.company) m[c.company] = (m[c.company]||0) + 1;
+    });
+  }
+  _caseCountByCompanyCache = m;
+  return m;
+}
+function invalidateCaseCountCache(){ _caseCountByCompanyCache = null; }
+
+// 【2】localStorage 書き込みデバウンス — 巨大配列のJSON.stringifyを間引く
+//   同じキーへの書き込みは 400ms でまとめる。
+//   使い方: _queueSave('ofusa_cases', function(){ return JSON.stringify(cData); });
+//   即時保存が必要な場面（ページ離脱前など）は _flushSave(key) を呼ぶ。
+var _lsQueue = {};   // key -> { timer, fn }
+var _lsFlushOnUnload = false;
+function _queueSave(key, fn, delay){
+  if(!fn) return;
+  if(_lsQueue[key] && _lsQueue[key].timer) clearTimeout(_lsQueue[key].timer);
+  _lsQueue[key] = { fn: fn, timer: null };
+  var d = (typeof delay === 'number') ? delay : 400;
+  _lsQueue[key].timer = setTimeout(function(){
+    try{ localStorage.setItem(key, fn()); }catch(e){ console.warn('_queueSave failed:',key,e); }
+    _lsQueue[key].timer = null;
+  }, d);
+  // ページ離脱時に未反映のものを吐き出す
+  if(!_lsFlushOnUnload){
+    _lsFlushOnUnload = true;
+    window.addEventListener('beforeunload', function(){
+      Object.keys(_lsQueue).forEach(function(k){
+        var q = _lsQueue[k];
+        if(q && q.timer){ clearTimeout(q.timer); try{ localStorage.setItem(k, q.fn()); }catch(e){} q.timer=null; }
+      });
+    });
+  }
+}
+function _flushSave(key){
+  var q = _lsQueue[key];
+  if(!q || !q.timer) return;
+  clearTimeout(q.timer);
+  try{ localStorage.setItem(key, q.fn()); }catch(e){ console.warn('_flushSave failed:',key,e); }
+  q.timer = null;
+}
+// cases / companies 専用ラッパー（invalidateもセットで）
+function _queueSaveCases(){
+  invalidateCaseCountCache();
+  _queueSave('ofusa_cases', function(){ return JSON.stringify(cData); });
+}
+function _queueSaveCompanies(){
+  _queueSave('ofusa_companies', function(){ return JSON.stringify(companies); });
+}
+
+// 【6】共通検索ユーティリティ — 全画面で同じ挙動の横断検索を提供
+//   query（部分一致・大小無視・全半角スペース除去）が obj の指定フィールドいずれかにヒットするか
+//   使い方: if(!_matchesSearch(q, cas, ['applicant','company','ofusaStaff','receiptNo'])) return false;
+function _matchesSearch(query, obj, fields){
+  if(!query) return true;
+  if(!obj) return false;
+  var q = String(query).toLowerCase().replace(/\s+/g,'');
+  if(!q) return true;
+  var list = fields || [];
+  for(var i=0;i<list.length;i++){
+    var v = obj[list[i]];
+    if(v==null) continue;
+    if(String(v).toLowerCase().replace(/\s+/g,'').indexOf(q) !== -1) return true;
+  }
+  return false;
+}
+// ================================================================================
+
 // ver.20260810.28: ステータスバッジ共通スタイル（全画面統一）
 var _STATUS_STYLE={
   '未着手':['#f8fafc','#64748b','#e2e8f0'],
@@ -10209,7 +10288,7 @@ function _loginCheckMarkSkip(idx, fieldKey, fieldLabel){
       if(r && r.error) console.error('field_skip save err:', r.error);
     });
   }
-  try{localStorage.setItem('ofusa_cases', JSON.stringify(cData));}catch(e){}
+  _queueSaveCases()
   showToast('「'+fieldLabel+'」を不要にしました');
   // 再構築前に入力中の値を保存（再描画後に復元される）
   _captureLoginCheckDraft();
@@ -10571,7 +10650,7 @@ function _loginCheckSaveRow(idx){
       }
     }));
   }
-  try{localStorage.setItem('ofusa_cases', JSON.stringify(cData));}catch(e){}
+  _queueSaveCases()
   try{localStorage.setItem('ofusa_caseNotes', JSON.stringify(caseNotes));}catch(e){}
   Promise.all(promises).then(function(){
     // このカードのdraft値を削除
@@ -10815,7 +10894,7 @@ function _loginCheckSaveAll(){
     return;
   }
   // localStorage更新
-  try{localStorage.setItem('ofusa_cases', JSON.stringify(cData));}catch(e){}
+  _queueSaveCases()
   try{localStorage.setItem('ofusa_caseNotes', JSON.stringify(caseNotes));}catch(e){}
   Promise.all(updatePromises).then(function(){
     showToast('✅ '+totalFilled+'項目を保存しました');
@@ -13419,7 +13498,7 @@ function _forceCaseAlertSaveDocTemp(caseId){
         if(updateObj.receipt_date) curCase.receiptDate = updateObj.receipt_date;
         curCase.updated_at = new Date().toISOString();
       }
-      try{ localStorage.setItem('ofusa_cases', JSON.stringify(cData)); }catch(e){}
+      _queueSaveCases()
     } catch(e){}
     if(typeof showToast === 'function') showToast(receiptNo ? '💾 受付番号を保存しました' : '💾 保存しました（受付番号は空）');
     // ボタンを一時的に「保存済」表示に（視覚フィードバック）
@@ -14002,7 +14081,7 @@ function _bulkImportSingle(r) {
           if (dest) co[dest] = response[k];
         });
         persistCompanies(co.id);
-        try { localStorage.setItem('ofusa_companies', JSON.stringify(companies)); } catch(e) {}
+        _queueSaveCompanies()
       }
       resolve();
     }
@@ -35158,7 +35237,7 @@ function bulkCalcTokurei(){
       });
     }
   });
-  try{localStorage.setItem('ofusa_cases', JSON.stringify(cData));}catch(e){}
+  _queueSaveCases()
   if(statusEl) statusEl.textContent = '✅ ' + count + '件の特例期限を計算しました';
   showToast('✅ ' + count + '件の特例期限を一括計算しました');
 }
@@ -41798,7 +41877,7 @@ function importFormResponse(responseId, caseId, formType) {
           co.empSets.push(es);
         }
         persistCompanies(co.id);
-        try { localStorage.setItem('ofusa_companies', JSON.stringify(companies)); } catch(e) {}
+        _queueSaveCompanies()
         showToast('✅ 企業データを取込みました');
         // 所属機関詳細を再描画
         renderCompanyDetail(co);
@@ -43052,7 +43131,7 @@ function _reqFieldsMarkSkip(caseId, fieldKey, fieldLabel){
       if(r && r.error) console.error('field_skip save err:', r.error);
     });
   }
-  try{localStorage.setItem('ofusa_cases', JSON.stringify(cData));}catch(e){}
+  _queueSaveCases()
   // モーダルの該当行を削除
   var fieldRow = document.getElementById('_reqfld_'+fieldKey);
   if(fieldRow){
@@ -43362,7 +43441,7 @@ function autoSaveInfo(key, value) {
     }
   }
   // 変更した1件だけDB保存（全件送らない）
-  try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){}
+  _queueSaveCases()
   if (key === 'status' && DB_READY) {
     // ステータスだけ軽量update
     var _prevStatus = c._prevStatus || '';
@@ -43575,7 +43654,7 @@ function saveInfoEdit() {
     patch[col] = val;
     c[k] = el.value; // ローカルも更新
   });
-  try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){}
+  _queueSaveCases()
   // 変更フィールドのみPATCH（他スタッフの変更を上書きしない）
   if (DB_READY && Object.keys(patch).length) {
     patch.updated_at = new Date().toISOString();
@@ -43818,7 +43897,7 @@ function persistSupportOrgs(soId) {
 var _persistCompaniesTimer = null;
 function persistCompanies(coId, silent) {
   try{ _invalidateCompanyIndex(); }catch(e){}
-  try { localStorage.setItem('ofusa_companies', JSON.stringify(companies)); } catch(e) {}
+  _queueSaveCompanies()
   if (coId) {
     // 特定1社だけ即時DB保存（updated_at更新あり）
     var co = companies.find(function(x){ return x.id === coId; });
@@ -49551,11 +49630,8 @@ function renderCompanyList(resetPage) {
   var q=(document.getElementById('companySearch')||{}).value||'';
   var sel=window._selectedSupportForCompany||'__all__';
   var masterNames=supportOrgs.map(function(so){return so.name;});
-  // ver.20260812.12: 案件件数を先に集計（フィルタ・ソート・表示すべてで使う）
-  var caseCountByName = {};
-  cData.forEach(function(cas){
-    if(cas && cas.company) caseCountByName[cas.company] = (caseCountByName[cas.company]||0) + 1;
-  });
+  // ver.20260812.14: 案件件数はキャッシュから取得（cData変更時に自動invalidate）
+  var caseCountByName = getCaseCountByCompany();
   var list=companies.filter(function(co){
     if(sel==='__unmatched__'){if(co.supportOrgName&&masterNames.indexOf(co.supportOrgName)!==-1) return false;}
     else if(sel!=='__all__'&&co.supportOrgName!==sel) return false;
@@ -49641,7 +49717,7 @@ function renderCompanyList(resetPage) {
   if(!list.length){rows.push('<div style="padding:24px;text-align:center;color:var(--gray-400);font-size:12px;">該当なし</div>');}
   else pageList.forEach(function(co){
     var active=window._selectedCompanyId===co.id;
-    var caseCount=cData.filter(function(cas){return cas.company===co.name;}).length;
+    var caseCount=caseCountByName[co.name]||0; // ver.20260812.14: キャッシュ利用
     var bg=active?'#eff6ff':'white'; var bl=active?'var(--blue)':'transparent';
     var row='<div style="border-bottom:1px solid var(--gray-200);background:'+bg+';border-left:3px solid '+bl+';">';
     row+='<div style="padding:8px 12px 4px;cursor:pointer;display:flex;align-items:flex-start;gap:6px;">';
@@ -49716,7 +49792,7 @@ function bulkDeleteCompanies(){
   var names=[];ids.forEach(function(id){var co=companies.find(function(x){return x.id===id;});if(co)names.push(co.name);});
   if(!confirm(ids.length+'件の企業を削除しますか？\n\n'+names.slice(0,5).join('\n')+(names.length>5?'\n...他'+(names.length-5)+'件':'')))return;
   companies=companies.filter(function(x){return ids.indexOf(x.id)===-1;});
-  try{localStorage.setItem('ofusa_companies',JSON.stringify(companies));}catch(e){}
+  _queueSaveCompanies()
   if(ids.indexOf(window._selectedCompanyId)>=0){window._selectedCompanyId=null;var el=document.getElementById('companyDetail');if(el)el.innerHTML='';}
   renderCompanyList();renderSupportTree();
   showToast('🗑 '+ids.length+'件を削除中...');
@@ -49816,7 +49892,7 @@ function bulkAssignSupportOrg(){
     co.supportOrgName = target;
     changed++;
   });
-  try{ localStorage.setItem('ofusa_companies',JSON.stringify(companies)); }catch(e){}
+  _queueSaveCompanies()
   // DB反映（persistCompaniesで各件upsert）
   ids.forEach(function(id){ if(typeof persistCompanies==='function') persistCompanies(id); });
   renderSupportTree(); renderCompanyList(false);
@@ -49842,7 +49918,7 @@ function bulkAssignStaff(){
     co.ofusaStaff = target;
     changed++;
   });
-  try{ localStorage.setItem('ofusa_companies',JSON.stringify(companies)); }catch(e){}
+  _queueSaveCompanies()
   ids.forEach(function(id){ if(typeof persistCompanies==='function') persistCompanies(id); });
   renderCompanyList(false);
   showToast('✅ '+changed+'件の担当を '+(target||'（未設定）')+' にしました');
@@ -49883,8 +49959,9 @@ function openMergeCompanyModal(sourceId) {
   h += '<div style="font-size:11px;font-weight:700;color:var(--gray-400);margin-bottom:6px;">統合先の所属機関を選択：</div>';
   h += '<input type="text" id="mergeSearchInput" placeholder="名前で絞り込み..." oninput="filterMergeList()" style="width:100%;padding:8px 10px;font-size:12px;border:1px solid var(--gray-200);border-radius:8px;box-sizing:border-box;margin-bottom:8px;">';
   h += '<div id="mergeCompanyList" style="max-height:240px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:8px;">';
+  var _ccMap = getCaseCountByCompany(); // ver.20260812.14
   others.forEach(function(co){
-    var cnt = cData.filter(function(c){return c.company===co.name;}).length;
+    var cnt = _ccMap[co.name]||0;
     h += '<div class="merge-co-item" data-name="'+esc(co.name)+'" onclick="selectMergeTarget(\''+sourceId+'\',\''+co.id+'\')" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;" onmouseover="this.style.background=&quot;#eff6ff&quot;" onmouseout="this.style.background=&quot;white&quot;">';
     h += '<span style="font-size:12px;font-weight:600;color:var(--navy);">'+esc(co.name)+'</span>';
     if(cnt) h += '<span style="font-size:10px;background:#eff6ff;color:var(--blue);padding:1px 6px;border-radius:8px;font-weight:700;">'+cnt+'件</span>';
@@ -51280,7 +51357,7 @@ function exportCompanyCsv(){
     {h:'日本人比較給与',f:function(c){return c.jpSalary||'';}},
     {h:'大房担当者',f:function(c){return c.ofusaStaff||'';}},
     {h:'メモ',f:function(c){return c.memo||'';}},
-    {h:'案件数',f:function(c){return cData.filter(function(cas){return cas.company===c.name;}).length;}}
+    {h:'案件数',f:function(c){return getCaseCountByCompany()[c.name]||0;}} // ver.20260812.14
   ];
 
   var esc=function(v){v=String(v);if(v.indexOf('"')>=0||v.indexOf(',')>=0||v.indexOf('\n')>=0)return '"'+v.replace(/"/g,'""')+'"';return v;};
@@ -51304,7 +51381,7 @@ function deleteCompany(id){
   if(!co||!confirm(co.name+' を削除しますか？')) return;
   // 先にメモリとlocalStorageから削除（upsertで復活しないよう先に配列を更新）
   companies=companies.filter(function(x){return x.id!==id;});
-  try{localStorage.setItem('ofusa_companies',JSON.stringify(companies));}catch(e){}
+  _queueSaveCompanies()
   // 進行中のpersistCompaniesタイマーをキャンセル＆再セット（削除済み配列で）
   clearTimeout(_persistCompaniesTimer);
   if(window._selectedCompanyId===id){window._selectedCompanyId=null;var el=document.getElementById('companyDetail');if(el)el.innerHTML='';}
@@ -53531,7 +53608,7 @@ function saveEmpSet(coId, idx) {
     }
   }catch(e){}
   // localStorage更新
-  try { localStorage.setItem('ofusa_companies', JSON.stringify(companies)); } catch(e) {}
+  _queueSaveCompanies()
   // 該当1社だけDBに保存（全件送らない）
   // ver.20260723.17: 保存時にも休日日数の妥当性チェック（異常値は空にして警告）
   if(!_holidayDaysValid(es.nonRegWeeklyDays, 7)){
@@ -58704,7 +58781,7 @@ function bulkTrashCases(){
       cData.splice(idx, 1);
     }
   });
-  try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){}
+  _queueSaveCases()
   persistTrash();
   // DBから一括削除
   if(DB_READY){
@@ -58950,7 +59027,7 @@ function _saveBulkVerticalEdit(items, closeFn){
 }
 
 function _finishBulkVerticalEdit(ok, fail, closeFn){
-  try{ localStorage.setItem('ofusa_cases', JSON.stringify(cData)); }catch(e){}
+  _queueSaveCases()
   showToast('💾 保存: 成功 '+ok+'件'+(fail?(' / 失敗 '+fail+'件'):''));
   try{ applyFilters(false); }catch(e){}
   if(closeFn) closeFn();
@@ -59351,7 +59428,7 @@ function changeCaseStatus(caseId, newStatus){
   var _shouldPopup = _DELIVERY_TRIGGER_STATUSES.indexOf(newStatus) >= 0;
   c.status=newStatus;
   _markCaseChanged(caseId);
-  try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){}
+  _queueSaveCases()
   // ステータスだけ軽量update（タイムアウト回避）
   if(DB_READY){
     _sb.from('cases').update({status:newStatus, updated_at: new Date().toISOString()}).eq('id',caseId).then(function(r){
@@ -85009,7 +85086,7 @@ function executeCsvImport(){
         var newCo={id:'c'+Date.now()+'_'+idx, name:data.company, supportOrgName:data.org||'', nameKana:'',nameEn:'',corpNo:'',empInsNo:'',laborInsNo:'',zip:'',pref:'',city:'',address:'',addressEn:'',tel:'',repName:'',repTitle:'',repNameEn:'',authorName:'',authorNameEn:'',capital:'',sales:'',employees:'',foreignEmployees:'',techTrainees:'',jpSalary:'',industry:'',supportOrgAddress:'',supportOrgNo:'',ofusaStaff:'',memo:'',folderNo:''};
         companies.push(newCo);
         // 全件ではなく新規追加分だけDBに保存
-        try { localStorage.setItem('ofusa_companies', JSON.stringify(companies)); } catch(e) {}
+        _queueSaveCompanies()
         if(DB_READY){ _sb.from('companies').upsert({id:newCo.id,name:newCo.name,data:newCo},{onConflict:'id'}).then(function(){}).catch(function(){}); }
         newCoCount++;
       }
@@ -89633,7 +89710,7 @@ function trashCase(caseId){
   TRASH_CASES.push(trashedCase);
   persistTrash();
   cData = cData.filter(function(x){return x.id!==caseId;});
-  try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){}
+  _queueSaveCases()
 
   // ③ モーダルを即座に閉じてUI更新（DB完了を待たない）
   var modal = document.getElementById('caseModal');
@@ -89789,7 +89866,7 @@ function submitNewCase() {
   _applyNewCaseDefaultDates(data);
   cData.push(data);
   // localStorageのみ（DBはこの後1回だけ書き込む）
-  try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){}
+  _queueSaveCases()
   // personData自動設定
   personData[newId] = personData[newId] || {};
   personData[newId].applicantNameEn = applicant;
@@ -90516,6 +90593,7 @@ function loadAllFromSupabase() {
       (TRASH_CASES||[]).forEach(function(t){ _trashIds[t.id]=1; });
       if(window._trashedCaseIds){ Object.keys(window._trashedCaseIds).forEach(function(id){ _trashIds[id]=1; }); }
       cData = rows.map(function(r) { return dbRowToCase(r); }).filter(function(c){ return !_trashIds[c.id]; });
+      invalidateCaseCountCache(); // ver.20260812.14
       // 旧チーム名を新名称に正規化（万一DBに古い値が残っていても対応）
       (function(){
         var _map = {'中林チーム':'営業部','亀谷チーム':'管理部','坂齊チーム':'書類部','坂育チーム':'書類部'};
@@ -90770,7 +90848,7 @@ function loadAllFromSupabase() {
           co['docAuthor'+p[0]+'NameEn']=d.nameEn||''; co['docAuthor'+p[0]+'TitleEn']=d.titleEn||'';
         });
       });
-      try{localStorage.setItem('ofusa_companies',JSON.stringify(companies));}catch(e){}
+      _queueSaveCompanies()
       console.log('📥 companies loaded:', companies.length);
     }
     done();
@@ -92497,14 +92575,14 @@ function handleRealtimeChange(table, payload) {
       // ★ ver.20260611.03: realtime取得のupdatedも国交省ステータス未ハイドレートのため再ハイドレート
       if(typeof _applyKokkoStatus==='function' && window._kokkoStatusMap) _applyKokkoStatus(updated, window._kokkoStatusMap);
     }
-    try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){}
+    _queueSaveCases()
     debouncedRealtimeRefresh();
   }
   
   else if (table === 'companies') {
     if (evt === 'DELETE' && oldRow && oldRow.id) {
       companies = companies.filter(function(c) { return c.id !== oldRow.id; });
-      try{localStorage.setItem('ofusa_companies',JSON.stringify(companies));}catch(e){}
+      _queueSaveCompanies()
       renderCompanyList(); renderSupportTree();
     }
   }
@@ -92775,7 +92853,7 @@ persistTplTexts = function(){_origPersistTplTexts();if(DB_READY)_sb.from('settin
 function persist(){
   // localStorageキャッシュのみ（全件upsertはしない）
   // 個別変更はautoSaveInfo/saveInfoEditのPATCHで処理
-  try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){}
+  _queueSaveCases()
 }
 
 // === 残りのpersist関数にSupabase同期追加 ===
@@ -97498,7 +97576,7 @@ function saveFuCards(caseId,cards){
     var json=JSON.stringify(cards);
     c.followupNote=json;
     // localStorage保存
-    try{localStorage.setItem('ofusa_cases',JSON.stringify(cData));}catch(e){}
+    _queueSaveCases()
     // Supabase保存
     if(DB_READY){
       _sb.from('cases').update({followup_note:json,updated_at:new Date().toISOString()}).eq('id',caseId)
