@@ -895,6 +895,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <div style="font-size:12px;font-weight:700;color:white;line-height:1.3;">案件管理システム</div>
     <div class="js-app-version" style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;cursor:pointer;text-decoration:underline dotted;" onclick="openWhatsNew()" title="クリックでアップデート履歴を表示">ver.20260808.01</div>
   </div>
+  <!-- ver.20260811.18: グローバル検索ボタン（全画面から Cmd/Ctrl+K でも開く） -->
+  <div style="margin:0 12px 8px;">
+    <button onclick="openGlobalSearch()" title="どこからでも案件・企業を検索（Ctrl+K / ⌘+K）" style="width:100%;display:flex;align-items:center;gap:8px;padding:8px 10px;font-size:12px;color:rgba(255,255,255,.85);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:8px;cursor:pointer;text-align:left;transition:.15s;" onmouseenter="this.style.background='rgba(255,255,255,.13)';this.style.borderColor='rgba(255,255,255,.25)'" onmouseleave="this.style.background='rgba(255,255,255,.08)';this.style.borderColor='rgba(255,255,255,.15)'">
+      <span style="font-size:14px;">🔍</span>
+      <span style="flex:1;color:rgba(255,255,255,.55);font-weight:500;">検索…</span>
+      <span style="font-size:9px;padding:2px 5px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);border-radius:4px;color:rgba(255,255,255,.55);font-family:monospace;letter-spacing:.5px;">⌘K</span>
+    </button>
+  </div>
   <div id="sidebarUser" style="margin:0 12px 8px;padding:8px 12px;background:rgba(255,255,255,.08);border-radius:8px;display:none;">
     <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:2px;">ログイン中</div>
     <div style="display:flex;align-items:center;justify-content:space-between;">
@@ -4924,6 +4932,24 @@ details[open] > ._upDocSummary::before { content: '▼ '; }
 
 
 <!-- CASE DETAIL MODAL -->
+<!-- ver.20260811.18: グローバル検索モーダル -->
+<div id="globalSearchModal" onclick="if(event.target===this)closeGlobalSearch()" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,.55);z-index:99999;align-items:flex-start;justify-content:center;padding-top:10vh;">
+  <div style="width:640px;max-width:92vw;background:white;border-radius:12px;box-shadow:0 25px 60px rgba(0,0,0,.35);overflow:hidden;">
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid #e2e8f0;">
+      <span style="font-size:18px;">🔍</span>
+      <input id="globalSearchInput" oninput="_debInput('gsearch',_globalSearchRender,120)" onkeydown="_globalSearchKey(event)" placeholder="氏名・企業名・受付番号・電話番号など…" style="flex:1;border:none;outline:none;font-size:15px;background:transparent;color:#0f172a;">
+      <span style="font-size:9px;padding:3px 6px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:4px;color:#64748b;font-family:monospace;">ESC</span>
+    </div>
+    <div id="globalSearchResults" style="max-height:60vh;overflow-y:auto;padding:8px 0;">
+      <div style="padding:24px 18px;text-align:center;color:#94a3b8;font-size:13px;">氏名・企業名・受付番号・電話番号などで検索<br><span style="font-size:11px;color:#cbd5e1;margin-top:8px;display:inline-block;">↑↓で選択、Enterで開く</span></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid #e2e8f0;background:#f8fafc;font-size:10.5px;color:#64748b;">
+      <span>案件</span><span>企業</span><span>受付番号</span><span>電話</span>
+      <span style="margin-left:auto;">案件・企業マスタ を横断検索</span>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="caseModal" onclick="if(event.target===this)this.classList.remove('open')">
   <div class="case-modal-box">
     <div class="case-header">
@@ -4987,7 +5013,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260811.17';
+var OFUSA_VERSION = 'ver.20260811.18';
 // ver.20260810.28: ステータスバッジ共通スタイル（全画面統一）
 var _STATUS_STYLE={
   '未着手':['#f8fafc','#64748b','#e2e8f0'],
@@ -5036,6 +5062,124 @@ function _debInput(key, fn, ms){ ms=ms||250; clearTimeout(_debTimers[key]); _deb
 // ver.20260811.12: 一括バーの「もっと」開閉
 function _bulkMoreToggle(e){ if(e){e.stopPropagation();} var dd=document.getElementById('bulkMoreDD'); if(!dd)return; var show=dd.style.display==='none'||!dd.style.display; dd.style.display=show?'block':'none'; if(show){setTimeout(function(){document.addEventListener('click', _bulkMoreClose, {once:true});},0);} }
 function _bulkMoreClose(){ var dd=document.getElementById('bulkMoreDD'); if(dd) dd.style.display='none'; }
+
+// ver.20260811.18: グローバル検索（Cmd/Ctrl+K で開く）
+window._gsSelIdx = 0;
+window._gsResults = [];
+function openGlobalSearch(){
+  var m = document.getElementById('globalSearchModal');
+  if(!m) return;
+  m.style.display = 'flex';
+  var inp = document.getElementById('globalSearchInput');
+  if(inp){ inp.value=''; setTimeout(function(){ inp.focus(); },10); }
+  _globalSearchRender();
+}
+function closeGlobalSearch(){
+  var m = document.getElementById('globalSearchModal');
+  if(m) m.style.display = 'none';
+}
+function _globalSearchNormalize(s){
+  return String(s||'').toLowerCase().replace(/[\s　・\-()（）]/g,'');
+}
+function _globalSearchRender(){
+  var q = _globalSearchNormalize((document.getElementById('globalSearchInput')||{}).value||'');
+  var out = document.getElementById('globalSearchResults'); if(!out) return;
+  window._gsSelIdx = 0;
+  if(!q){
+    out.innerHTML = '<div style="padding:24px 18px;text-align:center;color:#94a3b8;font-size:13px;">氏名・企業名・受付番号・電話番号などで検索<br><span style="font-size:11px;color:#cbd5e1;margin-top:8px;display:inline-block;">↑↓で選択、Enterで開く</span></div>';
+    window._gsResults = [];
+    return;
+  }
+  var results = [];
+  // 案件を検索（cData）
+  try{
+    (window.cData||[]).forEach(function(c){
+      if(!c) return;
+      var hay = _globalSearchNormalize([c.name,c.applicant,c.company,c.receiptNo,c.receipt_no,c.staff,c.org,c.applicantTel,c.tel,c.phone].join(' '));
+      if(hay.indexOf(q) === -1) return;
+      results.push({kind:'case', id:c.id, item:c});
+    });
+  }catch(e){}
+  // 企業マスタを検索（companies）
+  try{
+    var comps = (typeof companies !== 'undefined' && companies) ? companies : [];
+    comps.forEach(function(co){
+      if(!co) return;
+      var hay = _globalSearchNormalize([co.name, co.nameKana, co.nameEn, co.tel, co.address, co.corpNo].join(' '));
+      if(hay.indexOf(q) === -1) return;
+      results.push({kind:'company', id:co.id||co.name, item:co});
+    });
+  }catch(e){}
+  // 件数上限（体感速度優先）
+  results = results.slice(0, 40);
+  window._gsResults = results;
+
+  if(!results.length){
+    out.innerHTML = '<div style="padding:24px 18px;text-align:center;color:#94a3b8;font-size:13px;">該当なし</div>';
+    return;
+  }
+  var h = '';
+  results.forEach(function(r, i){
+    var sel = i===window._gsSelIdx;
+    var bg = sel ? '#eff6ff' : 'white';
+    var border = sel ? '#93c5fd' : 'transparent';
+    if(r.kind==='case'){
+      var c = r.item;
+      var badge = '<span style="font-size:10px;padding:1px 6px;border-radius:5px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font-weight:700;">案件</span>';
+      var status = c.status ? '<span style="font-size:10px;padding:1px 6px;border-radius:5px;background:#f1f5f9;color:#475569;margin-left:4px;">'+esc(c.status)+'</span>' : '';
+      var sub = [c.company||'', c.receiptNo||c.receipt_no||'', c.staff||''].filter(function(x){return x;}).join(' · ');
+      h += '<div class="gs-row" data-idx="'+i+'" onclick="_globalSearchJump('+i+')" onmouseenter="_gsSetSel('+i+')" style="padding:8px 18px;cursor:pointer;background:'+bg+';border-left:3px solid '+border+';">';
+      h += '<div style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#0f172a;">'+badge+' '+esc(c.applicant||c.name||'(氏名未入力)')+status+'</div>';
+      h += '<div style="font-size:11px;color:#64748b;margin-top:2px;">'+esc(sub||'—')+'</div>';
+      h += '</div>';
+    } else if(r.kind==='company'){
+      var co = r.item;
+      var badge = '<span style="font-size:10px;padding:1px 6px;border-radius:5px;border:1px solid #d8b4fe;background:#faf5ff;color:#7c3aed;font-weight:700;">企業</span>';
+      var sub = [co.tel||'', co.address||''].filter(function(x){return x;}).join(' · ');
+      h += '<div class="gs-row" data-idx="'+i+'" onclick="_globalSearchJump('+i+')" onmouseenter="_gsSetSel('+i+')" style="padding:8px 18px;cursor:pointer;background:'+bg+';border-left:3px solid '+border+';">';
+      h += '<div style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#0f172a;">'+badge+' '+esc(co.name||'(社名未入力)')+'</div>';
+      if(sub) h += '<div style="font-size:11px;color:#64748b;margin-top:2px;">'+esc(sub)+'</div>';
+      h += '</div>';
+    }
+  });
+  h += '<div style="padding:6px 18px;font-size:10px;color:#94a3b8;text-align:right;">'+results.length+'件表示</div>';
+  out.innerHTML = h;
+}
+function _gsSetSel(i){
+  window._gsSelIdx = i;
+  document.querySelectorAll('.gs-row').forEach(function(el){
+    var idx = parseInt(el.getAttribute('data-idx')||'-1',10);
+    el.style.background = idx===i ? '#eff6ff' : 'white';
+    el.style.borderLeft = '3px solid '+(idx===i ? '#93c5fd' : 'transparent');
+  });
+}
+function _globalSearchJump(i){
+  var r = (window._gsResults||[])[i]; if(!r) return;
+  closeGlobalSearch();
+  try{
+    if(r.kind==='case' && typeof openCase==='function'){ openCase(r.id); }
+    else if(r.kind==='company' && typeof openCompanyById==='function'){ openCompanyById(r.id); }
+    else if(r.kind==='company' && typeof openCompany==='function'){ openCompany(r.item.name); }
+  }catch(e){ console.error(e); }
+}
+function _globalSearchKey(e){
+  var results = window._gsResults||[];
+  if(e.key === 'Escape'){ closeGlobalSearch(); return; }
+  if(e.key === 'ArrowDown'){ e.preventDefault(); if(!results.length) return; _gsSetSel(Math.min(window._gsSelIdx+1, results.length-1)); _gsScrollSel(); return; }
+  if(e.key === 'ArrowUp'){ e.preventDefault(); if(!results.length) return; _gsSetSel(Math.max(window._gsSelIdx-1, 0)); _gsScrollSel(); return; }
+  if(e.key === 'Enter'){ e.preventDefault(); if(results.length) _globalSearchJump(window._gsSelIdx); return; }
+}
+function _gsScrollSel(){
+  var el = document.querySelector('.gs-row[data-idx="'+window._gsSelIdx+'"]');
+  if(el && el.scrollIntoView) el.scrollIntoView({block:'nearest'});
+}
+// キーボードショートカット Cmd/Ctrl+K
+document.addEventListener('keydown', function(e){
+  if((e.metaKey||e.ctrlKey) && (e.key==='k'||e.key==='K')){
+    e.preventDefault();
+    openGlobalSearch();
+  }
+});
 // ver.20260811.12: フィルターの「もっと」開閉（他機関・希望在留の折りたたみ）
 function _fMoreToggle(){
   var w=document.getElementById('fMoreWrap'); if(!w) return;
