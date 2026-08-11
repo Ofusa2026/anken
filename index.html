@@ -4987,7 +4987,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260811.12';
+var OFUSA_VERSION = 'ver.20260811.13';
 // ver.20260810.28: ステータスバッジ共通スタイル（全画面統一）
 var _STATUS_STYLE={
   '未着手':['#f8fafc','#64748b','#e2e8f0'],
@@ -7096,13 +7096,33 @@ function buildStaffFilter(){
   var dd = document.getElementById('fStaffDD'); if(!dd) { buildOrgFilter(); return; }
   var checked = (_pendingFilterRestore && _pendingFilterRestore.staff) ? _pendingFilterRestore.staff : getCheckedValues('fStaffDD');
   dd.innerHTML = '';
-  // 先頭に「(未設定)」オプションを追加
+  // ver.20260811.13: 担当者ごとの案件数を集計。0件の担当者は選択肢から除外し、
+  //   件数バッジを名前の右に表示（本人を探しやすくする）。
+  var _staffCount = {}, _unsetCount = 0;
+  try{
+    (cData||[]).forEach(function(c){
+      var st = String(c.staff||'').trim();
+      if(!st){ _unsetCount++; return; }
+      // 複数担当（「A、B」等）に対応
+      st.split(/[、,／\/]/).forEach(function(one){
+        one = one.trim(); if(!one) return;
+        _staffCount[one] = (_staffCount[one]||0) + 1;
+      });
+    });
+  }catch(e){}
+  var _fmtCount = function(n){ return '<span style="margin-left:auto;font-size:10px;font-weight:700;padding:1px 6px;border-radius:9px;background:#eff6ff;color:#1d4ed8;">'+n+'</span>'; };
+  // 先頭に「(未設定)」オプションを追加（0件でも常に表示する。すでにチェック済みの場合は残す）
   var unsetChecked = checked.indexOf('__UNSET__') >= 0;
-  dd.innerHTML += '<label style="display:flex;align-items:center;gap:6px;padding:3px 6px;cursor:pointer;font-size:12px;white-space:nowrap;color:#dc2626;font-weight:700;border-bottom:1px solid #fecaca;margin-bottom:4px;padding-bottom:6px;"><input type="checkbox" value="__UNSET__"'+(unsetChecked?' checked':'')+' onchange="applyMultiFilter(&quot;fStaffDD&quot;,&quot;fStaffBtn&quot;,&quot;全担当者&quot;)"> ⚠️ 未設定</label>';
+  if(_unsetCount>0 || unsetChecked){
+    dd.innerHTML += '<label style="display:flex;align-items:center;gap:6px;padding:3px 6px;cursor:pointer;font-size:12px;white-space:nowrap;color:#dc2626;font-weight:700;border-bottom:1px solid #fecaca;margin-bottom:4px;padding-bottom:6px;"><input type="checkbox" value="__UNSET__"'+(unsetChecked?' checked':'')+' onchange="applyMultiFilter(&quot;fStaffDD&quot;,&quot;fStaffBtn&quot;,&quot;全担当者&quot;)"> ⚠️ 未設定'+(_unsetCount>0?_fmtCount(_unsetCount):'')+'</label>';
+  }
   USERS.forEach(function(u){
     if(!u.name) return;
     var isChecked = checked.indexOf(u.name) >= 0;
-    dd.innerHTML += '<label style="display:flex;align-items:center;gap:6px;padding:3px 6px;cursor:pointer;font-size:12px;white-space:nowrap;"><input type="checkbox" value="'+u.name.replace(/"/g,'&quot;')+'"'+(isChecked?' checked':'')+' onchange="applyMultiFilter(&quot;fStaffDD&quot;,&quot;fStaffBtn&quot;,&quot;全担当者&quot;)"> '+u.name+'</label>';
+    var cnt = _staffCount[u.name] || 0;
+    // 件数0かつ未選択なら非表示（すでに選択中の担当は残す）
+    if(cnt===0 && !isChecked) return;
+    dd.innerHTML += '<label style="display:flex;align-items:center;gap:6px;padding:3px 6px;cursor:pointer;font-size:12px;white-space:nowrap;"><input type="checkbox" value="'+u.name.replace(/"/g,'&quot;')+'"'+(isChecked?' checked':'')+' onchange="applyMultiFilter(&quot;fStaffDD&quot;,&quot;fStaffBtn&quot;,&quot;全担当者&quot;)"> '+u.name+(cnt>0?_fmtCount(cnt):'')+'</label>';
   });
   buildOrgFilter();
 }
@@ -19608,16 +19628,17 @@ function _populateShinseiAlertStaffSelect(){
   var sel = document.getElementById('shinseiAlertStaff');
   if(!sel) return;
   var current = sel.value;
-  // ★申請の案件から担当者を抽出
-  var staffSet = new Set();
+  // ver.20260811.13: 担当者ごとに件数を集計。0件（＝★申請案件を持たない担当者）は元々含まれない。
+  var _cnt = {};
   (cData || []).forEach(function(c){
-    if(c && c.status === '★申請' && c.staff) staffSet.add(c.staff);
+    if(c && c.status === '★申請' && c.staff){
+      _cnt[c.staff] = (_cnt[c.staff]||0) + 1;
+    }
   });
-  var staffList = Array.from(staffSet).sort(function(a,b){ return String(a).localeCompare(String(b), 'ja'); });
-  // 既に options が入っていれば再構築せず、空 or 不整合なら作り直す
-  var opts = '<option value="">全担当</option>';
+  var staffList = Object.keys(_cnt).sort(function(a,b){ return String(a).localeCompare(String(b), 'ja'); });
+  var opts = '<option value="">全担当（'+Object.values(_cnt).reduce(function(a,b){return a+b;},0)+'件）</option>';
   staffList.forEach(function(s){
-    opts += '<option value="' + esc(s) + '">' + esc(s) + '</option>';
+    opts += '<option value="' + esc(s) + '">' + esc(s) + '（'+_cnt[s]+'件）</option>';
   });
   sel.innerHTML = opts;
   sel.value = current || '';
@@ -27894,19 +27915,32 @@ function _populateDocsStaffFilter(){
   var sel = document.getElementById('docsStaffFilterSel');
   if(!sel) return;
   // チームで絞られた案件から担当者一覧を抽出
-  var staffSet = {};
-  // ver.20260803.10: カンボジア選択時はタスク担当者(taskAssignee)から列挙する
+  // ver.20260811.13: 件数集計付き（0件担当者は元々除外）
+  var _cnt = {};
   if(docsTeamFilter === 'カンボジア'){
-    CAMBODIA_STAFF.forEach(function(s){ staffSet[s] = 1; });
+    // カンボジアはタスク担当者から列挙。件数は各人の担当タスク数を数える。
+    CAMBODIA_STAFF.forEach(function(s){ _cnt[s] = 0; });
+    try{
+      Object.keys(taskAssignee||{}).forEach(function(k){
+        var v = taskAssignee[k]; if(!v) return;
+        String(v).split(/[、,／\/]/).forEach(function(one){
+          one = one.trim(); if(one && _cnt[one]!==undefined) _cnt[one]++;
+        });
+      });
+    }catch(e){}
+    // 0件のCAMBODIA_STAFFも残す（スタッフ確認用の意味あり）
   } else {
     (cData || []).forEach(function(c){
       if(!c || !c.staff) return;
       if(c.status === '完了') return;
       if(docsTeamFilter !== 'all' && c.team !== docsTeamFilter) return;
-      staffSet[c.staff] = 1;
+      _cnt[c.staff] = (_cnt[c.staff]||0) + 1;
     });
   }
-  var staffs = Object.keys(staffSet).sort();
+  var staffs = Object.keys(_cnt).filter(function(s){
+    // カンボジアは0件でも表示、その他は0件は除外
+    return docsTeamFilter === 'カンボジア' ? true : _cnt[s] > 0;
+  }).sort();
   // currentUserを先頭に
   var me = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : '';
   if(me && staffs.indexOf(me) !== -1){
@@ -27918,10 +27952,12 @@ function _populateDocsStaffFilter(){
     cur = 'all';
     docsStaffFilter = 'all';
   }
-  var h = '<option value="all"'+(cur==='all'?' selected':'')+'>全担当</option>';
+  var _total = Object.values(_cnt).reduce(function(a,b){return a+(b||0);},0);
+  var h = '<option value="all"'+(cur==='all'?' selected':'')+'>全担当（'+_total+'件）</option>';
   staffs.forEach(function(s){
     var isMe = (s === me);
-    h += '<option value="'+esc(s)+'"'+(s===cur?' selected':'')+'>'+(isMe?'👤 ':'')+esc(s)+(isMe?'（自分）':'')+'</option>';
+    var cnt = _cnt[s]||0;
+    h += '<option value="'+esc(s)+'"'+(s===cur?' selected':'')+'>'+(isMe?'👤 ':'')+esc(s)+(isMe?'（自分）':'')+'（'+cnt+'件）</option>';
   });
   sel.innerHTML = h;
 }
