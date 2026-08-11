@@ -5019,7 +5019,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260811.24';
+var OFUSA_VERSION = 'ver.20260811.28';
 // ver.20260810.28: ステータスバッジ共通スタイル（全画面統一）
 var _STATUS_STYLE={
   '未着手':['#f8fafc','#64748b','#e2e8f0'],
@@ -92557,8 +92557,8 @@ function _lpRenderDestChips(){
   d.innerHTML=LP_DEST_OPTIONS.map(function(o,idx){var on=_lpDestSel.indexOf(o)>=0;return '<span onclick="_lpToggleDest('+idx+')" style="cursor:pointer;font-size:12px;padding:5px 11px;border-radius:99px;font-weight:600;border:1px solid '+(on?'#2563eb':'#e2e8f0')+';background:'+(on?'#2563eb':'white')+';color:'+(on?'white':'#475569')+';">'+o+'</span>';}).join('');
 }
 function _lpToggleDest(idx){var o=LP_DEST_OPTIONS[idx];var i=_lpDestSel.indexOf(o);if(i>=0)_lpDestSel.splice(i,1);else _lpDestSel.push(o);_lpRenderDestChips();}
-async function lpLoadRecords(){if(!DB_READY)return;var res=await _sb.from('letterpack_records').select('*').order('created_at',{ascending:false});if(res.error){console.error('lp load err:',res.error);return;}lpRecords=(res.data||[]).map(function(r){return{id:r.id,sendNo:r.send_no||'',recvNo:r.recv_no||'',sendDate:r.send_date||'',recvDate:r.recv_date||'',memo:r.memo||'',caseIds:r.case_ids||[],createdAt:r.created_at||'',sendPhotoPath:r.send_photo_path||'',recvPhotoPath:r.recv_photo_path||'',preshipPhotoPath:r.preship_photo_path||'',receiptCheck:r.receipt_check||null,dest:r.dest||[]};});renderLetterpackList();}
-async function lpSaveRecord(rec){var row={send_no:rec.sendNo||null,recv_no:rec.recvNo||null,send_date:rec.sendDate||null,recv_date:rec.recvDate||null,memo:rec.memo||null,case_ids:rec.caseIds||[],send_photo_path:rec.sendPhotoPath||null,recv_photo_path:rec.recvPhotoPath||null,preship_photo_path:rec.preshipPhotoPath||null,receipt_check:rec.receiptCheck||null,dest:rec.dest||[]};var res;if(rec.id){row.id=rec.id;res=await _sb.from('letterpack_records').upsert(row,{onConflict:'id'});}else{res=await _sb.from('letterpack_records').insert(row).select();if(!res.error&&res.data&&res.data[0])rec.id=res.data[0].id;}if(res.error){showToast('保存エラー: '+res.error.message);return null;}return rec.id;}
+async function lpLoadRecords(){if(!DB_READY)return;var res=await _sb.from('letterpack_records').select('*').order('created_at',{ascending:false});if(res.error){console.error('lp load err:',res.error);return;}lpRecords=(res.data||[]).map(function(r){return{id:r.id,sendNo:r.send_no||'',recvNo:r.recv_no||'',sendDate:r.send_date||'',recvDate:r.recv_date||'',memo:r.memo||'',caseIds:r.case_ids||[],createdAt:r.created_at||'',sendPhotoPath:r.send_photo_path||'',recvPhotoPath:r.recv_photo_path||'',preshipPhotoPath:r.preship_photo_path||'',receiptCheck:r.receipt_check||null,dest:r.dest||[],recipientConfirmedAt:r.recipient_confirmed_at||null};});renderLetterpackList();}
+async function lpSaveRecord(rec){var row={send_no:rec.sendNo||null,recv_no:rec.recvNo||null,send_date:rec.sendDate||null,recv_date:rec.recvDate||null,memo:rec.memo||null,case_ids:rec.caseIds||[],send_photo_path:rec.sendPhotoPath||null,recv_photo_path:rec.recvPhotoPath||null,preship_photo_path:rec.preshipPhotoPath||null,receipt_check:rec.receiptCheck||null,dest:rec.dest||[],recipient_confirmed_at:rec.recipientConfirmedAt||null};var res;if(rec.id){row.id=rec.id;res=await _sb.from('letterpack_records').upsert(row,{onConflict:'id'});}else{res=await _sb.from('letterpack_records').insert(row).select();if(!res.error&&res.data&&res.data[0])rec.id=res.data[0].id;}if(res.error){showToast('保存エラー: '+res.error.message);return null;}return rec.id;}
 async function lpDeleteRecord(id){if(!confirm('削除しますか？'))return;var rec=lpRecords.find(function(r){return r.id===id;});if(rec&&rec.caseIds&&rec.caseIds.length){await _sb.from('cases').update({letterpack_id:null}).in('id',rec.caseIds);rec.caseIds.forEach(function(cid){var c=cData.find(function(x){return x.id===cid;});if(c)c.letterpackId=null;});}await _sb.from('letterpack_records').delete().eq('id',id);lpRecords=lpRecords.filter(function(r){return r.id!==id;});renderLetterpackList();showToast('削除しました');}
 function openLetterpack(){switchPanel('letterpackScreen','nav-letterpack');lpSwitchMainTab('lp');lpLoadRecords();renderLpMailPanel();}
 
@@ -93164,78 +93164,161 @@ function renderLetterpackList(){
     window._lcpPreloadDone=true;
     try{ _lcpPreloadCounts(list); }catch(e){}
   }
+  // ver.20260811.28: 受取済で5日経過＋紐づき案件の一部が「完了」でない件を上部に表示
+  //   条件: recvDate があり recipientConfirmedAt が未設定、5日以上経過、かつ
+  //   紐づき案件のうち1件以上がステータス「完了」でない場合のみ、公式確認対象。
+  function _lpNeedsConfirm(r){
+    if(!r.recvDate || r.recipientConfirmedAt) return false;
+    var rd=new Date(r.recvDate); rd.setHours(0,0,0,0);
+    var diff = Math.floor((today-rd)/86400000);
+    if(diff < 5) return false;
+    if(!r.caseIds || !r.caseIds.length) return false;
+    // 紐づき案件の一部でも「完了」でないなら対象
+    return r.caseIds.some(function(cid){
+      var c = cData.find(function(x){return x.id===cid;});
+      return c && c.status !== '完了';
+    });
+  }
+  var _needConfirm = list.filter(_lpNeedsConfirm);
   var h='';
+  if(_needConfirm.length){
+    h += '<div style="margin-bottom:8px;padding:8px 12px;background:#fef2f2;border:1px solid #fca5a5;border-left:3px solid #dc2626;border-radius:6px;display:flex;align-items:center;gap:8px;">';
+    h += '<span style="font-size:14px;">📱</span>';
+    h += '<div style="flex:1;font-size:11.5px;color:#7f1d1d;line-height:1.4;"><b>公式アカウントで本人確認が必要：'+_needConfirm.length+'件</b><br><span style="font-size:10.5px;color:#991b1b;">受取から5日以上経過。本人から受領報告が来ていない案件です。</span></div>';
+    h += '</div>';
+  }
   list.forEach(function(rec){
-    var days=0,alertHtml='';
+    var days=0;
+    var recvDaysAgo=0;
     if(!rec.recvDate&&rec.sendDate){
       var sd=new Date(rec.sendDate);sd.setHours(0,0,0,0);
       days=Math.floor((today-sd)/86400000);
-      alertHtml=days>=10
-        ?'<span style="background:#fee2e2;color:#dc2626;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;margin-left:6px;">'+days+'日経過</span>'
-        :'<span style="background:#f1f5f9;color:#64748b;font-size:10px;padding:2px 8px;border-radius:99px;margin-left:6px;">'+days+'日</span>';
     }
-    var caseChips='';
-    if(rec.caseIds&&rec.caseIds.length){
+    if(rec.recvDate){
+      var rd=new Date(rec.recvDate);rd.setHours(0,0,0,0);
+      recvDaysAgo=Math.floor((today-rd)/86400000);
+    }
+    var needConfirmBanner = _lpNeedsConfirm(rec);
+    var isConfirmed = !!rec.recipientConfirmedAt;
+    // 左3pxライン色：赤=公式確認要 / 緑=受取済＆本人確認済 / 橙=未着10日以上 / 青=通常未着 / 緑=受取済（確認不要）
+    var lineColor;
+    if(needConfirmBanner) lineColor='#dc2626';
+    else if(rec.recvDate && isConfirmed) lineColor='#16a34a';
+    else if(rec.recvDate) lineColor='#22c55e';
+    else if(days>=10) lineColor='#f59e0b';
+    else lineColor='#2563eb';
+
+    h+='<div id="lp_row_'+rec.id+'" style="background:white;border:1px solid var(--gray-200);border-left:3px solid '+lineColor+';border-radius:6px;padding:6px 10px;margin-bottom:6px;">';
+
+    // 1行目：SEND → RETURN を1行に集約 (ver.20260811.27 スリム版)
+    h+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;margin-bottom:4px;">';
+    // SEND
+    if(rec.sendNo || rec.sendDate){
+      h+='<span style="font-size:11px;">📤</span>';
+      if(rec.sendNo) h+='<span class="copy-chip" data-copy="'+esc(rec.sendNo)+'" data-copy-label="送りレターパック番号" title="クリックでコピー" style="font-family:monospace;font-size:11px;font-weight:700;color:#0f172a;">'+esc(rec.sendNo)+'</span>';
+      if(rec.sendDate){
+        h+='<span style="font-size:10px;color:#64748b;">'+esc(rec.sendDate)+' 発送';
+        if(!rec.recvDate){
+          var _daysCol = days>=10 ? '#b91c1c' : '#64748b';
+          h+=' <span style="color:'+_daysCol+';font-weight:700;">('+days+'日'+(days>=10?'経過':'')+')</span>';
+        }
+        h+='</span>';
+      }
+    }
+    // 矢印
+    if((rec.sendNo||rec.sendDate) && (rec.recvNo||rec.recvDate)) h+='<span style="color:#cbd5e1;">→</span>';
+    // RETURN
+    if(rec.recvNo || rec.recvDate){
+      h+='<span style="font-size:11px;">📥</span>';
+      if(rec.recvNo) h+='<span class="copy-chip" data-copy="'+esc(rec.recvNo)+'" data-copy-label="返送レターパック番号" title="クリックでコピー" style="font-family:monospace;font-size:11px;font-weight:700;color:#166534;">'+esc(rec.recvNo)+'</span>';
+      // 到着確認ボタン（返送番号の横。追跡を開く）
+      if(rec.recvNo){
+        h+='<button data-no="'+rec.recvNo+'" onclick="lpOpenTrack(this.dataset.no)" title="日本郵便の追跡ページを開く" style="padding:2px 8px;background:#f0fdf4;color:#15803d;border:1px solid #86efac;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;">🔍 到着確認</button>';
+      }
+      if(rec.recvDate){
+        h+='<span style="font-size:10px;color:#16a34a;font-weight:700;">'+esc(rec.recvDate)+' 受取 <span style="color:#94a3b8;font-weight:500;">('+recvDaysAgo+'日前)</span></span>';
+      } else {
+        h+='<span style="font-size:10px;color:#f59e0b;font-weight:700;">未着</span>';
+      }
+    }
+    // 送り追跡（未着の場合のみ）
+    if(!rec.recvDate && rec.sendNo){
+      h+='<button data-no="'+rec.sendNo+'" onclick="lpOpenTrack(this.dataset.no)" title="送り追跡" style="padding:2px 8px;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:4px;font-size:10px;font-weight:700;cursor:pointer;">🔍 追跡</button>';
+    }
+    // 右端：発送先＋確認済バッジ＋メモ
+    h+='<span style="margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">';
+    if(rec.dest&&rec.dest.length) h+='<span style="font-size:10px;color:#2563eb;font-weight:700;">📍'+rec.dest.map(esc).join('・')+'</span>';
+    if(isConfirmed) h+='<span style="font-size:9px;font-weight:700;padding:1px 6px;border-radius:5px;border:1px solid #6ee7b7;background:#ecfdf5;color:#047857;">✓ 本人確認済</span>';
+    if(rec.memo) h+='<span style="font-size:10px;color:#94a3b8;">'+esc(rec.memo)+'</span>';
+    h+='</span>';
+    h+='</div>';
+
+    // 2行目：公式確認バナー
+    if(needConfirmBanner){
+      h+='<div style="margin:4px 0;padding:5px 8px;background:#fef2f2;border:1px solid #fecaca;border-radius:5px;display:flex;align-items:center;gap:6px;">';
+      h+='<span style="font-size:11px;">📱</span>';
+      h+='<span style="font-size:11px;color:#7f1d1d;flex:1;"><b>受取から'+recvDaysAgo+'日経過</b> · 公式アカウントで本人に確認を</span>';
+      h+='<button data-lid="'+rec.id+'" onclick="lpMarkConfirmed(this.dataset.lid)" style="padding:3px 8px;background:#dc2626;color:white;border:none;border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;">✓ 確認済にする</button>';
+      h+='</div>';
+    }
+
+    // 3行目：案件チップ（人材名）
+    if(rec.caseIds && rec.caseIds.length){
+      h+='<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px;">';
       rec.caseIds.forEach(function(cid){
         var c=cData.find(function(x){return x.id===cid;});
-        caseChips+='<span data-cid="'+cid+'" onclick="openCase(this.dataset.cid)" style="display:inline-block;background:#eff6ff;color:#1e40af;font-size:11px;padding:2px 10px;border-radius:99px;cursor:pointer;font-weight:600;margin:2px;">'+(c?getDisplayName(c):cid)+'</span>';
+        h+='<span data-cid="'+cid+'" onclick="openCase(this.dataset.cid)" style="display:inline-block;background:#eff6ff;color:#1e40af;font-size:10.5px;padding:1px 8px;border-radius:99px;cursor:pointer;font-weight:600;border:1px solid #bfdbfe;">'+(c?getDisplayName(c):cid)+'</span>';
       });
+      h+='</div>';
     }
-    var sendTrackBtn=rec.sendNo?'<button data-no="'+rec.sendNo+'" onclick="lpOpenTrack(this.dataset.no)" style="padding:4px 10px;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">送り追跡</button>':'';
-    var recvTrackBtn=rec.recvNo?'<button data-no="'+rec.recvNo+'" onclick="lpOpenTrack(this.dataset.no)" style="padding:4px 10px;background:#f0fdf4;color:#15803d;border:1px solid #86efac;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">返送追跡</button>':'';
-    var borderColor=rec.recvDate?'#16a34a':(days>=10?'#dc2626':'#2563eb');
-    h+='<div id="lp_row_'+rec.id+'" style="background:white;border-radius:8px;padding:8px 12px;margin-bottom:5px;box-shadow:0 1px 2px rgba(0,0,0,0.05);border-left:3px solid '+borderColor+';">';
-    h+='<div style="display:flex;align-items:center;gap:8px;">';
-    h+='<div style="flex:1;">';
-    h+='<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:3px;">';
-    if(rec.sendNo)h+='<span style="font-family:monospace;font-size:12px;font-weight:700;">送:'+rec.sendNo+'</span>';
-    if(rec.recvNo)h+='<span style="font-family:monospace;font-size:12px;font-weight:700;color:#166534;">返:'+rec.recvNo+'</span>';
-    h+=alertHtml+'</div>';
-    h+='<div style="font-size:11px;color:#64748b;margin-bottom:3px;display:flex;gap:10px;flex-wrap:wrap;">';
-    if(rec.sendDate)h+='<span>発送: <b>'+rec.sendDate+'</b></span>';
-    if(rec.recvDate)h+='<span style="color:#16a34a;">受取: <b>'+rec.recvDate+'</b></span>';
-    else h+='<span style="color:#f59e0b;">未着</span>';
-    if(rec.memo)h+='<span style="color:#94a3b8;">'+esc(rec.memo)+'</span>';
-    if(rec.dest&&rec.dest.length)h+='<span style="color:#2563eb;font-weight:700;">📍'+rec.dest.map(esc).join('・')+'</span>';
-    h+='</div>';
-    if(caseChips)h+='<div style="margin-bottom:3px;">'+caseChips+'</div>';
-    var guideBtn=(rec.sendNo||rec.recvNo)?'<button data-lid="'+rec.id+'" onclick="lpCopyGuide(this.dataset.lid)" style="padding:4px 10px;background:#ecfdf5;color:#047857;border:1px solid #6ee7b7;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">📩 案内文</button>':'';
-    var labelBtn=(rec.caseIds&&rec.caseIds.length)?'<button data-lid="'+rec.id+'" onclick="lpPrintLabels(this.dataset.lid)" style="padding:4px 10px;background:#fff7ed;color:#9a3412;border:1px solid #fdba74;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">🏷 住所シール印刷</button>':'';
-    // ver.20260727.07: カード写真。
-    //   携帯では disabled のボタンはタップしても無反応で title も出ないため、
-    //   常に押せるようにして、使えない理由をその場で知らせる。
+
+    // 4行目：アクションボタン列（優先度順）
+    var actions = [];
+    // ver.20260811.28: 未受取の場合のみ「今日受け取った」ボタン。受取済の日付表示はヘッダーにあるため下段からは削除。
+    if(!rec.recvDate){
+      actions.push('<button data-lid="'+rec.id+'" onclick="lpMarkRecvToday(this.dataset.lid)" style="padding:4px 10px;background:#fffbeb;color:#b45309;border:1px solid #fcd34d;border-radius:5px;font-size:11px;font-weight:800;cursor:pointer;">📥 今日受け取った</button>');
+    }
+    // 案件未紐づけ警告
+    if(!(rec.caseIds && rec.caseIds.length)){
+      actions.push('<button data-lid="'+rec.id+'" onclick="lpOpenEdit(this.dataset.lid)" style="padding:4px 10px;background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;border-radius:5px;font-size:11px;font-weight:800;cursor:pointer;">⚠️ 案件を紐づける</button>');
+    }
+    // 追跡系（ヘッダーに↗ボタンとして移動済み、下段には出さない）
+    // 案内文
+    if(rec.sendNo || rec.recvNo) actions.push('<button data-lid="'+rec.id+'" onclick="lpCopyGuide(this.dataset.lid)" style="padding:4px 10px;background:#ecfdf5;color:#047857;border:1px solid #6ee7b7;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;">📩 案内文</button>');
+    // ラベル印刷
+    if(rec.caseIds && rec.caseIds.length) actions.push('<button data-lid="'+rec.id+'" onclick="lpPrintLabels(this.dataset.lid)" style="padding:4px 10px;background:#fff7ed;color:#9a3412;border:1px solid #fdba74;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;">🏷 住所シール</button>');
+    // カード写真
     var _lcpC=_lcpCountMap[rec.id]||{done:0,shot:0};
     var _lcpN=(rec.caseIds&&rec.caseIds.length)||0;
     var _lcpEnabled=!!rec.recvDate && _lcpN>0;
-    var photoBtn='<button data-lid="'+rec.id+'" onclick="lpOpenCardPhoto(this.dataset.lid)"'
-      +' style="padding:7px 12px;background:'+(_lcpEnabled?'#eef2ff':'#f8fafc')+';color:'+(_lcpEnabled?'#4338ca':'#94a3b8')
-      +';border:1px solid '+(_lcpEnabled?'#c7d2fe':'#e2e8f0')+';border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:rgba(67,56,202,.2);">📷 カード写真'
-      +(_lcpN?(' '+_lcpC.done+'/'+_lcpN):'')+'</button>';
-    // ver.20260727.14: 新在留カード送付レターパック番号（在庫から割り当て）
+    actions.push('<button data-lid="'+rec.id+'" onclick="lpOpenCardPhoto(this.dataset.lid)"'
+      +' style="padding:4px 10px;background:'+(_lcpEnabled?'#eef2ff':'#f8fafc')+';color:'+(_lcpEnabled?'#4338ca':'#94a3b8')
+      +';border:1px solid '+(_lcpEnabled?'#c7d2fe':'#e2e8f0')+';border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;">📷 カード写真'
+      +(_lcpN?(' '+_lcpC.done+'/'+_lcpN):'')+'</button>');
+    // 自動採番
     var _cardNo=(typeof lpStock!=='undefined'?lpStock:[]).filter(function(x){ return x.role==='card' && String(x.shipping_id||'')===String(rec.id); });
-    // ver.20260727.18: 未割当の人に未使用番号を1つずつ自動で割り当てる
     var _needN=Math.max(0, _lcpN - _cardNo.filter(function(x){return x.case_id;}).length);
-    var autoBtn=_lcpN?('<button data-lid="'+rec.id+'" onclick="lpsAutoAssignForShip(this.dataset.lid)"'
-      +' style="padding:7px 12px;background:'+(_needN?'#f5f3ff':'#f8fafc')+';color:'+(_needN?'#6d28d9':'#94a3b8')
-      +';border:1px solid '+(_needN?'#ddd6fe':'#e2e8f0')+';border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;">🎲 番号を自動割当'
-      +(_needN?(' 残'+_needN):' 済')+'</button>'):'';
-    // ver.20260727.22: 受取日をワンタップで入れる（実データ129件すべて受取日が未入力だったため）
-    var recvBtn = rec.recvDate
-      ? '<button data-lid="'+rec.id+'" onclick="lpClearRecv(this.dataset.lid)" style="padding:7px 12px;background:#ecfdf5;color:#047857;border:1px solid #86efac;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;" title="受取日を取り消す">✅ 受取 '+esc(rec.recvDate)+'</button>'
-      : '<button data-lid="'+rec.id+'" onclick="lpMarkRecvToday(this.dataset.lid)" style="padding:7px 12px;background:#fffbeb;color:#b45309;border:1px solid #fcd34d;border-radius:5px;font-size:11px;font-weight:800;cursor:pointer;">📥 今日受け取った</button>';
-    // 案件が紐づいていないと、シール印刷もカード写真も自動採番も使えないため目立たせる
-    var linkBtn = (rec.caseIds && rec.caseIds.length) ? ''
-      : '<button data-lid="'+rec.id+'" onclick="lpOpenEdit(this.dataset.lid)" style="padding:7px 12px;background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;border-radius:5px;font-size:11px;font-weight:800;cursor:pointer;">⚠️ 案件を紐づける</button>';
-    // ver.20260727.28: 「🪪 新カード番号」は「🎲 番号を自動割当」と役割が重なるため一覧から外した。
-    //   手で選び直す・取り消すときは「🎫 レターパックマスタ」から役割を変えられる。
-    h+='<div style="display:flex;gap:4px;flex-wrap:wrap;">'+recvBtn+linkBtn+sendTrackBtn+recvTrackBtn+guideBtn+labelBtn+photoBtn+autoBtn+'</div>';
+    if(_lcpN) actions.push('<button data-lid="'+rec.id+'" onclick="lpsAutoAssignForShip(this.dataset.lid)"'
+      +' style="padding:4px 10px;background:'+(_needN?'#f5f3ff':'#f8fafc')+';color:'+(_needN?'#6d28d9':'#94a3b8')
+      +';border:1px solid '+(_needN?'#ddd6fe':'#e2e8f0')+';border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;">🎲 番号自動割当'
+      +(_needN?(' 残'+_needN):' 済')+'</button>');
+    // 編集・削除は最右
+    actions.push('<button data-lid="'+rec.id+'" onclick="lpOpenEdit(this.dataset.lid)" style="padding:4px 8px;background:#f8fafc;border:1px solid var(--gray-200);border-radius:5px;font-size:10.5px;font-weight:700;cursor:pointer;color:#475569;">編集</button>');
+    actions.push('<button data-lid="'+rec.id+'" onclick="lpDeleteRecord(this.dataset.lid)" style="padding:4px 8px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:5px;font-size:10.5px;font-weight:700;cursor:pointer;">削除</button>');
+    h += '<div style="display:flex;gap:3px;flex-wrap:wrap;">'+actions.join('')+'</div>';
     h+='</div>';
-    h+='<div style="display:flex;flex-direction:column;gap:4px;">';
-    h+='<button data-lid="'+rec.id+'" onclick="lpOpenEdit(this.dataset.lid)" style="padding:3px 10px;background:#f8fafc;border:1px solid var(--gray-200);border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;">編集</button>';
-    h+='<button data-lid="'+rec.id+'" onclick="lpDeleteRecord(this.dataset.lid)" style="padding:3px 10px;background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;border-radius:5px;font-size:10px;font-weight:700;cursor:pointer;">削除</button>';
-    h+='</div></div></div>';
   });
   el.innerHTML=h;
+}
+// ver.20260811.25: 本人確認済みマーク
+function lpMarkConfirmed(id){
+  var rec = lpRecords.find(function(x){return String(x.id)===String(id);});
+  if(!rec) return;
+  rec.recipientConfirmedAt = new Date().toISOString();
+  lpSaveRecord(rec).then(function(){
+    showToast('✓ 本人確認済にしました');
+    renderLetterpackList();
+  });
 }
 // ============================================================
 // ver.20260727.03: 郵送交付「カード写真」 ①連続撮影の器
