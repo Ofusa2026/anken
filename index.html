@@ -5019,7 +5019,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260811.22';
+var OFUSA_VERSION = 'ver.20260811.23';
 // ver.20260810.28: ステータスバッジ共通スタイル（全画面統一）
 var _STATUS_STYLE={
   '未着手':['#f8fafc','#64748b','#e2e8f0'],
@@ -81931,28 +81931,46 @@ function renderMadoguchiScreen() {
   function buildRow(item, hideDate) {
     var c = item.c;
     var isShinsei = item.type === '★申請';
-    var row = '<tr class="madoguchi-card" data-id="'+c.id+'" style="cursor:pointer;border-bottom:1px solid #f3f4f6;">';
+    // ver.20260811.23: 入管記録スタイルに統一。table→フレックス行、薄枠白＋左3px色ライン。
+    var lineColor = isShinsei ? '#dc2626' : '#f59e0b';
+    var row = '<div class="madoguchi-card" data-id="'+c.id+'" style="border:1px solid var(--gray-200);border-left:3px solid '+lineColor+';border-radius:6px;background:white;margin-bottom:6px;overflow:hidden;cursor:pointer;">';
+    row += '<div style="padding:6px 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;">';
+    // ver.20260811.23: 過去分は日付ラベルを左端に表示
     if (!hideDate) {
-      var isToday = item.date === today;
-      var isSoon = !isToday && item.date > today && item.date <= new Date(Date.now()+7*86400000).toISOString().slice(0,10);
-      var badgeHtml = isToday ? '<span style="font-size:10px;font-weight:800;color:white;background:#6366f1;border-radius:99px;padding:1px 8px;margin-left:4px;">本日</span>' : isSoon ? '<span style="font-size:10px;font-weight:800;color:#d97706;background:#fef3c7;border-radius:99px;padding:1px 8px;margin-left:4px;">まもなく</span>' : '';
-      row += '<td style="padding:8px 12px;white-space:nowrap;font-size:12px;font-weight:700;color:#374151;">'+item.date.slice(5).replace('-','/')+badgeHtml+'</td>';
+      row += '<span style="flex-shrink:0;font-size:10px;font-weight:700;color:#64748b;background:#f1f5f9;padding:2px 7px;border-radius:5px;white-space:nowrap;">'+esc(item.date.slice(5).replace('-','/'))+'</span>';
     }
-    row += '<td style="padding:8px 6px;"><span style="font-size:11px;font-weight:800;padding:2px 8px;border-radius:5px;background:'+(isShinsei?'#fee2e2':'#fef9c3')+';color:'+(isShinsei?'#dc2626':'#a16207')+';border:1px solid '+(isShinsei?'#fca5a5':'#fde68a')+';">'+item.label+'</span></td>';
-    // ver.20260623: チェックボックス（対応済みの印・状態を保存して次回も保持）
-    // ver.20260630: 受取タブでは「窓口の紙」一括作成のための選択チェックも兼ねる（onclick内でmadoBulkCount更新）
-    row += '<td style="padding:8px 4px;text-align:center;" onclick="event.stopPropagation();"><input type="checkbox" class="mado-row-cb" data-date="'+esc(item.date||'')+'" data-id="'+c.id+'" data-type="'+(isShinsei?'shinsei':'uketori')+'" data-date="'+esc(item.date)+'"'+(c.madoChecked?' checked':'')+' onchange="_toggleMadoCheck(\''+c.id+'\',this.checked);updateMadoBulkCount();" style="width:16px;height:16px;cursor:pointer;"></td>';
-    // ver.20260715.07: ステータス一括変更専用のチェック（紙作成用の✔とは別管理）
-    row += '<td style="padding:8px 4px;text-align:center;" onclick="event.stopPropagation();" title="ステータス一括変更用"><input type="checkbox" class="mado-status-cb" data-id="'+c.id+'" data-type="'+(isShinsei?'shinsei':'uketori')+'" data-date="'+esc(item.date)+'" onchange="updateMadoStatusCount();" style="width:16px;height:16px;cursor:pointer;accent-color:#7c3aed;"></td>';
-    row += '<td style="padding:8px 6px;font-size:13px;font-weight:800;color:var(--navy);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(c.name||c.applicant||'')+'</td>';
-    row += '<td style="padding:8px 6px;font-size:11px;color:#6b7280;white-space:nowrap;">'+esc(c.applicant||'')+'</td>';
-    row += '<td></td>';
-    row += '<td style="padding:8px 6px;font-size:11px;color:#9ca3af;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(c.company||'')+'</td>';
-    row += '<td style="padding:8px 6px;font-size:11px;color:#9ca3af;">'+esc(c.appType||'')+'</td>';
-    row += '<td style="padding:8px 6px;font-size:11px;color:#9ca3af;">'+esc(c.team||'')+'</td>';
-    row += '<td style="padding:8px 6px;font-size:11px;color:#9ca3af;">'+esc(c.staff||'')+'</td>';
-    row += '<td style="padding:8px 12px;font-size:18px;color:#d1d5db;">›</td>';
-    row += '</tr>';
+    // 準備チェック
+    row += '<span onclick="event.stopPropagation();" title="準備完了マーク（紙作成用）" style="flex-shrink:0;display:flex;align-items:center;">'
+      + '<input type="checkbox" class="mado-row-cb" data-date="'+esc(item.date||'')+'" data-id="'+c.id+'" data-type="'+(isShinsei?'shinsei':'uketori')+'"'+(c.madoChecked?' checked':'')+' onchange="_toggleMadoCheck(\''+c.id+'\',this.checked);updateMadoBulkCount();" style="width:14px;height:14px;cursor:pointer;accent-color:#f59e0b;" title="準備">'
+      + '</span>';
+    // ステータス変更チェック
+    row += '<span onclick="event.stopPropagation();" title="ステータス一括変更用" style="flex-shrink:0;display:flex;align-items:center;">'
+      + '<input type="checkbox" class="mado-status-cb" data-id="'+c.id+'" data-type="'+(isShinsei?'shinsei':'uketori')+'" data-date="'+esc(item.date)+'" onchange="updateMadoStatusCount();" style="width:14px;height:14px;cursor:pointer;accent-color:#7c3aed;">'
+      + '</span>';
+    // メイン情報
+    row += '<div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:2px;overflow:hidden;">';
+    // 1行目：氏名（太字）＋ 種別バッジ
+    row += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">';
+    var badgeBg = isShinsei ? '#fef2f2' : '#fefce8';
+    var badgeCol = isShinsei ? '#b91c1c' : '#a16207';
+    var badgeBd = isShinsei ? '#fca5a5' : '#fde047';
+    row += '<span style="display:inline-block;font-size:9px;font-weight:700;padding:1px 6px;border-radius:5px;border:1px solid '+badgeBd+';background:'+badgeBg+';color:'+badgeCol+';">'+esc(item.label)+'</span>';
+    row += '<span style="font-size:12px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px;">'+esc(c.applicant||c.name||'(名前なし)')+'</span>';
+    row += '</div>';
+    // 2行目：企業・種別 / 案件名（c.name）を右にサブ表示
+    row += '<div style="font-size:10.5px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">';
+    var _sub = [c.company||'', c.appType||'', c.name && c.name!==c.applicant ? c.name : ''].filter(function(x){return x;}).join(' · ');
+    row += esc(_sub||'—');
+    row += '</div>';
+    // 3行目：担当・チーム（薄字）
+    row += '<div style="font-size:10px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">';
+    var _meta = [c.team||'', c.staff||''].filter(function(x){return x;}).join(' · ');
+    row += _meta || '—';
+    row += '</div>';
+    row += '</div>';
+    // 右端：›
+    row += '<span style="font-size:14px;color:#cbd5e1;flex-shrink:0;">›</span>';
+    row += '</div></div>';
     return row;
   }
 
@@ -81985,12 +82003,9 @@ function renderMadoguchiScreen() {
         //   紙を作る日程は「📄 窓口用の紙を作成」のプルダウンで選べるようになり、
         //   こちらは押すと他の日付のチェックまで外れてしまい紛らわしいため。
         + '</div>';
-      h += '<div style="border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;"><table style="width:100%;border-collapse:collapse;">';
-      // ver.20260715.07: ステータス変更列(70px)を追加＋見出し
-      h += '<colgroup><col style="width:90px"><col style="width:34px"><col style="width:70px"><col style="width:300px"><col style="width:140px"><col><col style="width:140px"><col style="width:50px"><col style="width:60px"><col style="width:70px"><col style="width:24px"></colgroup>';
-      h += '<thead><tr><th></th><th style="padding:3px 2px;font-size:9px;font-weight:800;color:#d97706;line-height:1.15;white-space:normal;">準備</th><th style="padding:3px 2px;font-size:9px;font-weight:800;color:#7c3aed;line-height:1.15;white-space:normal;">ステータス<br>変更</th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead>';
+      h += '<div style="display:flex;flex-direction:column;">';
       groupItems.forEach(function(item){ h += buildRow(item, true); });
-      h += '</table></div></div>';
+      h += '</div></div>';
     });
     h += '</div>';
     return h;
@@ -82016,12 +82031,9 @@ function renderMadoguchiScreen() {
     h += '<span>📁 過去分 ('+tabPastItems.length+'件)</span>';
     h += '</div>';
     h += '<div id="madoguchiPastBody" style="display:'+(pastCollapsed?'none':'block')+';">';
-    h += '<div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;opacity:0.65;"><table style="width:100%;border-collapse:collapse;">';
-    // ver.20260715.07: ステータス変更列(70px)を追加＋見出し
-    h += '<colgroup><col style="width:90px"><col style="width:90px"><col style="width:34px"><col style="width:70px"><col style="width:300px"><col style="width:140px"><col><col style="width:140px"><col style="width:50px"><col style="width:60px"><col style="width:70px"><col style="width:24px"></colgroup>';
-    h += '<thead><tr><th></th><th></th><th style="padding:3px 2px;font-size:9px;font-weight:800;color:#d97706;line-height:1.15;white-space:normal;">準備</th><th style="padding:3px 2px;font-size:9px;font-weight:800;color:#7c3aed;line-height:1.15;white-space:normal;">ステータス<br>変更</th><th></th><th></th><th></th><th></th><th></th><th></th><th></th><th></th></tr></thead>';
+    h += '<div style="display:flex;flex-direction:column;opacity:0.65;">';
     tabPastItems.forEach(function(item){ h += buildRow(item); });
-    h += '</table></div></div></div>';
+    h += '</div></div></div>';
   }
   el.innerHTML = h;
   el.querySelectorAll('.madoguchi-card').forEach(function(d){d.addEventListener('click',function(){openCase(this.dataset.id);});});
