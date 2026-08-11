@@ -4987,7 +4987,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260811.14';
+var OFUSA_VERSION = 'ver.20260811.15';
 // ver.20260810.28: ステータスバッジ共通スタイル（全画面統一）
 var _STATUS_STYLE={
   '未着手':['#f8fafc','#64748b','#e2e8f0'],
@@ -58707,6 +58707,74 @@ function shinsaSelectAll(checked){
   updateShinsaBulkBar();
 }
 // PDF再作成（単体）
+// ver.20260811.15: 受付番号（申請記録）専用のPDF再作成。
+//   既存の _doRemakePdf は shinsa_archive 決め打ちで受付番号のdrive_urlを
+//   receipt_archive に反映できないため、専用に用意。
+function _doRemakeReceiptPdf(item, callback){
+  if(!item || !item.id){ if(callback) callback(false,'item id missing'); return; }
+  var linkedCase = item.caseId ? cData.find(function(c){ return c.id===item.caseId; }) : null;
+  var mForGAS = {
+    id: item.id,
+    badge: '受付番号',
+    name: item.name || '',
+    caseNo: (linkedCase ? (linkedCase.receiptNo || '') : '') || item.caseNo || '',
+    skipPdf: false
+  };
+  var timeout = new Promise(function(res){ setTimeout(function(){ res({status:'error',message:'タイムアウト'}); }, 50000); });
+  Promise.race([gasGmailPost('importMail', mForGAS), timeout])
+    .then(function(result){
+      if(result && result.status === 'ok'){
+        item.pdfDone = true;
+        if(result.driveUrl){
+          item.driveUrl = result.driveUrl;
+          if(DB_READY) _sb.from('receipt_archive').update({drive_url: result.driveUrl}).eq('id', item.id).then(function(){});
+        }
+        try{ persistReceiptList(item.id); }catch(e){}
+        if(callback) callback(true);
+      } else {
+        console.error('remakeReceiptPdf error:', result);
+        if(callback) callback(false, (result&&result.message)||JSON.stringify(result));
+      }
+    })
+    .catch(function(e){
+      console.error('remakeReceiptPdf exception:', e);
+      if(callback) callback(false, e.message||String(e));
+    });
+}
+
+// ver.20260811.15: 起動時1回だけ未PDFの申請記録を自動でPDF化するバックグラウンド処理
+//   - receipt_list 読込完了後にフックされる
+//   - セッション中は _autoPdfDone フラグで多重発火防止
+//   - 1件ずつ順次（500ms間隔）でGASへの負荷を分散
+//   - 進行中はサイレント（画面をブロックしない）
+//   - 完了時のみ控えめなトーストで報告
+function _autoBulkFillReceiptPdf(){
+  if(window._autoPdfDone) return;
+  window._autoPdfDone = true;
+  if(!DB_READY) return;
+  var targets = (receiptListData||[]).filter(function(d){ return d && !d.driveUrl && !d.pdfDone; });
+  if(!targets.length) return;
+  console.log('🔄 未PDFの申請記録を自動生成:', targets.length+'件');
+  var done=0, okCount=0, errCount=0;
+  function next(i){
+    if(i>=targets.length){
+      if(okCount>0){
+        try{ showToast('📄 '+okCount+'件のPDFを自動生成しました'+(errCount?(' / エラー '+errCount+'件'):'')); }catch(e){}
+        try{ renderRecords(); }catch(e){}
+      } else if(errCount>0){
+        console.warn('_autoBulkFillReceiptPdf: '+errCount+'件エラー');
+      }
+      return;
+    }
+    _doRemakeReceiptPdf(targets[i], function(ok){
+      if(ok) okCount++; else errCount++;
+      done++;
+      setTimeout(function(){ next(i+1); }, 500);
+    });
+  }
+  next(0);
+}
+
 function remakePdf(itemId) {
   var d = shinsaListData.find(function(x){ return x.id === itemId; });
   if(!d){ showToast('⚠️ データが見つかりません'); return; }
@@ -90511,6 +90579,8 @@ function loadListTables() {
           console.log('📥 receipt_list loaded:', receiptListData.length);
           try{ _saveLastFetchTime('receipt'); }catch(e){}
           if(typeof renderRecords==='function') try{renderRecords();}catch(e){}
+          // ver.20260811.15: 起動時1回だけ、未PDFの申請記録を自動でバックグラウンドPDF化
+          setTimeout(function(){ try{ _autoBulkFillReceiptPdf(); }catch(e){} }, 3000);
         }
       } else {
         receiptListData = _receiptTmp;
@@ -90518,6 +90588,8 @@ function loadListTables() {
         console.log('📥 receipt_list loaded:', receiptListData.length);
         try{ _saveLastFetchTime('receipt'); }catch(e){}
         if(typeof renderRecords==='function') try{renderRecords();}catch(e){}
+        // ver.20260811.15: 起動時1回だけ、未PDFの申請記録を自動でバックグラウンドPDF化
+        setTimeout(function(){ try{ _autoBulkFillReceiptPdf(); }catch(e){} }, 3000);
       }
     });
   })(0);
