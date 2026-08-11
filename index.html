@@ -4987,7 +4987,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260811.16';
+var OFUSA_VERSION = 'ver.20260811.17';
 // ver.20260810.28: ステータスバッジ共通スタイル（全画面統一）
 var _STATUS_STYLE={
   '未着手':['#f8fafc','#64748b','#e2e8f0'],
@@ -79313,13 +79313,15 @@ function _getLinkedCase(d){
   if(!d || !d.caseId) return null;
   return _caseIndex()[d.caseId] || null;
 }
-function _populateListFilter(staffSelId, orgSelId, listData) {
+function _populateListFilter(staffSelId, orgSelId, listData, unreportedOnly) {
   var staffSel = document.getElementById(staffSelId);
   var orgSel = document.getElementById(orgSelId);
   if(!staffSel || !orgSel) return;
   // ver.20260724.16: 選択肢の中身はデータが増減しない限り変わらない。
   //   チェックの付け外しで毎回作り直すと全件走査になるためスキップする。
-  var _sig=(listData?listData.length:0)+':'+((typeof cData!=='undefined'&&cData)?cData.length:0);
+  // ver.20260811.17: unreportedOnly が true の場合、対応済み(d.reported)は集計対象外。
+  //   キャッシュのシグネチャにも組み込む。
+  var _sig=(listData?listData.length:0)+':'+((typeof cData!=='undefined'&&cData)?cData.length:0)+':'+(unreportedOnly?'U':'A');
   if(!window._listFilterSig) window._listFilterSig={};
   if(window._listFilterSig[staffSelId]===_sig && staffSel.options.length>1) return;
   window._listFilterSig[staffSelId]=_sig;
@@ -79327,6 +79329,7 @@ function _populateListFilter(staffSelId, orgSelId, listData) {
   // ver.20260811.16: 完了案件を件数から除外＋担当者/機関ごとの件数を集計し、0件を非表示
   var staffCnt={}, orgCnt={};
   listData.forEach(function(d){
+    if(unreportedOnly && d && d.reported) return; // ver.20260811.17: 未対応のみ集計
     var lc = _getLinkedCase(d);
     if(lc && lc.status === '完了') return; // 完了は集計対象外
     if(lc && lc.staff){
@@ -79641,7 +79644,7 @@ function _updateNyukanCounts(){
   }catch(e){}
 }
 function renderRecords() {
-  _populateListFilter('recordFilterStaff','recordFilterOrg',receiptListData);
+  _populateListFilter('recordFilterStaff','recordFilterOrg',receiptListData,true);
   var q=((document.getElementById('recordSearchInput')||{}).value||'').toLowerCase();
   var sort=(document.getElementById('recordSortSel')||{}).value||'date';
   var fStaff=((document.getElementById('recordFilterStaff')||{}).value||'');
@@ -79842,7 +79845,7 @@ function _moveShinsaToCert(shinsaId) {
 }
 
 function renderShinsaList(){
-  _populateListFilter('shinsaFilterStaff','shinsaFilterOrg',shinsaListData);
+  _populateListFilter('shinsaFilterStaff','shinsaFilterOrg',shinsaListData,true);
   var q=((document.getElementById('shinsaListSearch')||{}).value||'').toLowerCase();
   var sort=(document.getElementById('shinsaListSort')||{}).value||'date';
   var fStaff=((document.getElementById('shinsaFilterStaff')||{}).value||'');
