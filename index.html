@@ -4975,7 +4975,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260811.08';
+var OFUSA_VERSION = 'ver.20260811.09';
 // ver.20260810.28: ステータスバッジ共通スタイル（全画面統一）
 var _STATUS_STYLE={
   '未着手':['#f8fafc','#64748b','#e2e8f0'],
@@ -69189,14 +69189,16 @@ var agencyMaster = [];
 
 function loadIntakeData(cb) {
   if (!DB_READY) { if(cb) cb(); return; }
-  _sb.from('intake_requests').select('*').order('received_at', {ascending:false}).then(function(r) {
-    if (!r.error) intakeData = r.data || [];
-    _sb.from('agency_master').select('*').order('name').then(function(r2) {
-      if (!r2.error) agencyMaster = r2.data || [];
-      updateIntakeBadge();
-      if (cb) cb();
-    });
-  });
+  // ver.20260811.09: intake_requests と agency_master を並列取得（従来は直列で通信時間2倍）
+  Promise.all([
+    _sb.from('intake_requests').select('*').order('received_at', {ascending:false}),
+    _sb.from('agency_master').select('*').order('name')
+  ]).then(function(rs) {
+    if (rs[0] && !rs[0].error) intakeData    = rs[0].data || [];
+    if (rs[1] && !rs[1].error) agencyMaster = rs[1].data || [];
+    updateIntakeBadge();
+    if (cb) cb();
+  }).catch(function(){ if (cb) cb(); });
 }
 
 function updateIntakeBadge() {
@@ -69272,25 +69274,29 @@ function renderIntakeList() {
       }
     }
 
-    h += '<div style="border:1.5px solid '+borderColor+';border-radius:12px;background:'+bgColor+';margin-bottom:10px;overflow:hidden;">';
+    h += '<div style="border:1px solid var(--gray-200);border-left:3px solid '+borderColor+';border-radius:6px;background:'+(isRejected?'#fafafa':'white')+';margin-bottom:6px;overflow:hidden;'+(isRejected?'opacity:0.7;':'')+'">';
 
-    // ヘッダ行
-    h += '<div style="padding:10px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">';
-    h += '<input type="checkbox" class="intake-sel-cb" data-id="'+d.id+'" onchange="updateIntakeSelBar()" style="width:15px;height:15px;cursor:pointer;accent-color:#dc2626;flex-shrink:0;">';
-    h += '<div style="flex:1;min-width:0;">';
+    // ヘッダ行 ver.20260811.09: 入管記録スタイルに統一（1行・padding5-8・font11・氏名太字左＋2行目に企業/種別/分野）
+    h += '<div style="padding:6px 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;">';
+    h += '<input type="checkbox" class="intake-sel-cb" data-id="'+d.id+'" onchange="updateIntakeSelBar()" style="width:14px;height:14px;cursor:pointer;accent-color:#dc2626;flex-shrink:0;">';
+    h += '<div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:2px;overflow:hidden;">';
+    // 1行目：氏名（太字）＋ NEW/保留/却下バッジ＋アラート
     h += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">';
-    h += '<span style="font-size:13px;font-weight:800;color:#1f2937;">'+esc(d.applicant||'（氏名未入力）')+'</span>';
-    if (isNew) h += '<span style="font-size:10px;background:#3b82f6;color:white;border-radius:99px;padding:1px 7px;font-weight:700;">NEW</span>';
-    if (isHold) h += '<span style="font-size:10px;background:#f59e0b;color:white;border-radius:99px;padding:1px 7px;font-weight:700;">保留</span>';
-    if (isRejected) h += '<span style="font-size:10px;background:#dc2626;color:white;border-radius:99px;padding:1px 7px;font-weight:700;">却下済み</span>';
+    h += '<span style="font-size:12px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px;">'+esc(d.applicant||'（氏名未入力）')+'</span>';
+    if (isNew) h += '<span style="display:inline-block;font-size:9px;font-weight:700;padding:1px 6px;border-radius:5px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;">NEW</span>';
+    if (isHold) h += '<span style="display:inline-block;font-size:9px;font-weight:700;padding:1px 6px;border-radius:5px;border:1px solid #fcd34d;background:#fef3c7;color:#b45309;">保留</span>';
+    if (isRejected) h += '<span style="display:inline-block;font-size:9px;font-weight:700;padding:1px 6px;border-radius:5px;border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;">却下</span>';
     h += supportAlert;
     h += '</div>';
-    h += '<div style="font-size:11px;color:#6b7280;margin-top:2px;">';
-    h += esc(d.company||'') + '　' + esc(d.app_type||'') + '　' + esc(d.applicant_field||'');
+    // 2行目：企業・種別・分野
+    h += '<div style="font-size:10.5px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">';
+    var _sub = [d.company||'', d.app_type||'', d.applicant_field||''].filter(function(x){return x;}).join(' · ');
+    h += esc(_sub||'—');
     h += '</div>';
-    h += '<div style="font-size:10px;color:#9ca3af;margin-top:2px;">';
-    h += '📥 ' + (d.received_at ? d.received_at.substring(0,10) : '') + '　🏢 ';
-    if (d.sheet_url) h += '<a href="'+d.sheet_url+'" target="_blank" style="color:#2563eb;font-weight:700;text-decoration:none;">'+esc(d.agency_name||'不明')+'　📊</a>';
+    // 3行目：受信日 · 機関（薄字）
+    h += '<div style="font-size:10px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">';
+    h += '📥 ' + (d.received_at ? d.received_at.substring(0,10) : '—') + ' · 🏢 ';
+    if (d.sheet_url) h += '<a href="'+d.sheet_url+'" target="_blank" style="color:#2563eb;font-weight:600;text-decoration:none;">'+esc(d.agency_name||'不明')+' 📊</a>';
     else h += esc(d.agency_name||'不明');
     h += '</div>';
     h += '</div>';
@@ -69328,8 +69334,8 @@ function renderIntakeList() {
         '先方記載中':   'background:#dbeafe;color:#1d4ed8;border-color:#93c5fd;'
       };
       var _selStyle = _brStyle[_br.reason] || 'background:white;color:#374151;border-color:#d1d5db;';
-      h += '<div style="display:flex;align-items:center;gap:6px;padding:0 14px 10px;flex-wrap:wrap;">';
-      h += '<span style="font-size:10px;color:#9ca3af;white-space:nowrap;">取込不可の理由</span>';
+      h += '<div style="display:flex;align-items:center;gap:6px;padding:0 10px 6px;flex-wrap:wrap;">';
+      h += '<span style="font-size:10px;color:#94a3b8;white-space:nowrap;">取込不可の理由</span>';
       h += '<select onchange="setIntakeBlockReason(\''+d.id+'\',\'reason\',this.value)" style="font-size:11px;padding:2px 6px;border:1px solid;border-radius:6px;cursor:pointer;font-weight:700;'+_selStyle+'">';
       h += '<option value="" style="background:white;color:#374151;font-weight:400;">未選択</option>';
       ['正式依頼まち','先方記載中'].forEach(function(o){ h += '<option value="'+esc(o)+'"'+(_br.reason===o?' selected':'')+' style="'+(_brStyle[o]||'')+'font-weight:400;">'+esc(o)+'</option>'; });
@@ -69339,7 +69345,7 @@ function renderIntakeList() {
     }
 
     // 詳細（折りたたみ）
-    h += '<div id="intakeDetail_'+d.id+'" style="display:none;border-top:1px solid '+borderColor+';padding:10px 14px;background:white;">';
+    h += '<div id="intakeDetail_'+d.id+'" style="display:none;border-top:1px solid var(--gray-200);padding:8px 10px;background:#fafbfc;">';
     var fields = [
       ['依頼受領日', d.receipt_date],['大房担当MG', d.team],['希望在留資格', d.desired_status],
       ['申請種別', d.app_type],['受入経験', d.accept_exp],['申請分野', d.applicant_field],
@@ -69381,15 +69387,16 @@ function renderIntakeList() {
       hh += '</div>';
       holdItems.sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); });
       holdItems.forEach(function(d) {
-        hh += '<div style="border:1.5px solid #fcd34d;border-radius:12px;background:#fffbeb;margin-bottom:10px;overflow:hidden;">';
-        hh += '<div style="padding:10px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">';
-        hh += '<div style="flex:1;min-width:0;">';
+        hh += '<div style="border:1px solid var(--gray-200);border-left:3px solid #fcd34d;border-radius:6px;background:white;margin-bottom:6px;overflow:hidden;">';
+        hh += '<div style="padding:6px 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;">';
+        hh += '<div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:2px;overflow:hidden;">';
         hh += '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">';
-        hh += '<span style="font-size:13px;font-weight:800;color:#1f2937;">'+esc(d.applicant||'（氏名未入力）')+'</span>';
-        hh += '<span style="font-size:10px;background:#f59e0b;color:white;border-radius:99px;padding:1px 7px;font-weight:700;">保留</span>';
+        hh += '<span style="font-size:12px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px;">'+esc(d.applicant||'（氏名未入力）')+'</span>';
+        hh += '<span style="display:inline-block;font-size:9px;font-weight:700;padding:1px 6px;border-radius:5px;border:1px solid #fcd34d;background:#fef3c7;color:#b45309;">保留</span>';
         hh += '</div>';
-        hh += '<div style="font-size:11px;color:#6b7280;margin-top:2px;">'+esc(d.company||'')+'　'+esc(d.app_type||'')+'　'+esc(d.applicant_field||'')+'</div>';
-        hh += '<div style="font-size:10px;color:#9ca3af;margin-top:2px;">📥 '+(d.received_at?d.received_at.substring(0,10):'')+'　🏢 '+esc(d.agency_name||'不明')+'</div>';
+        var _hsub = [d.company||'', d.app_type||'', d.applicant_field||''].filter(function(x){return x;}).join(' · ');
+        hh += '<div style="font-size:10.5px;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(_hsub||'—')+'</div>';
+        hh += '<div style="font-size:10px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">📥 '+(d.received_at?d.received_at.substring(0,10):'—')+' · 🏢 '+esc(d.agency_name||'不明')+'</div>';
         hh += '</div>';
         hh += '<div style="display:flex;gap:6px;flex-shrink:0;">';
         hh += '<button onclick="toggleIntakeDetail(\''+d.id+'_hold\')" style="font-size:11px;padding:5px 12px;background:white;border:1px solid #d1d5db;border-radius:7px;cursor:pointer;color:#374151;font-weight:600;">詳細 ▼</button>';
