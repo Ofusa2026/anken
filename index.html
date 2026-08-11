@@ -2583,6 +2583,10 @@ function openKanriDashboard(){
       <!-- 登録支援機関申請（企業単位） ver.20260810.06 -->
       <div id="drPanel_sorgapp" style="display:none;flex-direction:column;gap:14px;padding:20px;">
         <div style="background:#faf5ff;border-radius:8px;padding:10px 14px;font-size:12px;color:#7e22ce;line-height:1.5;">登録支援機関の申請（企業単位）。テキストを生成してコピーできます。</div>
+        <!-- ver.20260811.08: 他タブと同じ位置にLINE報告ボタン -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <button type="button" onclick="drLineSend('sorgapp')" id="drLineSendBtn_sorgapp" style="font-size:12px;font-weight:700;padding:7px 12px;background:#f0fdf4;color:#15803d;border:1.5px solid #bbf7d0;border-radius:8px;cursor:pointer;">📱 LINE報告</button>
+        </div>
         <div style="display:flex;flex-direction:column;gap:5px;">
           <label style="font-size:12px;font-weight:600;color:#64748b;">企業名</label>
           <input class="form-input" id="sorgapp_company" placeholder="入力または候補から選択" list="dl_companies" autocomplete="off" oninput="generateDrSorgApp()" style="width:100%;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:14px;outline:none;box-sizing:border-box;">
@@ -4971,7 +4975,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260811.04';
+var OFUSA_VERSION = 'ver.20260811.08';
 // ver.20260810.28: ステータスバッジ共通スタイル（全画面統一）
 var _STATUS_STYLE={
   '未着手':['#f8fafc','#64748b','#e2e8f0'],
@@ -6917,6 +6921,37 @@ function toggleSkipField(scope, key){
   }
 }
 function isFieldSkipped(scope, key){ return skippedFields[scope] && skippedFields[scope].indexOf(key)!==-1; }
+// ver.20260811.07: シフト1〜5（Start/End/H/Min/Days）をまとめて不要トグル
+function toggleSkipShiftGroup(scope, coId, idx){
+  var keys=[];
+  EMP_SET_FIELDS.forEach(function(sec){ if(!sec.fields)return; sec.fields.forEach(function(f){ if(/^shift[1-5](Start|End|H|Min|Days)$/.test(f.k)) keys.push(f.k); }); });
+  if(!keys.length) return;
+  if(!skippedFields[scope]) skippedFields[scope]=[];
+  var arr=skippedFields[scope];
+  var allSkipped = keys.every(function(k){ return arr.indexOf(k)!==-1; });
+  keys.forEach(function(k){
+    var i=arr.indexOf(k);
+    if(allSkipped){ if(i!==-1) arr.splice(i,1); }   // 全て不要 → 全解除
+    else { if(i===-1) arr.push(k); }                 // それ以外 → 全て不要
+  });
+  persistSkippedFields();
+  // empHearing 同期（1回だけまとめて）
+  var _empMatch = scope.match(/^company_(.+)_emp(\d+)$/);
+  if(_empMatch){
+    var _coId=_empMatch[1], _empIdx=parseInt(_empMatch[2]);
+    var _saveKey='empHearing_'+_coId+'_'+_empIdx;
+    if(!window._empHearingCache) window._empHearingCache={};
+    var _skips={};
+    try{_skips=JSON.parse(window._empHearingCache[_saveKey]||'{}');}catch(e){}
+    keys.forEach(function(k){ if(allSkipped) delete _skips['skip_'+k]; else _skips['skip_'+k]=true; });
+    window._empHearingCache[_saveKey]=JSON.stringify(_skips);
+    if(window._empHearingCoId===_coId && window._empHearingIdx===_empIdx){ window._empHearingSkips=_skips; }
+    if(typeof DB_READY!=='undefined'&&DB_READY&&typeof _sb!=='undefined'){
+      _sb.from('settings').upsert({key:_saveKey,value:JSON.stringify(_skips)},{onConflict:'key'}).then(function(){});
+    }
+  }
+  if(typeof coId!=='undefined' && coId!==null) editEmpSet(coId, idx);
+}
 function sgGroupToggleCollapse(grpId){
   var el=document.getElementById(grpId);
   if(!el) return;
@@ -37154,7 +37189,7 @@ function renderReview() {
   var rb=document.getElementById('reviewRepliedBadge'); if(rb){rb.textContent=repliedCount;rb.style.display=repliedCount?'inline':'none';}
   // Tasks badge: count all tasks with status=3 (確認)
   var tasksConfirmCount=0;
-  cData.forEach(function(c){if(c.status==='完了'||c.status==='審査完了')return;for(var i=0;i<TASK_NAMES.length;i++){if((docTaskStatus[c.id+'_'+i]||0)===3 && !_taskSkipsConfirm(i))tasksConfirmCount++;}});
+  cData.forEach(function(c){if(c.status==='完了'||c.status==='審査完了')return;for(var i=0;i<TASK_NAMES.length;i++){if(HIDDEN_TASK_NAMES[TASK_NAMES[i]])continue;if((docTaskStatus[c.id+'_'+i]||0)===3 && !_taskSkipsConfirm(i))tasksConfirmCount++;}});
   var tb=document.getElementById('reviewTasksBadge');if(tb){tb.textContent=tasksConfirmCount;tb.style.display=tasksConfirmCount?'inline':'none';}
   // ver.20260608.36: アップロード書類タブ（自分の担当案件でアップロードされた書類）
   if(reviewTab==='uploaded'){
@@ -37245,6 +37280,7 @@ function renderReview() {
     cData.forEach(function(c){
       if(c.status==='完了'||c.status==='審査完了')return;
       for(var i=0;i<TASK_NAMES.length;i++){
+        if(HIDDEN_TASK_NAMES[TASK_NAMES[i]]) continue; // ver.20260811.06: 非表示タスクは確認一覧に出さない
         var tk=c.id+'_'+i;
         var _stDisp=docTaskStatus[tk]||0; if(_stDisp>=4) continue;
         if(!_isMyReviewTask(c,i,me)) continue;
@@ -38069,6 +38105,7 @@ function renderReviewTasksTab(el) {
   var allItems = [];
   cases.forEach(function(c){
     for(var ti=0;ti<TASK_NAMES.length;ti++){
+      if(HIDDEN_TASK_NAMES[TASK_NAMES[ti]]) continue; // ver.20260811.06: 非表示タスク（基本情報入力など）を一覧に出さない
       var key=c.id+'_'+ti, st=docTaskStatus[key]||0;
       if(st>=4) continue;
       if(st===3 && _taskSkipsConfirm(ti)) continue; // ver.20260611.27: 確認廃止タスクは確認待ちに出さない
@@ -51980,6 +52017,13 @@ function editEmpSet(coId, idx) {
     if (sec.section === '賃金') h += ' <button onclick="calcEmpSalary()" style="font-size:10px;padding:2px 10px;background:#f59e0b;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;margin-left:8px;">🔢 自動計算</button>';
     // 手取りセクションに計算ボタン
     if (sec.section === '手取り') h += ' <button onclick="calcEmpNetPay()" style="font-size:10px;padding:2px 10px;background:#f59e0b;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;margin-left:8px;">🔢 自動計算</button>';
+    // ver.20260811.07: シフト1〜5 をまとめて不要にするグループボタン
+    if (sec.section === '時間外・交代制・変形労働') {
+      var _shScope='company_'+coId+'_emp'+idx;
+      var _shKeys=[]; sec.fields.forEach(function(f){ if(/^shift[1-5](Start|End|H|Min|Days)$/.test(f.k)) _shKeys.push(f.k); });
+      var _shAllSkip=_shKeys.length>0 && _shKeys.every(function(k){ return isFieldSkipped(_shScope,k); });
+      h += ' <button onclick="toggleSkipShiftGroup(\''+_shScope+'\',\''+coId+'\','+idx+')" style="font-size:10px;padding:2px 10px;background:'+(_shAllSkip?'#fef3c7':'white')+';color:'+(_shAllSkip?'#b45309':'#64748b')+';border:1px solid '+(_shAllSkip?'#f59e0b':'var(--gray-200)')+';border-radius:5px;cursor:pointer;font-weight:700;margin-left:8px;">'+(_shAllSkip?'✓ シフト1〜5 不要解除':'シフト1〜5 まとめて不要')+'</button>';
+    }
     h += '</div>';
     h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;">';
     h += '<div style="font-size:9px;font-weight:800;color:var(--gray-400);padding:2px 0;">日本語</div>';
@@ -55280,7 +55324,7 @@ function doGenerateFromMapping(caseId, empSetIdx, mappingArr, bytesOverride, zip
     if(field==='es.contractEndM'){var _ce=p.contractEnd||'';var _m=_ce.split(/[-\/]/)[1]||'';return _m?String(parseInt(_m,10)):'';}
     if(field==='es.contractEndD'){var _ce=p.contractEnd||'';var _d=_ce.split(/[-\/]/)[2]||'';return _d?String(parseInt(_d,10)):'';}
     // 分野・区分のフォールバック
-    if(field==='es.applicantField'){var _af=es.applicantField||es.field||c.applicantField||'';return _af.replace(/（特定技能[１２]号）/g,'');}
+    if(field==='es.applicantField'){var _af=es.applicantField||es.field||c.applicantField||'';return _af.replace(/（特定技能[１２]号）/g,'').replace(/分野$/,'');}  // ver.20260811.05: 号に加え末尾「分野」も除去（飲食料品製造業分野→飲食料品製造業）
     if(field==='es.weeklyHours') return es.weeklyHours||es.workHoursWeek||'';
     if(field==='es.monthlyHours') return es.monthlyHours||'';
     if(field==='es.salaryHourly') return es.salaryHourly||es.hourlyRate||'';
@@ -57629,6 +57673,7 @@ function buildCaseRow(c, today, inGroup) {
   if(_viewMode === 'kanban'){
     var _taskHtml = '';
     for(var _ti=0; _ti<TASK_NAMES.length; _ti++){
+      if(HIDDEN_TASK_NAMES[TASK_NAMES[_ti]]) continue; // ver.20260811.06: 非表示タスクは列に出さない
       var _tkey = c.id+'_'+_ti;
       var _tst = docTaskStatus[_tkey]||0;
       if(_tst !== 1) continue; // 依頼中のみ
@@ -58884,6 +58929,7 @@ function renderTaskKanban() {
   var found = false;
 
   TASK_NAMES.forEach(function(tn){
+    if(HIDDEN_TASK_NAMES[tn]) return; // ver.20260811.06: 非表示タスクは列を出さない
     var items = taskGroups[tn];
     if (!items || !items.length) return;
     found = true;
