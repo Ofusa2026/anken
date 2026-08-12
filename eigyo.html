@@ -192,11 +192,12 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260730.12</div>
+      <div class="ver">ver.20260730.13</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
       <button class="btn btn-primary" onclick="openQuote()">📄 見積書作成</button>
+      <button class="btn btn-primary" onclick="openMailModal()">✉️ メール配信</button>
       <button class="btn" onclick="openQuoteList()">🗂 見積書履歴</button>
       <button class="btn" onclick="el('csvFile').click()">📥 CSV取込</button>
       <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="importCsv(this)">
@@ -498,6 +499,55 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
   <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
     <button class="btn" onclick="closeKpiInput()">キャンセル</button>
     <button class="btn btn-primary" id="kiSave" onclick="saveKpiInput()">＋ 追加</button>
+  </div>
+</div>
+
+<!-- メール配信モーダル -->
+<div class="overlay" id="mailOv" onclick="closeMailModal()"></div>
+<div id="mailBox" style="display:none;position:fixed;z-index:64;top:50%;left:50%;transform:translate(-50%,-50%);
+     width:min(680px,96vw);max-height:90vh;overflow:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 30px rgba(0,0,0,.2);">
+  <h2 style="margin:0 0 4px;font-size:18px;color:var(--accent);">✉️ メール配信</h2>
+  <p style="margin:0 0 14px;font-size:12px;color:var(--muted);">大房行政書士法人名義で送信します。宛名（○○御中）と署名は自動で付きます。</p>
+
+  <div class="form" style="grid-template-columns:1fr;">
+    <label style="font-weight:700;">配信先ステータス（複数選択可）</label>
+    <div id="mailStatusBoxes" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px;"></div>
+    <div id="mailRecipInfo" style="background:#f7fafc;border-radius:8px;padding:10px 12px;margin-bottom:6px;"></div>
+
+    <label style="font-weight:700;">件名</label>
+    <input type="text" id="mailSubject" placeholder="例：登録支援機関向けセミナーのご案内">
+
+    <label style="font-weight:700;">本文</label>
+    <textarea id="mailBody" placeholder="本文を入力してください。冒頭の宛名と末尾の署名は自動で付きます。" style="min-height:180px;"></textarea>
+
+    <label style="font-weight:700;">添付ファイル</label>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <label class="btn btn-sm" style="cursor:pointer;">📄 PDFを選択<input type="file" id="mailPdfInput" accept="application/pdf" onchange="mailHandlePdf(this)" style="display:none;"></label>
+        <span id="mailPdfName" style="font-size:12px;"></span>
+        <a id="mailPdfClear" onclick="mailClearPdf()" style="display:none;cursor:pointer;color:#c53030;font-size:12px;">×削除</a>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <label class="btn btn-sm" style="cursor:pointer;">🖼️ 画像を選択<input type="file" id="mailImgInput" accept="image/*" onchange="mailHandleImg(this)" style="display:none;"></label>
+        <span id="mailImgName" style="font-size:12px;"></span>
+        <a id="mailImgClear" onclick="mailClearImg()" style="display:none;cursor:pointer;color:#c53030;font-size:12px;">×削除</a>
+      </div>
+    </div>
+  </div>
+
+  <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:14px;">
+    <div style="background:#fffaf0;border:1px solid #fbd38d;border-radius:8px;padding:12px 14px;margin-bottom:12px;">
+      <div style="font-size:13px;font-weight:700;color:#975a16;margin-bottom:6px;">① まず自分宛にテスト送信</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input type="text" id="mailTestTo" placeholder="テスト送信先メール" style="flex:1;padding:7px 9px;border:1px solid var(--line);border-radius:7px;">
+        <button class="btn" id="mailTestBtn" onclick="mailSendTest()">まず自分宛にテスト送信</button>
+      </div>
+      <div class="sub" style="font-size:11px;margin-top:6px;">届いた見た目・添付を確認してから、下の本配信を押してください。</div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button class="btn" onclick="closeMailModal()">閉じる</button>
+      <button class="btn btn-primary" id="mailSendBtn" onclick="mailSend()">🚀 本配信する</button>
+    </div>
   </div>
 </div>
 
@@ -2018,7 +2068,107 @@ function openWeekInput(metric, unit){
 }
 
 
-document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ closeDrawer(); closeNew(); closeQuote(); closeQuoteList(); closePriceMaster(); closePriceAdmin(); closeKpiInput(); } });
+document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ closeDrawer(); closeNew(); closeQuote(); closeQuoteList(); closePriceMaster(); closePriceAdmin(); closeKpiInput(); closeMailModal(); } });
+
+/* ================= メール配信機能 ================= */
+var GAS_MAILBOX_URL = 'https://script.google.com/macros/s/AKfycbx7MUVJ-14GYqtiCw0Gfvkj2_IHhvIfzYKxx21LogKv4JUZ5zUdH3WuVMFj3fuxpouhjQ/exec';
+var MAIL_STATUSES = ['接触済み','商談予定','案件依頼前','要経過観察','見込みなし','契約中','対象外','テレアポ失注'];
+var _mailPdfB64=null,_mailPdfName=null,_mailImgB64=null,_mailImgName=null,_mailRecipients=[];
+
+function openMailModal(){
+  var boxes = MAIL_STATUSES.map(function(s){
+    return '<label style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border:1px solid var(--line);border-radius:7px;cursor:pointer;font-size:12px;">'
+      + '<input type="checkbox" class="mailStatusCb" value="'+esc(s)+'" onchange="mailRefreshRecipients()"> '+esc(s)+'</label>';
+  }).join('');
+  el('mailStatusBoxes').innerHTML = boxes;
+  el('mailSubject').value=''; el('mailBody').value=''; el('mailTestTo').value=(me||'');
+  mailClearPdf(); mailClearImg();
+  el('mailRecipInfo').innerHTML='<span class="sub">配信先のステータスを選んでください。</span>';
+  _mailRecipients=[];
+  el('mailOv').style.display='block'; el('mailBox').style.display='block';
+}
+function closeMailModal(){ el('mailOv').style.display='none'; el('mailBox').style.display='none'; }
+function mailSelectedStatuses(){ return Array.prototype.map.call(document.querySelectorAll('.mailStatusCb:checked'),function(c){return c.value;}); }
+
+function mailRefreshRecipients(){
+  var sts=mailSelectedStatuses();
+  if(!sts.length){ el('mailRecipInfo').innerHTML='<span class="sub">配信先のステータスを選んでください。</span>'; _mailRecipients=[]; return; }
+  el('mailRecipInfo').innerHTML='<span class="sub">集計中…</span>';
+  _sb.from('eigyo_leads').select('reg_no,name,contacts').in('status',sts).then(function(r){
+    var rows=(r.data)||[],recips=[];
+    rows.forEach(function(x){
+      var emails=[]; (x.contacts||[]).forEach(function(c){ if(c&&c.email&&/@/.test(c.email)) emails.push(c.email.trim()); });
+      if(emails.length) recips.push({reg_no:x.reg_no,name:x.name,emails:emails});
+    });
+    _mailRecipients=recips;
+    var tot=recips.reduce(function(a,b){return a+b.emails.length;},0);
+    if(!recips.length){
+      el('mailRecipInfo').innerHTML='<div style="color:#c53030;font-size:12px;">該当ステータスに、メール登録済みのリードがありません。<br>詳細画面の「先方の担当者」にメールを入れると配信先になります。</div>';
+    } else {
+      el('mailRecipInfo').innerHTML='<div style="font-size:13px;"><b>'+recips.length+'</b> 社（<b>'+tot+'</b> 通）が本配信の対象です。</div>'
+        +'<div class="sub" style="margin-top:4px;max-height:110px;overflow:auto;">'+recips.map(function(p){return esc(p.name)+'（'+p.emails.map(esc).join('、')+'）';}).join('<br>')+'</div>';
+    }
+  });
+}
+
+function mailHandlePdf(input){var f=input.files[0];if(!f)return;
+  if(f.type!=='application/pdf'){alert('PDFを選んでください');input.value='';return;}
+  if(f.size>10*1024*1024){alert('PDFは10MB以下に');input.value='';return;}
+  var rd=new FileReader();rd.onload=function(e){_mailPdfB64=e.target.result.split(',')[1];_mailPdfName=f.name;
+    el('mailPdfName').textContent='PDF: '+f.name;el('mailPdfClear').style.display='inline';};rd.readAsDataURL(f);}
+function mailClearPdf(){_mailPdfB64=null;_mailPdfName=null;var i=el('mailPdfInput');if(i)i.value='';
+  el('mailPdfName').textContent='';el('mailPdfClear').style.display='none';}
+function mailHandleImg(input){var f=input.files[0];if(!f)return;
+  if(!/^image\//.test(f.type)){alert('画像を選んでください');input.value='';return;}
+  if(f.size>10*1024*1024){alert('画像は10MB以下に');input.value='';return;}
+  var rd=new FileReader();rd.onload=function(e){_mailImgB64=e.target.result.split(',')[1];_mailImgName=f.name;
+    el('mailImgName').textContent='画像: '+f.name;el('mailImgClear').style.display='inline';};rd.readAsDataURL(f);}
+function mailClearImg(){_mailImgB64=null;_mailImgName=null;var i=el('mailImgInput');if(i)i.value='';
+  el('mailImgName').textContent='';el('mailImgClear').style.display='none';}
+
+function mailBuildAttachments(){
+  var a=[];
+  if(_mailPdfB64)a.push({filename:_mailPdfName||'添付.pdf',mimeType:'application/pdf',data:_mailPdfB64});
+  if(_mailImgB64)a.push({filename:_mailImgName||'画像',data:_mailImgB64});
+  return a;
+}
+function mailBuildBody(orgName){
+  return orgName+' 御中\n\nいつも大変お世話になっております。\n大房行政書士法人でございます。\n\n'
+    + el('mailBody').value.trim()
+    + '\n\n今後ともどうぞよろしくお願い申し上げます。\n\n大房行政書士法人';
+}
+function mailPost(payload, okMsg, done){
+  fetch(GAS_MAILBOX_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)})
+    .then(function(r){return r.text();}).then(function(){ alert(okMsg); done&&done(); })
+    .catch(function(e){ alert('送信でエラー：'+e.message+'\n\nGASのメール送信URL・公開設定をご確認ください。'); done&&done(); });
+}
+
+function mailSendTest(){
+  var sub=el('mailSubject').value.trim(), bodyRaw=el('mailBody').value.trim(), to=el('mailTestTo').value.trim();
+  if(!sub||!bodyRaw){ alert('件名と本文を入力してください'); return; }
+  if(!/@/.test(to)){ alert('テスト送信先メールを入力してください'); return; }
+  var btn=el('mailTestBtn'); btn.disabled=true; btn.textContent='送信中…';
+  var payload={ action:'broadcast', messages:[{ to:[to], subject:'【テスト】'+sub, body:mailBuildBody('（テスト送信）') }], attachments:mailBuildAttachments() };
+  mailPost(payload, 'テストメールを送信しました。\n'+to+' の受信をご確認ください。\n\n届いていれば「本配信する」で全社に送れます。', function(){ btn.disabled=false; btn.textContent='まず自分宛にテスト送信'; });
+}
+
+function mailSend(){
+  var sub=el('mailSubject').value.trim(), bodyRaw=el('mailBody').value.trim();
+  if(!sub||!bodyRaw){ alert('件名と本文を入力してください'); return; }
+  if(!_mailRecipients.length){ alert('配信先がありません。'); return; }
+  var tot=_mailRecipients.reduce(function(a,b){return a+b.emails.length;},0);
+  if(!confirm('本配信します。\n\n'+_mailRecipients.length+'社（'+tot+'通）に送信します。よろしいですか？\n\n※先にテスト送信で見た目を確認することをおすすめします。')) return;
+  var btn=el('mailSendBtn'); btn.disabled=true; btn.textContent='送信中…';
+  var messages=_mailRecipients.map(function(p){ return { to:p.emails, subject:sub, body:mailBuildBody(p.name) }; });
+  var payload={ action:'broadcast', messages:messages, attachments:mailBuildAttachments() };
+  mailPost(payload, '本配信を実行しました。（'+_mailRecipients.length+'社）', function(){
+    btn.disabled=false; btn.textContent='本配信する';
+    var notes=_mailRecipients.map(function(p){ return {reg_no:p.reg_no,note_date:today(),kind:'メール',author:(me||''),body:'メール配信：'+sub}; });
+    _sb.from('eigyo_notes').insert(notes).then(function(){});
+    closeMailModal();
+  });
+}
+
 boot();
 </script>
 </body>
