@@ -5109,7 +5109,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260812.17';
+var OFUSA_VERSION = 'ver.20260812.18';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -58098,6 +58098,8 @@ var currentTab = 'info';
 
 // ===== TABLE =====
 function renderTable(data) {
+  // ver.20260812.18: 前後ナビ用に表示中の案件IDを記録
+  try{ window._lastRenderedCaseIds = (data||[]).map(function(c){return c && c.id;}).filter(Boolean); }catch(e){}
   var today = new Date(); today.setHours(0,0,0,0);
   var isMobile = window.innerWidth <= 768;
   var COLS = 14;
@@ -61776,6 +61778,166 @@ function _ensureDocTasksForCase(caseId, cb){
   }).catch(function(e){ console.warn('ensureDocTasks err', e); if(cb) cb(); });
 }
 
+// ================== ver.20260812.18: 案件詳細ヘッダー整理 ヘルパー群 ==================
+// N日経過バッジ用のキャッシュ（case_id → {days, ts}）
+var _statusDaysCache = {};
+// N日経過バッジ HTML（日数から色分け）
+function _daysBadgeHtml(days){
+  if(days == null) return '';
+  var d = parseInt(days, 10);
+  if(isNaN(d) || d < 0) return '';
+  var bg, fg;
+  if(d >= 14){ bg='rgba(220,38,38,.25)'; fg='#fca5a5'; }
+  else if(d >= 7){ bg='rgba(234,88,12,.22)'; fg='#fdba74'; }
+  else { bg='rgba(148,163,184,.18)'; fg='#cbd5e1'; }
+  return '<span class="case-header-tag" id="_statusDaysBadge" style="background:'+bg+';color:'+fg+';font-weight:700;" title="現ステータスになってからの経過日数">🕒 '+d+'日経過</span>';
+}
+// audit_log を非同期で参照して現ステータスの経過日数を求める
+function _fetchStatusDays(caseId, cb){
+  if(!caseId){ cb(null); return; }
+  var cached = _statusDaysCache[caseId];
+  if(cached && (Date.now()-cached.ts) < 60000){ cb(cached.days); return; }
+  if(typeof _sb === 'undefined' || !_sb || !DB_READY){ cb(null); return; }
+  try{
+    _sb.from('audit_log')
+      .select('created_at, changed_fields')
+      .eq('table_name','cases')
+      .eq('record_id', caseId)
+      .eq('operation','UPDATE')
+      .order('created_at', {ascending:false})
+      .limit(40)
+      .then(function(r){
+        var days = null;
+        try{
+          var rows = (r && r.data) || [];
+          for(var i=0;i<rows.length;i++){
+            var cf = rows[i].changed_fields;
+            if(cf && (cf.status || cf['status'])){
+              var t = new Date(rows[i].created_at);
+              days = Math.max(0, Math.floor((Date.now()-t.getTime())/86400000));
+              break;
+            }
+          }
+          // 見つからなければ現ステータスは初期値のまま = 案件作成日から
+          if(days == null){
+            var c = cData.find(function(x){return x.id===caseId;});
+            if(c && c.createdAt){
+              var t2 = new Date(c.createdAt);
+              days = Math.max(0, Math.floor((Date.now()-t2.getTime())/86400000));
+            }
+          }
+        }catch(e){}
+        _statusDaysCache[caseId] = {days: days, ts: Date.now()};
+        cb(days);
+      })
+      .catch(function(e){ console.warn('_fetchStatusDays err',e); cb(null); });
+  }catch(e){ cb(null); }
+}
+// バッジを非同期で挿入・更新（ステータスバッジの直後に）
+function _refreshStatusDaysBadge(caseId){
+  _fetchStatusDays(caseId, function(days){
+    var badge = document.getElementById('_statusDaysBadge');
+    if(days == null){ if(badge) badge.remove(); return; }
+    var html = _daysBadgeHtml(days);
+    if(!html){ if(badge) badge.remove(); return; }
+    if(badge){ badge.outerHTML = html; return; }
+    // ステータスバッジ（●で始まるタグ）の直後に挿入
+    var tags = document.querySelectorAll('#caseDetailTags .case-header-tag');
+    var stTag = null;
+    for(var i=0;i<tags.length;i++){
+      var txt = (tags[i].textContent||'').trim();
+      if(txt.indexOf('●') === 0){ stTag = tags[i]; break; }
+    }
+    if(stTag){ stTag.insertAdjacentHTML('afterend', html); }
+  });
+}
+// 前後の案件へ移動
+function _caseNavPrev(){ _caseNavStep(-1); }
+function _caseNavNext(){ _caseNavStep(+1); }
+function _caseNavStep(delta){
+  try{
+    var ids = window._lastRenderedCaseIds || [];
+    if(!ids.length || !currentCase) return;
+    var idx = ids.indexOf(currentCase.id);
+    if(idx < 0) return;
+    var next = idx + delta;
+    if(next < 0 || next >= ids.length){
+      try{ showToast(delta<0 ? '一番前の案件です' : '一番後ろの案件です'); }catch(e){}
+      return;
+    }
+    openCase(ids[next]);
+  }catch(e){ console.warn('_caseNavStep err',e); }
+}
+function _caseNavBtns(){
+  var ids = window._lastRenderedCaseIds || [];
+  var pos = currentCase ? ids.indexOf(currentCase.id) : -1;
+  var total = ids.length;
+  var hasPrev = pos > 0;
+  var hasNext = pos >= 0 && pos < total - 1;
+  var counter = (pos >= 0 && total > 0) ? ' <span style="opacity:.6;font-weight:600;">'+(pos+1)+'/'+total+'</span>' : '';
+  return '<span style="display:inline-flex;align-items:center;gap:4px;margin-left:12px;font-size:13px;font-weight:800;color:white;vertical-align:middle;">'
+    +'<button onclick="_caseNavPrev()" '+(hasPrev?'':'disabled')+' title="前の案件（←）" style="background:rgba(255,255,255,'+(hasPrev?'0.15':'0.05')+');color:'+(hasPrev?'white':'rgba(255,255,255,.3)')+';border:none;width:26px;height:26px;border-radius:6px;cursor:'+(hasPrev?'pointer':'not-allowed')+';font-size:14px;line-height:1;">◀</button>'
+    +'<button onclick="_caseNavNext()" '+(hasNext?'':'disabled')+' title="次の案件（→）" style="background:rgba(255,255,255,'+(hasNext?'0.15':'0.05')+');color:'+(hasNext?'white':'rgba(255,255,255,.3)')+';border:none;width:26px;height:26px;border-radius:6px;cursor:'+(hasNext?'pointer':'not-allowed')+';font-size:14px;line-height:1;">▶</button>'
+    +counter
+    +'</span>';
+}
+// 「📄 書類生成 ▾」ドロップダウン
+function _openDocGenMenu(caseId, anchorEl){
+  var old = document.getElementById('_docGenMenu'); if(old){ old.remove(); return; }
+  var menu = document.createElement('div');
+  menu.id = '_docGenMenu';
+  menu.style.cssText = 'position:absolute;background:#1e293b;border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:5px;box-shadow:0 6px 20px rgba(0,0,0,.35);z-index:10000;min-width:180px;';
+  var esc2 = (typeof esc==='function') ? esc : function(s){return s;};
+  menu.innerHTML =
+    '<button onclick="_docGenPick(\''+esc2(caseId)+'\',\'bunya\')" style="display:block;width:100%;text-align:left;padding:8px 12px;background:transparent;border:none;color:#e2e8f0;font-size:12px;font-weight:600;cursor:pointer;border-radius:4px;" onmouseover="this.style.background=\'rgba(255,255,255,.08)\'" onmouseout="this.style.background=\'transparent\'">📄 分野別誓約書</button>'
+    +'<button onclick="_docGenPick(\''+esc2(caseId)+'\',\'kokko\')" style="display:block;width:100%;text-align:left;padding:8px 12px;background:transparent;border:none;color:#e2e8f0;font-size:12px;font-weight:600;cursor:pointer;border-radius:4px;" onmouseover="this.style.background=\'rgba(255,255,255,.08)\'" onmouseout="this.style.background=\'transparent\'">🏗 国交省委任状</button>';
+  document.body.appendChild(menu);
+  try{
+    var r = anchorEl.getBoundingClientRect();
+    menu.style.top = (r.bottom + window.scrollY + 4)+'px';
+    menu.style.left = Math.max(8, r.left + window.scrollX)+'px';
+  }catch(e){}
+  setTimeout(function(){
+    document.addEventListener('mousedown', function _h(e){
+      var m = document.getElementById('_docGenMenu');
+      if(!m) return;
+      if(!m.contains(e.target)){ m.remove(); document.removeEventListener('mousedown', _h, true); }
+    }, true);
+  }, 0);
+}
+function _docGenPick(caseId, kind){
+  var m = document.getElementById('_docGenMenu'); if(m) m.remove();
+  if(kind==='bunya') openBunyaSeiyakuForCase(caseId);
+  else if(kind==='kokko') openKokkoIninForCase(caseId);
+}
+// 「⋯ その他」ドロップダウン（削除）
+function _openCaseMoreMenu(caseId, anchorEl){
+  var old = document.getElementById('_caseMoreMenu'); if(old){ old.remove(); return; }
+  var menu = document.createElement('div');
+  menu.id = '_caseMoreMenu';
+  menu.style.cssText = 'position:absolute;background:#1e293b;border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:5px;box-shadow:0 6px 20px rgba(0,0,0,.35);z-index:10000;min-width:160px;';
+  menu.innerHTML = '<button data-action="trash-case" data-id="'+caseId+'" style="display:block;width:100%;text-align:left;padding:8px 12px;background:transparent;border:none;color:#fca5a5;font-size:12px;font-weight:700;cursor:pointer;border-radius:4px;" onmouseover="this.style.background=\'rgba(220,38,38,.15)\'" onmouseout="this.style.background=\'transparent\'">🗑 削除</button>';
+  document.body.appendChild(menu);
+  try{
+    var r = anchorEl.getBoundingClientRect();
+    menu.style.top = (r.bottom + window.scrollY + 4)+'px';
+    var left = r.right + window.scrollX - 160;
+    menu.style.left = Math.max(8, left)+'px';
+  }catch(e){}
+  setTimeout(function(){
+    document.addEventListener('mousedown', function _h(e){
+      var m = document.getElementById('_caseMoreMenu');
+      if(!m) return;
+      if(!m.contains(e.target)){ m.remove(); document.removeEventListener('mousedown', _h, true); }
+    }, true);
+  }, 0);
+}
+// 「📧 企業メール」（未実装 shell）
+function _openCompanyMail(caseId){
+  try{ showToast('📧 企業メール機能は準備中です'); }catch(e){ alert('企業メール機能は準備中です'); }
+}
+// ================================================================================
+
 function openCase(id) {
   _navRecordCurrent();
   window._infoEditMode = false;
@@ -61867,26 +62029,36 @@ function openCase(id) {
   var _msgBtnHtml = '<span class="case-header-tag" onclick="openCaseMessageThread(\''+esc(c.id)+'\')" style="background:rgba(219,39,119,.2);color:#f9a8d4;cursor:pointer;font-weight:700;" title="担当者に強制表示してコメント送信／メッセージスレッドを開く">📢 メッセージ</span>';
   // ver.20260605.21: 申請人向け進捗URL発行
   var _apViewBtnHtml = '<span class="case-header-tag" onclick="issueApplicantViewUrl(\''+esc(c.id)+'\')" style="background:rgba(37,99,235,.2);color:#93c5fd;cursor:pointer;font-weight:700;" title="申請人本人向け進捗ページのURL・パスワードを発行">📊 申請人URL</span>' + '<span class="case-header-tag" onclick="_showSignDocPicker(\''+esc(c.id)+'\')" style="background:rgba(79,70,229,.2);color:#c7d2fe;cursor:pointer;font-weight:700;" title="サインが必要な書類を選んで作成">🖊 サイン書類作成</span>';
+  // ver.20260812.18: タイトル横に前後ナビ ◀▶ を追加
+  try{
+    var _nameEl = document.getElementById('caseDetailName');
+    if(_nameEl){
+      var _base = (typeof getDisplayName==='function') ? getDisplayName(c) : (c.name||'');
+      _nameEl.innerHTML = esc(_base) + _caseNavBtns();
+    }
+  }catch(e){}
   document.getElementById('caseDetailTags').innerHTML =
-    '<span class="case-header-tag">● ' + c.status + '</span>' +
-    '<span class="case-header-tag">🌏 ' + (_caseNat(c)||'—') + '</span>' +
-    '<span class="case-header-tag">📋 ' + c.appType + '申請</span>' +
-    '<span class="case-header-tag">👥 ' + c.team + '</span>' +
-    _inshiTagHtml(c) +
-    '<span class="case-header-tag" onclick="copyToClipboard(\''+esc(c.id)+'\');showToast(\'📋 案件IDをコピーしました\')" style="background:rgba(255,255,255,.14);color:#e2e8f0;cursor:pointer;font-weight:700;" title="案件IDをコピー">🆔 案件IDコピー</span>' +
-    '<span class="case-header-tag" onclick="openBunyaSeiyakuForCase(\''+esc(c.id)+'\')" style="background:rgba(16,185,129,.2);color:#6ee7b7;cursor:pointer;font-weight:700;" title="この案件の分野別 受入れ誓約書を作成">📄 分野別誓約書</span>' +
-    '<span class="case-header-tag" onclick="copyFieldGuideUrl(\''+esc(c.id)+'\'\'+(c.applicantField||\'\')+\'\')" style="background:rgba(234,179,8,.2);color:#fde047;cursor:pointer;font-weight:700;" title="企業向け分野別案内ページのURLをコピー">🔗 企業案内URL</span>' +
-    '<span class="case-header-tag" onclick="openKokkoIninForCase(\''+esc(c.id)+'\')" style="background:rgba(59,130,246,.2);color:#93c5fd;cursor:pointer;font-weight:700;" title="国交省（建設特定技能受入計画）の委任状を作成">🏗 国交省委任状</span>' +
-    '<span class="case-header-tag" onclick="openDrFromCase(\''+esc(c.id)+'\')" style="background:rgba(22,163,74,.2);color:#86efac;cursor:pointer;font-weight:700;" title="この案件から決定報告を作成">📋 決定報告作成</span>' +
-    _coLinkHtml +
+    // ─── Row 1: 情報バッジ（順序: 👥チーム → 🤝org(KMT) → 🏢company(晨信建設) → 📋種別 → 🌏国籍 → ●ステータス） ───
+    '<span class="case-header-tag">👥 ' + esc(c.team||'—') + '</span>' +
     _soLinkHtml +
+    _coLinkHtml +
+    '<span class="case-header-tag">📋 ' + esc(c.appType||'—') + '申請</span>' +
+    '<span class="case-header-tag">🌏 ' + (_caseNat(c)||'—') + '</span>' +
+    '<span class="case-header-tag">● ' + esc(c.status||'未着手') + '</span>' +
+    // 【N日経過】バッジは _refreshStatusDaysBadge で非同期挿入
     _lpBadgeHtml +
     _hassoBadge +
+    _inshiTagHtml(c) +
+    // ─── Row 2: アクション ───
+    '<span class="case-header-tag" onclick="copyToClipboard(\''+esc(c.id)+'\');showToast(\'📋 案件IDをコピーしました\')" style="background:rgba(255,255,255,.14);color:#e2e8f0;cursor:pointer;font-weight:700;" title="案件IDをコピー">🆔 案件IDコピー</span>' +
+    '<span class="case-header-tag" onclick="_openCompanyMail(\''+esc(c.id)+'\')" style="background:rgba(2,132,199,.25);color:#7dd3fc;cursor:pointer;font-weight:700;" title="企業向け自動メール（準備中）">📧 企業メール</span>' +
+    '<span class="case-header-tag" onclick="_showSignDocPicker(\''+esc(c.id)+'\')" style="background:rgba(79,70,229,.2);color:#c7d2fe;cursor:pointer;font-weight:700;" title="申請人向け電子署名URLの発行／サイン書類の作成">✍️ 申請人電子署名</span>' +
+    '<span class="case-header-tag" onclick="issueApplicantViewUrl(\''+esc(c.id)+'\')" style="background:rgba(37,99,235,.2);color:#93c5fd;cursor:pointer;font-weight:700;" title="申請人本人向け進捗ページのURL・パスワードを発行">🔗 申請人URL</span>' +
+    '<span class="case-header-tag" onclick="_openDocGenMenu(\''+esc(c.id)+'\',this)" style="background:rgba(16,185,129,.22);color:#6ee7b7;cursor:pointer;font-weight:700;" title="書類生成（分野別誓約書・国交省委任状）">📄 書類生成 ▾</span>' +
     _excel4BtnHtml +
-    _historyBtnHtml +
-    _msgBtnHtml +
-    _apViewBtnHtml +
-    '<span class="case-header-tag" data-action="trash-case" data-id="'+c.id+'" style="background:rgba(239,68,68,.15);color:#ef4444;cursor:pointer;margin-left:auto;font-weight:700;">🗑️ 削除</span>';
+    '<span class="case-header-tag" onclick="_openCaseMoreMenu(\''+esc(c.id)+'\',this)" style="background:rgba(255,255,255,.08);color:#cbd5e1;cursor:pointer;margin-left:auto;font-weight:700;" title="その他（削除など）">⋯</span>';
+  // ver.20260812.18: 経過日数バッジを非同期で挿入
+  try{ _refreshStatusDaysBadge(c.id); }catch(e){}
   showTab('info');
   document.getElementById('caseModal').classList.add('open');
   // ver.20260629.83: 案件詳細を開いたらミニバーを非表示（案件ヘッダーが見えるように）
@@ -61921,22 +62093,29 @@ function _refreshCaseModalHeader(c){
     : '';
   // _lpBadgeHtml と _hassoBadge は openCase 内でローカル変数として作られるので、ここでは省略
   // (openCase 側で初回描画されているので、ステータス系の更新だけ反映できればOK)
+  // ver.20260812.18: タイトル横の前後ナビも更新
+  try{
+    if(nameEl){
+      var _base = (typeof getDisplayName==='function') ? getDisplayName(c) : (c.name||'');
+      nameEl.innerHTML = esc(_base) + _caseNavBtns();
+    }
+  }catch(e){}
   tagsEl.innerHTML =
-    '<span class="case-header-tag">● ' + esc(c.status||'—') + '</span>' +
-    '<span class="case-header-tag">🌏 ' + esc(_caseNat(c)||'—') + '</span>' +
-    '<span class="case-header-tag">📋 ' + esc(c.appType||'—') + '申請</span>' +
     '<span class="case-header-tag">👥 ' + esc(c.team||'—') + '</span>' +
+    _soLinkHtml +
+    _coLinkHtml +
+    '<span class="case-header-tag">📋 ' + esc(c.appType||'—') + '申請</span>' +
+    '<span class="case-header-tag">🌏 ' + esc(_caseNat(c)||'—') + '</span>' +
+    '<span class="case-header-tag">● ' + esc(c.status||'—') + '</span>' +
     _inshiTagHtml(c) +
     '<span class="case-header-tag" onclick="copyToClipboard(\''+esc(c.id)+'\');showToast(\'📋 案件IDをコピーしました\')" style="background:rgba(255,255,255,.14);color:#e2e8f0;cursor:pointer;font-weight:700;" title="案件IDをコピー">🆔 案件IDコピー</span>' +
-    '<span class="case-header-tag" onclick="openBunyaSeiyakuForCase(\''+esc(c.id)+'\')" style="background:rgba(16,185,129,.2);color:#6ee7b7;cursor:pointer;font-weight:700;" title="この案件の分野別 受入れ誓約書を作成">📄 分野別誓約書</span>' +
-    '<span class="case-header-tag" onclick="copyFieldGuideUrl(\''+esc(c.id)+'\'\'+(c.applicantField||\'\')+\'\')" style="background:rgba(234,179,8,.2);color:#fde047;cursor:pointer;font-weight:700;" title="企業向け分野別案内ページのURLをコピー">🔗 企業案内URL</span>' +
-    '<span class="case-header-tag" onclick="openKokkoIninForCase(\''+esc(c.id)+'\')" style="background:rgba(59,130,246,.2);color:#93c5fd;cursor:pointer;font-weight:700;" title="国交省（建設特定技能受入計画）の委任状を作成">🏗 国交省委任状</span>' +
-    '<span class="case-header-tag" onclick="openDrFromCase(\''+esc(c.id)+'\')" style="background:rgba(22,163,74,.2);color:#86efac;cursor:pointer;font-weight:700;" title="この案件から決定報告を作成">📋 決定報告作成</span>' +
-    _coLinkHtml +
-    _soLinkHtml +
-    '<span class="case-header-tag" onclick="issueApplicantViewUrl(\''+esc(c.id)+'\')" style="background:rgba(37,99,235,.2);color:#93c5fd;cursor:pointer;font-weight:700;" title="申請人本人向け進捗ページのURL・パスワードを発行">📊 申請人URL</span>' + '<span class="case-header-tag" onclick="_showSignDocPicker(\''+esc(c.id)+'\')" style="background:rgba(79,70,229,.2);color:#c7d2fe;cursor:pointer;font-weight:700;" title="サインが必要な書類を選んで作成">🖊 サイン書類作成</span>' +
-    '<span class="case-header-tag" onclick="openCaseMessageThread(\''+esc(c.id)+'\')" style="background:rgba(219,39,119,.15);color:#db2777;cursor:pointer;margin-left:auto;font-weight:700;" title="担当者に強制表示してコメント送信／メッセージスレッドを開く">📢 強制表示・メッセージ</span>' +
-    '<span class="case-header-tag" data-action="trash-case" data-id="'+c.id+'" style="background:rgba(239,68,68,.15);color:#ef4444;cursor:pointer;font-weight:700;">🗑️ 削除</span>';
+    '<span class="case-header-tag" onclick="_openCompanyMail(\''+esc(c.id)+'\')" style="background:rgba(2,132,199,.25);color:#7dd3fc;cursor:pointer;font-weight:700;" title="企業向け自動メール（準備中）">📧 企業メール</span>' +
+    '<span class="case-header-tag" onclick="_showSignDocPicker(\''+esc(c.id)+'\')" style="background:rgba(79,70,229,.2);color:#c7d2fe;cursor:pointer;font-weight:700;" title="申請人向け電子署名URLの発行／サイン書類の作成">✍️ 申請人電子署名</span>' +
+    '<span class="case-header-tag" onclick="issueApplicantViewUrl(\''+esc(c.id)+'\')" style="background:rgba(37,99,235,.2);color:#93c5fd;cursor:pointer;font-weight:700;" title="申請人本人向け進捗ページのURL・パスワードを発行">🔗 申請人URL</span>' +
+    '<span class="case-header-tag" onclick="_openDocGenMenu(\''+esc(c.id)+'\',this)" style="background:rgba(16,185,129,.22);color:#6ee7b7;cursor:pointer;font-weight:700;" title="書類生成（分野別誓約書・国交省委任状）">📄 書類生成 ▾</span>' +
+    '<span class="case-header-tag" onclick="_openCaseMoreMenu(\''+esc(c.id)+'\',this)" style="background:rgba(255,255,255,.08);color:#cbd5e1;cursor:pointer;margin-left:auto;font-weight:700;" title="その他（削除など）">⋯</span>';
+  // ステータス変更されたので経過日数キャッシュを破棄して再フェッチ
+  try{ delete _statusDaysCache[c.id]; _refreshStatusDaysBadge(c.id); }catch(e){}
 }
 
 // 人材データ（案件IDをキーに保存 — 宣言は上部で実施済み）
