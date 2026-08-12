@@ -85,7 +85,7 @@ tbody tr:hover{background:#f7fafc;}
 .b-案件依頼前{background:#fefcbf;color:#975a16;}
 .b-要経過観察{background:#faf5ff;color:#6b46c1;}
 .b-見込みなし{background:#fff5f5;color:#c53030;}
-.b-成約{background:#f0fff4;color:#276749;}
+.b-契約中{background:#f0fff4;color:#276749;}
 .b-対象外{background:#f7fafc;color:#a0aec0;}
 .b-テレアポ失注{background:#fff5f5;color:#9b2c2c;}
 .tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;margin-left:4px;}
@@ -192,7 +192,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260730.11</div>
+      <div class="ver">ver.20260730.12</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -227,6 +227,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <input type="text" id="fQ" placeholder="名称・住所・代表者・電話で検索">
     <select id="fStatus"><option value="">全ステータス</option></select>
     <select id="fStaff"><option value="">全担当者</option></select>
+    <select id="fDocMethod"><option value="">書類作成方法（全て）</option></select>
     <select id="fEntity"><option value="">全区分</option></select>
     <select id="fIndustry"><option value="">全業種</option></select>
     <select id="fSelf"><option value="">主体：全て</option></select>
@@ -506,9 +507,10 @@ var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-var STATUSES = ['未接触','接触済み','商談予定','商談中','案件依頼前','要経過観察','見込みなし','成約','対象外','テレアポ失注'];
+var STATUSES = ['未接触','接触済み','商談予定','商談中','案件依頼前','要経過観察','見込みなし','契約中','対象外','テレアポ失注'];
+var DOC_METHODS = ['','行政書士','登録支援機関（システム利用）','登録支援機関（システム未利用）','所属機関'];
 // KPIカードに出すステータス
-var KPI_STATUSES = ['未接触','接触済み','商談予定','案件依頼前','要経過観察','見込みなし','成約','対象外','テレアポ失注'];
+var KPI_STATUSES = ['未接触','接触済み','商談予定','案件依頼前','要経過観察','見込みなし','契約中','対象外','テレアポ失注'];
 var KINDS    = ['架電','メール','訪問','郵送','その他'];
 var FIRST_KINDS   = ['テレアポ（自社）','テレアポ（外注）','セミナー','交流会','紹介','問い合わせ'];
 var MEETING_KINDS = ['オンライン','訪問'];
@@ -575,6 +577,8 @@ function onLoggedIn(session){
 
 /* ---------------- 初期化 ---------------- */
 function initUi(){
+  var dm = el('fDocMethod');
+  DOC_METHODS.forEach(function(m){ if(m) dm.insertAdjacentHTML('beforeend','<option>'+esc(m)+'</option>'); });
   var s = el('fStatus');
   STATUSES.forEach(function(x){ s.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
   var en = el('fEntity');
@@ -584,7 +588,7 @@ function initUi(){
   var sf = el('fSelf');
   SELF_SUPPORTS.forEach(function(x){ sf.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
   buildPrefButtons();
-  ['fQ','fStatus','fStaff','fEntity','fIndustry','fSelf','fSort'].forEach(function(id){
+  ['fQ','fStatus','fStaff','fDocMethod','fEntity','fIndustry','fSelf','fSort'].forEach(function(id){
     var e = el(id);
     var ev = (e.type==='text') ? 'input' : 'change';
     var t;
@@ -660,7 +664,7 @@ function loadPrefCounts(){
   });
 }
 function resetFilters(){
-  el('fQ').value=''; selPrefs=[]; el('fStatus').value=''; el('fStaff').value=''; el('fEntity').value='';
+  el('fQ').value=''; selPrefs=[]; el('fStatus').value=''; el('fStaff').value=''; el('fDocMethod').value=''; el('fEntity').value='';
   el('fIndustry').value=''; el('fSelf').value='';
   el('fSort').value='new';
   page=0; syncPrefButtons(); loadPrefCounts(); load();
@@ -677,7 +681,7 @@ function loadStaff(){
 /* ---------------- 一覧 ---------------- */
 // 営業対象外はリストに出さない（士業・個人／既存顧客／支援業務休止中）
 function applyExclusions(q){
-  // 士業・個人と休止中は除外。取引あり(is_client)は「成約」として表示するため除外しない。
+  // 士業・個人と休止中は除外。取引あり(is_client)は「契約中」として表示するため除外しない。
   return q.not('entity_type','in','("'+SHIGYO.join('","')+'")')
           .eq('is_suspended', false);
 }
@@ -695,6 +699,7 @@ function buildQuery(forCount){
   q = applyPrefFilter(q);
   if(el('fStatus').value) q = q.eq('status', el('fStatus').value);
   if(el('fStaff').value)  q = q.eq('staff', el('fStaff').value);
+  if(el('fDocMethod').value) q = q.eq('doc_method', el('fDocMethod').value);
   if(el('fEntity').value) q = q.eq('entity_type', el('fEntity').value);
   if(el('fIndustry').value) q = q.eq('industry', el('fIndustry').value);
   if(el('fSelf').value)     q = q.eq('self_support', el('fSelf').value);
@@ -821,7 +826,7 @@ function nextPage(){ if((page+1)*PAGE < total){ page++; load(); window.scrollTo(
 /* ---------------- KPI ---------------- */
 function loadKpis(){
   var CLS = { '未接触':'s0','接触済み':'s1','商談予定':'s1','商談中':'s3',
-              '案件依頼前':'s3','要経過観察':'s2','見込みなし':'s5','成約':'s4',
+              '案件依頼前':'s3','要経過観察':'s2','見込みなし':'s5','契約中':'s4',
               '対象外':'s0','テレアポ失注':'s5' };
   var box = el('kpis');
   box.innerHTML = KPI_STATUSES.map(function(k){
@@ -907,6 +912,7 @@ function renderDrawer(){
   +     '</select>'
   +     '<input type="date" id="eNextDate" value="'+esc(x.next_action_date||'')+'" style="flex:1;">'
   +   '</div>'
+  +   '<label>書類作成方法</label><select id="eDocMethod">'+DOC_METHODS.map(function(m){return '<option'+((m===(x.doc_method||''))?' selected':'')+'>'+esc(m)+'</option>';}).join('')+'</select>'
   +   '<label>メモ</label><textarea id="eMemo" placeholder="社内メモ">'+esc(x.memo||'')+'</textarea>'
   + '</div><div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="saveLead()">保存</button></div></div>'
 
@@ -977,6 +983,7 @@ function saveLead(){
     meeting_kind:       el('eMeetKind').value || null,
     next_action_kind:  el('eNextKind').value || null,
     next_action_date:  el('eNextDate').value || null,
+    doc_method:        el('eDocMethod').value || null,
     memo:              el('eMemo').value.trim() || null
   };
   _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
