@@ -192,7 +192,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260730.13</div>
+      <div class="ver">ver.20260730.14</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -2070,6 +2070,186 @@ function openWeekInput(metric, unit){
 
 document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ closeDrawer(); closeNew(); closeQuote(); closeQuoteList(); closePriceMaster(); closePriceAdmin(); closeKpiInput(); closeMailModal(); } });
 
+/* ================= GAS通信ヘルパー（案シスから移植） ================= */
+var USE_GAS_PROXY = false; // Supabase Edge Function経由でGAS呼び出し
+var GAS_PROXY_URL = SUPABASE_URL + '/functions/v1/gas-proxy';
+
+function jsonpGet(url, callback) {
+  var cbName = 'gc' + (Date.now()%100000) + '' + Math.floor(Math.random()*100);
+  var separator = url.indexOf('?') >= 0 ? '&' : '?';
+  var fullUrl = url + separator + 'callback=' + cbName;
+  var done = false;
+
+  console.log('📡 jsonpGet start:', url.substring(0,80)+'...');
+
+  // Supabase Edge Functionプロキシ経由
+  if (USE_GAS_PROXY) {
+    console.log('📡 [proxy] via Supabase Edge Function...');
+    fetch(GAS_PROXY_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','Authorization':'Bearer '+SUPABASE_KEY},
+      body: JSON.stringify({url: url})
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if(done) return; done=true;
+      console.log('📡 [proxy] OK');
+      callback(data);
+    })
+    .catch(function(e){
+      if(done) return;
+      console.log('📡 [proxy] failed:', e.message, '→ direct');
+      tryFetch();
+    });
+    return;
+  }
+
+  // 方式1: fetch (mode: cors, redirect: follow)
+  function tryFetch(){
+    console.log('📡 [1] fetch cors...');
+    fetch(fullUrl, {redirect:'follow', mode:'cors'})
+      .then(function(r){
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        return r.text();
+      })
+      .then(function(text){
+        if(done) return; done=true;
+        console.log('📡 [1] fetch cors OK, len='+text.length, text.substring(0,200));
+        parseCbResponse(text, callback);
+      })
+      .catch(function(e){
+        if(done) return;
+        console.log('📡 [1] fetch cors failed:', e.message, '→ JSONP');
+        tryJsonp();
+      });
+  }
+
+  // 方式2: JSONP script tag
+  function tryJsonp(){
+    console.log('📡 [2] JSONP script...');
+    var timer = setTimeout(function() {
+      if(done) return; done=true;
+      delete window[cbName];
+      if(script.parentNode) script.parentNode.removeChild(script);
+      console.log('📡 [2] JSONP timeout (15s) → XHR');
+      tryXHR();
+    }, 15000);
+    window[cbName] = function(data) {
+      if(done) return; done=true;
+      clearTimeout(timer);
+      delete window[cbName];
+      if(script.parentNode) script.parentNode.removeChild(script);
+      console.log('📡 [2] JSONP OK');
+      callback(data);
+    };
+    var script = document.createElement('script');
+    script.src = fullUrl;
+    script.onerror = function() {
+      if(done) return;
+      clearTimeout(timer);
+      delete window[cbName];
+      if(script.parentNode) script.parentNode.removeChild(script);
+      console.log('📡 [2] JSONP script error → XHR');
+      tryXHR();
+    };
+    document.head.appendChild(script);
+  }
+
+  // 方式3: XMLHttpRequest
+  function tryXHR(){
+    if(done) return;
+    console.log('📡 [3] XHR...');
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', fullUrl, true);
+    xhr.onload = function(){
+      if(done) return; done=true;
+      console.log('📡 [3] XHR OK, len='+xhr.responseText.length);
+      parseCbResponse(xhr.responseText, callback);
+    };
+    xhr.onerror = function(){
+      if(done) return; done=true;
+      console.log('📡 [3] XHR error → null');
+      callback(null);
+    };
+    xhr.timeout = 15000;
+    xhr.ontimeout = function(){
+      if(done) return; done=true;
+      console.log('📡 [3] XHR timeout (15s) → null');
+      callback(null);
+    };
+    xhr.send();
+  }
+
+  // iOS WebView/file://ではfetch+redirect:followが最も安定
+  if (location.protocol === 'file:') {
+    fetch(fullUrl, {redirect:'follow'})
+      .then(function(r){ return r.text(); })
+      .then(function(text){
+        if(done) return; done=true;
+        console.log('📡 [file] fetch OK');
+        parseCbResponse(text, callback);
+      })
+      .catch(function(e){
+        if(done) return;
+        console.log('📡 [file] fetch failed → JSONP');
+        tryJsonp();
+      });
+  } else {
+    tryFetch();
+  }
+}
+
+function parseCbResponse(text, callback){
+  // JSONP形式: callbackName({...}) → 最初の(から最後の)までを取得
+  var firstParen = text.indexOf('(');
+  if(firstParen >= 0){
+    var lastParen = text.lastIndexOf(')');
+    if(lastParen > firstParen){
+      var jsonStr = text.slice(firstParen+1, lastParen);
+      try{callback(JSON.parse(jsonStr));return;}catch(e){
+        console.warn('[parseCbResponse] JSONP parse error:', e.message, 'len='+jsonStr.length);
+      }
+    }
+  }
+  // plain JSON
+  try{callback(JSON.parse(text));}catch(e){console.warn('[parseCbResponse] plain parse error:',e.message);callback(null);}
+}
+
+function jsonpPost(url, action, data, callback) {
+  var payload = JSON.stringify({action: action, data: data});
+  // 小さいデータ（6000文字以下）はJSONP GET、大きいデータはform POST
+  if (payload.length < 1500) {
+    var encoded = encodeURIComponent(payload);
+    var fullUrl = url + '?jsonpPost=' + encoded;
+    jsonpGet(fullUrl, callback);
+    return;
+  }
+  // 大きいデータ: fetch POST (JSON body) → GAS doPost
+  // GASはリダイレクト(302)するので mode:'no-cors' で送信
+  // レスポンスは読めないが、保存は成功する
+  fetch(url, {
+    method: 'POST',
+    redirect: 'follow',
+    mode: 'no-cors',
+    headers: {'Content-Type': 'text/plain'},
+    body: payload
+  })
+  .then(function(){
+    callback({status:'ok'});
+  })
+  .catch(function(e){
+    console.log('POST failed, trying GET fallback:', e);
+    var encoded = encodeURIComponent(payload);
+    if(encoded.length < 7000) {
+      var fullUrl = url + '?jsonpPost=' + encoded;
+      jsonpGet(fullUrl, callback);
+    } else {
+      callback({status:'error', msg:'data too large for GET'});
+    }
+  });
+}
+
+
 /* ================= メール配信機能 ================= */
 var GAS_MAILBOX_URL = 'https://script.google.com/macros/s/AKfycbx7MUVJ-14GYqtiCw0Gfvkj2_IHhvIfzYKxx21LogKv4JUZ5zUdH3WuVMFj3fuxpouhjQ/exec';
 var MAIL_STATUSES = ['接触済み','商談予定','案件依頼前','要経過観察','見込みなし','契約中','対象外','テレアポ失注'];
@@ -2137,36 +2317,56 @@ function mailBuildBody(orgName){
     + el('mailBody').value.trim()
     + '\n\n今後ともどうぞよろしくお願い申し上げます。\n\n大房行政書士法人';
 }
-function mailPost(payload, okMsg, done){
-  fetch(GAS_MAILBOX_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)})
-    .then(function(r){return r.text();}).then(function(){ alert(okMsg); done&&done(); })
-    .catch(function(e){ alert('送信でエラー：'+e.message+'\n\nGASのメール送信URL・公開設定をご確認ください。'); done&&done(); });
+
+/* 1通送信（案シスと同じ sendMail 形式） */
+function mailSendOne(to, subject, body, attachments, cb){
+  var data = { to: (to instanceof Array ? to.join(',') : to), cc:'', subject:subject, body:body };
+  if(attachments && attachments.length) data.attachments = attachments;
+  jsonpPost(GAS_MAILBOX_URL, 'sendMail', data, function(res){
+    cb(res && (res.status==='ok' || res.ok || res.result==='ok'));
+  }, function(){ cb(false); });
 }
 
+/* まず自分宛にテスト送信 */
 function mailSendTest(){
   var sub=el('mailSubject').value.trim(), bodyRaw=el('mailBody').value.trim(), to=el('mailTestTo').value.trim();
   if(!sub||!bodyRaw){ alert('件名と本文を入力してください'); return; }
   if(!/@/.test(to)){ alert('テスト送信先メールを入力してください'); return; }
   var btn=el('mailTestBtn'); btn.disabled=true; btn.textContent='送信中…';
-  var payload={ action:'broadcast', messages:[{ to:[to], subject:'【テスト】'+sub, body:mailBuildBody('（テスト送信）') }], attachments:mailBuildAttachments() };
-  mailPost(payload, 'テストメールを送信しました。\n'+to+' の受信をご確認ください。\n\n届いていれば「本配信する」で全社に送れます。', function(){ btn.disabled=false; btn.textContent='まず自分宛にテスト送信'; });
+  mailSendOne(to, '【テスト】'+sub, mailBuildBody('（テスト送信）'), mailBuildAttachments(), function(ok){
+    btn.disabled=false; btn.textContent='まず自分宛にテスト送信';
+    if(ok){ alert('テストメールを送信しました。\n'+to+' の受信をご確認ください。\n\n届いていれば「本配信する」で全社に送れます。'); }
+    else { alert('送信結果が「成功」で返りませんでした。\nGAS側の応答を確認してください。\n（届いているのに失敗表示の場合もあります。まず受信 boxを確認してください）'); }
+  });
 }
 
+/* 本配信（1社ずつ順番に送る） */
 function mailSend(){
   var sub=el('mailSubject').value.trim(), bodyRaw=el('mailBody').value.trim();
   if(!sub||!bodyRaw){ alert('件名と本文を入力してください'); return; }
   if(!_mailRecipients.length){ alert('配信先がありません。'); return; }
   var tot=_mailRecipients.reduce(function(a,b){return a+b.emails.length;},0);
   if(!confirm('本配信します。\n\n'+_mailRecipients.length+'社（'+tot+'通）に送信します。よろしいですか？\n\n※先にテスト送信で見た目を確認することをおすすめします。')) return;
-  var btn=el('mailSendBtn'); btn.disabled=true; btn.textContent='送信中…';
-  var messages=_mailRecipients.map(function(p){ return { to:p.emails, subject:sub, body:mailBuildBody(p.name) }; });
-  var payload={ action:'broadcast', messages:messages, attachments:mailBuildAttachments() };
-  mailPost(payload, '本配信を実行しました。（'+_mailRecipients.length+'社）', function(){
-    btn.disabled=false; btn.textContent='本配信する';
-    var notes=_mailRecipients.map(function(p){ return {reg_no:p.reg_no,note_date:today(),kind:'メール',author:(me||''),body:'メール配信：'+sub}; });
-    _sb.from('eigyo_notes').insert(notes).then(function(){});
-    closeMailModal();
-  });
+  var btn=el('mailSendBtn'); btn.disabled=true;
+  var atts=mailBuildAttachments();
+  var i=0, okCount=0, ngCount=0;
+  function next(){
+    if(i>=_mailRecipients.length){
+      btn.disabled=false; btn.textContent='🚀 本配信する';
+      var notes=_mailRecipients.map(function(p){ return {reg_no:p.reg_no,note_date:today(),kind:'メール',author:(me||''),body:'メール配信：'+sub}; });
+      _sb.from('eigyo_notes').insert(notes).then(function(){});
+      alert('本配信が完了しました。\n成功 '+okCount+'社 / 失敗 '+ngCount+'社');
+      closeMailModal();
+      return;
+    }
+    var p=_mailRecipients[i];
+    btn.textContent='送信中… ('+(i+1)+'/'+_mailRecipients.length+')';
+    mailSendOne(p.emails, sub, mailBuildBody(p.name), atts, function(ok){
+      if(ok) okCount++; else ngCount++;
+      i++; setTimeout(next, 300);
+    });
+  }
+  next();
 }
 
 boot();
