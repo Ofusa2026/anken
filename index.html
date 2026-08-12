@@ -4932,7 +4932,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260812.26';
+var OFUSA_VERSION = 'ver.20260812.27';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -64036,28 +64036,51 @@ function showTab(tab) {
       + '</div>';
   }
   if (tab === 'info') {
-    var STAFF_LIST = USERS.map(function(u){ return u.name; });
-    var TEAM_LIST = [];
-    USERS.forEach(function(u){ if(u.team && TEAM_LIST.indexOf(u.team)===-1) TEAM_LIST.push(u.team); });
+    // ver.20260812.27: STAFF_LIST/TEAM_LIST は USERS が変わらない限り不変
+    var _uLen = (USERS||[]).length;
+    if(window._memoStaffListLen !== _uLen){
+      window._memoStaffList = USERS.map(function(u){ return u.name; });
+      window._memoTeamList = [];
+      USERS.forEach(function(u){ if(u.team && window._memoTeamList.indexOf(u.team)===-1) window._memoTeamList.push(u.team); });
+      window._memoStaffListLen = _uLen;
+    }
+    var STAFF_LIST = window._memoStaffList;
+    var TEAM_LIST = window._memoTeamList;
     var STATUS_LIST_E = STATUS_LIST;
     var TYPE_LIST_E  = ['認定','更新','変更','申請なし'];
     var FIELD_LIST = ['','介護分野','ビルクリーニング分野（特定技能１号）','ビルクリーニング分野（特定技能２号）','工業製品製造業（特定技能１号）','工業製品製造業（特定技能２号）','建設分野（特定技能１号）','建設分野（特定技能２号）','造船・舶用工業分野（特定技能１号）','造船・舶用工業分野（特定技能２号）','自動車整備分野（特定技能１号）','自動車整備分野（特定技能２号）','航空分野（特定技能１号）','航空分野（特定技能２号）','宿泊分野（特定技能１号）','宿泊分野（特定技能２号）','農業分野（特定技能１号）','農業分野（特定技能２号）','漁業分野（特定技能１号）','漁業分野（特定技能２号）','飲食料品製造業分野（特定技能１号）','飲食料品製造業分野（特定技能２号）','外食業分野（特定技能１号）','外食業分野（特定技能２号）'];
     // 登録支援機関の名前リスト
     // フォルダ番号順にソートした登録支援機関リスト
-    var sortedOrgs = supportOrgs.slice().sort(function(a,b){
-      var fa=a.folderNo?parseInt(a.folderNo)||99999:99999;
-      var fb=b.folderNo?parseInt(b.folderNo)||99999:99999;
-      return fa-fb;
-    });
-    var orgNames = sortedOrgs.map(function(o){ return o.name; });
-    var orgLabels = sortedOrgs.map(function(o){ return (o.folderNo?'['+o.folderNo+'] ':'')+o.name; });
-    // 選択中の登録支援機関に紐づく所属機関(雇用企業)
-    var _allLinked = c.org ? companies.filter(function(co){ return co.supportOrgName === c.org; }) : companies;
-    var linkedCompanies = _allLinked.slice().sort(function(a,b){
-      var fa=a.folderNo?parseInt(a.folderNo)||99999:99999;
-      var fb=b.folderNo?parseInt(b.folderNo)||99999:99999;
-      return fa-fb;
-    });
+    // ver.20260812.27: 【showTab高速化】supportOrgs/companies の長さが変わらない限り毎回同じ結果なのでメモ化
+    var _soLen = (supportOrgs||[]).length;
+    if(!window._memoSortedOrgs || window._memoSortedOrgsLen !== _soLen){
+      window._memoSortedOrgs = supportOrgs.slice().sort(function(a,b){
+        var fa=a.folderNo?parseInt(a.folderNo)||99999:99999;
+        var fb=b.folderNo?parseInt(b.folderNo)||99999:99999;
+        return fa-fb;
+      });
+      window._memoOrgNames = window._memoSortedOrgs.map(function(o){ return o.name; });
+      window._memoOrgLabels = window._memoSortedOrgs.map(function(o){ return (o.folderNo?'['+o.folderNo+'] ':'')+o.name; });
+      window._memoSortedOrgsLen = _soLen;
+      window._memoLinkedCache = {};   // 支援機関別のcompaniesキャッシュもクリア
+    }
+    var sortedOrgs = window._memoSortedOrgs;
+    var orgNames = window._memoOrgNames;
+    var orgLabels = window._memoOrgLabels;
+    // 選択中の登録支援機関に紐づく所属機関(雇用企業) — 同じc.orgに対して同じ結果なのでキー付きメモ化
+    var _coLen = (companies||[]).length;
+    if(window._memoLinkedCoLen !== _coLen){ window._memoLinkedCache = {}; window._memoLinkedCoLen = _coLen; }
+    var _linkedKey = c.org || '_all_';
+    var linkedCompanies = window._memoLinkedCache[_linkedKey];
+    if(!linkedCompanies){
+      var _allLinked = c.org ? companies.filter(function(co){ return co.supportOrgName === c.org; }) : companies;
+      linkedCompanies = _allLinked.slice().sort(function(a,b){
+        var fa=a.folderNo?parseInt(a.folderNo)||99999:99999;
+        var fb=b.folderNo?parseInt(b.folderNo)||99999:99999;
+        return fa-fb;
+      });
+      window._memoLinkedCache[_linkedKey] = linkedCompanies;
+    }
     // 入力進捗計算
     var infoKeys = ['name','staff','org','company','empSetIdx','supportFee','appType','residenceStatus','expire','tokureiDate','receiptNo','receiptDate','toritsugisha','docCreateDate','applicantField','jobCategory','applicationDeadline','madoguchiDate','madoguchiReceiveDate'];
     var skipScope = 'case_'+c.id+'_info';
@@ -76473,6 +76496,14 @@ function findCompanyByName(name, companyId) {
   if (!name) return null;
   return _idx.byName[normalizeCoName(name)] || null;
 }
+// ver.20260812.27: O(1)のID検索。companies.find(fn) の代わりに使う。
+function findCompanyById(coId){
+  if(!coId) return null;
+  try{
+    var _idx = _companyIndex();
+    return (_idx && _idx.byId && _idx.byId[coId]) || null;
+  }catch(e){ return null; }
+}
 
 function findCasesByName(mailName) {
   var mn = normalizeNameForMatch(mailName);
@@ -80667,6 +80698,61 @@ function _companyIndex(){
   return _coIdxCache;
 }
 function _invalidateCompanyIndex(){ _coIdxCache=null; _coIdxLen=-1; }
+
+// ver.20260812.27: 【メモリ肥大防止】各キャッシュに TTL とサイズ上限を導入
+//   5分ごとに走査、古い/多すぎるエントリを削除。長時間稼働で徐々に重くなるのを防ぐ。
+(function _installCacheGc(){
+  var TTL_MS = 5 * 60 * 1000;   // 5分
+  var CAP = 500;                 // キャッシュあたりの最大件数
+  function _gc(){
+    var now = Date.now();
+    // _statusDaysCache: {caseId: {days, ts}}
+    try{
+      if(typeof _statusDaysCache !== 'undefined' && _statusDaysCache){
+        var keys = Object.keys(_statusDaysCache);
+        var removed = 0;
+        keys.forEach(function(k){
+          var v = _statusDaysCache[k];
+          if(!v || !v.ts || (now - v.ts) > TTL_MS){ delete _statusDaysCache[k]; removed++; }
+        });
+        keys = Object.keys(_statusDaysCache);
+        if(keys.length > CAP){
+          keys.sort(function(a,b){ return (_statusDaysCache[a].ts||0) - (_statusDaysCache[b].ts||0); });
+          var toRm = keys.slice(0, keys.length - CAP);
+          toRm.forEach(function(k){ delete _statusDaysCache[k]; });
+          removed += toRm.length;
+        }
+        if(removed) console.log('🧹 _statusDaysCache: removed', removed, 'entries');
+      }
+    }catch(e){}
+    // _facetAvCache: {caseId: 分野文字列} — 純粋にサイズ上限で LRU 相当
+    try{
+      if(typeof _facetAvCache !== 'undefined' && _facetAvCache){
+        var keys = Object.keys(_facetAvCache);
+        if(keys.length > CAP*2){
+          // 単純に半分削除（順序保証なしだが、上限確保が主目的）
+          keys.slice(0, keys.length - CAP).forEach(function(k){ delete _facetAvCache[k]; });
+          console.log('🧹 _facetAvCache: trimmed to', CAP, 'entries');
+        }
+      }
+    }catch(e){}
+    // window._caseVer 等、他の Map もサイズだけキャップ
+    ['_caseVer','_stallAgencies','_signedUnconfByCase','_latestForcePushByCase','_uploadNotifyByCase'].forEach(function(name){
+      try{
+        var obj = window[name];
+        if(obj && typeof obj === 'object'){
+          var keys = Object.keys(obj);
+          if(keys.length > CAP*4){
+            keys.slice(0, keys.length - CAP*2).forEach(function(k){ delete obj[k]; });
+            console.log('🧹 '+name+': trimmed');
+          }
+        }
+      }catch(e){}
+    });
+  }
+  window._gcCachesNow = _gc; // 診断画面から手動呼び出し可
+  setInterval(_gc, TTL_MS);
+})();
 // ver.20260724.16: 受付/審査/認定の各アーカイブを caseId で索引化（件数が変わったら作り直す）
 var _listIdxCache={}, _listIdxLen={};
 function _listIdxByCase(kind){
