@@ -192,7 +192,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260730.15</div>
+      <div class="ver">ver.20260730.16</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -331,13 +331,12 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
   <div id="qMsg" class="msg"></div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 18px;">
     <div class="form" style="grid-template-columns:88px 1fr;">
-      <label>取引先 <span style="color:#c53030;">*</span></label>
+      <label>取引先</label>
       <div style="display:flex;gap:6px;position:relative;">
         <input type="text" id="qClient" name="qClient_nofill" placeholder="取引先名" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" role="combobox" aria-autocomplete="list" oninput="qClientSuggest(this.value)" onblur="setTimeout(qHideSuggest,150)">
         <select id="qHonor" style="flex:0 0 74px;"><option>御中</option><option>様</option></select>
         <div id="qSuggest" style="display:none;position:absolute;top:38px;left:0;right:80px;z-index:5;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,.1);max-height:220px;overflow-y:auto;"></div>
       </div>
-      <label>取引先詳細</label><textarea id="qClientDetail" style="min-height:48px;"></textarea>
       <label>件名</label><input type="text" id="qSubject" placeholder="○○業務 御見積">
     </div>
     <div class="form" style="grid-template-columns:88px 1fr;">
@@ -1165,7 +1164,6 @@ function openQuote(preset){
   var lead = (preset && preset._lead) || curLead;
   el('qClient').value      = (preset && preset.client_name) || (lead ? lead.name : '');
   el('qHonor').value       = (preset && preset.client_honorific) || '御中';
-  el('qClientDetail').value= (preset && preset.client_detail) || (lead ? [lead.pref,lead.city,lead.address].filter(Boolean).join('') : '');
   el('qSubject').value     = (preset && preset.subject) || '';
   el('qIssue').value       = (preset && preset.issue_date) || today();
   el('qExpiry').value      = (preset && preset.expiry_date) || '';
@@ -1224,7 +1222,7 @@ function renderSuggest(list){
       e.preventDefault();
       var it = window._qSuggestList[+d.getAttribute('data-i')];
       el('qClient').value = it.name;
-      if(it.detail) el('qClientDetail').value = it.detail;
+
       window._qRegNo = it.reg_no || null;
       qHideSuggest();
     };
@@ -1398,23 +1396,32 @@ function qDelItem(i){ qItems.splice(i,1); if(!qItems.length) qAddItem(); else re
 function qEdit(i, field, val){
   if(field==='name'||field==='unit') qItems[i][field] = val;
   else qItems[i][field] = parseFloat(val)||0;
+  var it = qItems[i];
+  var cell = document.getElementById('qAmt'+i);
+  if(cell) cell.innerHTML = yen((it.unit_price||0)*(it.qty||0));
   qCalcTotals();
 }
 function renderQuoteItems(){
   el('qItems').innerHTML = qItems.map(function(it,i){
     var amt = (it.unit_price||0)*(it.qty||0);
+    var noTax = (it.tax_rate==-1);
     return '<tr>'
       + '<td><input type="text" value="'+esc(it.name||'')+'" oninput="qEdit('+i+',\'name\',this.value)" style="width:100%;padding:5px 7px;border:1px solid var(--line);border-radius:6px;"></td>'
       + '<td><input type="number" value="'+(it.unit_price||0)+'" oninput="qEdit('+i+',\'unit_price\',this.value)" style="width:100%;padding:5px 7px;border:1px solid var(--line);border-radius:6px;text-align:right;"></td>'
       + '<td><input type="number" value="'+(it.qty||0)+'" oninput="qEdit('+i+',\'qty\',this.value)" style="width:100%;padding:5px 7px;border:1px solid var(--line);border-radius:6px;text-align:right;"></td>'
       + '<td><input type="text" value="'+esc(it.unit||'')+'" oninput="qEdit('+i+',\'unit\',this.value)" style="width:100%;padding:5px 7px;border:1px solid var(--line);border-radius:6px;"></td>'
-      + '<td><select onchange="qEdit('+i+',\'tax_rate\',this.value)" style="width:100%;padding:5px 4px;border:1px solid var(--line);border-radius:6px;">'
-      +   [['10','10%'],['8','8%'],['-1','不課税']].map(function(t){var v=(it.tax_rate==null?10:it.tax_rate); return '<option value="'+t[0]+'"'+(t[0]==v?' selected':'')+'>'+t[1]+'</option>';}).join('')+'</select></td>'
-      + '<td style="text-align:right;">'+yen(amt)+'</td>'
-      + '<td style="text-align:center;"><span onclick="qDelItem('+i+')" style="cursor:pointer;color:#c53030;">🗑</span></td>'
+      + '<td><select onchange="qEdit('+i+',\'tax_rate\',this.value)" '+(noTax?'disabled':'')+' style="width:100%;padding:5px 4px;border:1px solid var(--line);border-radius:6px;'+(noTax?'opacity:.4;':'')+'">'
+      +   [['10','10%'],['8','8%']].map(function(t){var v=(it.tax_rate==null?10:it.tax_rate); return '<option value="'+t[0]+'"'+(t[0]==v?' selected':'')+'>'+t[1]+'</option>';}).join('')+'</select>'
+      +   '<label style="display:flex;align-items:center;gap:3px;font-size:10.5px;margin-top:3px;cursor:pointer;color:var(--muted);"><input type="checkbox"'+(noTax?' checked':'')+' onchange="qToggleNoTax('+i+',this.checked)"> 不課税</label></td>'
+      + '<td style="text-align:right;" id="qAmt'+i+'">'+yen(amt)+'</td>'
+      + '<td style="text-align:center;"><span onclick="qDelItem('+i+')" style="cursor:pointer;color:#c53030;">⤑</span></td>'
       + '</tr>';
   }).join('');
   qCalcTotals();
+}
+function qToggleNoTax(i, checked){
+  qItems[i].tax_rate = checked ? -1 : 10;
+  renderQuoteItems();
 }
 function qCalcTotals(){
   // 税区分ごとに集計（10% / 8% / 不課税(-1)）
@@ -1437,14 +1444,13 @@ function qCalcTotals(){
 
 function saveQuote(){
   var client = el('qClient').value.trim();
-  if(!client){ showMsg('qMsg','取引先は必須です','err'); return; }
   qCalcTotals();
   var rec = {
     quote_no:        parseInt(el('qNo').value,10) || null,
     reg_no:          window._qRegNo || null,
-    client_name:     client,
+    client_name:     client || null,
     client_honorific:el('qHonor').value,
-    client_detail:   el('qClientDetail').value.trim() || null,
+    client_detail:   null,
     subject:         el('qSubject').value.trim() || null,
     issue_date:      el('qIssue').value || today(),
     expiry_date:     el('qExpiry').value || null,
@@ -1524,9 +1530,9 @@ function printQuote(){
   +'<h1>見積書</h1>'
   +'<div class="top">'
   +  '<div><div class="client">'+escHtml(el('qClient').value)+' '+esc(el('qHonor').value)+'</div>'
-  +    (el('qClientDetail').value?'<div style="font-size:11.5px;">'+escHtml(el('qClientDetail').value)+'</div>':'')+'</div>'
+  +    '</div>'
   +  '<div class="from">'
-  +    '<div class="logo">'+(logo?'<img src="'+logo+'">':'<span style="font-size:14px;font-weight:700;color:#2b6cb0;">◎ 大房行政書士法人</span>')+'</div>'
+  +    '<div class="logo">'+(logo?'<img src="'+logo+'">':'')+'</div>'
   +    (kakuin?'<img class="seal" src="'+kakuin+'">':'')
   +    '<div class="nm">大房行政書士法人</div>'
   +    '〒144-0052<br>東京都大田区<br>蒲田５丁目１１−１０ FUNDES蒲田8階<br>'
