@@ -4932,7 +4932,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260812.27';
+var OFUSA_VERSION = 'ver.20260812.28';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -5065,6 +5065,62 @@ var _LS_DEBOUNCED_KEYS = [
   }catch(e){ console.warn('lsDebouncer install failed:', e); }
 })();
 // ================================================================================
+
+// ver.20260812.28: 【業務停止防止】エラーバウンダリ・Supabaseタイムアウト
+// -----------------------------------------------------------
+// トースト重複防止（同じ警告メッセージを短時間に何度も出さない）
+var _toastDedupLog = {};
+function _safeToast(msg, ms){
+  var now = Date.now();
+  var interval = ms || 3000;
+  if(_toastDedupLog[msg] && (now - _toastDedupLog[msg]) < interval) return;
+  _toastDedupLog[msg] = now;
+  try{ if(typeof showToast === 'function') showToast(msg); }catch(e){ console.warn(msg); }
+}
+// エラーバウンダリ: 主要関数を try/catch で包む
+function _wrapWithBoundary(name, fallback){
+  var _orig = window[name];
+  if(typeof _orig !== 'function' || _orig._eb) return;
+  window['_orig_'+name] = _orig;
+  window[name] = function(){
+    try{ return _orig.apply(this, arguments); }
+    catch(e){
+      console.error('[ErrorBoundary] '+name+' failed. args=', arguments, 'err=', e);
+      _safeToast('⚠️ '+name+' でエラー（コンソールで詳細確認）');
+      return fallback;
+    }
+  };
+  window[name]._eb = true;
+}
+// DOMContentLoaded 後（他のスクリプトが定義されたあと）でラップを設置
+function _installErrorBoundaries(){
+  ['openCase','showTab','applyFilters','renderTable','_refreshCaseModalHeader','_renderFlowScreen','_qaOpen','_showSignDocPicker'].forEach(function(name){
+    _wrapWithBoundary(name);
+  });
+  console.log('✅ error boundaries installed');
+}
+if(document.readyState === 'loading'){
+  document.addEventListener('DOMContentLoaded', _installErrorBoundaries);
+} else {
+  setTimeout(_installErrorBoundaries, 0);
+}
+
+// Supabase 呼び出しの汎用タイムアウトラッパー
+// 使い方: _sbTimeout(_sb.from('cases').select('*'), 10000, 'fetch cases').then(...)
+function _sbTimeout(promise, ms, opName){
+  ms = ms || 10000;
+  opName = opName || 'Supabase op';
+  return Promise.race([
+    promise,
+    new Promise(function(_, reject){
+      setTimeout(function(){
+        reject(new Error('Timeout after '+ms+'ms: '+opName));
+      }, ms);
+    })
+  ]);
+}
+// -----------------------------------------------------------
+
 
 // ver.20260810.28: ステータスバッジ共通スタイル（全画面統一）
 var _STATUS_STYLE={
@@ -6025,10 +6081,11 @@ function sbFetchCases(opts, callback) {
     });
   } else {
     dataQuery = dataQuery.range(from, to);
-    Promise.all([
+    // ver.20260812.28: 15秒タイムアウト。応答なしなら空返却＋警告
+    _sbTimeout(Promise.all([
       countQuery.then(function(r) { return r; }),
       dataQuery.then(function(r) { return r; })
-    ]).then(function(results) {
+    ]), 15000, 'sbFetchCases').then(function(results) {
       var countRes = results[0];
       var dataRes = results[1];
       var total = (countRes && countRes.count) || 0;
@@ -6037,6 +6094,9 @@ function sbFetchCases(opts, callback) {
       callback(cases, total);
     }).catch(function(err) {
       console.error('sbFetchCases error:', err);
+      if(String(err && err.message||'').indexOf('Timeout')>=0){
+        _safeToast('⚠️ 案件一覧の取得が15秒以内に完了しませんでした（ネットワークを確認）');
+      }
       callback([], 0);
     });
   }
@@ -6161,16 +6221,20 @@ function sbFetchDoneCases(opts, callback) {
     });
   } else {
     dataQuery = dataQuery.range(from, to);
-    Promise.all([
+    // ver.20260812.28: 15秒タイムアウト
+    _sbTimeout(Promise.all([
       countQuery.then(function(r) { return r; }),
       dataQuery.then(function(r) { return r; })
-    ]).then(function(results) {
+    ]), 15000, 'sbFetchDoneCases').then(function(results) {
       var total = (results[0] && results[0].count) || 0;
       var rows = (results[1] && results[1].data) || [];
       var cases = rows.map(function(r) { return dbRowToCase(r); });
       callback(cases, total);
     }).catch(function(err) {
       console.error('sbFetchDoneCases error:', err);
+      if(String(err && err.message||'').indexOf('Timeout')>=0){
+        _safeToast('⚠️ 完了案件の取得が15秒以内に完了しませんでした');
+      }
       callback([], 0);
     });
   }
