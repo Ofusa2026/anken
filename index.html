@@ -4861,12 +4861,12 @@ details[open] > ._upDocSummary::before { content: '▼ '; }
   </div>
 </div>
 
-<div class="modal-overlay" id="caseModal" onclick="if(event.target===this)this.classList.remove('open')">
+<div class="modal-overlay" id="caseModal" onclick="if(event.target===this){this.classList.remove('open');_closeCaseModal();}">
   <div class="case-modal-box">
     <div class="case-header">
       <div class="case-header-name" id="caseDetailName">—</div>
       <div class="case-header-tags" id="caseDetailTags"></div>
-      <button onclick="document.getElementById('caseModal').classList.remove('open')" title="閉じる（前の画面に戻ります）" style="position:absolute;top:16px;right:20px;background:rgba(255,255,255,0.15);border:none;color:white;width:32px;height:32px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:5;">✕</button>
+      <button onclick="document.getElementById('caseModal').classList.remove('open');_closeCaseModal();" title="閉じる（前の画面に戻ります）" style="position:absolute;top:16px;right:20px;background:rgba(255,255,255,0.15);border:none;color:white;width:32px;height:32px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:5;">✕</button>
     </div>
     <div class="case-tabs">
       <!-- ver.20260812.22: よく使う5つ + 他 ▾ に整理 -->
@@ -4913,7 +4913,7 @@ details[open] > ._upDocSummary::before { content: '▼ '; }
       </div>
     </div>
     <div style="padding:12px 20px;border-top:1px solid var(--gray-200);text-align:right;">
-      <button class="btn btn-outline" onclick="try{_flushPersistTaskMeta()}catch(e){};document.getElementById('caseModal').classList.remove('open')">閉じる</button>
+      <button class="btn btn-outline" onclick="try{_flushPersistTaskMeta()}catch(e){};document.getElementById('caseModal').classList.remove('open');_closeCaseModal();">閉じる</button>
     </div>
   </div>
 </div>
@@ -4932,7 +4932,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260812.25';
+var OFUSA_VERSION = 'ver.20260812.26';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -5010,6 +5010,60 @@ function _matchesSearch(query, obj, fields){
   }
   return false;
 }
+
+// ver.20260812.26: 【全体最適】localStorage.setItem のグローバル自動デバウンス
+//   同じキーに対する連続書き込み（textareaのoninput→persist等）で JSON.stringify が
+//   毎回走ってメインスレッドが詰まるのを防ぐ。以下のキーは 400ms デバウンス。
+//   コード側は既存の localStorage.setItem 呼び出しをそのままで良い。
+var _LS_DEBOUNCED_KEYS = [
+  'ofusa_caseNotes','ofusa_personData','ofusa_templates',
+  'ofusa_taskAssignee','ofusa_shinsaData','ofusa_coDocCheck',
+  'ofusa_teamData','ofusa_taskUrgent','ofusa_receiptList',
+  'ofusa_taskDeadline','ofusa_supportOrgs','ofusa_shinsaList',
+  'ofusa_docCheck','ofusa_certList','ofusa_aiCheckRules',
+  'ofusa_editHistory','ofusa_caseChats','ofusa_caseCustomDocs',
+  'ofusa_docLineSent','ofusa_docTextRules','ofusa_trash',
+  'ofusa_hideCols','ofusa_filterState'
+];
+(function _installLsDebouncer(){
+  try{
+    if(!window.localStorage) return;
+    var _orig = window.localStorage.setItem.bind(window.localStorage);
+    // localStorage.setItem を包む
+    var _debounceMap = {}; // key -> {timer, value}
+    var _flushKey = function(key){
+      var q = _debounceMap[key];
+      if(!q || !q.timer) return;
+      clearTimeout(q.timer);
+      try{ _orig(key, q.value); }catch(e){ console.warn('lsFlush err', key, e); }
+      q.timer = null;
+    };
+    // ページ離脱時に未反映を吐き出す
+    window.addEventListener('beforeunload', function(){
+      Object.keys(_debounceMap).forEach(_flushKey);
+    });
+    // 可視性が失われたときも吐き出す（スマホ・タブ切替対策）
+    document.addEventListener('visibilitychange', function(){
+      if(document.visibilityState === 'hidden'){
+        Object.keys(_debounceMap).forEach(_flushKey);
+      }
+    });
+    window._flushLsKey = _flushKey; // デバッグ用
+    window.localStorage.setItem = function(key, value){
+      if(_LS_DEBOUNCED_KEYS.indexOf(key) === -1){
+        return _orig(key, value);
+      }
+      var slot = _debounceMap[key] || (_debounceMap[key] = {timer:null, value:null});
+      slot.value = value;
+      if(slot.timer) clearTimeout(slot.timer);
+      slot.timer = setTimeout(function(){
+        try{ _orig(key, slot.value); }catch(e){ console.warn('lsSave err', key, e); }
+        slot.timer = null;
+      }, 400);
+    };
+    console.log('✅ localStorage.setItem debouncer installed for', _LS_DEBOUNCED_KEYS.length, 'keys');
+  }catch(e){ console.warn('lsDebouncer install failed:', e); }
+})();
 // ================================================================================
 
 // ver.20260810.28: ステータスバッジ共通スタイル（全画面統一）
@@ -58256,9 +58310,65 @@ function renderTable(data) {
       h += '<tr class="group-footer-row"><td colspan="'+COLS+'" style="height:3px;background:linear-gradient(90deg,#2563eb,#93c5fd);padding:0;border:none;"></td></tr>';
     }
   });
-  document.getElementById('caseTable').innerHTML = h; setTimeout(updateStickyTop, 30);
-  updateGroupSelectBar();
-  renderAlerts();
+  // ver.20260812.26: 大量行はチャンク描画（初回50件を即時、残りは requestAnimationFrame で追加）
+  //   200行超えると innerHTML パース+レンダリングで数百msブロックするため、体感を軽くする。
+  var _table = document.getElementById('caseTable');
+  var CHUNK_THRESHOLD = 100;
+  if(renderItems.length <= CHUNK_THRESHOLD){
+    _table.innerHTML = h;
+    setTimeout(updateStickyTop, 30);
+    updateGroupSelectBar();
+    renderAlerts();
+    return;
+  }
+  // 大量: 最初のチャンクだけ即描画、残りは非同期で追記
+  var _renderToken = (window._renderToken || 0) + 1;
+  window._renderToken = _renderToken;
+  var _firstChunkSize = Math.min(50, renderItems.length);
+  // 描画用にrenderItemsから最初の_firstChunkSize件分のHTMLだけ切り出したいので、
+  // 効率上、ここでは再ループする（buildCaseRow はキャッシュ効くように内部が単純）
+  var firstH = '';
+  var idx = 0;
+  for(idx = 0; idx < _firstChunkSize; idx++){
+    var it = renderItems[idx];
+    if(it.type === 'case'){
+      firstH += buildCaseRow(it.c, today, false);
+    } else {
+      // グループヘッダ+ケース+フッタを一括で
+      var grp2 = caseGroups.find(function(g){return g.id===it.groupId;});
+      var cases2 = groupCaseMap[it.groupId];
+      if(!grp2 || !cases2 || !cases2.length) continue;
+      var activeCount2 = cases2.filter(function(c){return c.status!=='完了'&&c.status!=='審査完了';}).length;
+      var groupCaseIds2 = cases2.map(function(c){return c.id;});
+      var groupCaseIdsStr2 = JSON.stringify(groupCaseIds2).replace(/"/g,'&quot;');
+      firstH += '<tr class="group-header-row" style="background:linear-gradient(90deg,#eff6ff,#f8faff);"><td colspan="'+COLS+'" style="padding:8px 14px;border-left:4px solid #2563eb;border-bottom:1px solid #bfdbfe;">';
+      firstH += '<div style="display:flex;align-items:center;gap:8px;">';
+      firstH += '<input type="checkbox" class="group-master-cb" data-grpid="'+grp2.id+'" data-caseids="'+groupCaseIdsStr2+'" onclick="event.stopPropagation()" onchange="toggleGroupSelect(this)" style="width:15px;height:15px;cursor:pointer;accent-color:#2563eb;" title="このグループの'+cases2.length+'件を一括選択">';
+      firstH += '<span style="font-size:15px;">📁</span>';
+      firstH += '<span style="font-weight:800;font-size:13px;color:#1e40af;">'+grp2.name+'</span>';
+      firstH += '<span style="background:#dbeafe;color:#1e40af;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;">'+activeCount2+'/'+cases2.length+'件</span>';
+      firstH += '<button onclick="event.stopPropagation();removeGroup(\''+grp2.id+'\')" style="margin-left:auto;font-size:10px;color:#94a3b8;background:none;border:1px solid #e2e8f0;border-radius:6px;cursor:pointer;padding:2px 8px;" title="グループ解除">✕ 解除</button>';
+      firstH += '</div></td></tr>';
+      cases2.forEach(function(cc){
+        var isDone = (cc.status==='完了'||cc.status==='審査完了');
+        var row = buildCaseRow(cc, today, true);
+        if(isDone) row = row.replace('style="background:#f8faff;','style="background:#f8faff;opacity:0.45;');
+        firstH += row;
+      });
+      firstH += '<tr class="group-footer-row"><td colspan="'+COLS+'" style="height:3px;background:linear-gradient(90deg,#2563eb,#93c5fd);padding:0;border:none;"></td></tr>';
+    }
+  }
+  // 残りのHTMLは既に h に全部入っているので、最初のチャンクだけ即描画してから残りを差し替える方針にする
+  _table.innerHTML = firstH;
+  setTimeout(updateStickyTop, 30);
+  requestAnimationFrame(function(){
+    // 別の描画リクエストが来ていたら中断（最新の描画のみ有効）
+    if(window._renderToken !== _renderToken) return;
+    _table.innerHTML = h; // 完全版で置換
+    setTimeout(updateStickyTop, 30);
+    updateGroupSelectBar();
+    renderAlerts();
+  });
 }
 
 function buildCaseRow(c, today, inGroup) {
@@ -61987,6 +62097,33 @@ function _openCaseMoreMenu(caseId, anchorEl){
 // 「📧 企業メール」（未実装 shell）
 function _openCompanyMail(caseId){
   try{ showToast('📧 企業メール機能は準備中です'); }catch(e){ alert('企業メール機能は準備中です'); }
+}
+
+// ver.20260812.26: 案件モーダル閉じ時の共通クリーンアップ
+//   浮動ポップアップ・タイマー・キャッシュを開放してメモリ膨張を防ぐ
+function _closeCaseModal(){
+  try{
+    // 浮動ポップアップ・メニュー・モーダルを全て削除
+    ['_qaPopup','_docGenMenu','_caseMoreMenu','_pmAiModal','_aiDraftModal','_caseTabsMoreMenu','mergeCompanyModal'].forEach(function(id){
+      var el = document.getElementById(id);
+      if(el){
+        if(id === '_caseTabsMoreMenu'){ el.style.display='none'; return; } // これはテンプレの一部
+        el.remove();
+      }
+    });
+    // debounce タイマー
+    if(window._pmSaveTimer){ clearTimeout(window._pmSaveTimer); window._pmSaveTimer=null; }
+    if(window._forceMemoSaveTimer){ clearTimeout(window._forceMemoSaveTimer); window._forceMemoSaveTimer=null; }
+    if(window._persistTaskMetaTimer){ clearTimeout(window._persistTaskMetaTimer); window._persistTaskMetaTimer=null; }
+    // 追加でモーダル内のイベントリスナーを document から解除
+    if(typeof _qaOutsideClick === 'function'){
+      document.removeEventListener('mousedown', _qaOutsideClick, true);
+    }
+    // 未保存分の flush
+    try{ if(typeof _flushPersistTaskMeta==='function') _flushPersistTaskMeta(); }catch(e){}
+    // 案件モーダルclose class管理
+    document.body.classList.remove('case-modal-open');
+  }catch(e){ console.warn('_closeCaseModal err', e); }
 }
 
 // ver.20260812.22: 「その他 ▾」タブ開閉
@@ -90901,6 +91038,8 @@ function loadAllFromSupabase() {
     var allRows = [], pageSize = 1000, from = 0;
     var orderCol = (opts && opts.order) || 'id';
     var asc = (opts && opts.ascending !== undefined) ? opts.ascending : true;
+    // ver.20260812.26: server-sideフィルタを受けるopts.filter(query)を追加
+    var _applyFilter = function(q){ return (opts && typeof opts.filter === 'function') ? opts.filter(q) : q; };
     var called = false;
     function safeCallback(rows) {
       if (called) return;
@@ -90915,7 +91054,7 @@ function loadAllFromSupabase() {
         console.warn(table + ' fetch timeout, skipping');
         safeCallback(allRows);
       }, 60000);
-      _sb.from(table).select('*').order(orderCol, {ascending: asc}).range(from, from + pageSize - 1).then(function(res) {
+      _applyFilter(_sb.from(table).select('*')).order(orderCol, {ascending: asc}).range(from, from + pageSize - 1).then(function(res) {
         clearTimeout(timer);
         if (res.error) { console.error(table + ' fetch err:', res.error); safeCallback(allRows); return; }
         if (res.data && res.data.length) {
@@ -90927,7 +91066,7 @@ function loadAllFromSupabase() {
     }
     // まず件数を取得。1ページで収まるなら従来どおり、超えるなら並列取得。
     var _guard = setTimeout(function(){ console.warn(table+' count timeout → 逐次取得'); fetchPage(); }, 8000);
-    _sb.from(table).select(orderCol, {count:'exact', head:true}).then(function(cr){
+    _applyFilter(_sb.from(table).select(orderCol, {count:'exact', head:true})).then(function(cr){
       clearTimeout(_guard);
       var total = (cr && cr.count) || 0;
       if (!total) { safeCallback([]); return; }
@@ -90952,7 +91091,7 @@ function loadAllFromSupabase() {
         while (active < PARALLEL && idx < pages) {
           var p = idx++; active++;
           (function(page){
-            _sb.from(table).select('*').order(orderCol, {ascending: asc})
+            _applyFilter(_sb.from(table).select('*')).order(orderCol, {ascending: asc})
                .range(page*pageSize, page*pageSize + pageSize - 1)
                .then(function(res){
                  if (!res.error && res.data) buckets[page] = res.data;
@@ -91175,7 +91314,12 @@ function loadAllFromSupabase() {
 
   // 1. 案件（全件をcDataにロード - statsやアラート用）
   // 1. 案件（全件取得）
-  fetchAllRows('cases', {order:'created_at',ascending:false}, function(rows) {
+  // ver.20260812.26: 【起動高速化】完了案件は初期ロード対象外（sbFetchDoneCasesが必要時に取得）
+  fetchAllRows('cases', {
+    order:'created_at',
+    ascending:false,
+    filter: function(q){ return q.neq('status','完了'); }
+  }, function(rows) {
     if (rows.length) {
       // ゴミ箱に入れたIDを除外して復活を防ぐ
       var _trashIds = {};
