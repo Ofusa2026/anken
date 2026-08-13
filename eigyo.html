@@ -192,7 +192,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260730.16</div>
+      <div class="ver">ver.20260730.17</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -209,7 +209,8 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
 
   <div class="maintabs" style="display:flex;gap:4px;margin-bottom:14px;border-bottom:2px solid var(--line);">
     <button id="tabLeads" class="mtab mtab-on" onclick="switchMain('leads')">📋 リード一覧</button>
-    <button id="tabKpi" class="mtab" onclick="switchMain('kpi')">📊 KPI管理</button>
+    <button id="tabMkt" class="mtab" onclick="switchMain('mkt')">📣 マーケティング</button>
+    <button id="tabSales" class="mtab" onclick="switchMain('sales')">🧑‍💼 営業</button>
   </div>
 
   <div id="leadsPane">
@@ -274,7 +275,8 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
   </div>
   </div><!-- /leadsPane -->
 
-  <div id="kpiPane" style="display:none;"></div>
+  <div id="mktPane" style="display:none;"></div>
+  <div id="salesPane" style="display:none;"></div>
 </div>
 
 <div class="overlay" id="ov" onclick="closeDrawer()"></div>
@@ -1837,17 +1839,21 @@ function mondayOf(ds){ var d=new Date(ds+'T00:00:00'); var w=(d.getDay()+6)%7; d
 function addDays(ds,n){ var d=new Date(ds+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
 var KPI_WEEK = mondayOf(today());
 
+var KPI_PAGE = 'leads';
 function switchMain(which){
-  var leads = which==='leads';
-  el('leadsPane').style.display = leads ? '' : 'none';
-  el('kpiPane').style.display   = leads ? 'none' : '';
-  el('tabLeads').className = 'mtab' + (leads?' mtab-on':'');
-  el('tabKpi').className   = 'mtab' + (leads?'':' mtab-on');
-  if(!leads) loadKpiAll();
+  KPI_PAGE = which;
+  el('leadsPane').style.display = which==='leads' ? '' : 'none';
+  el('mktPane').style.display   = which==='mkt'   ? '' : 'none';
+  el('salesPane').style.display = which==='sales' ? '' : 'none';
+  el('tabLeads').className = 'mtab' + (which==='leads'?' mtab-on':'');
+  el('tabMkt').className   = 'mtab' + (which==='mkt'  ?' mtab-on':'');
+  el('tabSales').className = 'mtab' + (which==='sales'?' mtab-on':'');
+  if(which!=='leads') loadKpiAll();
 }
+function kpiPaneEl(){ return el(KPI_PAGE==='sales' ? 'salesPane' : 'mktPane'); }
 
 function loadKpiAll(){
-  el('kpiPane').innerHTML = '<div class="kcard"><div class="loading">読み込み中...</div></div>';
+  kpiPaneEl().innerHTML = '<div class="kcard"><div class="loading">読み込み中...</div></div>';
   var weekEnd = addDays(KPI_WEEK,6);
   Promise.all([
     _sb.from('eigyo_kpi_targets').select('*').eq('month',KPI_MONTH).order('sort_order'),
@@ -1861,7 +1867,7 @@ function loadKpiAll(){
     _weekDaily   = (res[3].data)||[];
     renderKpi();
   }).catch(function(e){
-    el('kpiPane').innerHTML = '<div class="kcard">読み込みエラー：'+esc(String(e))+'</div>';
+    kpiPaneEl().innerHTML = '<div class="kcard">読み込みエラー：'+esc(String(e))+'</div>';
   });
 }
 
@@ -1906,6 +1912,11 @@ function prow(label, section, route, metric, unit){
 
 function renderKpi(){
   if(KPI_SUB==='week'){ renderWeek(); return; }
+  if(KPI_PAGE==='sales'){ renderSalesDash(); return; }
+  renderMktDash(); return;
+}
+function __oldRenderKpi(){
+  if(true){
   var dealCur = actual('共通',null,'受注'), dealTgt = targetOf('共通',null,'受注');
   var meetCur = actual(null,null,'商談');   // 全section横断で商談合計
   var meetTgt = targetOf('共通',null,'商談');
@@ -1947,7 +1958,52 @@ function renderKpi(){
   +   prow('ブログ投稿','マーケ','ブログ','投稿','本')
   +   '</div>'
   + '</div>';
-  el('kpiPane').innerHTML = html;
+  el('mktPane').innerHTML = html;
+}}
+
+function renderSalesDash(){
+  var dealCur = actual('共通',null,'受注'), dealTgt = targetOf('共通',null,'受注');
+  var meetCur = actual(null,null,'商談'), meetTgt = targetOf('共通',null,'商談');
+  var dealPct = dealTgt>0?Math.round(dealCur/dealTgt*100):0;
+  var dealCls = dealPct>=80?'#38a169':(dealPct>=40?'#dd6b20':'#e53e3e');
+  var html = subtabsHtml() + monthbarHtml()
+  + '<div class="kcard">'
+  +   '<div class="goalbig"><div class="num" style="color:'+dealCls+';">'+dealCur+' <span style="font-size:20px;color:var(--muted);">/ '+dealTgt+' 件</span></div>'
+  +   '<div class="lab">今月の新規取引（受注）</div>'
+  +   '<div style="margin-top:8px;"><button class="btn btn-sm btn-primary" onclick="openKpiInput(\'共通\',\'\',\'受注\',\'新規取引（受注）\',\'件\')">＋ 受注を入力</button></div></div>'
+  +   '<div class="prow" style="border-top:1px solid #f0f2f5;margin-top:8px;padding-top:12px;">'
+  +     '<div class="pname">商談 合計</div>'+bar(meetCur,meetTgt)
+  +     '<div class="pnum"><b>'+meetCur+'</b> / '+meetTgt+' 件</div>'
+  +     '<div class="padd"><span class="sub" style="font-size:11px;">全経路の合算</span></div>'
+  +   '</div>'
+  + '</div>'
+  + '<div class="kcard"><h3>🧑‍💼 経路別の商談</h3>'
+  +   prow('テレアポ外注','営業','テレアポ外注','商談','件')
+  +   prow('自社テレアポ','営業','自社テレアポ','商談','件')
+  +   prow('交流会','営業','交流会','商談','件')
+  +   prow('紹介','営業','紹介','商談','件')
+  +   '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);">'
+  +   prow('（先行）自社テレ 架電','営業','自社テレアポ','架電','件')
+  +   '</div>'
+  + '</div>';
+  el('salesPane').innerHTML = html;
+}
+
+function renderMktDash(){
+  var html = subtabsHtml() + monthbarHtml()
+  + '<div class="kcard"><h3>📣 見込みづくり（商談）</h3>'
+  +   prow('自社セミナー 商談','マーケ','自社セミナー','商談','件')
+  +   prow('問い合わせ 商談','マーケ','問い合わせ','商談','件')
+  + '</div>'
+  + '<div class="kcard"><h3>📈 先行指標（集客・発信）</h3>'
+  +   prow('オンライン申込','マーケ','オンラインセミナー','申込','社')
+  +   prow('リアル申込','マーケ','リアルセミナー','申込','社')
+  +   prow('オンライン開催','マーケ','オンラインセミナー','開催','回')
+  +   prow('リアル開催','マーケ','リアルセミナー','開催','回')
+  +   prow('メルマガ配信','マーケ','メルマガ','配信','回')
+  +   prow('ブログ投稿','マーケ','ブログ','投稿','本')
+  + '</div>';
+  el('mktPane').innerHTML = html;
 }
 
 function subtabsHtml(){
@@ -2018,7 +2074,12 @@ function renderWeek(){
     html += '<div style="padding:10px 0;color:var(--muted);">この週の目標がまだありません。'
          +  '<button class="btn btn-sm btn-primary" style="margin-left:8px;" onclick="seedWeek()">先週の目標をコピー</button></div>';
   } else {
-    _weekTargets.forEach(function(t){
+    var _pageSec = (KPI_PAGE==='sales') ? '営業' : 'マーケ';
+    var _salesMetrics = ['テレアポ','後追い連絡','交流会参加'];
+    _weekTargets.filter(function(t){
+      var sec = t.section || (_salesMetrics.indexOf(t.metric)>=0 ? '営業' : 'マーケ');
+      return sec===_pageSec;
+    }).forEach(function(t){
       var cur=weekActual(t.metric), tgt=Number(t.target_value)||0;
       html += '<div class="prow">'
         + '<div class="pname">'+esc(t.metric)+'</div>'
@@ -2032,7 +2093,7 @@ function renderWeek(){
     html += '<div style="margin-top:10px;text-align:right;"><button class="btn btn-sm" onclick="addWeekMetric()">＋ 項目を追加</button></div>';
   }
   html += '</div>';
-  el('kpiPane').innerHTML = html;
+  kpiPaneEl().innerHTML = html;
 }
 function saveWeekTarget(id, val){
   var v=Number(val)||0;
@@ -2046,7 +2107,7 @@ function addWeekMetric(){
   var name=prompt('追加する行動項目の名前は？（例：ウェビナー、DM送信 など）'); if(!name) return;
   var unit=prompt('単位は？（件／回／本 など）','件')||'件';
   var maxSort=0; _weekTargets.forEach(function(x){ if(x.sort_order>maxSort) maxSort=x.sort_order; });
-  _sb.from('eigyo_week_targets').insert({week_start:KPI_WEEK, metric:name, target_value:0, unit:unit, sort_order:maxSort+10}).select().then(function(r){
+  _sb.from('eigyo_week_targets').insert({week_start:KPI_WEEK, metric:name, target_value:0, unit:unit, sort_order:maxSort+10, section:(KPI_PAGE==='sales'?'営業':'マーケ')}).select().then(function(r){
     if(r.error){ alert('追加エラー：'+r.error.message); return; }
     loadKpiAll();
   });
