@@ -4932,7 +4932,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260813.03';
+var OFUSA_VERSION = 'ver.20260816.01';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -49960,7 +49960,15 @@ function bulkDeleteCompanies(){
   if(!cbs.length){alert('企業を選択してください');return;}
   var ids=[];cbs.forEach(function(cb){ids.push(cb.getAttribute('data-id'));});
   var names=[];ids.forEach(function(id){var co=companies.find(function(x){return x.id===id;});if(co)names.push(co.name);});
-  if(!confirm(ids.length+'件の企業を削除しますか？\n\n'+names.slice(0,5).join('\n')+(names.length>5?'\n...他'+(names.length-5)+'件':'')))return;
+  // ver.20260813.04: 10件以上は件数警告、50件以上は強い警告(会社削除は影響大)
+  if(ids.length >= 50){
+    var strong = '⚠️ 大量削除の警告\n\n'+ids.length+'件の企業を完全削除します。\nこの操作は Undo 不可です。\n\n'
+               + '削除される会社(先頭5件):\n'+names.slice(0,5).join('\n')+(names.length>5?'\n...他'+(names.length-5)+'件':'')+'\n\n'
+               + '本当に '+ids.length+' 件すべて削除しますか？';
+    if(!confirm(strong)) return;
+  } else {
+    if(!confirm(ids.length+'件の企業を削除しますか？\n\n'+names.slice(0,5).join('\n')+(names.length>5?'\n...他'+(names.length-5)+'件':''))) return;
+  }
   companies=companies.filter(function(x){return ids.indexOf(x.id)===-1;});
   _queueSaveCompanies()
   if(ids.indexOf(window._selectedCompanyId)>=0){window._selectedCompanyId=null;var el=document.getElementById('companyDetail');if(el)el.innerHTML='';}
@@ -50055,6 +50063,10 @@ function bulkAssignSupportOrg(){
   var idx=parseInt(ans,10)-1;
   if(isNaN(idx)||idx<0||idx>=opts.length){ alert('番号が不正です'); return; }
   var target = idx===0 ? '' : opts[idx];
+  // ver.20260813.04: 100件以上は最終確認
+  if(ids.length >= 100){
+    if(!confirm('⚠️ 大量割り当ての確認\n\n'+ids.length+'件の企業を「'+(target||'（未設定）')+'」に変更します。\n本当によろしいですか？\n（元に戻すには手動で1件ずつ）')) return;
+  }
   var changed=0;
   ids.forEach(function(id){
     var co=companies.find(function(x){return x.id===id;});
@@ -50081,6 +50093,10 @@ function bulkAssignStaff(){
   var idx=parseInt(ans,10)-1;
   if(isNaN(idx)||idx<0||idx>=opts.length){ alert('番号が不正です'); return; }
   var target = idx===0 ? '' : opts[idx];
+  // ver.20260813.04: 100件以上は最終確認
+  if(ids.length >= 100){
+    if(!confirm('⚠️ 大量割り当ての確認\n\n'+ids.length+'件の企業の担当を「'+(target||'（未設定）')+'」に変更します。\n本当によろしいですか？')) return;
+  }
   var changed=0;
   ids.forEach(function(id){
     var co=companies.find(function(x){return x.id===id;});
@@ -93185,7 +93201,14 @@ async function confirmAllUploadNotify() {
     ? _uploadNotifyList.filter(function(r){ return (r._staff||'—') === _fs; })
     : _uploadNotifyList.slice();
   if(!target.length){ showToast('対象がありません'); return; }
-  if(!confirm(target.length + '件を確認済みにしますか？' + (_fs ? '\n（' + _fs + ' さんの分のみ）' : ''))) return;
+  // ver.20260813.04: 100件以上は強い警告
+  if(target.length >= 100){
+    if(!confirm('⚠️ 大量処理の警告\n\n'+target.length+'件を確認済みにしようとしています。\n\n'
+              + '本当に '+target.length+' 件すべてを確認済みにしますか？\nUndo不可です。'
+              + (_fs ? '\n\n対象: '+_fs+' さんの分のみ' : ''))) return;
+  } else {
+    if(!confirm(target.length + '件を確認済みにしますか？' + (_fs ? '\n（' + _fs + ' さんの分のみ）' : ''))) return;
+  }
 
   var now = new Date().toISOString();
   var ids = target.map(function(r){ return r.id; });
