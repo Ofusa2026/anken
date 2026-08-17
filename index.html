@@ -4932,7 +4932,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260817.01';
+var OFUSA_VERSION = 'ver.20260817.02';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -68580,9 +68580,11 @@ function _getHearingFormAlerts(){
     //   ①を最優先にすることで、催促を送った直後は経過日数がリセットされ、
     //   3営業日は再び対象に上がらない（毎日同じ人へ送ってしまうのを防ぐ）。
     var base = '';
+    // ver.20260817.02: 催促履歴を別途保持し、リストで「催促済み」バッジを出す
+    var lastRemindIso = '';
     try{
       var _fu = (typeof _docLineSentCaseInfo==='function') ? _docLineSentCaseInfo('hearing_fu', cas.id) : null;
-      if(_fu && _fu.iso) base = String(_fu.iso).slice(0,10);
+      if(_fu && _fu.iso){ lastRemindIso = _fu.iso; base = String(_fu.iso).slice(0,10); }
     }catch(e){}
     if(!base) base = cas.hearingSentAt || '';
     if(!base){
@@ -68604,9 +68606,20 @@ function _getHearingFormAlerts(){
     if(!base) return;   // ver.20260804.15: 送付日・依頼日が無いものは対象外（リストに出さない）
     var days = _businessDaysSince(base);          // 営業日
     if(days < HEARING_REMIND_BIZDAYS) return;     // 3営業日未満はまだ出さない
-    alerts.push({ cas:cas, days:days, isWarn: days >= HEARING_WARN_BIZDAYS, base:base });
+    // ver.20260817.02: 催促からの経過営業日（催促していないなら null）
+    var remindDays = null;
+    if(lastRemindIso){
+      try{ remindDays = _businessDaysSince(String(lastRemindIso).slice(0,10)); }catch(e){}
+    }
+    alerts.push({ cas:cas, days:days, isWarn: days >= HEARING_WARN_BIZDAYS, base:base, lastRemindIso:lastRemindIso, remindDays:remindDays });
   });
-  alerts.sort(function(a,b){ return b.days - a.days; });   // 経過日数が多い順
+  // ver.20260817.02: 未催促を先、催促済みを後ろ。同グループ内は経過日数の多い順。
+  alerts.sort(function(a,b){
+    var aReminded = a.lastRemindIso ? 1 : 0;
+    var bReminded = b.lastRemindIso ? 1 : 0;
+    if(aReminded !== bReminded) return aReminded - bReminded;    // 未催促(0)を先に
+    return b.days - a.days;
+  });
   return alerts;
 }
 
@@ -69826,14 +69839,29 @@ function _renderHearingFormAlertList(){
     return;
   }
   var okMap = (typeof window._autoRemindOkMap==='object' && window._autoRemindOkMap) || {};
+  // ver.20260817.02: 未催促と催促済みを2セクションに分けて描画
+  var notRemindedList = filtered.filter(function(a){ return !a.lastRemindIso; });
+  var remindedList    = filtered.filter(function(a){ return !!a.lastRemindIso; });
   var h = '';
-  filtered.forEach(function(a){
+  function _sectionHeader(title, count, colorBg, colorFg){
+    return '<div style="display:flex;align-items:center;gap:8px;margin:6px 2px 8px;padding:5px 10px;background:'+colorBg+';border-radius:6px;">'
+         + '<span style="font-size:12px;font-weight:800;color:'+colorFg+';">'+title+'</span>'
+         + '<span style="font-size:11px;font-weight:700;color:'+colorFg+';background:white;border-radius:99px;padding:1px 9px;">'+count+'件</span>'
+         + '</div>';
+  }
+  function _renderOne(a){
     var c = a.cas;
     var warn = a.isWarn;
     var col = warn ? '#dc2626' : '#d97706';
     var bg  = warn ? '#fef2f2' : '#fffbeb';
     var on  = !!(okMap[c.id] && okMap[c.id].on);
-    h += '<div style="border:1px solid '+(warn?'#fecaca':'#fde68a')+';border-radius:10px;margin-bottom:10px;overflow:hidden;background:white;">'
+    // ver.20260817.02: 催促済みバッジ
+    var remindBadge = '';
+    if(a.lastRemindIso){
+      var rd = (a.remindDays==null) ? '' : (a.remindDays===0 ? '本日' : (a.remindDays+'営業日前'));
+      remindBadge = '<span style="font-size:10px;font-weight:700;color:#4338ca;background:#eef2ff;border:1px solid #c7d2fe;border-radius:99px;padding:2px 8px;margin-left:6px;" title="催促日: '+esc(String(a.lastRemindIso).slice(0,10))+'">📨 '+rd+'に催促済</span>';
+    }
+    var html = '<div style="border:1px solid '+(warn?'#fecaca':'#fde68a')+';border-radius:10px;margin-bottom:10px;overflow:hidden;background:white;">'
        + '<div style="padding:10px 12px;background:'+bg+';">'
        +   '<div style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;">'
        +     '<div style="flex:1;min-width:190px;">'
@@ -69855,13 +69883,23 @@ function _renderHearingFormAlertList(){
        +     '</div>'
        +   '</div>'
        + '</div>'
-       + '<div style="padding:8px 12px;display:flex;align-items:center;gap:8px;border-top:1px solid #f1f5f9;">'
+       + '<div style="padding:8px 12px;display:flex;align-items:center;gap:8px;border-top:1px solid #f1f5f9;flex-wrap:wrap;">'
        +   '<span style="font-size:12px;">'+(warn?'🚨':'⚠️')+'</span>'
        +   '<span style="font-size:12px;font-weight:700;color:#334155;">人材ヒアリングフォーム 未回答</span>'
+       +   remindBadge
        +   '<div style="flex:1;"></div>'
        +   '<span style="font-size:11px;font-weight:800;color:'+col+';background:'+bg+';border-radius:99px;padding:2px 10px;">'+a.days+'営業日経過</span>'
        + '</div></div>';
-  });
+    return html;
+  }
+  if(notRemindedList.length){
+    h += _sectionHeader('🆕 まだ催促していない', notRemindedList.length, '#fef2f2', '#b91c1c');
+    notRemindedList.forEach(function(a){ h += _renderOne(a); });
+  }
+  if(remindedList.length){
+    h += _sectionHeader('📨 催促済み・返信待ち', remindedList.length, '#eef2ff', '#4338ca');
+    remindedList.forEach(function(a){ h += _renderOne(a); });
+  }
   body.innerHTML = h;
 }
 
