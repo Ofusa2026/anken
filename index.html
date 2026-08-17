@@ -4933,7 +4933,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260817.14';
+var OFUSA_VERSION = 'ver.20260817.15';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -12842,6 +12842,28 @@ function _forceCaseAlertValidate(){
       btnT.style.background = 'linear-gradient(135deg,#16a34a,#22c55e)';
       btnT.style.color = 'white';
       btnT.style.cursor = 'pointer';
+    }
+    return;
+  }
+  // ver.20260817.15: 今日が非稼働日(土日・日本の祝日)ならコメント未記入でも閉じ可能
+  if(typeof _todayIsNonBusinessDay==='function' && _todayIsNonBusinessDay()){
+    var btnW = document.getElementById('_forceCaseAlertSubmit');
+    if(btnW){
+      btnW.disabled = false;
+      btnW.style.background = 'linear-gradient(135deg,#0ea5e9,#38bdf8)';
+      btnW.style.color = 'white';
+      btnW.style.cursor = 'pointer';
+      btnW.style.boxShadow = '0 4px 10px rgba(14,165,233,.2)';
+      // ボタンラベルを休日モードに(初回のみ書き換え)
+      if(btnW.textContent.indexOf('休日') < 0){
+        btnW.textContent = '🌴 休日のため閉じる';
+      }
+    }
+    var statusW = document.getElementById('_forceCaseAlertStatus');
+    if(statusW){
+      var hName = _holidayNameJp(new Date()) || '休日';
+      statusW.textContent = '📅 本日は '+hName+' のため、コメント未記入でも閉じられます';
+      statusW.style.color = '#0284c7';
     }
     return;
   }
@@ -68573,9 +68595,55 @@ function _businessDaysSince(from){
   while(d < e){
     d.setDate(d.getDate()+1);
     var w = d.getDay();
-    if(w !== 0 && w !== 6) n++;   // 日(0)・土(6)を除く
+    // ver.20260817.15: 日本の祝日も稼働日から除外
+    if(w !== 0 && w !== 6 && !_isJapaneseHoliday(d)) n++;
   }
   return n;
+}
+
+// ver.20260817.15: 日本の祝日リスト(2025〜2027、振替・国民の休日込み)
+//   これ以降の年は毎年1月に追加すること(2028以降は別途更新)
+var _JP_HOLIDAYS = {
+  // 2025年
+  '2025-01-01':'元日','2025-01-13':'成人の日','2025-02-11':'建国記念の日','2025-02-23':'天皇誕生日','2025-02-24':'振替休日',
+  '2025-03-20':'春分の日','2025-04-29':'昭和の日','2025-05-03':'憲法記念日','2025-05-04':'みどりの日','2025-05-05':'こどもの日','2025-05-06':'振替休日',
+  '2025-07-21':'海の日','2025-08-11':'山の日','2025-09-15':'敬老の日','2025-09-23':'秋分の日','2025-10-13':'スポーツの日',
+  '2025-11-03':'文化の日','2025-11-23':'勤労感謝の日','2025-11-24':'振替休日',
+  // 2026年
+  '2026-01-01':'元日','2026-01-12':'成人の日','2026-02-11':'建国記念の日','2026-02-23':'天皇誕生日',
+  '2026-03-20':'春分の日','2026-04-29':'昭和の日','2026-05-03':'憲法記念日','2026-05-04':'みどりの日','2026-05-05':'こどもの日','2026-05-06':'振替休日',
+  '2026-07-20':'海の日','2026-08-11':'山の日','2026-09-21':'敬老の日','2026-09-22':'国民の休日','2026-09-23':'秋分の日',
+  '2026-10-12':'スポーツの日','2026-11-03':'文化の日','2026-11-23':'勤労感謝の日',
+  // 2027年
+  '2027-01-01':'元日','2027-01-11':'成人の日','2027-02-11':'建国記念の日','2027-02-23':'天皇誕生日',
+  '2027-03-21':'春分の日','2027-03-22':'振替休日','2027-04-29':'昭和の日','2027-05-03':'憲法記念日','2027-05-04':'みどりの日','2027-05-05':'こどもの日',
+  '2027-07-19':'海の日','2027-08-11':'山の日','2027-09-20':'敬老の日','2027-09-23':'秋分の日','2027-10-11':'スポーツの日',
+  '2027-11-03':'文化の日','2027-11-23':'勤労感謝の日'
+};
+function _isJapaneseHoliday(date){
+  var d = date instanceof Date ? date : new Date(date);
+  if(isNaN(d)) return false;
+  var y = d.getFullYear(), m = (d.getMonth()+1), day = d.getDate();
+  var key = y + '-' + (m<10?'0'+m:m) + '-' + (day<10?'0'+day:day);
+  return !!_JP_HOLIDAYS[key];
+}
+function _isNonBusinessDay(date){
+  var d = date instanceof Date ? date : new Date(date);
+  if(isNaN(d)) return false;
+  var w = d.getDay();
+  return w === 0 || w === 6 || _isJapaneseHoliday(d);
+}
+function _todayIsNonBusinessDay(){ return _isNonBusinessDay(new Date()); }
+// 祝日名を返す（デバッグ・表示用、非稼働日でなければnull）
+function _holidayNameJp(date){
+  var d = date instanceof Date ? date : new Date(date);
+  if(isNaN(d)) return null;
+  var w = d.getDay();
+  if(w === 0) return '日曜日';
+  if(w === 6) return '土曜日';
+  var y = d.getFullYear(), m = (d.getMonth()+1), day = d.getDate();
+  var key = y + '-' + (m<10?'0'+m:m) + '-' + (day<10?'0'+day:day);
+  return _JP_HOLIDAYS[key] || null;
 }
 
 /** 人材ヒアリングフォームが未回答の案件一覧 */
