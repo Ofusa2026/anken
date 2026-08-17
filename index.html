@@ -4932,7 +4932,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260816.01';
+var OFUSA_VERSION = 'ver.20260816.02';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -69010,12 +69010,15 @@ function _individualNoticeBtnHtml(cid, opts){
   opts = opts || {};
   var fs = (opts.size==='sm') ? '9px' : '10px';
   var w  = opts.width ? ('display:block;width:'+opts.width+';box-sizing:border-box;') : '';
-  var _da = ' data-oa-notice="'+esc(cid)+'" data-oa-nsz="'+esc(opts.size||'')+'" data-oa-nw="'+esc(opts.width||'')+'" data-oa-ndocs="'+(opts.docs?'1':'')+'"';
+  var _mode = opts.mode || '';
+  // ver.20260816.02: mode属性(hearing等)を data-oa-nmode で保持し、_refreshOfficialAcctBadges で復元
+  var _da = ' data-oa-notice="'+esc(cid)+'" data-oa-nsz="'+esc(opts.size||'')+'" data-oa-nw="'+esc(opts.width||'')+'" data-oa-ndocs="'+(opts.docs?'1':'')+'" data-oa-nmode="'+esc(_mode)+'"';
   var linked = _officialAcctLinks(cid).length > 0;
   if(!linked){
     return '<button'+_da+' onclick="event.stopPropagation();showToast(\'先に公式アカウントを紐づけてください\')" style="'+w+'font-size:'+fs+';font-weight:700;padding:3px 8px;border-radius:5px;cursor:pointer;border:1.5px solid #e2e8f0;background:#f8fafc;color:#cbd5e1;white-space:nowrap;">📣 個別案内</button>';
   }
-  return '<button'+_da+' onclick="event.stopPropagation();_openIndividualNoticeModal(\''+esc(cid)+'\',{docs:'+(opts.docs?'true':'false')+'})" style="'+w+'font-size:'+fs+';font-weight:700;padding:3px 8px;border-radius:5px;cursor:pointer;border:1.5px solid #85B7EB;background:#E6F1FB;color:#185FA5;white-space:nowrap;">📣 個別案内</button>';
+  var _optsJs = '{docs:'+(opts.docs?'true':'false')+(_mode?(",mode:'"+esc(_mode)+"'"):'')+'}';
+  return '<button'+_da+' onclick="event.stopPropagation();_openIndividualNoticeModal(\''+esc(cid)+'\','+_optsJs+')" style="'+w+'font-size:'+fs+';font-weight:700;padding:3px 8px;border-radius:5px;cursor:pointer;border:1.5px solid #85B7EB;background:#E6F1FB;color:#185FA5;white-space:nowrap;">📣 個別案内</button>';
 }
 // ver.20260806.10: 紐づけマップ読込後などに、実DOM上の紐づけバッジ・個別案内ボタンをその場で貼り替える。
 //   renderCases未定義で一覧が再描画されず、line_group_cases登録済みでも未紐づけ表示のまま残る問題への対処。
@@ -69034,6 +69037,7 @@ function _refreshOfficialAcctBadges(){
       var cid = el.getAttribute('data-oa-notice'); if(!cid) return;
       var opts = {}; var _sz=el.getAttribute('data-oa-nsz'); var _w=el.getAttribute('data-oa-nw');
       if(_sz) opts.size=_sz; if(_w) opts.width=_w; if(el.getAttribute('data-oa-ndocs')==='1') opts.docs=true;
+      var _md=el.getAttribute('data-oa-nmode'); if(_md) opts.mode=_md;   // ver.20260816.02
       el.outerHTML = _individualNoticeBtnHtml(cid, opts);
     });
   }catch(e){}
@@ -69084,25 +69088,55 @@ function _openOfficialAcctMenu(ev, cid){
 // ver.20260723.19: 📣 個別案内 — 送信前プレビューつき。opts.docs=true(書類回収アラート)なら不足書類チェック＋依頼日更新
 function _openIndividualNoticeModal(cid, opts){
   opts = opts || {};
+  var mode = opts.mode || 'doc';   // ver.20260816.02: 'doc'=書類回収 / 'hearing'=ヒアリングフォーム未回答
   var c=(cData||[]).find(function(x){return x.id===cid;})||{};
   var groups=_officialAcctLinks(cid);
   if(!groups.length){ showToast('先に公式アカウントを紐づけてください'); return; }
   var nm=(c.applicant||c.name||'').trim();
+  // ver.20260816.02: hearing モードのときは書類文面ではなくフォーム回答依頼文面を組み立てる
+  var hearingUrl = '';
+  if(mode === 'hearing'){
+    try{
+      var _pAppType   = c.appType || '';
+      var _pResStatus = c.residenceStatus || c.currentStatus || '';
+      var _pIsGiji    = _pResStatus.indexOf('技術') >= 0 || _pResStatus.indexOf('技人国') >= 0 || _pResStatus.indexOf('人文') >= 0 || _pResStatus.indexOf('国際業務') >= 0;
+      var _pIsKoushin = _pAppType.indexOf('更新') >= 0;
+      var _pIsHenkou  = _pAppType.indexOf('変更') >= 0;
+      var _pFormType  = _pIsGiji ? (_pIsKoushin ? 'gijinkoku_koushin' : (_pIsHenkou ? 'gijinkoku_henkou' : 'gijinkoku_nintei'))
+                                  : (_pIsKoushin ? 'tokutei_koushin'   : (_pIsHenkou ? 'tokutei_henkou'   : 'tokutei_nintei'));
+      if(typeof FORM_BASE_URL !== 'undefined'){
+        hearingUrl = FORM_BASE_URL + '?case=' + encodeURIComponent(cid) + '&type=' + _pFormType + '&name=' + encodeURIComponent(nm||c.name||'');
+        if(typeof _appendAidemSrc === 'function') hearingUrl = _appendAidemSrc(hearingUrl, c && c.org);
+      }
+    }catch(e){ console.warn('hearing url gen err:', e); }
+  }
   // ver.20260723.23: 不足書類はどの画面から開いても自動計算（アラートと同条件・docs分岐廃止）
   //   従来はアラート経由(docs:true)限定だったため、案件一覧等から開くと不足があっても挨拶だけになっていた
+  // ver.20260816.02: hearing モードのときは書類は無視（ヒアリングフォームが本題のため）
   var docItems=[];
-  try{
-    var today=Date.now();
-    var dc=docCheck[cid]||{};
-    var docList=(typeof _getDocList==='function')?(_getDocList(c)||[]):[];
-    docList.forEach(function(docName){
-      if(dc['skip::'+docName]||dc['staff::'+docName]) return;
-      var reqDate=dc['req::'+docName]; if(!reqDate) return;
-      var daysDiff=Math.floor((today-new Date(reqDate).getTime())/86400000);
-      if(daysDiff>=7) docItems.push({docName:docName, daysDiff:daysDiff});
-    });
-  }catch(e){}
+  if(mode !== 'hearing'){
+    try{
+      var today=Date.now();
+      var dc=docCheck[cid]||{};
+      var docList=(typeof _getDocList==='function')?(_getDocList(c)||[]):[];
+      docList.forEach(function(docName){
+        if(dc['skip::'+docName]||dc['staff::'+docName]) return;
+        var reqDate=dc['req::'+docName]; if(!reqDate) return;
+        var daysDiff=Math.floor((today-new Date(reqDate).getTime())/86400000);
+        if(daysDiff>=7) docItems.push({docName:docName, daysDiff:daysDiff});
+      });
+    }catch(e){}
+  }
   function buildMsg(){
+    // ver.20260816.02: hearing モード（ヒアリングフォーム未回答の案内）
+    if(mode === 'hearing'){
+      var msg='【ヒアリングフォームご回答のお願い】\n\n'
+            + (nm ? (nm+'様\n') : '')
+            + 'お世話になっております。大房行政書士法人です。\n'
+            + '以下のヒアリングフォームがまだご回答いただけていません。\nお手数ですがご回答をお願いいたします。\n\n';
+      if(hearingUrl){ msg += '▼ 回答はこちらから📝\n' + hearingUrl + '\n'; }
+      return msg;
+    }
     if(docItems.length){
       var checked=docItems.filter(function(d,i){ var cb=document.getElementById('_inDoc'+i); return !cb||cb.checked; });
       // ver.20260723.20: 自動催促(LINE送信キュー)と同じ文体・経過日数は文面に載せない
@@ -69124,7 +69158,7 @@ function _openIndividualNoticeModal(cid, opts){
   ov.onclick=function(e){ if(e.target===ov) ov.remove(); };
   var h='<div onclick="event.stopPropagation()" style="background:white;border-radius:14px;width:100%;max-width:480px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);">';
   h+='<div style="padding:14px 18px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;">';
-  h+='<div style="font-size:14px;font-weight:800;color:#185FA5;">📣 個別案内<div style="font-size:11px;color:#64748b;font-weight:400;">'+esc(nm||cid)+'</div></div>';
+  h+='<div style="font-size:14px;font-weight:800;color:#185FA5;">📣 個別案内'+(mode==='hearing'?' <span style="font-size:10px;background:#dcfce7;color:#15803d;padding:1px 6px;border-radius:4px;margin-left:4px;">📝ヒアリング</span>':'')+'<div style="font-size:11px;color:#64748b;font-weight:400;">'+esc(nm||cid)+'</div></div>';
   h+='<button onclick="document.getElementById(\'_indNoticeModal\').remove()" style="background:none;border:none;font-size:18px;cursor:pointer;color:#94a3b8;">✕</button></div>';
   h+='<div style="padding:12px 18px;overflow-y:auto;flex:1;">';
   // ver.20260723.26: 送信先のチャネル（LINE/Chatwork）をバッジに反映
@@ -69809,8 +69843,8 @@ function _renderHearingFormAlertList(){
        +       (typeof _officialAcctBoxHtml==='function' ? _officialAcctBoxHtml(c.id, {width:'100%'}) : '')
        +       '<button onclick="event.stopPropagation();_toggleAutoReminderOk(\''+esc(c.id)+'\');setTimeout(_renderHearingFormAlertList,80)" style="padding:5px 10px;border-radius:7px;font-size:11px;font-weight:800;cursor:pointer;'
        +         (on?'background:#dcfce7;color:#15803d;border:1.5px solid #16a34a;':'background:#f8fafc;color:#94a3b8;border:1.5px solid #e2e8f0;')+'">'+(on?'✅ 自動催促ON':'自動催促OK')+'</button>'
-       +       (typeof _individualNoticeBtnHtml==='function' ? _individualNoticeBtnHtml(c.id,{docs:false}) 
-             : '<button onclick="event.stopPropagation();_openIndividualNoticeModal(\''+esc(c.id)+'\',{docs:false})" style="padding:5px 10px;background:#E6F1FB;color:#185FA5;border:1.5px solid #85B7EB;border-radius:7px;font-size:11px;font-weight:800;cursor:pointer;">📣 個別案内</button>')
+       +       (typeof _individualNoticeBtnHtml==='function' ? _individualNoticeBtnHtml(c.id,{docs:false, mode:'hearing'}) 
+             : '<button onclick="event.stopPropagation();_openIndividualNoticeModal(\''+esc(c.id)+'\',{docs:false, mode:\'hearing\'})" style="padding:5px 10px;background:#E6F1FB;color:#185FA5;border:1.5px solid #85B7EB;border-radius:7px;font-size:11px;font-weight:800;cursor:pointer;">📣 個別案内</button>')
        +       '<button onclick="event.stopPropagation();var _m=document.getElementById(\'personDocAlertModal\');if(_m)_m.remove();openCase(\''+esc(c.id)+'\')" style="padding:5px 10px;background:#f59e0b;color:white;border:none;border-radius:7px;font-size:11px;font-weight:800;cursor:pointer;">案件を開く</button>'
        +     '</div>'
        +   '</div>'
