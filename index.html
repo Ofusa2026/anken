@@ -4933,7 +4933,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260817.08';
+var OFUSA_VERSION = 'ver.20260817.09';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -65496,6 +65496,8 @@ function showTab(tab) {
     } else {
       h += '<button onclick="saveCaseField(currentCase.id,\'status\',\'審査中\');currentCase.status=\'審査中\';showTab(\'followup\')" style="padding:5px 12px;background:#16a34a;color:white;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">審査中に戻す</button>';
     }
+    // ver.20260817.09: 入管へのレター作成(tsuikan_letter.html を postMessage で開く)
+    h += ' <button onclick="openTsuikanLetter(\''+c.id+'\')" style="padding:5px 12px;background:#2563eb;color:white;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;margin-left:6px;">📄 入管へのレター作成</button>';
     h += '</div>';
 
     // ===== 指摘事項追加（コンパクト） =====
@@ -98625,6 +98627,22 @@ function _fuDefaultDueDate(regDate){
   return y+'-'+m+'-'+d;
 }
 function getFuCards(caseId){var c=cData.find(function(x){return x.id===caseId;});if(!c)return[];try{var raw=c.followupNote||'';if(!raw)return[];if(raw.trim().charAt(0)==='['){var _arr=JSON.parse(raw);return _fuDedupeByMailId(_arr,caseId);}return[{id:Date.now(),date:new Date().toISOString().slice(0,10),type:'その他',text:raw,done:false,doneDate:''}];}catch(e){return[];}}
+
+// ver.20260817.09: 入管へのレター(tsuikan_letter.html)を新しいタブで開いて案件情報を渡す
+//   ページ側は SELECT_CASE postMessage を受信する実装済み(受信までに時間差があるので複数回送る)
+function openTsuikanLetter(caseId){
+  if(!caseId){ alert('案件IDが取得できません'); return; }
+  var url = 'https://ofusa2026.github.io/docs/tsuikan_letter.html';
+  var win = window.open(url, '_blank');
+  if(!win){ alert('ポップアップがブロックされました。ブラウザの設定を確認してください。'); return; }
+  var info = { caseId: caseId };
+  var tries = 0;
+  var timer = setInterval(function(){
+    tries++;
+    try{ win.postMessage({ type: 'SELECT_CASE', info: info }, '*'); }catch(e){}
+    if(tries > 20) clearInterval(timer);   // 6秒間、300ms毎に再送(読み込み待ち)
+  }, 300);
+}
 // ver.20260716.08: 読込時の自己修復 — mailId重複は最初の1件のみ残す（mailId空=手動分は対象外）
 function _fuDedupeByMailId(arr, caseId){
   if(!Array.isArray(arr)) return arr;
