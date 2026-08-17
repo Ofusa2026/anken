@@ -4933,7 +4933,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260817.16';
+var OFUSA_VERSION = 'ver.20260817.17';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -62401,6 +62401,23 @@ function openCase(id) {
         });
       }
     }).catch(function(){});
+    // ver.20260817.17: persons も1件再取得して personData を最新化。
+    //   従来は起動時 loadAllFromSupabase のスナップショットのままだったため、
+    //   他クライアントや別タブで更新されても reload するまで反映されなかった。
+    //   これが「申請人ヒアリング欄が一部だけ空欄で表示される」不具合の原因。
+    _sb.from('persons').select('*').eq('case_id', id).maybeSingle().then(function(pres){
+      if(pres && pres.error){ console.warn('persons refresh err:', pres.error); return; }
+      if(!pres || !pres.data) return;
+      _mapPersonRowToMemory(pres.data);
+      try{localStorage.setItem('ofusa_personData',JSON.stringify(personData));}catch(e){}
+      // 申請人ヒアリングタブが現在表示中なら再描画
+      try{
+        var activeTab = document.querySelector('.case-tab.active');
+        if(activeTab && (activeTab.textContent||'').indexOf('申請人') >= 0){
+          showTab('person');
+        }
+      }catch(e){ console.warn('person tab refresh err', e); }
+    }).catch(function(err){ console.warn('persons refresh promise err:', err); });
   }
   var pd = personData[c.id] || {};
   var headerName = c.applicant || pd.applicantNameEn || pd.applicantName || c.name || c.id;
@@ -91413,6 +91430,75 @@ function _mergePersonFormResponse(p, response) {
   return p;
 }
 
+// ver.20260817.17: persons テーブルの1行をメモリ(personData)に反映する共通関数。
+//   従来は loadAllFromSupabase 内にインライン化されており、openCase() 側では
+//   persons を再取得していなかったため、他クライアント・別タブ・新規取込等で
+//   DBが更新されても reload するまで反映されない不具合があった。
+//   本関数を切り出して openCase() からも呼べるようにする。
+//   マッピングにも graduation_date / kaigo_jp_* を追加(先日の列追加分)。
+function _mapPersonRowToMemory(r){
+  if(!r || !r.case_id) return;
+  var p = {}; var mapping = {
+    applicant_name_en:'applicantNameEn', residence_card:'residenceCard',
+    ccus_worker_id:'ccusWorkerId',
+    kokko_jyuji_koujigyo:'kokkoJyujiKoujigyo',
+    kokko_jisyo_salary:'kokkoJisyoSalary',
+    kokko_checklist:'kokkoChecklist',
+    kokko_drive_url:'kokkoDriveUrl',
+    passport:'passport', passport_expiry:'passportExpiry', birthdate:'birthdate',
+    birth_place:'birthPlace', nationality:'nationality', nationality_code:'nationalityCode',
+    gender:'gender', spouse:'spouse', occupation:'occupation',
+    age:'age', experience:'experience',
+    home_country_address:'homeCountryAddress', jp_postal_code:'jpPostalCode',
+    address_code:'addressCode', jp_detail_address:'jpDetailAddress', address:'address',
+    tel_num:'telNum', phone:'phone', cel_phone:'celPhone', email:'email',
+    notification_email:'notificationEmail', residence_status:'residenceStatus',
+    // expire は cases テーブルで管理するため persons からは取り込まない
+    entry_date:'entryDate', arrival_port:'arrivalPort',
+    stay_years:'stayYears', stay_months:'stayMonths', visa_place:'visaPlace',
+    contract_start:'contractStart', contract_end:'contractEnd',
+    skill_eval_type:'skillEvalType', skill_exam_1:'skillExam1',
+    skill_exam_loc_1:'skillExamLoc1', skill_exam_code_1:'skillExamCode1',
+    skill_exam_loc_code_1:'skillExamLocCode1',
+    skill_exam_2:'skillExam2', skill_exam_loc_2:'skillExamLoc2',
+    skill_exam_3:'skillExam3', skill_exam_loc_3:'skillExamLoc3',
+    jp_eval_type:'jpEvalType', jp_exam_1:'jpExam1', jp_exam_loc_1:'jpExamLoc1',
+    jp_exam_code_1:'jpExamCode1', jp_exam_loc_code_1:'jpExamLocCode1',
+    jp_exam_2:'jpExam2', jp_exam_loc_2:'jpExamLoc2',
+    jp_exam_3:'jpExam3', jp_exam_loc_3:'jpExamLoc3',
+    // ver.20260812.30: 介護日本語評価試験(先日追加した列だが起動時ロードに漏れていた)
+    kaigo_jp_eval_type:'kaigoJpEvalType', kaigo_jp_exam_1:'kaigoJpExam1', kaigo_jp_exam_loc_1:'kaigoJpExamLoc1',
+    gijutsu_type:'gijutsuType', gijutsu_work:'gijutsuWork', gijutsu_proof:'gijutsuProof',
+    past_entry:'pastEntry', past_entry_count:'pastEntryCount',
+    deportation:'deportation', deportation_count:'deportationCount',
+    stay_period:'stayPeriod', stay_period_other:'stayPeriodOther',
+    total_stay_year:'totalStayYear', total_stay_month:'totalStayMonth',
+    line_group_id:'lineGroupId', temp_return:'tempReturn',
+    hoped_stay_period:'hopedStayPeriod',
+    hire_date:'hireDate', salary:'salary',
+    past_entry_from:'pastEntryFrom', past_entry_to:'pastEntryTo',
+    past_coe:'pastCOE', past_coe_count:'pastCOECount', past_coe_denied:'pastCOEDenied',
+    deportation_date:'deportationDate',
+    temp_return_flag:'tempReturnFlag', first_entry:'firstEntry',
+    edu_country:'eduCountry', education:'education', school_name:'schoolName',
+    completion_date:'completionDate', major:'major', major_detail:'majorDetail',
+    // ver.20260812.31: 技人国の卒業年月日(先日追加した列だが起動時ロードに漏れていた)
+    graduation_date:'graduationDate',
+    jp_address:'jpAddress',
+    // ver.20260527.66: PDF URL履歴（JSON配列）
+    application_cert_pdf_urls:'applicationCertPdfUrls',
+    custody_receipt_pdf_urls:'custodyReceiptPdfUrls'
+  };
+  Object.keys(mapping).forEach(function(k){ if(r[k]!==null&&r[k]!==undefined) p[mapping[k]]=r[k]; });
+  if(r.extra && typeof r.extra === 'object') Object.assign(p, r.extra);
+  // ver.20260629.82: 一時帰国日がDBに入っているのにflagが「有」でない場合は自動で「有」にセット
+  // ver.20260629.85修正: 明示的に「無」が設定されている場合は上書きしない（「無」の優先度が高い）
+  if (r.temp_return && (!p.tempReturnFlag || p.tempReturnFlag === '')) {
+    p.tempReturnFlag = '有';
+  }
+  personData[r.case_id] = Object.assign(personData[r.case_id]||{}, p);
+}
+
 function loadAllFromSupabase() {
   if (isLoading) return;
   isLoading = true;
@@ -92030,65 +92116,7 @@ function loadAllFromSupabase() {
   // 3. 人材データ（全件取得）
   fetchAllRows('persons', {order:'case_id',ascending:true}, function(rows) {
     if (rows.length) {
-      rows.forEach(function(r) {
-        var p = {}; var mapping = {
-          applicant_name_en:'applicantNameEn', residence_card:'residenceCard',
-          ccus_worker_id:'ccusWorkerId',
-          kokko_jyuji_koujigyo:'kokkoJyujiKoujigyo',
-          kokko_jisyo_salary:'kokkoJisyoSalary',
-          kokko_checklist:'kokkoChecklist',
-          kokko_drive_url:'kokkoDriveUrl',
-          passport:'passport', passport_expiry:'passportExpiry', birthdate:'birthdate',
-          birth_place:'birthPlace', nationality:'nationality', nationality_code:'nationalityCode',
-          gender:'gender', spouse:'spouse', occupation:'occupation',
-          age:'age', experience:'experience',
-          home_country_address:'homeCountryAddress', jp_postal_code:'jpPostalCode',
-          address_code:'addressCode', jp_detail_address:'jpDetailAddress', address:'address',
-          tel_num:'telNum', phone:'phone', cel_phone:'celPhone', email:'email',
-          notification_email:'notificationEmail', residence_status:'residenceStatus',
-          // expire は cases テーブルで管理するため persons からは取り込まない
-          entry_date:'entryDate', arrival_port:'arrivalPort',
-          stay_years:'stayYears', stay_months:'stayMonths', visa_place:'visaPlace',
-          contract_start:'contractStart', contract_end:'contractEnd',
-          skill_eval_type:'skillEvalType', skill_exam_1:'skillExam1',
-          skill_exam_loc_1:'skillExamLoc1', skill_exam_code_1:'skillExamCode1',
-          skill_exam_loc_code_1:'skillExamLocCode1',
-          skill_exam_2:'skillExam2', skill_exam_loc_2:'skillExamLoc2',
-          skill_exam_3:'skillExam3', skill_exam_loc_3:'skillExamLoc3',
-          jp_eval_type:'jpEvalType', jp_exam_1:'jpExam1', jp_exam_loc_1:'jpExamLoc1',
-          jp_exam_code_1:'jpExamCode1', jp_exam_loc_code_1:'jpExamLocCode1',
-          jp_exam_2:'jpExam2', jp_exam_loc_2:'jpExamLoc2',
-          jp_exam_3:'jpExam3', jp_exam_loc_3:'jpExamLoc3',
-          gijutsu_type:'gijutsuType', gijutsu_work:'gijutsuWork', gijutsu_proof:'gijutsuProof',
-          past_entry:'pastEntry', past_entry_count:'pastEntryCount',
-          deportation:'deportation', deportation_count:'deportationCount',
-          stay_period:'stayPeriod', stay_period_other:'stayPeriodOther',
-          total_stay_year:'totalStayYear', total_stay_month:'totalStayMonth',
-          line_group_id:'lineGroupId', temp_return:'tempReturn',
-          stay_period:'stayPeriod', stay_period_other:'stayPeriodOther',
-          hoped_stay_period:'hopedStayPeriod',
-          hire_date:'hireDate', salary:'salary',
-          past_entry_from:'pastEntryFrom', past_entry_to:'pastEntryTo',
-          past_coe:'pastCOE', past_coe_count:'pastCOECount', past_coe_denied:'pastCOEDenied',
-          deportation_date:'deportationDate',
-          temp_return_flag:'tempReturnFlag', first_entry:'firstEntry',
-          edu_country:'eduCountry', education:'education', school_name:'schoolName',
-          completion_date:'completionDate', major:'major', major_detail:'majorDetail',
-          jp_address:'jpAddress',
-          // ver.20260527.66: PDF URL履歴（JSON配列）
-          application_cert_pdf_urls:'applicationCertPdfUrls',
-          custody_receipt_pdf_urls:'custodyReceiptPdfUrls'
-        };
-        Object.keys(mapping).forEach(function(k){ if(r[k]!==null&&r[k]!==undefined) p[mapping[k]]=r[k]; });
-        if(r.extra && typeof r.extra === 'object') Object.assign(p, r.extra);
-        if(r.extra_data && typeof r.extra_data === 'object') Object.assign(p, r.extra_data);
-        // ver.20260629.82: 一時帰国日がDBに入っているのにflagが「有」でない場合は自動で「有」にセット
-        // ver.20260629.85修正: 明示的に「無」が設定されている場合は上書きしない（「無」の優先度が高い）
-        if (r.temp_return && (!p.tempReturnFlag || p.tempReturnFlag === '')) {
-          p.tempReturnFlag = '有';
-        }
-        personData[r.case_id] = Object.assign(personData[r.case_id]||{}, p);
-      });
+      rows.forEach(_mapPersonRowToMemory);
       try{localStorage.setItem('ofusa_personData',JSON.stringify(personData));}catch(e){}
     }
     console.log("✅ persons done");
