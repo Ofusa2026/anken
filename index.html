@@ -4933,7 +4933,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260817.10';
+var OFUSA_VERSION = 'ver.20260817.13';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -98647,6 +98647,11 @@ function openTsuikanLetter(caseId){
 // ver.20260817.10: 指摘カード単体からレター作成(このカードの内容だけを流し込む)
 //   カード.text から: 提出書類リスト(・で始まる行)、担当官、本文、期限を抽出
 //   期限は card.dueDate も渡す(dueDate優先)
+//   ver.20260817.13: 除外強化 - 以下は本文から自動除外(レター側と重複or管理情報)
+//     ・「申請された在留諸申請に関して〜」(自動オープナー)
+//     ・「申請人氏名/申請受付日/申請受付番号/申請受付仮番号/申請人在留カード等番号」
+//        (レターの申請人テーブルと重複)
+//     ・「【注意】」以降(管理情報・連絡先・システムトラブル通知など全部)
 function openTsuikanLetterForCard(ci){
   if(!currentCase){ return; }
   var cards = getFuCards(currentCase.id);
@@ -98655,40 +98660,54 @@ function openTsuikanLetterForCard(ci){
   var url = 'https://ofusa2026.github.io/docs/tsuikan_letter.html';
   var win = window.open(url, '_blank');
   if(!win){ alert('ポップアップがブロックされました。ブラウザの設定を確認してください。'); return; }
-  // カード本文から提出書類・担当・本文を抽出
   var text = String(card.text||'');
   var lines = text.split(/\r?\n/);
   var docsList = [];
   var bodyLines = [];
   var officerName = '';
   var inDocsSection = false;
+  var inCutSection = false;   // ver.20260817.13: 【注意】以降は全カット
+  // レターに構造化テーブルがある項目名（本文からは除外）
+  var FIELD_PREFIXES = ['申請人氏名','申請受付日','申請受付番号','申請受付仮番号','申請人在留カード等番号','国籍','生年月日'];
   lines.forEach(function(ln){
     var t = ln.trim();
-    // 「・」「•」「-」で始まる行は提出書類として抽出
+    // 担当官抽出は cut より先に(念のため 全域スキャン)
+    if(!officerName){
+      var mo = t.match(/【?担当[：:]\s*([^\s】]+)/);
+      if(mo) officerName = mo[1];
+    }
+    // 【注意】以降は全部カット（管理情報・住所・電話・不具合通知など）
+    if(/【\s*注\s*意\s*】/.test(t)){ inCutSection = true; return; }
+    if(inCutSection) return;
+    // オープニング挨拶（重複）
+    if(/^申請された在留諸申請に関して.*ご対応/.test(t)) return;
+    // レター側の申請人テーブルと重複する項目行
+    var isField = FIELD_PREFIXES.some(function(prefix){
+      return t.indexOf(prefix) === 0 && /[：:]/.test(t);
+    });
+    if(isField) return;
+    // 「・」等の箇条書きは提出書類
     if(/^[・•\-*]/.test(t)){
       docsList.push(t.replace(/^[・•\-*\s]+/, ''));
       inDocsSection = true;
       return;
     }
-    // 「【資料提出依頼】」等の見出しは本文から除外
+    // 【資料提出依頼】等の見出し
     if(/【.*(資料|書類).*(提出|依頼)】/.test(t)){
       inDocsSection = true;
       return;
     }
-    // 提出書類セクション内の説明行(「下記資料について、...までに...」等)は本文に入れない
+    // 提出書類セクション内の説明行
     if(inDocsSection && /(下記|上記).*(添付|提出)/.test(t)) return;
-    // 空行を挟んで新しいセクションになったら inDocsSection をリセット
+    // 空行
     if(!t){ inDocsSection = false; bodyLines.push(''); return; }
-    // 担当官抽出(【担当：西村】等)
-    var m = t.match(/【?担当[：:]\s*([^\s】]+)/);
-    if(m){ officerName = m[1]; }
     if(!inDocsSection){ bodyLines.push(t); }
   });
-  // 本文末尾の空行を除去
+  // 本文先頭・末尾の空行除去
+  while(bodyLines.length && !bodyLines[0]) bodyLines.shift();
   while(bodyLines.length && !bodyLines[bodyLines.length-1]) bodyLines.pop();
   var info = {
     caseId: currentCase.id,
-    // カード固有情報
     body: bodyLines.join('\n'),
     docs: docsList.join('\n'),
     officer: officerName,
