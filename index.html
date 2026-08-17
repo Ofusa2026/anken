@@ -4932,7 +4932,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260817.02';
+var OFUSA_VERSION = 'ver.20260817.03';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -69998,21 +69998,27 @@ async function _hfBulkRemindOfficial(){
   if(!sendable.length){ alert('⚠️ 対象'+cands.length+'件はすべて公式アカウント未紐づけのため送信できません。'); return; }
 
   // 同じ日の重複送信を止める（書類回収と同じ最後の砦）
+  // ver.20260817.03: sourceを hearing_remind / hearing_fu に限定
+  //   書類回収(auto_remind)が今日飛んでいても、ヒアリング催促は別扱いで送れるようにする
+  //   従来はsource無視だったため、朝の自動催促(auto_remind)が飛んだ日はヒアリング催促が
+  //   全件除外されてしまう不具合があった。
   try{
     var _todayJst = new Date(Date.now()+9*3600000).toISOString().slice(0,10);
     var _sentToday={};
     var _ids = sendable.map(function(x){ return x.caseId; });
     for(var _i=0;_i<_ids.length;_i+=200){
-      var _lg = await _sb.from('line_send_log').select('case_id,sent_at,status')
-        .in('case_id', _ids.slice(_i,_i+200)).gte('sent_at', _todayJst+'T00:00:00+09:00');
+      var _lg = await _sb.from('line_send_log').select('case_id,sent_at,status,source')
+        .in('case_id', _ids.slice(_i,_i+200))
+        .in('source', ['hearing_remind','hearing_fu'])
+        .gte('sent_at', _todayJst+'T00:00:00+09:00');
       if(_lg.error) throw new Error(_lg.error.message);
       ((_lg&&_lg.data)||[]).forEach(function(r){ if((r.status||'ok')!=='failed') _sentToday[r.case_id]=true; });
     }
     var _dupN = sendable.filter(function(x){ return _sentToday[x.caseId]; }).length;
     if(_dupN){
       sendable = sendable.filter(function(x){ return !_sentToday[x.caseId]; });
-      if(!sendable.length){ alert('今日すでにお送りした方ばかりのため、送信するものがありません。\n（'+_dupN+'件を除外しました）'); return; }
-      alert('⚠️ 今日すでにお送りした '+_dupN+'件を除外しました。\n残り '+sendable.length+'件を送信します。');
+      if(!sendable.length){ alert('今日すでにヒアリング催促を送った方ばかりのため、送信するものがありません。\n（'+_dupN+'件を除外しました）'); return; }
+      alert('⚠️ 今日すでにヒアリング催促を送った '+_dupN+'件を除外しました。\n残り '+sendable.length+'件を送信します。');
     }
   }catch(e){
     alert('送信履歴を確認できませんでした。\n重複してお送りする恐れがあるため中止します。\n\n'+(e&&e.message?e.message:e));
