@@ -4933,7 +4933,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260817.15';
+var OFUSA_VERSION = 'ver.20260817.16';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -40745,7 +40745,7 @@ function toggleDocAccordion(tkey) {
   if (el) el.style.display = el.style.display==='none'?'block':'none';
 }
 function saveDeadline(tkey,val){ taskDeadline[tkey]=val; try{localStorage.setItem('ofusa_taskDeadline',JSON.stringify(taskDeadline));}catch(e){} }
-function saveMemo(tkey,val){ taskMemo[tkey]=val; try{localStorage.setItem('ofusa_taskMemo',JSON.stringify(taskMemo));}catch(e){} _debouncedPersistTaskMeta(); persistDocTaskStatus(tkey); }
+function saveMemo(tkey,val){ taskMemo[tkey]=val; try{localStorage.setItem('ofusa_taskMemo',JSON.stringify(taskMemo));}catch(e){} _debouncedPersistTaskMeta(); persistDocTaskStatus(tkey,['memo']); }
 // ver.20260803.1: 確認済みにする（DBから最新を読んでtkeyだけ削除して保存=他ユーザーの並行書き込みで復元されないように）
 function _confirmTaskNotif(tkey){
   delete taskNotifications[tkey];
@@ -40773,7 +40773,7 @@ function cancelTaskConfirm(tkey){
   if(!confirm('確認依頼を取り消して「未確認」に戻しますか？')) return;
   taskConfirm[tkey]=0;
   _debouncedPersistTaskMeta();
-  persistDocTaskStatus(tkey);
+  persistDocTaskStatus(tkey,['confirm']);
   showToast('確認依頼を取り消しました');
   showTab('tasks');
   setTimeout(function(){var el=document.getElementById('acc_'+tkey);if(el)el.style.display='block';},50);
@@ -40792,7 +40792,7 @@ function saveTaskConfirm(tkey){
   var next = 1;
   taskConfirm[tkey]=next;
   _debouncedPersistTaskMeta();
-  persistDocTaskStatus(tkey);
+  persistDocTaskStatus(tkey,['confirm']);
   // 確認依頼(1)になった時、確認事項に登録
   var parts=tkey.split('_');
   var ti=parseInt(parts[parts.length-1]);
@@ -40810,7 +40810,7 @@ function saveTaskConfirm(tkey){
 function saveTaskAssignee(tkey,val){
   taskAssignee[tkey]=val;
   try{localStorage.setItem('ofusa_taskAssignee',JSON.stringify(taskAssignee));}catch(e){}
-  _debouncedPersistTaskMeta(); persistDocTaskStatus(tkey);
+  _debouncedPersistTaskMeta(); persistDocTaskStatus(tkey,['assignee']);
   // ver.20260804.19: 手動で担当を変えたときも、同じグループの同じタスクへ揃える。
   //   自動振り分けだけ揃えていたため、手で直すとグループ内で担当が分かれてしまっていた。
   try{ _syncAssigneeAcrossGroup(tkey, val); }catch(e){ console.error('group assignee sync err', e); }
@@ -40850,8 +40850,8 @@ function _syncAssigneeAcrossGroup(tkey, val){
   }
   try{ if(typeof renderDocsContent==='function') renderDocsContent(); }catch(e){}
 }
-function saveTaskHandler(tkey,val){ taskHandler[tkey]=val; try{localStorage.setItem('ofusa_taskHandler',JSON.stringify(taskHandler));}catch(e){} _debouncedPersistTaskMeta(); persistDocTaskStatus(tkey); }
-function saveTaskChecker(tkey,val){ taskAssignee[tkey+'_checker']=val; try{localStorage.setItem('ofusa_taskAssignee',JSON.stringify(taskAssignee));}catch(e){} _debouncedPersistTaskMeta(); persistDocTaskStatus(tkey); }
+function saveTaskHandler(tkey,val){ taskHandler[tkey]=val; try{localStorage.setItem('ofusa_taskHandler',JSON.stringify(taskHandler));}catch(e){} _debouncedPersistTaskMeta(); persistDocTaskStatus(tkey,['handler']); }
+function saveTaskChecker(tkey,val){ taskAssignee[tkey+'_checker']=val; try{localStorage.setItem('ofusa_taskAssignee',JSON.stringify(taskAssignee));}catch(e){} _debouncedPersistTaskMeta(); persistDocTaskStatus(tkey,['checker']); }
 // ===== タスク確認フロー =====
 var _persistTaskMetaTimer = null;
 function _debouncedPersistTaskMeta(){
@@ -41033,7 +41033,7 @@ function resetTaskMeta(tkey){
   showTab('tasks');
   setTimeout(function(){var el=document.getElementById('acc_'+tkey);if(el)el.style.display='block';},50);
 }
-function toggleTaskUrgent(tkey){ taskUrgent[tkey]=!taskUrgent[tkey]; try{localStorage.setItem('ofusa_taskUrgent',JSON.stringify(taskUrgent));}catch(e){} _debouncedPersistTaskMeta(); persistDocTaskStatus(tkey); showTab('tasks'); setTimeout(function(){var el=document.getElementById('acc_'+tkey);if(el)el.style.display='block';},50); }
+function toggleTaskUrgent(tkey){ taskUrgent[tkey]=!taskUrgent[tkey]; try{localStorage.setItem('ofusa_taskUrgent',JSON.stringify(taskUrgent));}catch(e){} _debouncedPersistTaskMeta(); persistDocTaskStatus(tkey,['urgent']); showTab('tasks'); setTimeout(function(){var el=document.getElementById('acc_'+tkey);if(el)el.style.display='block';},50); }
 var _lastTaskMetaJson = null; // ★ 前回保存したJSON文字列をキャッシュ（変更検知用）
 function persistTaskMeta(){
   if(!DB_READY)return;
@@ -44366,26 +44366,33 @@ function persistDocCheck(cb) {
   }
   setTimeout(updatePersonDocAlertBadge, 100);
 }
-function persistDocTaskStatus(specificKey) {
+function persistDocTaskStatus(specificKey, fieldMask) {
+  // ver.20260817.16: 【バグ修正】fieldMask 引数を追加。
+  //   fieldMask=undefined → 全フィールド送信(従来動作、resetTaskMeta等で使用)
+  //   fieldMask=['assignee'] のような配列 → 指定フィールドだけ送信
+  //   従来: 「担当者だけ変えたい」時にも urgent/memo/deadline 等の全フィールドを
+  //         メモリ上の古い値で送信し、DBの正しい値(true→false)を上書きしていた。
+  //         (case_1772786508741_373 スキャン作成タスクの「消える」現象の原因)
+  //   修正: 呼び出し側が意図したフィールドだけを送信するように fieldMask を使う。
   if(DB_READY) {
     var rows = [];
     var keys = specificKey ? [specificKey] : Object.keys(docTaskStatus);
+    var wantAll = !fieldMask;
+    var has = function(f){ return wantAll || (fieldMask && fieldMask.indexOf(f) >= 0); };
     keys.forEach(function(k) {
       var parts = k.split('_'); var caseId = parts.slice(0,-1).join('_'); var ti = parseInt(parts[parts.length-1]);
       if(!isNaN(ti)){
         // ver.20260723.10: コメント列は専用upsertのみで書く（nullでの潰し防止）。review_stateも値がある時だけ送る
-        var row = {
-          case_id:caseId, task_index:ti,
-          status:docTaskStatus[k]||0,
-          deadline:taskDeadline[k]||null,
-          memo:taskMemo[k]||null,
-          urgent:!!(taskUrgent[k]),
-          assignee:taskAssignee[k]||'',
-          handler:taskHandler[k]||'',
-          confirm:String(taskConfirm[k]||0),
-          checker:taskAssignee[k+'_checker']||''
-        };
-        if(taskReviewState[k] != null) row.review_state = String(taskReviewState[k]);
+        var row = { case_id:caseId, task_index:ti };
+        if(has('status'))   row.status   = docTaskStatus[k]||0;
+        if(has('deadline')) row.deadline = taskDeadline[k]||null;
+        if(has('memo'))     row.memo     = taskMemo[k]||null;
+        if(has('urgent'))   row.urgent   = !!(taskUrgent[k]);
+        if(has('assignee')) row.assignee = taskAssignee[k]||'';
+        if(has('handler'))  row.handler  = taskHandler[k]||'';
+        if(has('confirm'))  row.confirm  = String(taskConfirm[k]||0);
+        if(has('checker'))  row.checker  = taskAssignee[k+'_checker']||'';
+        if(wantAll && taskReviewState[k] != null) row.review_state = String(taskReviewState[k]);
         rows.push(row);
       }
     });
