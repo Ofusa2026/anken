@@ -4933,7 +4933,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260817.13';
+var OFUSA_VERSION = 'ver.20260817.14';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -66122,6 +66122,10 @@ function _getDocList(cas) {
   // ver.20260525.21: 案件個別カスタムが設定されている場合でも、
   // 国籍別・留学生の追加書類は「常に上乗せ」する（基本リストのカスタマイズに専念させる）
   var _custom = window._caseCustomDocs && window._caseCustomDocs[cas.id] && window._caseCustomDocs[cas.id][listKey];
+  // ver.20260817.14: 特定活動プリセットは純粋に5点だけ（国籍別・留学生・建設などの上乗せをスキップ）
+  if (_custom && typeof _isTokkatsuPreset==='function' && _isTokkatsuPreset(_custom)) {
+    return _custom.slice();
+  }
   if (_custom) {
     var _seen2 = {}; var _cl = [];
     _custom.forEach(function(d){ if(!_seen2[d]){ _seen2[d]=1; _cl.push(d); } });
@@ -67399,6 +67403,8 @@ function renderDocsTab(cas) {
   if (listKey) h += '<button onclick="addKokuhoDocs(\''+cas.id+'\',\''+listKey+'\')" style="padding:8px 16px;background:#fff7ed;color:#c2410c;border:1.5px solid #fdba74;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">🏥 国保</button>';
   // ver.20260527.70: 介護ボタン（介護日本語合格証を追加）
   if (listKey) h += '<button onclick="addKaigoDocs(\''+cas.id+'\',\''+listKey+'\')" style="padding:8px 16px;background:#f0fdf4;color:#15803d;border:1.5px solid #86efac;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">🧑‍⚕️ 介護</button>';
+  // ver.20260817.14: 特定活動ボタン（書類を5点にまるっと置換）
+  if (listKey) h += '<button onclick="setTokkatsuDocs(\''+cas.id+'\',\''+listKey+'\')" style="padding:8px 16px;background:#eef2ff;color:#4338ca;border:1.5px solid #a5b4fc;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">🎯 特定活動</button>';
   // ver.20260611.34: 協力確認書ボタン（手動生成・作成済みでも再生成）
   h += '<button onclick="_manualKyoryokuPdf(\''+cas.id+'\')" style="padding:8px 16px;background:#eff6ff;color:#1d4ed8;border:1.5px solid #93c5fd;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">📄 協力確認書</button>';
   if (listKey) h += '<button onclick="openCaseDocsEditor(\''+cas.id+'\',\''+listKey+'\')" style="margin-right:4px;font-size:11px;padding:4px 10px;background:'+(window._caseCustomDocs&&window._caseCustomDocs[cas.id]&&window._caseCustomDocs[cas.id][listKey]?'#ede9fe':'#f3f4f6')+';color:'+(window._caseCustomDocs&&window._caseCustomDocs[cas.id]&&window._caseCustomDocs[cas.id][listKey]?'#7c3aed':'#6b7280')+';border:1px solid '+(window._caseCustomDocs&&window._caseCustomDocs[cas.id]&&window._caseCustomDocs[cas.id][listKey]?'#c4b5fd':'#e5e7eb')+';border-radius:7px;font-weight:700;cursor:pointer;">✏️ 個別編集'+(window._caseCustomDocs&&window._caseCustomDocs[cas.id]&&window._caseCustomDocs[cas.id][listKey]?' ★':'')+'</button>';
@@ -74109,6 +74115,35 @@ function addKaigoDocs(caseId, listKey){
     renderDocsTab(currentCase);
   }
   if(typeof showToast==='function') showToast('🧑‍⚕️ 介護書類を'+added.length+'件追加しました');
+}
+// ver.20260817.14: 特定活動プリセット（この案件の書類を5点にまるっと置換）
+var _TOKKATSU_DOCS = [
+  '顔写真',
+  '在留カード（表）',
+  '在留カード（裏）',
+  'パスポート',
+  '合格証（技能）／専門級'
+];
+function _isTokkatsuPreset(list){
+  if(!list || list.length !== _TOKKATSU_DOCS.length) return false;
+  for(var i=0;i<_TOKKATSU_DOCS.length;i++){
+    if(list[i] !== _TOKKATSU_DOCS[i]) return false;
+  }
+  return true;
+}
+function setTokkatsuDocs(caseId, listKey){
+  if(!caseId || !listKey) return;
+  var cas = (cData||[]).find(function(c){return c.id===caseId;});
+  if(!cas){ alert('案件が見つかりません'); return; }
+  if(!confirm('この案件の書類リストを「特定活動」の5点に置き換えます。\n\n・顔写真\n・在留カード（表）\n・在留カード（裏）\n・パスポート\n・合格証（技能）／専門級\n\n現在の書類リスト（個別編集の内容含む）は上書きされます。よろしいですか？')) return;
+  if(!window._caseCustomDocs) window._caseCustomDocs = {};
+  if(!window._caseCustomDocs[caseId]) window._caseCustomDocs[caseId] = {};
+  window._caseCustomDocs[caseId][listKey] = _TOKKATSU_DOCS.slice();
+  _persistCaseCustomDocs();
+  if(typeof currentCase!=='undefined' && currentCase && currentCase.id===caseId){
+    renderDocsTab(currentCase);
+  }
+  if(typeof showToast==='function') showToast('🎯 特定活動の書類（5点）に置き換えました');
 }
 function openCaseDocsEditor(caseId, listKey) {
   window._reqDocsEditCaseId = caseId;
