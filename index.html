@@ -4933,7 +4933,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260818.10';
+var OFUSA_VERSION = 'ver.20260818.11';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -77901,7 +77901,20 @@ function _showNoticeModal(notices, idx){
           okBtn.disabled = false;
           okBtn.textContent = '✅ 確認しました';
           okBtn.style.opacity = '1';
-          alert('既読保存に失敗しました。再度お試しください。');
+          // ver.20260818.11: RLS(認証切れ) 起因なら再ログイン画面へ誘導し、モーダルロックを解消
+          var _msg = String((r.error && r.error.message)||'');
+          var _isAuthErr = /row-level security|permission denied|JWT|jwt|unauthorized|401|403/i.test(_msg);
+          if(_isAuthErr){
+            if(confirm('セッションが切れているため保存できませんでした。\n再ログイン画面へ移動しますか？\n\n(OK=再ログイン / キャンセル=このまま)')){
+              // モーダルロック解除してから再ログイン画面へ
+              if (modal._escHandler) { document.removeEventListener('keydown', modal._escHandler, true); }
+              modal.remove();
+              if(typeof _forceRelogin === 'function') _forceRelogin();
+              return;
+            }
+          } else {
+            alert('既読保存に失敗しました。再度お試しください。');
+          }
           return;
         }
         // ESCキー無効化解除
@@ -98380,6 +98393,42 @@ function _checkSessionBanner(){
     }
   });
 }
+// ver.20260818.11: セッション切れバナーの「🔑 再ログインする」ボタン用処理。
+//   従来の location.reload() は Supabase Auth 側でリフレッシュトークンが
+//   有効なうちは復帰できるが、切れていると anon ロールのまま静かに戻り、
+//   notice_reads.upsert 等の書き込みが恒久的に失敗する。
+//   本関数は明示的に signOut → localStorage クリア → ログイン画面表示を行い、
+//   必ず doAuthLogin (signInWithPassword) を通す導線に到達させる。
+async function _forceRelogin(){
+  try{ if(typeof _sb!=='undefined' && _sb && _sb.auth) await _sb.auth.signOut(); }catch(e){}
+  // 独自認証情報のクリア
+  try{ localStorage.removeItem('ofusa_currentUser'); }catch(e){}
+  try{ localStorage.removeItem('ofusa_rememberLogin'); }catch(e){}
+  try{ localStorage.removeItem('ofusa_loginAt'); }catch(e){}
+  try{ sessionStorage.removeItem('ofusa_currentUser'); }catch(e){}
+  // Supabase Auth のキャッシュも掃除(残っていると再ログインで妙な状態になる可能性)
+  try{
+    var keys = Object.keys(localStorage);
+    keys.forEach(function(k){ if(k.indexOf('sb-')===0 || k.indexOf('supabase')>=0) localStorage.removeItem(k); });
+  }catch(e){}
+  try{ currentUser = ''; }catch(e){}
+  try{ if(typeof updateSupabaseUser==='function') updateSupabaseUser(''); }catch(e){}
+  // バナー・スヌーズを解除
+  try{ window._sessBannerSnooze = 0; }catch(e){}
+  try{ var b=document.getElementById('ofusaSysBanner'); if(b) b.style.display='none'; }catch(e){}
+  // ログイン画面表示
+  try{
+    var l = document.getElementById('loginScreen');
+    if(l) l.style.display = 'flex';
+    var sb = document.getElementById('sidebarUser');
+    if(sb) sb.style.display = 'none';
+    if(typeof showAuthStep1==='function') showAuthStep1();
+  }catch(e){}
+  // メールアドレス欄にフォーカス
+  setTimeout(function(){
+    try{ var em=document.getElementById('loginEmail'); if(em) em.focus(); }catch(e){}
+  }, 100);
+}
 // ver.20260731: セッション切れバナーの実表示（自動復帰に失敗したときだけ呼ばれる）
 function _showSessionBanner(el){
   if(Date.now() < (window._sessBannerSnooze||0)) return;
@@ -98388,7 +98437,7 @@ function _showSessionBanner(el){
   el.innerHTML='<span style="font-size:22px;">⚠️</span>'
     +'<div style="flex:1;min-width:0;"><div style="font-size:14px;font-weight:800;color:white;">ログインが切れています（セッション期限切れ）</div>'
     +'<div style="font-size:11px;color:#fecaca;">通知が届かない・移動したメールが復活する・LINE送付済みが見えない等、多くの機能が静かに止まります</div></div>'
-    +'<button onclick="location.reload()" style="flex-shrink:0;font-size:13px;font-weight:800;padding:8px 16px;border-radius:8px;border:none;background:white;color:#dc2626;cursor:pointer;">🔑 再ログインする</button>'
+    +'<button onclick="_forceRelogin()" style="flex-shrink:0;font-size:13px;font-weight:800;padding:8px 16px;border-radius:8px;border:none;background:white;color:#dc2626;cursor:pointer;">🔑 再ログインする</button>'
     +'<button onclick="window._sessBannerSnooze=Date.now()+5*60000;document.getElementById(\'ofusaSysBanner\').style.display=\'none\';" style="flex-shrink:0;font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;border:1.5px solid #f87171;background:#b91c1c;color:#fecaca;cursor:pointer;">5分後に再通知</button>';
   el.style.display='flex';
   console.warn('[sessionBanner] セッション切れを検知（自動復帰も失敗）');
