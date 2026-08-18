@@ -4994,7 +4994,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260819.02';
+var OFUSA_VERSION = 'ver.20260819.03';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -50954,9 +50954,6 @@ function renderCompanyDetail(co){
   if(co.driveUrl) h+=' <a href="'+co.driveUrl+'" target="_blank" style="font-size:11px;background:#e8f0fe;color:#1a73e8;padding:2px 7px;border-radius:5px;text-decoration:none;font-weight:700;" title="Driveフォルダ①">📁</a>';
   if(co.driveUrl2) h+=' <a href="'+co.driveUrl2+'" target="_blank" style="font-size:11px;background:#e8f0fe;color:#1a73e8;padding:2px 7px;border-radius:5px;text-decoration:none;font-weight:700;" title="Driveフォルダ②">📁②</a>';
   if(co.driveUrl) h+=' <button onclick="generateCompanyUploadUrl(\''+co.id+'\',\''+encodeURIComponent(co.name||'')+'\',\''+co.driveUrl+'\')" style="font-size:11px;background:#0f766e;color:white;padding:2px 7px;border-radius:5px;border:none;cursor:pointer;font-weight:700;" title="書類アップロードURL生成">📤 書類UP</button>';
-  // ver.20260819.01: 会社ヘッダーに新規テキスト生成(v3カスケードUI)ボタンを追加
-  // ver.20260819.02: 色を書類UPと合わせた緑に統一 (#0f766e)
-  h+=' <button onclick="openCoInitialTextV3(\''+co.id+'\')" style="font-size:11px;background:#0f766e;color:white;padding:2px 7px;border-radius:5px;border:none;cursor:pointer;font-weight:700;" title="送付内容→案件種別→対象人材をカスケードで選んで初回案内テキストを生成">📝 テキスト生成</button>';
   h+='</div>';
   h+='<div style="display:flex;align-items:center;gap:6px;">';
   // 大房担当者（右上小さめ表示）
@@ -50972,6 +50969,8 @@ function renderCompanyDetail(co){
   h+='<label ondragover="event.preventDefault();this.style.background=\'#dbeafe\';this.style.borderColor=\'var(--blue)\'" ondragleave="this.style.background=\'#f0fdf4\';this.style.borderColor=\'var(--green)\'" ondrop="event.preventDefault();this.style.background=\'#f0fdf4\';this.style.borderColor=\'var(--green)\';handleCompanyDropInto(\''+co.id+'\',event)" style="font-size:11px;padding:5px 12px;background:#f0fdf4;color:var(--green);border:1.5px dashed var(--green);border-radius:6px;cursor:pointer;font-weight:700;display:inline-flex;align-items:center;gap:3px;transition:.15s;">📥 Excel / ドラッグ<input type="file" accept=".xlsx,.xls" onchange="importCompanyExcelInto(\''+co.id+'\',this)" style="display:none;"></label>';
   h+='<button onclick="duplicateCompany(\''+co.id+'\')" style="font-size:11px;padding:5px 12px;background:white;color:var(--blue);border:1.5px solid var(--blue);border-radius:6px;cursor:pointer;font-weight:700;">📋 複製</button>';
   h+='<button onclick="deleteCompany(\''+co.id+'\')" style="font-size:11px;padding:5px 12px;background:white;color:#dc2626;border:1.5px solid #fca5a5;border-radius:6px;cursor:pointer;font-weight:700;">🗑 削除</button>';
+  // ver.20260819.03: テキスト生成ボタンを右上ボタン群に移動 (書類UP・ヒアリングフォーム間の位置)
+  h+='<button onclick="openCoInitialTextV3(\''+co.id+'\')" style="font-size:11px;padding:5px 12px;background:#0f766e;color:white;border:1.5px solid #0f766e;border-radius:6px;cursor:pointer;font-weight:700;" title="送付内容→対象人材をカスケードで選んで初回案内テキストを生成">📝 テキスト生成</button>';
   h+='<button onclick="openCompanyFormUrl(\''+co.id+'\')" style="position:relative;font-size:11px;padding:5px 12px;background:#f0fdf4;color:#16a34a;border:1.5px solid #86efac;border-radius:6px;cursor:pointer;font-weight:700;">📋 ヒアリングフォーム<span id="coFormBadge_'+co.id+'" style="display:none;position:absolute;top:-6px;right:-6px;background:#dc2626;color:white;font-size:9px;font-weight:700;border-radius:9999px;padding:1px 5px;min-width:14px;text-align:center;"></span></button>';
   h+='<button onclick="issueCompanyViewUrl(\''+co.id+'\',\''+encodeURIComponent(co.name||'')+'\')" style="font-size:11px;padding:5px 12px;background:#eff6ff;color:#1d4ed8;border:1.5px solid #93c5fd;border-radius:6px;cursor:pointer;font-weight:700;" title="企業マイページのURL・パスワードを発行">📊 企業マイページ</button>';
   h+='</div></div>';
@@ -73871,6 +73870,7 @@ function openCoInitialTextV3(coId){
     mode: '',   // 'with_person' | 'company_only'
     appType: '',  // 'kensetsu' | 'immig'
     selectedCases: [],
+    previewText: null,  // ver.20260819.03: 生成後プレビュー表示用
     isKensetsu: !!(co.kokkoDriveUrl && String(co.kokkoDriveUrl).trim()),
     recent5: (cData||[])
       .filter(function(c){ return c.company === co.name; })
@@ -73896,6 +73896,9 @@ function _v3RenderPanel(){
   var m = document.getElementById('coInitialTextV3Modal');
   if(!m) return;
   var inner = m.firstChild;
+  // 建設案件でない場合は appType='immig' を自動固定して「案件種別」パネルを省略 (2パネル構成)
+  if(!st.isKensetsu){ st.appType = 'immig'; }
+  var isPreview = !!st.previewText;
   var h = '';
   // ヘッダー
   h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:linear-gradient(135deg,#0f766e,#0d5f5a);color:white;">';
@@ -73906,12 +73909,26 @@ function _v3RenderPanel(){
   if(st.isKensetsu) h += ' <span style="font-size:10.5px;background:#fef3c7;color:#78350f;padding:2px 8px;border-radius:99px;margin-left:6px;font-weight:700;">🏗 建設案件</span>';
   else h += ' <span style="font-size:10.5px;background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:99px;margin-left:6px;font-weight:700;">📄 入管案件</span>';
   h += '</div>';
-  // 3パネル本体
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;flex:1;overflow:hidden;">';
+  if(isPreview){
+    // ver.20260819.03: 生成完了プレビュー (既存 rulesベースと同仕様)
+    h += '<div style="padding:16px 20px;flex:1;overflow-y:auto;">';
+    h += '<div style="background:#d1fae5;border:1.5px solid #10b981;color:#065f46;padding:8px 12px;border-radius:8px;font-size:12px;font-weight:800;margin-bottom:10px;">✅ 生成完了 <span style="font-size:11px;font-weight:600;">— 内容を確認してからコピーしてください</span></div>';
+    h += '<textarea id="v3PreviewTextarea" readonly style="width:100%;min-height:340px;padding:12px;border:1px solid #cbd5e1;border-radius:8px;font-family:ui-monospace,Menlo,monospace;font-size:12px;line-height:1.6;color:#0f172a;background:#f8fafc;resize:vertical;box-sizing:border-box;">'+esc(st.previewText)+'</textarea>';
+    h += '</div>';
+    h += '<div style="padding:12px 20px;background:#f8fafc;border-top:1px solid #e2e8f0;display:flex;gap:8px;">';
+    h += '<button onclick="_v3BackToEdit()" style="font-size:12px;padding:8px 16px;background:white;color:#475569;border:1.5px solid #cbd5e1;border-radius:8px;font-weight:700;cursor:pointer;">← 選択に戻る</button>';
+    h += '<button onclick="_v3CopyPreview()" style="flex:1;font-size:13px;padding:8px 20px;background:#16a34a;color:white;border:none;border-radius:8px;font-weight:800;cursor:pointer;">📋 コピー</button>';
+    h += '</div>';
+    inner.innerHTML = h;
+    return;
+  }
+  // 3パネル or 2パネル (建設以外は「案件種別」を省略)
+  var cols = st.isKensetsu ? '1fr 1fr 1fr' : '1fr 1fr';
+  h += '<div style="display:grid;grid-template-columns:'+cols+';gap:0;flex:1;overflow:hidden;">';
   // パネル1: 送付内容
   h += _v3PanelSend();
-  // パネル2: 案件種別 (建設のみ)
-  h += _v3PanelAppType();
+  // パネル2: 案件種別 (建設案件のみ表示)
+  if(st.isKensetsu) h += _v3PanelAppType();
   // パネル3: 対象人材 (with_person時のみ)
   h += _v3PanelPersons();
   h += '</div>';
@@ -73919,7 +73936,7 @@ function _v3RenderPanel(){
   h += '<div style="padding:12px 20px;background:#f8fafc;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">';
   h += '<div style="font-size:11px;color:#64748b;">'+_v3StatusText()+'</div>';
   var canGen = _v3CanGenerate();
-  h += '<button onclick="_v3Generate()" '+(canGen?'':'disabled')+' style="font-size:13px;padding:8px 20px;background:'+(canGen?'#16a34a':'#cbd5e1')+';color:white;border:none;border-radius:8px;font-weight:800;cursor:'+(canGen?'pointer':'not-allowed')+';">📋 生成してコピー</button>';
+  h += '<button onclick="_v3Generate()" '+(canGen?'':'disabled')+' style="font-size:13px;padding:8px 20px;background:'+(canGen?'#16a34a':'#cbd5e1')+';color:white;border:none;border-radius:8px;font-weight:800;cursor:'+(canGen?'pointer':'not-allowed')+';">📋 生成</button>';
   h += '</div>';
   inner.innerHTML = h;
 }
@@ -74041,7 +74058,10 @@ function _v3StatusText(){
   var st = _V3State;
   var parts = [];
   parts.push(st.mode === 'with_person' ? '👥 企業＋人材' : st.mode === 'company_only' ? '🏢 企業のみ' : '① 未選択');
-  parts.push(st.appType === 'kensetsu' ? '🏗 建設' : st.appType === 'immig' ? '📄 入管' : '② 未選択');
+  // 建設案件のみ「案件種別」を表示
+  if(st.isKensetsu){
+    parts.push(st.appType === 'kensetsu' ? '🏗 建設' : st.appType === 'immig' ? '📄 入管' : '② 未選択');
+  }
   if(st.mode === 'with_person') parts.push('✓ '+st.selectedCases.length+'名');
   return parts.join('  ／  ');
 }
@@ -74132,14 +74152,31 @@ async function _v3Generate(){
   out += '\nご不明な点や、取得にお時間がかかる書類がございましたら、お気軽にご連絡ください。\n';
   out += 'よろしくお願いいたします。\n';
 
+  // ver.20260819.03: 生成テキストをプレビュー表示 (既存 rulesベースと同仕様)。コピーはユーザー操作
+  _V3State.previewText = out;
+  _v3RenderPanel();
+}
+
+// プレビューからコピー実行 (テキストを見て問題なければコピー)
+async function _v3CopyPreview(){
+  var txt = (_V3State && _V3State.previewText) || '';
+  if(!txt) return;
   try{
-    await navigator.clipboard.writeText(out);
+    await navigator.clipboard.writeText(txt);
     showToast('📋 テキストをコピーしました');
     var m = document.getElementById('coInitialTextV3Modal');
     if(m) m.remove();
   }catch(e){
-    alert('コピーに失敗しました:\n\n'+out);
+    // クリップボードAPI失敗時は textarea 経由でフォールバック
+    var ta = document.getElementById('v3PreviewTextarea');
+    if(ta){ ta.select(); try{ document.execCommand('copy'); showToast('📋 テキストをコピーしました'); var m2=document.getElementById('coInitialTextV3Modal'); if(m2) m2.remove(); }catch(e2){ alert('コピーに失敗しました。上のテキストを手動で選択してコピーしてください'); } }
   }
+}
+
+// プレビューから選択画面に戻る (テキスト内容を修正するのに戻る)
+function _v3BackToEdit(){
+  if(_V3State) _V3State.previewText = null;
+  _v3RenderPanel();
 }
 
 function _v3ResolveFormType(c){
