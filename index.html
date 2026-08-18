@@ -4994,7 +4994,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260818.20';
+var OFUSA_VERSION = 'ver.20260819.01';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -50954,6 +50954,8 @@ function renderCompanyDetail(co){
   if(co.driveUrl) h+=' <a href="'+co.driveUrl+'" target="_blank" style="font-size:11px;background:#e8f0fe;color:#1a73e8;padding:2px 7px;border-radius:5px;text-decoration:none;font-weight:700;" title="Driveフォルダ①">📁</a>';
   if(co.driveUrl2) h+=' <a href="'+co.driveUrl2+'" target="_blank" style="font-size:11px;background:#e8f0fe;color:#1a73e8;padding:2px 7px;border-radius:5px;text-decoration:none;font-weight:700;" title="Driveフォルダ②">📁②</a>';
   if(co.driveUrl) h+=' <button onclick="generateCompanyUploadUrl(\''+co.id+'\',\''+encodeURIComponent(co.name||'')+'\',\''+co.driveUrl+'\')" style="font-size:11px;background:#0f766e;color:white;padding:2px 7px;border-radius:5px;border:none;cursor:pointer;font-weight:700;" title="書類アップロードURL生成">📤 書類UP</button>';
+  // ver.20260819.01: 会社ヘッダーに新規テキスト生成(v3カスケードUI)ボタンを追加
+  h+=' <button onclick="openCoInitialTextV3(\''+co.id+'\')" style="font-size:12px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:white;padding:5px 14px;border-radius:8px;border:none;cursor:pointer;font-weight:800;box-shadow:0 2px 6px rgba(124,58,237,.25);" title="送付内容→案件種別→対象人材をカスケードで選んで初回案内テキストを生成">📝 テキスト生成</button>';
   h+='</div>';
   h+='<div style="display:flex;align-items:center;gap:6px;">';
   // 大房担当者（右上小さめ表示）
@@ -73850,6 +73852,301 @@ function openCoDocTextGenerator(coId) {
     return;
   }
   _openCoDocTextGeneratorInner(coId);
+}
+
+// ============================================================
+// ver.20260819.01: 会社ヘッダー「📝 テキスト生成」新規モーダル (v3)
+//   カスケードUI: 送付内容 → 案件種別 → 対象人材 → 生成
+//   建設判定: companies.kokko_drive_url あり = 建設案件
+//   対象人材: 直近5件 (cData filter by company name, desc by createdAt)
+// ============================================================
+var _V3State = { coId:'', mode:'', appType:'', selectedCases:[] };
+
+function openCoInitialTextV3(coId){
+  var co = companies.find(function(c){ return c.id === coId; });
+  if(!co){ showToast('⚠️ 所属機関が見つかりません'); return; }
+  _V3State = {
+    coId: coId,
+    mode: '',   // 'with_person' | 'company_only'
+    appType: '',  // 'kensetsu' | 'immig'
+    selectedCases: [],
+    isKensetsu: !!(co.kokkoDriveUrl && String(co.kokkoDriveUrl).trim()),
+    recent5: (cData||[])
+      .filter(function(c){ return c.company === co.name; })
+      .sort(function(a,b){ return String(b.createdAt||b.created_at||'').localeCompare(String(a.createdAt||a.created_at||'')); })
+      .slice(0, 5)
+  };
+  var m = document.getElementById('coInitialTextV3Modal');
+  if(m) m.remove();
+  m = document.createElement('div');
+  m.id = 'coInitialTextV3Modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  m.onclick = function(e){ if(e.target===m) m.remove(); };
+  var inner = document.createElement('div');
+  inner.style.cssText = 'background:white;border-radius:16px;width:100%;max-width:900px;max-height:90vh;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.35);display:flex;flex-direction:column;';
+  m.appendChild(inner);
+  document.body.appendChild(m);
+  _v3RenderPanel();
+}
+
+function _v3RenderPanel(){
+  var st = _V3State;
+  var co = companies.find(function(c){ return c.id === st.coId; }) || {};
+  var m = document.getElementById('coInitialTextV3Modal');
+  if(!m) return;
+  var inner = m.firstChild;
+  var h = '';
+  // ヘッダー
+  h += '<div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:white;">';
+  h += '<div style="font-size:15px;font-weight:800;">📝 テキスト生成 <span style="font-size:10px;font-weight:600;background:rgba(255,255,255,.2);padding:2px 8px;border-radius:99px;margin-left:6px;">v3</span></div>';
+  h += '<button onclick="document.getElementById(\'coInitialTextV3Modal\').remove()" style="background:rgba(255,255,255,.2);color:white;border:none;font-size:18px;width:28px;height:28px;border-radius:50%;cursor:pointer;">×</button>';
+  h += '</div>';
+  h += '<div style="padding:12px 20px;background:#f8fafc;font-size:12px;color:#0f2040;">🏢 <b>'+esc(co.name||'')+'</b>';
+  if(st.isKensetsu) h += ' <span style="font-size:10.5px;background:#fef3c7;color:#78350f;padding:2px 8px;border-radius:99px;margin-left:6px;font-weight:700;">🏗 建設案件</span>';
+  else h += ' <span style="font-size:10.5px;background:#e0e7ff;color:#3730a3;padding:2px 8px;border-radius:99px;margin-left:6px;font-weight:700;">📄 入管案件</span>';
+  h += '</div>';
+  // 3パネル本体
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;flex:1;overflow:hidden;">';
+  // パネル1: 送付内容
+  h += _v3PanelSend();
+  // パネル2: 案件種別 (建設のみ)
+  h += _v3PanelAppType();
+  // パネル3: 対象人材 (with_person時のみ)
+  h += _v3PanelPersons();
+  h += '</div>';
+  // フッター
+  h += '<div style="padding:12px 20px;background:#f8fafc;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">';
+  h += '<div style="font-size:11px;color:#64748b;">'+_v3StatusText()+'</div>';
+  var canGen = _v3CanGenerate();
+  h += '<button onclick="_v3Generate()" '+(canGen?'':'disabled')+' style="font-size:13px;padding:8px 20px;background:'+(canGen?'#16a34a':'#cbd5e1')+';color:white;border:none;border-radius:8px;font-weight:800;cursor:'+(canGen?'pointer':'not-allowed')+';">📋 生成してコピー</button>';
+  h += '</div>';
+  inner.innerHTML = h;
+}
+
+// パネル1: 送付内容
+function _v3PanelSend(){
+  var st = _V3State;
+  var opts = [
+    { k:'with_person', ic:'👥', ttl:'企業＋人材', sub:'企業案内＋人材のヒアリング/アップロードURLも含める' },
+    { k:'company_only', ic:'🏢', ttl:'企業のみ', sub:'企業ヒアリング/書類アップロードURLのみ' }
+  ];
+  var h = '<div style="border-right:1px solid #e2e8f0;overflow-y:auto;">';
+  h += '<div style="padding:10px 14px;font-size:11px;font-weight:800;color:#64748b;background:#f1f5f9;text-transform:uppercase;letter-spacing:.5px;">① 送付内容</div>';
+  opts.forEach(function(o){
+    var active = st.mode === o.k;
+    h += '<div onclick="_v3SelectSend(\''+o.k+'\')" style="padding:12px 14px;cursor:pointer;border-bottom:1px solid #f1f5f9;background:'+(active?'#ede9fe':'white')+';transition:.15s;" onmouseover="if(!this.dataset.active)this.style.background=\'#faf5ff\'" onmouseout="if(!this.dataset.active)this.style.background=\'white\'" '+(active?'data-active="1"':'')+'>';
+    h += '<div style="display:flex;align-items:center;gap:8px;">';
+    h += '<span style="font-size:18px;">'+o.ic+'</span>';
+    h += '<div style="flex:1;"><div style="font-size:12.5px;font-weight:800;color:#0f2040;">'+o.ttl+'</div>';
+    h += '<div style="font-size:10.5px;color:#64748b;margin-top:2px;line-height:1.4;">'+o.sub+'</div></div>';
+    if(active) h += '<span style="color:#7c3aed;font-weight:800;">▶</span>';
+    h += '</div></div>';
+  });
+  h += '</div>';
+  return h;
+}
+
+// パネル2: 案件種別 (建設案件のみ選択可、入管は自動固定)
+function _v3PanelAppType(){
+  var st = _V3State;
+  var h = '<div style="border-right:1px solid #e2e8f0;overflow-y:auto;">';
+  h += '<div style="padding:10px 14px;font-size:11px;font-weight:800;color:#64748b;background:#f1f5f9;text-transform:uppercase;letter-spacing:.5px;">② 案件種別</div>';
+  if(!st.mode){
+    h += '<div style="padding:20px 14px;text-align:center;color:#94a3b8;font-size:11px;">← 送付内容を選択</div>';
+  } else if(!st.isKensetsu){
+    // 入管固定
+    h += '<div style="padding:12px 14px;background:#e0e7ff;border-bottom:1px solid #f1f5f9;">';
+    h += '<div style="display:flex;align-items:center;gap:8px;">';
+    h += '<span style="font-size:18px;">📄</span>';
+    h += '<div style="flex:1;"><div style="font-size:12.5px;font-weight:800;color:#0f2040;">入管 <span style="font-size:9.5px;background:#4338ca;color:white;padding:1px 6px;border-radius:99px;margin-left:4px;">自動固定</span></div>';
+    h += '<div style="font-size:10.5px;color:#64748b;margin-top:2px;line-height:1.4;">入管申請用の企業情報のみ</div></div>';
+    h += '</div></div>';
+    if(st.appType!=='immig'){ st.appType = 'immig'; }
+  } else {
+    // 建設 or 入管を選ばせる
+    var opts = [
+      { k:'kensetsu', ic:'🏗', ttl:'建設', sub:'kokko_dataup URLと建設書類リストを含める' },
+      { k:'immig', ic:'📄', ttl:'入管', sub:'入管申請用の企業情報のみ' }
+    ];
+    opts.forEach(function(o){
+      var active = st.appType === o.k;
+      h += '<div onclick="_v3SelectAppType(\''+o.k+'\')" style="padding:12px 14px;cursor:pointer;border-bottom:1px solid #f1f5f9;background:'+(active?'#ede9fe':'white')+';transition:.15s;" onmouseover="if(!this.dataset.active)this.style.background=\'#faf5ff\'" onmouseout="if(!this.dataset.active)this.style.background=\'white\'" '+(active?'data-active="1"':'')+'>';
+      h += '<div style="display:flex;align-items:center;gap:8px;">';
+      h += '<span style="font-size:18px;">'+o.ic+'</span>';
+      h += '<div style="flex:1;"><div style="font-size:12.5px;font-weight:800;color:#0f2040;">'+o.ttl+'</div>';
+      h += '<div style="font-size:10.5px;color:#64748b;margin-top:2px;line-height:1.4;">'+o.sub+'</div></div>';
+      if(active) h += '<span style="color:#7c3aed;font-weight:800;">▶</span>';
+      h += '</div></div>';
+    });
+  }
+  h += '</div>';
+  return h;
+}
+
+// パネル3: 対象人材 (with_person時のみ、直近5件)
+function _v3PanelPersons(){
+  var st = _V3State;
+  var h = '<div style="overflow-y:auto;">';
+  h += '<div style="padding:10px 14px;font-size:11px;font-weight:800;color:#64748b;background:#f1f5f9;text-transform:uppercase;letter-spacing:.5px;display:flex;justify-content:space-between;align-items:center;">';
+  h += '<span>③ 対象人材</span>';
+  if(st.mode==='with_person') h += '<span style="font-size:10px;color:#94a3b8;font-weight:600;text-transform:none;letter-spacing:0;">直近5件</span>';
+  h += '</div>';
+  if(st.mode !== 'with_person'){
+    if(st.mode === 'company_only'){
+      h += '<div style="padding:20px 14px;text-align:center;color:#94a3b8;font-size:11px;">「企業のみ」選択時は<br>対象人材の選択は不要です</div>';
+    } else {
+      h += '<div style="padding:20px 14px;text-align:center;color:#94a3b8;font-size:11px;">← 送付内容を選択</div>';
+    }
+  } else if(!st.appType){
+    h += '<div style="padding:20px 14px;text-align:center;color:#94a3b8;font-size:11px;">← 案件種別を選択</div>';
+  } else if(!st.recent5.length){
+    h += '<div style="padding:20px 14px;text-align:center;color:#94a3b8;font-size:11px;">この会社の案件はありません</div>';
+  } else {
+    st.recent5.forEach(function(c){
+      var chk = st.selectedCases.indexOf(c.id) >= 0;
+      var bg = (c.appType==='変更')?'background:#fed7aa;color:#9a3412;':(c.appType==='更新')?'background:#bbf7d0;color:#166534;':'background:#bfdbfe;color:#1e3a8a;';
+      var dt = String(c.createdAt||c.created_at||'').slice(0,10);
+      h += '<label style="display:flex;gap:8px;padding:10px 14px;cursor:pointer;border-bottom:1px solid #f1f5f9;background:'+(chk?'#f0fdf4':'white')+';" onmouseover="if(!this.dataset.chk)this.style.background=\'#f8fafc\'" onmouseout="if(!this.dataset.chk)this.style.background=\'white\'" '+(chk?'data-chk="1"':'')+'>';
+      h += '<input type="checkbox" '+(chk?'checked':'')+' onchange="_v3ToggleCase(\''+c.id+'\')" style="margin-top:3px;flex-shrink:0;">';
+      h += '<div style="flex:1;min-width:0;">';
+      h += '<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:12px;font-weight:700;color:#0f2040;">'+esc(c.applicant||'')+'</span>';
+      h += '<span style="font-size:9.5px;padding:1px 6px;border-radius:99px;font-weight:800;'+bg+'">'+esc(c.appType||'')+'</span></div>';
+      h += '<div style="font-size:10px;color:#94a3b8;margin-top:2px;">'+esc(c.company||'')+' · '+dt+'登録</div>';
+      h += '</div></label>';
+    });
+    var n = st.selectedCases.length;
+    h += '<div style="padding:8px 14px;font-size:11px;font-weight:700;color:'+(n>0?'#059669':'#94a3b8')+';background:#f8fafc;">✓ '+n+'名選択中</div>';
+  }
+  h += '</div>';
+  return h;
+}
+
+function _v3SelectSend(mode){
+  _V3State.mode = mode;
+  if(mode === 'company_only'){ _V3State.selectedCases = []; }
+  // 入管固定なら自動で appType='immig'
+  if(!_V3State.isKensetsu){ _V3State.appType = 'immig'; }
+  _v3RenderPanel();
+}
+function _v3SelectAppType(t){ _V3State.appType = t; _v3RenderPanel(); }
+function _v3ToggleCase(cid){
+  var i = _V3State.selectedCases.indexOf(cid);
+  if(i>=0) _V3State.selectedCases.splice(i,1);
+  else _V3State.selectedCases.push(cid);
+  _v3RenderPanel();
+}
+
+function _v3StatusText(){
+  var st = _V3State;
+  var parts = [];
+  parts.push(st.mode === 'with_person' ? '👥 企業＋人材' : st.mode === 'company_only' ? '🏢 企業のみ' : '① 未選択');
+  parts.push(st.appType === 'kensetsu' ? '🏗 建設' : st.appType === 'immig' ? '📄 入管' : '② 未選択');
+  if(st.mode === 'with_person') parts.push('✓ '+st.selectedCases.length+'名');
+  return parts.join('  ／  ');
+}
+function _v3CanGenerate(){
+  var st = _V3State;
+  if(!st.mode || !st.appType) return false;
+  if(st.mode === 'with_person' && st.selectedCases.length === 0) return false;
+  return true;
+}
+
+// テキスト生成 (シンプル版・書類リストは後日対応)
+async function _v3Generate(){
+  var st = _V3State;
+  if(!_v3CanGenerate()) return;
+  var co = companies.find(function(c){ return c.id === st.coId; }) || {};
+  var repName = String(co.repName||co.rep_name||'').split(/\s|　/)[0] || 'ご担当者';
+  var staffFull = (typeof currentUser !== 'undefined' && currentUser && currentUser.name) ? currentUser.name : '町田';
+  var staff = String(staffFull).split(/\s|　/)[0];
+  var guideTarget = (st.mode === 'with_person')
+    ? '大きく分けて「企業情報」と「人材情報」の2点について、書類の提出および入力のご対応をお願いいたします'
+    : '貴社（企業）情報のご対応をお願いいたします';
+
+  var coFolderId = '';
+  if(st.appType === 'kensetsu' && co.kokkoDriveUrl){
+    var mk = co.kokkoDriveUrl.match(/[-\w]{25,}/);
+    if(mk) coFolderId = mk[0];
+  } else if(co.driveUrl){
+    var mi = co.driveUrl.match(/[-\w]{25,}/);
+    if(mi) coFolderId = mi[0];
+  }
+  var coHearingUrl = FORM_BASE_URL + '?case=' + encodeURIComponent('co_'+co.id) + '&type=company&name=' + encodeURIComponent(co.name||'');
+  var coUploadUrl = coFolderId
+    ? 'https://ofusa2026.github.io/upload/' + (st.appType==='kensetsu'?'kokko_dataup.html':'company_dataup.html')
+      + '?folder=' + coFolderId + '&company=' + encodeURIComponent(co.id||'') + '&name=' + encodeURIComponent(co.name||'')
+      + (typeof _uploadUrlVer==='function' ? _uploadUrlVer() : '')
+    : '';
+
+  // === 本文組み立て ===
+  var out = '';
+  out += (co.name||'') + '\n';
+  out += repName + '様\n\n';
+  out += 'お世話になっております。\n';
+  out += '大房行政書士法人の' + staff + 'と申します。\n';
+  out += '特定技能の申請に関しまして、' + guideTarget + '。\n\n';
+  // 企業パート
+  out += '■ 貴社（企業）に関するご対応\n';
+  out += '申請書類の作成に必要です。以下のURLよりご対応をお願いいたします。\n\n';
+  out += '① 企業情報ヒアリングフォームの入力\n';
+  out += coHearingUrl + '\n\n';
+  if(coUploadUrl){
+    out += '② 必要書類のアップロード\n';
+    out += coUploadUrl + '\n';
+    if(st.appType === 'kensetsu'){
+      out += '※見本・取得方法は上記URLで確認できます。スマートフォンからも可能です。\n';
+    }
+    out += '（【ご用意いただく書類】リストは書類チェックタブでご確認ください）\n\n';
+  }
+  // 人材パート
+  if(st.mode === 'with_person'){
+    st.selectedCases.forEach(function(cid){
+      var c = (cData||[]).find(function(x){ return x.id===cid; });
+      if(!c) return;
+      var pd = (typeof personData !== 'undefined' && personData) ? (personData[cid] || {}) : {};
+      var formType = _v3ResolveFormType(c);
+      var pName = c.applicant || '';
+      var pHearingUrl = FORM_BASE_URL + '?case=' + encodeURIComponent(cid) + '&type=' + formType + '&name=' + encodeURIComponent(pName);
+      var pFolderId = '';
+      if(pd.folderId){ pFolderId = pd.folderId; }
+      else if(pd.driveUrl){ var mp = String(pd.driveUrl).match(/[-\w]{25,}/); if(mp) pFolderId = mp[0]; }
+      var pUploadUrl = pFolderId
+        ? 'https://ofusa2026.github.io/upload/zinzai_dataup.html?folder=' + pFolderId
+          + '&case=' + encodeURIComponent(cid) + '&name=' + encodeURIComponent(pName)
+          + '&appType=' + encodeURIComponent(c.appType||'')
+          + '&nationality=' + encodeURIComponent(c.nationality||pd.nationality||'')
+          + (typeof _uploadUrlVer==='function' ? _uploadUrlVer() : '')
+        : '';
+      out += '\n■ 人材に関するご対応（' + pName + '様）\n';
+      out += '本人へ共有いただき、以下の期限を目安にご対応をお願いいたします。\n\n';
+      out += '① ヒアリングフォーム（本人情報の入力） 【期限：3日以内】\n';
+      out += pHearingUrl + '\n\n';
+      if(pUploadUrl){
+        out += '② 書類のアップロード 【期限：1週間以内】\n';
+        out += pUploadUrl + '\n';
+        out += '※スマートフォンで撮影してそのままアップロード可能です。\n\n';
+      }
+    });
+  }
+  out += '\nご不明な点や、取得にお時間がかかる書類がございましたら、お気軽にご連絡ください。\n';
+  out += 'よろしくお願いいたします。\n';
+
+  try{
+    await navigator.clipboard.writeText(out);
+    showToast('📋 テキストをコピーしました');
+    var m = document.getElementById('coInitialTextV3Modal');
+    if(m) m.remove();
+  }catch(e){
+    alert('コピーに失敗しました:\n\n'+out);
+  }
+}
+
+function _v3ResolveFormType(c){
+  var res = String(c.residenceStatus||'');
+  var app = String(c.appType||'');
+  var base = res.indexOf('技術') >= 0 || res.indexOf('人文知識') >= 0 || res.indexOf('国際業務') >= 0 ? 'gijinkoku' : 'tokutei';
+  var suffix = app.indexOf('更新') >= 0 ? 'koushin' : app.indexOf('変更') >= 0 ? 'henkou' : 'nintei';
+  return base + '_' + suffix;
 }
 
 function _openCoDocTextGeneratorInner(coId) {
