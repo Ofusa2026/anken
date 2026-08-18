@@ -4994,7 +4994,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260818.19';
+var OFUSA_VERSION = 'ver.20260818.20';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -41555,6 +41555,60 @@ function _prefillNonEmpty(obj){
   return out;
 }
 
+// ver.20260818.20: prefillキー→ラベル対応表 (confirm時のプレビュー用)
+var _PREFILL_LABELS_PERSON = {
+  applicantNameEn: '氏名(英)',
+  birthdate: '生年月日',
+  birthPlace: '出生地',
+  nationality: '国籍',
+  gender: '性別',
+  residenceCard: '在留カード番号',
+  passport: 'パスポート番号',
+  passportExpiry: 'パスポート期限',
+  address: '住所',
+  email: 'メール',
+  married: '配偶者',
+  jpEvalType: '日本語評価区分',
+  jpExam1: '日本語試験名',
+  jpExamLoc1: '日本語試験 受験地',
+  skillEvalType: '技能評価区分',
+  gijutsuType: '技能実習2号 職種',
+  gijutsuWork: '技能実習2号 作業',
+  gijutsuProof: '技能実習2号 修了証明',
+  firstEntry: '初回入国判定'
+};
+var _PREFILL_LABELS_COMPANY = {
+  name: '会社名', nameKana: '会社名(カナ)', nameEn: '会社名(英)',
+  corpNo: '法人番号',
+  zip: '郵便番号', pref: '都道府県', city: '市区町村', address: '番地・建物', addressEn: '住所(英)',
+  tel: '電話番号',
+  repName: '代表者名', repNameEn: '代表者名(英)', repTitle: '代表者役職', repTitleEn: '代表者役職(英)',
+  capital: '資本金', employees: '従業員数', foreignEmployees: '外国人従業員数', trainees: '技能実習生数', annualSales: '年間売上',
+  empInsNo: '雇用保険番号', laborInsNo: '労働保険番号',
+  authorName: '作成者名', authorNameEn: '作成者名(英)', authorTitle: '作成者役職',
+  officer1Name: '役員1 氏名', officer1Title: '役員1 役職',
+  officer2Name: '役員2 氏名', officer2Title: '役員2 役職',
+  officer3Name: '役員3 氏名', officer3Title: '役員3 役職'
+};
+
+// 事前入力プレビュー文字列を組み立て (Confirm用・最大10項目)
+function _prefillPreviewText(fields, labelMap){
+  var keys = Object.keys(fields || {});
+  if(!keys.length) return '(事前入力できる情報がありません)';
+  var lines = [];
+  var shown = 0;
+  keys.forEach(function(k){
+    if(shown >= 10) return;
+    var lbl = labelMap[k] || k;
+    var val = String(fields[k]);
+    if(val.length > 40) val = val.substring(0, 37) + '...';
+    lines.push('・' + lbl + ': ' + val);
+    shown++;
+  });
+  if(keys.length > 10) lines.push('・…他' + (keys.length - 10) + '項目');
+  return lines.join('\n');
+}
+
 // 人材(persons)から prefill JSON を組み立て
 function _prefillBuildPerson(caseId){
   var pd = (typeof personData !== 'undefined' && personData) ? (personData[caseId] || {}) : {};
@@ -41646,11 +41700,14 @@ async function _prefillInsertResponse(formCaseId, formType, responseJson){
       .is('submitted_at', null).is('deleted_at', null);
     if(del && del.error) console.warn('[prefill] 既存下書き削除warn:', del.error.message);
     // 新規INSERT
+    // ver.20260818.20: submitted_at のDEFAULT が now() なので、下書き扱いにするには明示的に null 指定が必要
+    //   (トリガー validate_form_response_strict は submitted_at IS NULL の場合スキップされる)
     var ins = await _sb.from('form_responses').insert({
       id: _prefillUuid(),
       case_id: formCaseId,
       form_type: formType,
       response: responseJson,
+      submitted_at: null,
       created_at: new Date().toISOString()
     }).select().single();
     if(ins && ins.error) return { error: ins.error.message || 'insert失敗' };
@@ -41670,7 +41727,8 @@ async function prefillPersonHearing(caseId, formType, alsoCopyUrl){
   if(count === 0){
     if(!confirm('この案件は事前入力できる情報がDBに1件もありません。\n空欄で下書きを作成しますか?（既存の下書きは上書きされます）')) return;
   } else {
-    if(!confirm('📋 人材ヒアリングフォーム 事前入力\n\n対象: '+applicantLabel+'\n\nDBに入っている '+count+' 項目を、フォームに事前入力しますか？\n(氏名・生年月日・パスポート番号など)\n\n※ 既存の下書きは上書きされます\n※ 送信済みレコードは影響を受けません\n※ URLを知られると事前入力情報が閲覧可能になります')) return;
+    var preview = _prefillPreviewText(fields, _PREFILL_LABELS_PERSON);
+    if(!confirm('📋 人材ヒアリングフォーム 事前入力\n\n対象: '+applicantLabel+'\n\nDBに入っている '+count+' 項目をフォームに事前入力します:\n\n'+preview+'\n\n※ 既存の下書きは上書きされます\n※ 送信済みレコードは影響を受けません\n※ URLを知られると事前入力情報が閲覧可能になります\n\nOK で保存して続行、キャンセルで中止')) return;
   }
   showToast('⏳ 事前入力データを保存中...');
   var res = await _prefillInsertResponse(caseId, formType, fields);
@@ -41699,7 +41757,8 @@ async function prefillCompanyHearing(companyId, alsoCopyUrl){
   if(count === 0){
     if(!confirm('この会社は事前入力できる情報がDBに1件もありません。\n空欄で下書きを作成しますか?（既存の下書きは上書きされます）')) return;
   } else {
-    if(!confirm('🏢 企業ヒアリングフォーム 事前入力\n\n対象: '+coLabel+'\n\nDBに入っている '+count+' 項目を、フォームに事前入力しますか？\n(会社名・所在地・代表者名など)\n\n※ 既存の下書きは上書きされます\n※ 送信済みレコードは影響を受けません\n※ URLを知られると事前入力情報が閲覧可能になります')) return;
+    var preview = _prefillPreviewText(fields, _PREFILL_LABELS_COMPANY);
+    if(!confirm('🏢 企業ヒアリングフォーム 事前入力\n\n対象: '+coLabel+'\n\nDBに入っている '+count+' 項目をフォームに事前入力します:\n\n'+preview+'\n\n※ 既存の下書きは上書きされます\n※ 送信済みレコードは影響を受けません\n※ URLを知られると事前入力情報が閲覧可能になります\n\nOK で保存して続行、キャンセルで中止')) return;
   }
   var formCaseId = 'co_' + companyId;
   showToast('⏳ 事前入力データを保存中...');
