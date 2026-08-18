@@ -4933,7 +4933,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260818.08';
+var OFUSA_VERSION = 'ver.20260818.09';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -48119,6 +48119,82 @@ function _renderSupportAuditBox(orgId){
     .catch(function(err){ box.innerHTML='<div style="color:#c0392b;font-size:13px;padding:12px;">履歴取得エラー: '+esc(err.message||String(err))+'</div>'; });
 }
 
+// ver.20260818.09: 登録支援機関マイページ(share.html)からの更新履歴表示
+//   share側で「この内容で保存」→ support_org_edits に1件ずつ INSERT
+//   案シス側で表示 → 各行「✅ 取り込み」or 上部「全部取り込み」で DELETE
+//   support_orgs 本体は share 側で既に UPDATE 済み(取り込みは履歴を消すだけ)
+function _renderSupportOrgEditBox(orgId){
+  var box = document.getElementById('soOrgEditBox');
+  if(!box) return;
+  if(!_sb){ box.innerHTML='<div style="color:#c0392b;font-size:13px;">Supabase未接続</div>'; return; }
+  _sb.from('support_org_edits')
+    .select('id,field_key,field_label,old_value,new_value,edited_by,edited_at,source')
+    .eq('org_id', orgId)
+    .order('edited_at',{ascending:false})
+    .then(function(res){
+      if(res.error) throw new Error(res.error.message);
+      var rows = res.data || [];
+      if(!rows.length){
+        box.innerHTML = '<div style="padding:24px;text-align:center;color:#94a3b8;font-size:13px;">'
+          + '未取り込みのマイページ更新はありません。<br><span style="font-size:11px;color:#cbd5e1;">機関側の share ページで「この内容で保存」が押されると、ここに一覧が出ます。</span>'
+          + '</div>';
+        return;
+      }
+      function fmtAt(s){ try{var d=new Date(s);return d.getFullYear()+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');}catch(e){return s;} }
+      var idsStr = rows.map(function(r){return r.id;}).join(',');
+      var html = '<div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#78350f;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">'
+        + '<div><b>🔔 マイページからの未取り込み更新: '+rows.length+'件</b><br><span style="font-size:11px;color:#92400e;">※ 機関マスタ本体は share 側で既に更新済みです。取り込みボタンは履歴を消すだけです。</span></div>'
+        + '<button onclick="_soOrgEditImportAll(&quot;'+orgId+'&quot;,&quot;'+idsStr+'&quot;)" style="font-size:12px;font-weight:700;padding:8px 16px;background:#16a34a;color:white;border:none;border-radius:8px;cursor:pointer;white-space:nowrap;">✅ すべて取り込み ('+rows.length+')</button>'
+        + '</div>';
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px;">'
+        + '<tr style="background:#eef2f7;color:#475569;">'
+        + '<th style="text-align:left;padding:6px 8px;white-space:nowrap;">更新日時</th>'
+        + '<th style="text-align:left;padding:6px 8px;">項目</th>'
+        + '<th style="text-align:left;padding:6px 8px;">変更前</th>'
+        + '<th style="text-align:left;padding:6px 8px;">変更後</th>'
+        + '<th style="text-align:left;padding:6px 8px;white-space:nowrap;">更新者</th>'
+        + '<th style="text-align:center;padding:6px 8px;white-space:nowrap;">操作</th>'
+        + '</tr>';
+      rows.forEach(function(r){
+        var oldV = r.old_value==null || r.old_value==='' ? '<span style="color:#cbd5e1;">（未入力）</span>' : esc(r.old_value);
+        var newV = r.new_value==null || r.new_value==='' ? '<span style="color:#cbd5e1;">（空欄）</span>' : esc(r.new_value);
+        html += '<tr style="border-bottom:1px solid #f1f5f9;">'
+          + '<td style="padding:6px 8px;color:#64748b;white-space:nowrap;">'+fmtAt(r.edited_at)+'</td>'
+          + '<td style="padding:6px 8px;color:#0f172a;font-weight:700;">'+esc(r.field_label||r.field_key||'')+'</td>'
+          + '<td style="padding:6px 8px;color:#94a3b8;">'+oldV+'</td>'
+          + '<td style="padding:6px 8px;color:#0f172a;">'+newV+'</td>'
+          + '<td style="padding:6px 8px;color:#64748b;font-size:11px;">'+esc(r.edited_by||'')+'</td>'
+          + '<td style="padding:6px 8px;text-align:center;"><button onclick="_soOrgEditImportOne(&quot;'+orgId+'&quot;,'+r.id+')" style="font-size:11px;font-weight:700;padding:4px 10px;background:white;color:#15803d;border:1.5px solid #86efac;border-radius:6px;cursor:pointer;white-space:nowrap;">✅ 取り込み</button></td>'
+          + '</tr>';
+      });
+      html += '</table>';
+      box.innerHTML = html;
+    })
+    .catch(function(err){ box.innerHTML='<div style="color:#c0392b;font-size:13px;padding:12px;">履歴取得エラー: '+esc(err.message||String(err))+'</div>'; });
+}
+
+// ver.20260818.09: 1件取り込み → support_org_edits から DELETE
+function _soOrgEditImportOne(orgId, editId){
+  if(!_sb || !editId) return;
+  _sb.from('support_org_edits').delete().eq('id', editId).then(function(res){
+    if(res.error){ alert('取り込み失敗: '+res.error.message); return; }
+    if(typeof showToast==='function') showToast('✅ 取り込みしました');
+    _renderSupportOrgEditBox(orgId);
+  });
+}
+// ver.20260818.09: 全件取り込み → 該当 org のすべての support_org_edits を DELETE
+function _soOrgEditImportAll(orgId, idsStr){
+  if(!_sb || !orgId) return;
+  var ids = String(idsStr||'').split(',').map(function(s){return parseInt(s,10);}).filter(function(n){return !isNaN(n);});
+  if(!ids.length){ return; }
+  if(!confirm('この機関のマイページ更新履歴 '+ids.length+'件を取り込みますか？\n(履歴一覧から消え、機関マスタ本体はそのままです)')) return;
+  _sb.from('support_org_edits').delete().in('id', ids).then(function(res){
+    if(res.error){ alert('取り込み失敗: '+res.error.message); return; }
+    if(typeof showToast==='function') showToast('✅ '+ids.length+'件を取り込みました');
+    _renderSupportOrgEditBox(orgId);
+  });
+}
+
 function renderSupportDetail(o) {
   try{ _soAutoFillHoursFromForm(o); }catch(e){} // ver.20260723.09: 対応時間等が空なら回答から自動補完
   var el=document.getElementById('supportDetail'); if(!el) return;
@@ -48141,7 +48217,7 @@ function renderSupportDetail(o) {
   var _soTab=window._supportDetailTab||'detail';
   h+='<div style="display:flex;gap:6px;margin-bottom:14px;border-bottom:1px solid var(--gray-200);">';
   // ver.20260727.39: マスタ登録シート（営業部→書類部）のタブを追加
-  [['detail','基本情報'],['comments','💬 コメント・依頼'],['handover','📋 マスタ登録シート'],['audit','📜 変更履歴']].forEach(function(t){
+  [['detail','基本情報'],['comments','💬 コメント・依頼'],['handover','📋 マスタ登録シート'],['audit','📜 変更履歴'],['orgedit','🔔 マイページ更新']].forEach(function(t){
     var _ac=_soTab===t[0];
     h+='<button onclick="window._supportDetailTab=&quot;'+t[0]+'&quot;;renderSupportDetail(supportOrgs.find(function(x){return x.id===&quot;'+o.id+'&quot;;}))" style="font-size:12px;font-weight:700;padding:6px 14px;border:none;border-bottom:2px solid '+(_ac?'var(--navy)':'transparent')+';background:transparent;color:'+(_ac?'var(--navy)':'var(--gray-400)')+';cursor:pointer;">'+t[1]+'</button>';
   });
@@ -48151,6 +48227,15 @@ function renderSupportDetail(o) {
     // ver.20260804: 登録支援機関マスタの変更履歴（audit_logから取得）
     el.innerHTML=h+'<div id="soAuditBox" style="padding:20px;text-align:center;color:#94a3b8;font-size:13px;">変更履歴を読み込み中…</div>';
     _renderSupportAuditBox(o.id);
+    return;
+  }
+  if(_soTab==='orgedit'){
+    // ver.20260818.09: 登録支援機関マイページ(share.html)からの更新履歴
+    //   share側で「この内容で保存」を押すたびに support_org_edits に1件ずつ INSERT される。
+    //   案シス側で「✅ 取り込み」ボタンを押すと support_org_edits から DELETE され履歴が消える。
+    //   support_orgs 本体は share 側で即 UPDATE 済み(取り込みボタンは履歴を消すだけ)。
+    el.innerHTML=h+'<div id="soOrgEditBox" style="padding:20px;text-align:center;color:#94a3b8;font-size:13px;">マイページ更新を読み込み中…</div>';
+    _renderSupportOrgEditBox(o.id);
     return;
   }
   if(_soTab==='handover'){
