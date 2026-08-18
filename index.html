@@ -4933,7 +4933,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260818.01';
+var OFUSA_VERSION = 'ver.20260818.02';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -7679,6 +7679,9 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20260818.02', date:'2026-08-18', notify:true, items:[
+    '🛠 <b>グループ案件の「完了」が一度で反映されない不具合を修正</b>：案件を開いた直後にステータスを変更すると、裏側の再読込に上書きされて一度で反映されないことがありました（グループ案件で顕在化しやすかった）。開いた後の変更を保持するよう修正しました。'
+  ]},
   { version:'ver.20260805.29', date:'2026-08-05', notify:true, items:[
     '📎 <b>登録支援機関の詳細に「別紙」セクションを追加</b>：1-17号（支援計画書）の別紙参照になっている <b>支援責任者名簿・通訳者名簿・支援担当者名簿</b> を、機関の詳細画面で1名ずつ登録・編集できるようにしました。氏名／役職（日本語・英語）・所属・電話番号を入力でき、案シスの支援機関マスタに紙の別紙の中身が保持されます（アイデム・オープンケア協同組合など、別紙で名簿を出している機関で使えます）。'
   ]},
@@ -62366,6 +62369,7 @@ function _progressMemoAiSummary(caseId){
 function openCase(id) {
   _navRecordCurrent();
   window._infoEditMode = false;
+  var _openStartTs = Date.now();   // ver.20260818.02: 裏取得レース対策。開いた後の編集を検知するための基準時刻
   try{ _ensureDocTasksForCase(id); }catch(e){}   // ver.20260805.25
   var c = cData.find(function(x) { return x.id === id; });
   if (!c) { c = {id:id,name:'',status:'',applicant:'',nationality:'',appType:'',team:'',company:'',org:''}; }
@@ -62382,8 +62386,19 @@ function openCase(id) {
            && cData[idx].otherAgencies.kokkoSho_status !== undefined){
           fresh.otherAgencies.kokkoSho_status = cData[idx].otherAgencies.kokkoSho_status;
         }
-        if(idx>=0){ Object.assign(cData[idx], fresh); currentCase = cData[idx]; }
-        else { cData.push(fresh); currentCase = fresh; }
+        // ver.20260818.02: 案件を開いた後にユーザーが編集していたら、
+        //   変更前に投げられた裏取得の古い status で上書きしない
+        //   (グループ案件で開いた直後に「完了」→ 一度目が反映されない不具合対策)
+        var _userEditedSinceOpen = (typeof _recentlyChangedCases !== 'undefined')
+          && _recentlyChangedCases[id] && _recentlyChangedCases[id] >= _openStartTs;
+        var _localStatusBeforeAssign = (idx>=0 && cData[idx]) ? cData[idx].status : null;
+        if(idx>=0){
+          Object.assign(cData[idx], fresh);
+          if(_userEditedSinceOpen && _localStatusBeforeAssign != null){
+            cData[idx].status = _localStatusBeforeAssign;   // ユーザーの直近変更を保持
+          }
+          currentCase = cData[idx];
+        } else { cData.push(fresh); currentCase = fresh; }
         // ステータスタグ・select・ヘッダーを最新値で更新
         var _st = currentCase.status||'';
         // ver.20260812.21: 「●」で始まる正しいステータスバッジを探して更新（旧: 先頭タグ固定→👥teamを壊す不具合）
