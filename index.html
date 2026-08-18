@@ -4933,7 +4933,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260818.11';
+var OFUSA_VERSION = 'ver.20260818.12';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -64826,6 +64826,17 @@ function showTab(tab) {
 
   } else if (tab === 'person') {
     var p = personData[c.id] || {expire: c.expire, nationality: c.nationality};
+    // ver.20260818.12: 分野未設定なら試験情報が正しく出せないためポップアップと警告バナーで通知
+    var _hasField = !!(c.applicantField && String(c.applicantField).trim());
+    if (!_hasField) {
+      var _popKey = '_appfieldPopupShown_' + c.id;
+      if (!window[_popKey]) {
+        window[_popKey] = true;
+        setTimeout(function(){
+          alert('⚠️ この案件は「分野」が未設定です。\n\n介護分野の日本語試験など、分野別の入力項目が表示されません。\n基本情報タブで分野を選択してから、試験情報を入力してください。');
+        }, 350);
+      }
+    }
     // 既存Y/M/D → date文字列変換（後方互換）
     if (!p.contractStart && p.contractStartY && p.contractStartM && p.contractStartD) {
       p.contractStart = p.contractStartY + '-' + String(p.contractStartM).padStart(2,'0') + '-' + String(p.contractStartD).padStart(2,'0');
@@ -65401,10 +65412,13 @@ function showTab(tab) {
         var isGijutsuWork=(f.key==='gijutsuWork');
         var isSkillExam=(f.key==='skillExam1'||f.key==='skillExam2'||f.key==='skillExam3');
         var isStayPeriod=(f.key==='stayPeriod');
+        // ver.20260818.12: 試験情報系のselectをクリックしたとき、分野が空なら警告
+        var _isExamField = /^(skillEvalType|skillExam|skillExamLoc|jpEvalType|jpExam|jpExamLoc|kaigoJp|gijutsuType|gijutsuWork|gijutsuProof)/.test(f.key);
+        var _fieldGuard = _isExamField ? 'onmousedown="_examFieldGuard(\''+c.id+'\',event)" onkeydown="_examFieldGuard(\''+c.id+'\',event)" ' : '';
         // ver.20260812.29: 特殊処理が要らないselectでも onchange で保存する（旧: 空でスキップ→保存されない不具合）
         var _defOc='savePersonField(\''+c.id+'\',\''+f.key+'\',this.value);';
         var _pfOc=autoRe?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');showTab(\'person\')':(isGijutsuType?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');updateGijutsuWorkSelect(this.value,\''+c.id+'\')':isGijutsuWork?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');_autoKokkoKubun((personData[\''+c.id+'\']||{}).gijutsuType||\'\',this.value,\''+c.id+'\');_applyAutoKubun(\''+c.id+'\',false)':isSkillExam?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');setTimeout(function(){_applyAutoKubun(\''+c.id+'\',false);},80)':isStayPeriod?'if(!personData[\''+c.id+'\'])personData[\''+c.id+'\']={}; personData[\''+c.id+'\'][\''+f.key+'\']=this.value;savePerson(\''+c.id+'\');var _ow=document.getElementById(\'pf-stayPeriodOther-wrap\');if(_ow)_ow.style.display=this.value===\'その他\'?\'block\':\'none\';':_defOc);
-        h+='<select id="pf-'+f.key+'" '+(_pfOc?'onchange="'+_pfOc+'" ':'')+' style="width:100%;font-size:12px;padding:5px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;outline:none;">';
+        h+='<select id="pf-'+f.key+'" '+_fieldGuard+(_pfOc?'onchange="'+_pfOc+'" ':'')+' style="width:100%;font-size:12px;padding:5px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;outline:none;">';
         h+='<option value="">— 選択 —</option>';
         var _pOpts=typeof f.opts==='function'?f.opts():(f.opts||[]);_pOpts.forEach(function(o){h+='<option value="'+o+'"'+(o===val?' selected':'')+'>'+o+'</option>';});
         h+='</select>';
@@ -98393,6 +98407,30 @@ function _checkSessionBanner(){
     }
   });
 }
+// ver.20260818.12: 試験情報系のプルダウンをクリック/キー操作した瞬間、
+//   現在の案件で「分野(applicantField)」が未設定なら警告ポップアップを出す。
+//   放置していると介護分野の日本語試験など、分野別入力項目が非表示のままになるため。
+function _examFieldGuard(caseId, e){
+  try{
+    var c = cData.find(function(x){ return x.id === caseId; });
+    if(!c) return;
+    if(c.applicantField && String(c.applicantField).trim()) return;
+    // キー操作: Tab/Shift/Ctrl等の移動系は無視。実際の選択操作(Enter/Space/↓↑)のみ発火
+    if(e && e.type === 'keydown'){
+      var k = e.key || '';
+      if(k !== 'Enter' && k !== ' ' && k !== 'ArrowDown' && k !== 'ArrowUp') return;
+    }
+    // 同時多発防止: 短時間の連続クリックで何度もalertが出ないようにデバウンス
+    var now = Date.now();
+    if(window._examFieldGuardLast && now - window._examFieldGuardLast < 1500) return;
+    window._examFieldGuardLast = now;
+    if(e && typeof e.preventDefault === 'function') e.preventDefault();
+    setTimeout(function(){
+      alert('⚠️ この案件は「分野」が未設定です。\n\n基本情報タブで分野を選択してから、試験情報を入力してください。\n(介護分野などの分野別項目は分野設定後に表示されます)');
+    }, 10);
+  }catch(_e){}
+}
+
 // ver.20260818.11: セッション切れバナーの「🔑 再ログインする」ボタン用処理。
 //   従来の location.reload() は Supabase Auth 側でリフレッシュトークンが
 //   有効なうちは復帰できるが、切れていると anon ロールのまま静かに戻り、
