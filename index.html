@@ -3265,6 +3265,24 @@ details[open] > ._upDocSummary::before { content: '▼ '; }
           </label>
         </div>
         <div id="sbTypeNote" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
+        <!-- ver.20260818.14: ニュース候補一覧から手動選択 -->
+        <div id="sbNewsSelectBox" style="display:none;margin-top:10px;max-width:820px;border:1px solid #e2e8f0;border-radius:10px;background:#f8fafc;padding:12px 14px;">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+            <span style="font-size:12px;font-weight:800;color:#0f172a;">📰 配信するニュースを選択</span>
+            <span id="sbNewsSelectedCount" style="font-size:11px;font-weight:700;color:#7c3aed;background:#ede9fe;padding:2px 8px;border-radius:99px;">0件</span>
+            <button type="button" onclick="_sbNewsCheckAll(true)" style="font-size:11px;color:var(--blue);background:none;border:none;cursor:pointer;font-weight:700;">全選択</button>
+            <button type="button" onclick="_sbNewsCheckAll(false)" style="font-size:11px;color:#94a3b8;background:none;border:none;cursor:pointer;font-weight:700;">全解除</button>
+            <button type="button" onclick="_sbNewsCheckRecent(7)" style="font-size:11px;color:#059669;background:none;border:none;cursor:pointer;font-weight:700;">直近1週間だけ</button>
+            <button type="button" onclick="_sbNewsReload()" style="font-size:11px;color:#64748b;background:none;border:none;cursor:pointer;font-weight:700;">🔄 再読込</button>
+          </div>
+          <div id="sbNewsSelectList" style="max-height:220px;overflow-y:auto;background:white;border:1px solid var(--gray-200);border-radius:8px;padding:6px;">
+            <div style="text-align:center;padding:16px;color:#94a3b8;font-size:12px;">⏳ 読み込み中…</div>
+          </div>
+          <div style="font-size:10.5px;color:#64748b;margin-top:6px;line-height:1.6;">
+            ※ 初期状態は「直近1週間」のニュースが選択されます(現行仕様と同じ)。<br>
+            ※ 追加でチェックすれば1週間より前のものも含められます。全解除すれば「新しいお知らせはございません」文で送付されます。
+          </div>
+        </div>
         <!-- ver.20260708.12: お知らせ(件名・本文 自由入力) -->
         <div id="sbOshiraseInputs" style="display:none;margin-top:10px;max-width:640px;">
           <input type="text" id="sbOshiraseSubject" placeholder="件名（例：年末年始の休業のお知らせ）" style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;margin-bottom:8px;">
@@ -3295,6 +3313,28 @@ details[open] > ._upDocSummary::before { content: '▼ '; }
             </label>
             <div style="font-size:10.5px;color:#64748b;line-height:1.7;padding-left:2px;">※えいしす ステータス「対象外」は除く<br>※案件管理システム 既存登録支援機関は除く</div>
           </div>
+          <!-- ver.20260818.14: O-Linkへの新規投稿 (お知らせタイプのみ有効) -->
+          <div style="display:flex;flex-direction:column;gap:3px;">
+            <label id="sbAlsoOLinkLabel" style="display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border:1.5px solid #86efac;background:#f0fdf4;border-radius:8px;cursor:pointer;">
+              <input type="checkbox" id="sbAlsoOLink" onchange="_sbToggleOLinkOptions()" style="width:16px;height:16px;cursor:pointer;">
+              <span style="font-size:12.5px;font-weight:700;color:#15803d;">📬 O-Linkにも新規投稿する</span>
+            </label>
+            <div style="font-size:10.5px;color:#64748b;line-height:1.7;padding-left:2px;">※ お知らせタイプのみ<br>※ 全機関マイページのニュース欄に載ります</div>
+          </div>
+        </div>
+        <!-- ver.20260818.14: O-Link予約投稿時刻 (即時 or 予約) -->
+        <div id="sbOLinkScheduleBox" style="display:none;margin-top:8px;padding:10px 14px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;max-width:640px;">
+          <label style="font-size:12px;font-weight:800;color:#15803d;display:block;margin-bottom:6px;">📬 O-Link 投稿タイミング</label>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+            <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+              <input type="radio" name="sbOLinkTiming" value="now" checked onchange="_sbToggleOLinkOptions()"> 即時公開
+            </label>
+            <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
+              <input type="radio" name="sbOLinkTiming" value="scheduled" onchange="_sbToggleOLinkOptions()"> 予約公開
+            </label>
+            <input type="datetime-local" id="sbOLinkPublishAt" disabled style="font-size:12px;padding:5px 8px;border:1px solid var(--gray-200);border-radius:6px;">
+          </div>
+          <div style="font-size:10.5px;color:#64748b;margin-top:6px;">予約公開: 指定時刻になると自動で公開されます（時刻はJST基準）。</div>
         </div>
         <div style="font-size:11px;color:#94a3b8;margin-top:6px;">連携済み＝公式（LINE/Chatwork）、未連携＝メールで送付します（二重送信なし・スキップなし）。期限切迫のExcel添付は全機関メールで送付します。</div>
       </div>
@@ -4934,7 +4974,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260818.13';
+var OFUSA_VERSION = 'ver.20260818.14';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -44893,6 +44933,31 @@ function renderSupportBroadcastList(){
   // ver.20260708.12: お知らせタイプのとき件名・本文の入力欄を表示
   var oshInputs = document.getElementById('sbOshiraseInputs');
   if(oshInputs) oshInputs.style.display = (type==='oshirase') ? 'block' : 'none';
+  // ver.20260818.14: ニュース選択UIの表示切替
+  var newsBox = document.getElementById('sbNewsSelectBox');
+  if(newsBox){
+    newsBox.style.display = (type==='news') ? 'block' : 'none';
+    // 初回表示時 or 未ロード時はロード
+    if(type==='news' && !window._sbNewsCandidatesLoaded){
+      _sbNewsReload();
+    }
+  }
+  // ver.20260818.14: O-Linkチェック の有効/無効切替 (お知らせ のみ有効)
+  var olLabel = document.getElementById('sbAlsoOLinkLabel');
+  var olCb = document.getElementById('sbAlsoOLink');
+  if(olLabel && olCb){
+    if(type === 'oshirase'){
+      olLabel.style.opacity = '1';
+      olLabel.style.cursor = 'pointer';
+      olCb.disabled = false;
+    } else {
+      olLabel.style.opacity = '0.4';
+      olLabel.style.cursor = 'not-allowed';
+      olCb.checked = false;
+      olCb.disabled = true;
+      _sbToggleOLinkOptions();
+    }
+  }
 
   var listEl = document.getElementById('supportBroadcastList');
   var orgList = sbBuildOrgList();
@@ -44967,16 +45032,164 @@ function sbFetchRecentNews(targetOrgName){
     // 「直近1週間」のフィルタはここでJS側にて行う。
     _sb.rpc('news_list', { p_audience: isAidem ? 'aidem' : 'all' }).then(function(res){
       if(res.error || !res.data){ resolve([]); return; }
-      var weekAgoMs = Date.now() - 7*86400000;
-      var filtered = (res.data || []).filter(function(n){
-        var t = n.published_at ? new Date(n.published_at).getTime() : 0;
-        return t >= weekAgoMs;
-      });
+      // ver.20260818.14: 手動選択がある場合はそちらを優先。無ければ従来通り直近1週間で自動
+      var selectedIds = window._sbSelectedNewsIds instanceof Set ? window._sbSelectedNewsIds : null;
+      var filtered;
+      if(selectedIds && selectedIds.size > 0){
+        filtered = (res.data || []).filter(function(n){ return selectedIds.has(n.id); });
+      } else if(selectedIds && selectedIds.size === 0 && window._sbNewsCandidatesLoaded){
+        // 明示的に全解除された状態
+        filtered = [];
+      } else {
+        // 従来動作: 直近1週間
+        var weekAgoMs = Date.now() - 7*86400000;
+        filtered = (res.data || []).filter(function(n){
+          var t = n.published_at ? new Date(n.published_at).getTime() : 0;
+          return t >= weekAgoMs;
+        });
+      }
       filtered.sort(function(a,b){ return new Date(b.published_at) - new Date(a.published_at); });
       resolve(filtered);
     }).catch(function(){ resolve([]); });
   });
 }
+
+// ver.20260818.14: ニュース候補リストを読み込み・描画
+function _sbNewsReload(){
+  var listEl = document.getElementById('sbNewsSelectList');
+  if(!listEl) return;
+  listEl.innerHTML = '<div style="text-align:center;padding:16px;color:#94a3b8;font-size:12px;">⏳ 読み込み中…</div>';
+  if(!(DB_READY && typeof _sb!=='undefined' && _sb)){
+    listEl.innerHTML = '<div style="text-align:center;padding:16px;color:#dc2626;font-size:12px;">DB未接続</div>';
+    return;
+  }
+  _sb.rpc('news_list', { p_audience: 'all' }).then(function(res){
+    if(res.error || !res.data){
+      listEl.innerHTML = '<div style="text-align:center;padding:16px;color:#dc2626;font-size:12px;">読み込み失敗</div>';
+      return;
+    }
+    var all = (res.data || []).filter(function(n){ return n.published; });
+    // 直近60日分に絞る (UIが長くなりすぎないよう)
+    var since = Date.now() - 60*86400000;
+    all = all.filter(function(n){
+      var t = n.published_at ? new Date(n.published_at).getTime() : 0;
+      return t >= since;
+    });
+    all.sort(function(a,b){ return new Date(b.published_at) - new Date(a.published_at); });
+    window._sbNewsCandidatesLoaded = true;
+    window._sbNewsCandidates = all;
+    // 初期選択: 直近1週間分を自動チェック
+    var weekAgoMs = Date.now() - 7*86400000;
+    if(!(window._sbSelectedNewsIds instanceof Set)){
+      window._sbSelectedNewsIds = new Set();
+      all.forEach(function(n){
+        var t = n.published_at ? new Date(n.published_at).getTime() : 0;
+        if(t >= weekAgoMs) window._sbSelectedNewsIds.add(n.id);
+      });
+    }
+    _sbRenderNewsSelectList();
+  }).catch(function(){
+    listEl.innerHTML = '<div style="text-align:center;padding:16px;color:#dc2626;font-size:12px;">読み込みエラー</div>';
+  });
+}
+
+function _sbRenderNewsSelectList(){
+  var listEl = document.getElementById('sbNewsSelectList');
+  var cntEl = document.getElementById('sbNewsSelectedCount');
+  if(!listEl) return;
+  var items = window._sbNewsCandidates || [];
+  var selected = window._sbSelectedNewsIds || new Set();
+  if(!items.length){
+    listEl.innerHTML = '<div style="text-align:center;padding:16px;color:#94a3b8;font-size:12px;">直近60日以内のニュースがありません</div>';
+    if(cntEl) cntEl.textContent = '0件';
+    return;
+  }
+  var weekAgoMs = Date.now() - 7*86400000;
+  var h = '';
+  items.forEach(function(n){
+    var t = n.published_at ? new Date(n.published_at).getTime() : 0;
+    var isRecent = t >= weekAgoMs;
+    var d = n.published_at ? new Date(n.published_at) : null;
+    var dateStr = d ? (d.getFullYear()+'/'+('0'+(d.getMonth()+1)).slice(-2)+'/'+('0'+d.getDate()).slice(-2)) : '';
+    var checked = selected.has(n.id);
+    h += '<label style="display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border-bottom:1px solid #f1f5f9;cursor:pointer;'+(checked?'background:#f0fdf4;':'')+'">'
+      + '<input type="checkbox" data-nid="'+esc(n.id)+'" '+(checked?'checked':'')+' onchange="_sbNewsToggle(this)" style="margin-top:3px;flex-shrink:0;">'
+      + '<div style="flex:1;min-width:0;">'
+      + '<div style="font-size:12.5px;font-weight:700;color:#0f172a;overflow:hidden;text-overflow:ellipsis;">'+esc(n.title||'(タイトルなし)')+'</div>'
+      + '<div style="font-size:10.5px;color:'+(isRecent?'#059669':'#94a3b8')+';font-weight:600;margin-top:2px;">'+(isRecent?'🆕 ':'')+dateStr+(isRecent?'（1週間以内）':'')+'</div>'
+      + '</div>'
+      + '</label>';
+  });
+  listEl.innerHTML = h;
+  if(cntEl) cntEl.textContent = selected.size + '件';
+}
+
+function _sbNewsToggle(cb){
+  if(!(window._sbSelectedNewsIds instanceof Set)) window._sbSelectedNewsIds = new Set();
+  var nid = cb.getAttribute('data-nid');
+  if(cb.checked) window._sbSelectedNewsIds.add(nid);
+  else window._sbSelectedNewsIds.delete(nid);
+  var cntEl = document.getElementById('sbNewsSelectedCount');
+  if(cntEl) cntEl.textContent = window._sbSelectedNewsIds.size + '件';
+  // 背景色を軽く更新 (再描画で1本パスするだけ)
+  var lbl = cb.closest('label');
+  if(lbl) lbl.style.background = cb.checked ? '#f0fdf4' : '';
+}
+
+function _sbNewsCheckAll(check){
+  if(!(window._sbSelectedNewsIds instanceof Set)) window._sbSelectedNewsIds = new Set();
+  var items = window._sbNewsCandidates || [];
+  if(check) items.forEach(function(n){ window._sbSelectedNewsIds.add(n.id); });
+  else window._sbSelectedNewsIds.clear();
+  _sbRenderNewsSelectList();
+}
+
+function _sbNewsCheckRecent(days){
+  if(!(window._sbSelectedNewsIds instanceof Set)) window._sbSelectedNewsIds = new Set();
+  window._sbSelectedNewsIds.clear();
+  var items = window._sbNewsCandidates || [];
+  var sinceMs = Date.now() - days*86400000;
+  items.forEach(function(n){
+    var t = n.published_at ? new Date(n.published_at).getTime() : 0;
+    if(t >= sinceMs) window._sbSelectedNewsIds.add(n.id);
+  });
+  _sbRenderNewsSelectList();
+}
+
+// ver.20260818.14: O-Link投稿オプションの表示切替
+function _sbToggleOLinkOptions(){
+  var cb = document.getElementById('sbAlsoOLink');
+  var box = document.getElementById('sbOLinkScheduleBox');
+  if(!cb || !box) return;
+  box.style.display = cb.checked ? 'block' : 'none';
+  var timingRadios = document.querySelectorAll('input[name="sbOLinkTiming"]');
+  var scheduled = false;
+  timingRadios.forEach(function(r){ if(r.checked && r.value==='scheduled') scheduled = true; });
+  var dt = document.getElementById('sbOLinkPublishAt');
+  if(dt) dt.disabled = !scheduled;
+}
+
+// ver.20260818.14: news_posts に新規投稿 (O-Link公開)
+async function _sbCreateOLinkPost(title, body, publishAtIso){
+  if(!(DB_READY && typeof _sb!=='undefined' && _sb)){
+    return { error: 'DB未接続' };
+  }
+  var payload = {
+    title: (title||'').trim(),
+    body: (body||'').trim(),
+    audience: 'support',
+    published: true,
+    published_at: publishAtIso || new Date().toISOString()
+  };
+  try{
+    var res = await _sb.from('news_posts').insert(payload).select().single();
+    if(res && res.error) return { error: res.error.message || 'insert失敗' };
+    return { ok: true, data: res.data };
+  }catch(e){
+    return { error: String(e) };
+  }
+}
+
 
 // 期限切迫（14日以内）の案件を、対象登録支援機関ごとに抽出
 // 在留期限：申請前ステータス（未着手〜★申請）＋他社申請中　が対象
@@ -46116,6 +46329,38 @@ async function generateSupportBroadcastDrafts(){
         document.getElementById('supportBroadcastPreviewModal').style.display = 'none';
         showToast('お知らせの件名と本文を入力してください');
         return;
+      }
+      // ver.20260818.14: O-Link投稿 (最初のループ回のみ1回だけ実行)
+      if(i === 0){
+        var alsoOLink = (document.getElementById('sbAlsoOLink')||{}).checked;
+        if(alsoOLink){
+          var timing = (document.querySelector('input[name="sbOLinkTiming"]:checked')||{}).value || 'now';
+          var publishAtIso;
+          if(timing === 'scheduled'){
+            var dtVal = (document.getElementById('sbOLinkPublishAt')||{}).value || '';
+            if(!dtVal){
+              document.getElementById('supportBroadcastPreviewModal').style.display = 'none';
+              showToast('O-Link 予約時刻を指定してください');
+              return;
+            }
+            var _future = new Date(dtVal);
+            if(isNaN(_future.getTime())){
+              document.getElementById('supportBroadcastPreviewModal').style.display = 'none';
+              showToast('O-Link 予約時刻が不正です');
+              return;
+            }
+            publishAtIso = _future.toISOString();
+          } else {
+            publishAtIso = new Date().toISOString();
+          }
+          var oRes = await _sbCreateOLinkPost(oSub, oBody, publishAtIso);
+          if(oRes && oRes.error){
+            document.getElementById('supportBroadcastPreviewModal').style.display = 'none';
+            alert('❌ O-Link投稿失敗: '+oRes.error);
+            return;
+          }
+          showToast('📬 O-Linkに'+(timing==='scheduled'?'予約':'即時')+'投稿しました');
+        }
       }
       var subject = oSub;
       var body = o.name + ' 御中\n\n'
