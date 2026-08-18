@@ -4994,7 +4994,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260819.03';
+var OFUSA_VERSION = 'ver.20260819.04';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -74082,7 +74082,7 @@ async function _v3Generate(){
   var staff = String(staffFull).split(/\s|　/)[0];
   var guideTarget = (st.mode === 'with_person')
     ? '大きく分けて「企業情報」と「人材情報」の2点について、書類の提出および入力のご対応をお願いいたします'
-    : '貴社（企業）情報のご対応をお願いいたします';
+    : '貴社（企業）情報について、書類の提出および入力のご対応をお願いいたします';
 
   var coFolderId = '';
   if(st.appType === 'kensetsu' && co.kokkoDriveUrl){
@@ -74117,7 +74117,14 @@ async function _v3Generate(){
     if(st.appType === 'kensetsu'){
       out += '※見本・取得方法は上記URLで確認できます。スマートフォンからも可能です。\n';
     }
-    out += '（【ご用意いただく書類】リストは書類チェックタブでご確認ください）\n\n';
+    // ver.20260819.04: 書類リストを埋め込み (_v3BuildCoDocList を使用)
+    var _coDocs = _v3BuildCoDocList(co, st.appType);
+    if(_coDocs.items.length){
+      out += '【ご用意いただく書類】\n';
+      if(_coDocs.hasSlow) out += '★：取得に時間がかかるため、お早めのご準備をお願いいたします。\n';
+      _coDocs.items.forEach(function(d){ out += '  - ' + d + '\n'; });
+    }
+    out += '\n';
   }
   // 人材パート
   if(st.mode === 'with_person'){
@@ -74155,6 +74162,58 @@ async function _v3Generate(){
   // ver.20260819.03: 生成テキストをプレビュー表示 (既存 rulesベースと同仕様)。コピーはユーザー操作
   _V3State.previewText = out;
   _v3RenderPanel();
+}
+
+// ver.20260819.04: 会社の書類リストを appType に応じて取得 (既存 _getCoDocList + coDocCheck を流用)
+//   skip::/staff:: が true のものは除外 (不要マーク or 担当確認済み)
+//   建設(kokko): _kokkoDocNameMap で正式名変換、_kokkoSlowDocs 該当は ★、それ以外は □
+//                先頭に「★ 外国人就労管理システムのログインID＆パスワード」を固定追加
+//   入管(immig): 書類名そのまま □ 付与
+function _v3BuildCoDocList(co, appType){
+  if(!window._coDocTabState) window._coDocTabState = {};
+  var prev = window._coDocTabState[co.id];
+  window._coDocTabState[co.id] = (appType === 'kensetsu') ? 'kokko' : 'immig';
+  var _list = (typeof _getCoDocList === 'function') ? _getCoDocList(co) : [];
+  window._coDocTabState[co.id] = prev;
+  var isKokko = (appType === 'kensetsu');
+  var items = [];
+  var hasSlow = false;
+  if(isKokko){
+    items.push('★ 外国人就労管理システムのログインID＆パスワード');
+    hasSlow = true;
+  }
+  var _cdc = (typeof coDocCheck !== 'undefined' && coDocCheck[co.id]) ? coDocCheck[co.id] : {};
+  var _kokkoSlowDocs = ['4. キャリアアップID','5. 会員証明書','7. 求人票'];
+  var _kokkoDocNameMap = {
+    '1. 履歴事項全部証明書':'履歴事項全部証明書（※個人事業主の場合は住民票）',
+    '2. 建設業許可':'建設業許可証の写し',
+    '3. 標準報酬決定通知書':'健康保険・厚生年金保険被保険者標準報酬決定通知書の写し',
+    '4. キャリアアップID':'建設キャリアアップシステムの事業者IDを確認する書類',
+    '5. 会員証明書':'特定技能外国人受入事業実施法人（JAC）に加入していることを証する書類（加入証明書）',
+    '7. 求人票':'ハローワークの求人票',
+    '9. 就業規則および賃金規程':'就業規則・賃金規定',
+    '10. 賃金台帳':'特定技能外国人と同等の技能を有する日本人の賃金台帳',
+    '11. 経歴書':'特定技能外国人と同等の技能を有する日本人の職務経歴書',
+    '13. 36協定':'36協定届出書',
+    '14. 年間カレンダー':'変形労働時間制に関する協定届出書・労使協定書・年間カレンダー'
+  };
+  (_list||[]).forEach(function(d){
+    if(_cdc['skip::'+d] && _cdc['skip::'+d] !== false) return;
+    if(_cdc['staff::'+d] && _cdc['staff::'+d] !== false) return;
+    if(isKokko){
+      var _exName = _kokkoDocNameMap[d];
+      if(!_exName) return;
+      if(_kokkoSlowDocs.indexOf(d) >= 0){
+        items.push('★ ' + _exName);
+        hasSlow = true;
+      } else {
+        items.push('□ ' + _exName);
+      }
+    } else {
+      items.push('□ ' + d);
+    }
+  });
+  return { items: items, hasSlow: hasSlow };
 }
 
 // プレビューからコピー実行 (テキストを見て問題なければコピー)
