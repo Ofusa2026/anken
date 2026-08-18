@@ -192,7 +192,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260730.18</div>
+      <div class="ver">ver.20260730.19</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -597,6 +597,26 @@ function esc(s){
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 function today(){ return new Date().toISOString().slice(0,10); }
+
+/* 半角⇄全角の正規化ヘルパー（あいまい検索用） */
+function toHankakuAscii(s){
+  return s.replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(c){ return String.fromCharCode(c.charCodeAt(0)-0xFEE0); });
+}
+function toZenkakuAscii(s){
+  return s.replace(/[A-Za-z0-9]/g, function(c){ return String.fromCharCode(c.charCodeAt(0)+0xFEE0); });
+}
+function toZenkakuKana(s){
+  var map={'ｶﾞ':'ガ','ｷﾞ':'ギ','ｸﾞ':'グ','ｹﾞ':'ゲ','ｺﾞ':'ゴ','ｻﾞ':'ザ','ｼﾞ':'ジ','ｽﾞ':'ズ','ｾﾞ':'ゼ','ｿﾞ':'ゾ','ﾀﾞ':'ダ','ﾁﾞ':'ヂ','ﾂﾞ':'ヅ','ﾃﾞ':'デ','ﾄﾞ':'ド','ﾊﾞ':'バ','ﾋﾞ':'ビ','ﾌﾞ':'ブ','ﾍﾞ':'ベ','ﾎﾞ':'ボ','ﾊﾟ':'パ','ﾋﾟ':'ピ','ﾌﾟ':'プ','ﾍﾟ':'ペ','ﾎﾟ':'ポ','ｳﾞ':'ヴ'};
+  var single={'ｦ':'ヲ','ｧ':'ァ','ｨ':'ィ','ｩ':'ゥ','ｪ':'ェ','ｫ':'ォ','ｬ':'ャ','ｭ':'ュ','ｮ':'ョ','ｯ':'ッ','ｰ':'ー','ｱ':'ア','ｲ':'イ','ｳ':'ウ','ｴ':'エ','ｵ':'オ','ｶ':'カ','ｷ':'キ','ｸ':'ク','ｹ':'ケ','ｺ':'コ','ｻ':'サ','ｼ':'シ','ｽ':'ス','ｾ':'セ','ｿ':'ソ','ﾀ':'タ','ﾁ':'チ','ﾂ':'ツ','ﾃ':'テ','ﾄ':'ト','ﾅ':'ナ','ﾆ':'ニ','ﾇ':'ヌ','ﾈ':'ネ','ﾉ':'ノ','ﾊ':'ハ','ﾋ':'ヒ','ﾌ':'フ','ﾍ':'ヘ','ﾎ':'ホ','ﾏ':'マ','ﾐ':'ミ','ﾑ':'ム','ﾒ':'メ','ﾓ':'モ','ﾔ':'ヤ','ﾕ':'ユ','ﾖ':'ヨ','ﾗ':'ラ','ﾘ':'リ','ﾙ':'ル','ﾚ':'レ','ﾛ':'ロ','ﾜ':'ワ','ﾝ':'ン'};
+  var out=s.replace(/(.)(ﾞ|ﾟ)/g,function(m,a,b){return map[a+b]||((single[a]||a)+b);});
+  out=out.replace(/[ｦ-ﾝｰ]/g,function(c){return single[c]||c;});
+  return out;
+}
+function searchVariants(kw){
+  var set={};
+  [kw, toZenkakuKana(toHankakuAscii(kw)), toZenkakuAscii(kw)].forEach(function(x){ x=(x||'').trim(); if(x) set[x]=1; });
+  return Object.keys(set);
+}
 function el(id){ return document.getElementById(id); }
 function showMsg(id,txt,cls){ var m=el(id); m.textContent=txt; m.className='msg '+(cls||''); if(!txt) m.className='msg'; }
 
@@ -741,11 +761,15 @@ function buildQuery(forCount){
   var q = _sb.from('eigyo_leads').select('*', { count: forCount ? 'exact' : undefined });
   var kw = el('fQ').value.trim();
   if(kw){
-    // PostgRESTのor構文を壊す文字を除去
-    var safe = kw.replace(/[,()*"\\]/g,' ').trim();
-    if(safe){
-      q = q.or('reg_no.ilike.*'+safe+'*,name.ilike.*'+safe+'*,address.ilike.*'+safe+'*,rep_name.ilike.*'+safe+'*,tel.ilike.*'+safe+'*');
-    }
+    // 半角⇄全角のあいまい検索：複数表記でOR検索
+    var variants = searchVariants(kw);
+    var orParts = [];
+    variants.forEach(function(v){
+      var safe = v.replace(/[,()*"\\]/g,' ').trim();
+      if(!safe) return;
+      ['reg_no','name','address','rep_name','tel'].forEach(function(col){ orParts.push(col+'.ilike.*'+safe+'*'); });
+    });
+    if(orParts.length){ q = q.or(orParts.join(',')); }
   }
   q = applyPrefFilter(q);
   if(el('fStatus').value) q = q.eq('status', el('fStatus').value);
