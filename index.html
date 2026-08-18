@@ -4994,7 +4994,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260818.18';
+var OFUSA_VERSION = 'ver.20260818.19';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -41476,6 +41476,7 @@ function openCompanyFormUrl(coId) {
     + '<button onclick="(function(){var el=document.getElementById(\'coFormUrlInput\');navigator.clipboard.writeText(el.value).then(function(){showToast(\'URLをコピーしました\');});document.getElementById(\'coFormModal\').remove();})()" style="flex-shrink:0;padding:8px 14px;background:#16a34a;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">コピー</button>'
     + '</div>'
     + '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">'
+    + '<button onclick="prefillCompanyHearing(\'' + coId + '\',true);document.getElementById(\'coFormModal\').remove();" title="DBに入っている企業情報を事前入力してからURLをコピーします" style="padding:8px 16px;background:#f0fdf4;color:#15803d;border:1.5px solid #86efac;border-radius:8px;font-size:12px;font-weight:800;cursor:pointer;">🎯 事前入力＋コピー</button>'
     + '<button onclick="genCoFormText(\'' + coId + '\')" style="padding:8px 16px;background:#059669;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📝 テキスト生成</button>'
     + '<button onclick="window.open(\'' + url + '\',\'_blank\');document.getElementById(\'coFormModal\').remove();" style="padding:8px 16px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">ブラウザで開く</button>'
     + '<button onclick="checkCoFormResponses(\'' + coId + '\');document.getElementById(\'coFormModal\').remove();" style="padding:8px 16px;background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🔄 回答確認</button>'
@@ -41532,6 +41533,191 @@ function checkCoFormResponses(coId) {
     el.innerHTML = h;
   });
 }
+// ver.20260818.19: ヒアリングフォーム事前入力機能
+//   案件管理システムのDBに入っている情報を、フォームURL送付前に
+//   form_responses に「下書き」としてINSERTする。
+//   フォームを開いた時点でDB情報が事前入力された状態になる。
+//
+//   - 人材ヒアリング: caseId をkeyに persons データから prefill
+//   - 企業ヒアリング: 'co_'+companyId をkeyに companies データから prefill
+//   - 既存の下書き(submitted_at=null)があれば deleted_at=now で退避 → 新規INSERT
+//   - 空値/nullは JSON から除外
+
+// 空でない値だけ残すヘルパー
+function _prefillNonEmpty(obj){
+  var out = {};
+  Object.keys(obj||{}).forEach(function(k){
+    var v = obj[k];
+    if(v === null || v === undefined) return;
+    if(typeof v === 'string' && v.trim() === '') return;
+    out[k] = v;
+  });
+  return out;
+}
+
+// 人材(persons)から prefill JSON を組み立て
+function _prefillBuildPerson(caseId){
+  var pd = (typeof personData !== 'undefined' && personData) ? (personData[caseId] || {}) : {};
+  var c = (typeof cData !== 'undefined' && cData) ? cData.find(function(x){return x.id===caseId;}) : null;
+  var firstEntryVal = '';
+  // 在留資格から初回入国判定 (技能実習→「これから特定技能になる」, 特定技能→「既に特定技能」)
+  var res = String((c && c.residenceStatus) || pd.residenceStatus || '');
+  if(res.indexOf('技能実習') >= 0) firstEntryVal = 'これから特定技能になる';
+  else if(res.indexOf('特定技能') >= 0) firstEntryVal = '既に特定技能';
+  return _prefillNonEmpty({
+    applicantNameEn: pd.applicantNameEn || pd.applicantName || (c && c.applicant) || '',
+    birthdate: pd.birthdate || '',
+    birthPlace: pd.birthPlace || '',
+    nationality: pd.nationality || (c && c.nationality) || '',
+    gender: pd.gender || '',
+    residenceCard: pd.residenceCard || '',
+    passport: pd.passport || '',
+    passportExpiry: pd.passportExpiry || '',
+    address: pd.address || pd.jpDetailAddress || '',
+    email: pd.email || '',
+    married: pd.spouse || '',
+    jpEvalType: pd.jpEvalType || '',
+    jpExam1: pd.jpExam1 || '',
+    jpExamLoc1: pd.jpExamLoc1 || '',
+    skillEvalType: pd.skillEvalType || '',
+    gijutsuType: pd.gijutsuType || '',
+    gijutsuWork: pd.gijutsuWork || '',
+    gijutsuProof: pd.gijutsuProof || '',
+    firstEntry: firstEntryVal
+  });
+}
+
+// 企業(companies)から prefill JSON を組み立て
+function _prefillBuildCompany(companyId){
+  var co = (typeof companies !== 'undefined' && companies) ? companies.find(function(x){return x.id===companyId;}) : null;
+  if(!co) return {};
+  var officers = Array.isArray(co.officers) ? co.officers : [];
+  var officerFields = {};
+  for(var i=0; i<Math.min(3, officers.length); i++){
+    officerFields['officer'+(i+1)+'Name'] = officers[i].name || '';
+    officerFields['officer'+(i+1)+'Title'] = officers[i].title || '';
+  }
+  return _prefillNonEmpty(Object.assign({
+    name: co.name || '',
+    nameKana: co.nameKana || co.name_kana || '',
+    nameEn: co.nameEn || co.name_en || '',
+    corpNo: co.corpNo || co.corp_no || '',
+    zip: co.zip || '',
+    pref: co.pref || '',
+    city: co.city || '',
+    address: co.detailAddress || co.detail_address || co.address || '',
+    addressEn: co.addressEn || co.address_en || '',
+    tel: co.tel || '',
+    repName: co.repName || co.rep_name || '',
+    repNameEn: co.repNameEn || co.rep_name_en || '',
+    repTitle: co.repTitle || co.rep_title || '',
+    repTitleEn: co.repTitleEn || co.rep_title_en || '',
+    capital: co.capital || '',
+    employees: co.employees || '',
+    foreignEmployees: co.foreignEmployees || co.foreign_employees || '',
+    trainees: co.techTrainees || co.tech_trainees || '',
+    annualSales: co.sales || '',
+    empInsNo: co.empInsNo || co.emp_ins_no || '',
+    laborInsNo: co.laborInsNo || co.labor_ins_no || '',
+    authorName: co.authorName || co.author_name || '',
+    authorNameEn: co.authorNameEn || co.author_name_en || '',
+    authorTitle: co.authorTitle || co.author_title || ''
+  }, officerFields));
+}
+
+// UUIDv4 生成
+function _prefillUuid(){
+  if(typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c){
+    var r = Math.random()*16|0, v = c==='x' ? r : (r&0x3|0x8);
+    return v.toString(16);
+  });
+}
+
+// form_responses に prefill を INSERT (既存下書きは論理削除)
+async function _prefillInsertResponse(formCaseId, formType, responseJson){
+  if(!(DB_READY && typeof _sb !== 'undefined' && _sb)){
+    return { error: 'DB未接続' };
+  }
+  try{
+    // 既存の下書き(未送信) を論理削除
+    var del = await _sb.from('form_responses').update({ deleted_at: new Date().toISOString() })
+      .eq('case_id', formCaseId).eq('form_type', formType)
+      .is('submitted_at', null).is('deleted_at', null);
+    if(del && del.error) console.warn('[prefill] 既存下書き削除warn:', del.error.message);
+    // 新規INSERT
+    var ins = await _sb.from('form_responses').insert({
+      id: _prefillUuid(),
+      case_id: formCaseId,
+      form_type: formType,
+      response: responseJson,
+      created_at: new Date().toISOString()
+    }).select().single();
+    if(ins && ins.error) return { error: ins.error.message || 'insert失敗' };
+    return { ok: true, data: ins.data };
+  }catch(e){
+    return { error: String(e) };
+  }
+}
+
+// メイン: 人材ヒアリングを prefill する
+async function prefillPersonHearing(caseId, formType, alsoCopyUrl){
+  var c = (typeof cData !== 'undefined' && cData) ? cData.find(function(x){return x.id===caseId;}) : null;
+  if(!c){ showToast('案件が見つかりません'); return; }
+  var applicantLabel = c.applicant || c.name || caseId;
+  var fields = _prefillBuildPerson(caseId);
+  var count = Object.keys(fields).length;
+  if(count === 0){
+    if(!confirm('この案件は事前入力できる情報がDBに1件もありません。\n空欄で下書きを作成しますか?（既存の下書きは上書きされます）')) return;
+  } else {
+    if(!confirm('📋 人材ヒアリングフォーム 事前入力\n\n対象: '+applicantLabel+'\n\nDBに入っている '+count+' 項目を、フォームに事前入力しますか？\n(氏名・生年月日・パスポート番号など)\n\n※ 既存の下書きは上書きされます\n※ 送信済みレコードは影響を受けません\n※ URLを知られると事前入力情報が閲覧可能になります')) return;
+  }
+  showToast('⏳ 事前入力データを保存中...');
+  var res = await _prefillInsertResponse(caseId, formType, fields);
+  if(res && res.error){
+    alert('❌ 事前入力に失敗しました\n\n'+res.error);
+    return;
+  }
+  showToast('✅ 事前入力を保存しました ('+count+'項目)');
+  if(alsoCopyUrl){
+    var url = FORM_BASE_URL + '?case=' + encodeURIComponent(caseId) + '&type=' + formType + '&name=' + encodeURIComponent(c.applicant||c.name||'');
+    url = _appendAidemSrc(url, c && c.org);
+    try{
+      await navigator.clipboard.writeText(url);
+      setTimeout(function(){ showToast('📋 URLをコピーしました'); }, 800);
+    }catch(e){}
+  }
+}
+
+// メイン: 企業ヒアリングを prefill する
+async function prefillCompanyHearing(companyId, alsoCopyUrl){
+  var co = (typeof companies !== 'undefined' && companies) ? companies.find(function(x){return x.id===companyId;}) : null;
+  if(!co){ showToast('会社が見つかりません'); return; }
+  var coLabel = co.name || companyId;
+  var fields = _prefillBuildCompany(companyId);
+  var count = Object.keys(fields).length;
+  if(count === 0){
+    if(!confirm('この会社は事前入力できる情報がDBに1件もありません。\n空欄で下書きを作成しますか?（既存の下書きは上書きされます）')) return;
+  } else {
+    if(!confirm('🏢 企業ヒアリングフォーム 事前入力\n\n対象: '+coLabel+'\n\nDBに入っている '+count+' 項目を、フォームに事前入力しますか？\n(会社名・所在地・代表者名など)\n\n※ 既存の下書きは上書きされます\n※ 送信済みレコードは影響を受けません\n※ URLを知られると事前入力情報が閲覧可能になります')) return;
+  }
+  var formCaseId = 'co_' + companyId;
+  showToast('⏳ 事前入力データを保存中...');
+  var res = await _prefillInsertResponse(formCaseId, 'company', fields);
+  if(res && res.error){
+    alert('❌ 事前入力に失敗しました\n\n'+res.error);
+    return;
+  }
+  showToast('✅ 事前入力を保存しました ('+count+'項目)');
+  if(alsoCopyUrl){
+    var url = FORM_BASE_URL + '?case=' + encodeURIComponent(formCaseId) + '&type=company&name=' + encodeURIComponent(co.name||'');
+    try{
+      await navigator.clipboard.writeText(url);
+      setTimeout(function(){ showToast('📋 URLをコピーしました'); }, 800);
+    }catch(e){}
+  }
+}
+
 function copyFormUrl(caseId, type) {
   var el = document.getElementById((type==='person'?'personFormUrl_':'companyFormUrl_') + caseId);
   if (!el) return;
@@ -65193,10 +65379,12 @@ function showTab(tab) {
     h += '<option value="gijinkoku_henkou"' + (_pFormType==='gijinkoku_henkou'?' selected':'') + '>技人国・変更</option>';
     h += '</select>';
     h += '</div>';
-    h += '<div style="display:flex;gap:6px;align-items:center;">';
-    h += '<input id="pPersonFormUrl_' + c.id + '" type="text" value="' + esc(_pPersonFormUrl) + '" readonly style="flex:1;font-size:10px;padding:5px 8px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;color:#374151;">';
+    h += '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">';
+    h += '<input id="pPersonFormUrl_' + c.id + '" type="text" value="' + esc(_pPersonFormUrl) + '" readonly style="flex:1;min-width:200px;font-size:10px;padding:5px 8px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb;color:#374151;">';
     h += '<button onclick="(function(){var el=document.getElementById(\'pPersonFormUrl_' + c.id + '\');navigator.clipboard.writeText(el.value).then(function(){showToast(\'📋 URLをコピーしました\');});})()" style="flex-shrink:0;font-size:10px;padding:5px 10px;background:#4f46e5;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">コピー</button>';
     h += '<button onclick="window.open(document.getElementById(\'pPersonFormUrl_' + c.id + '\').value,\'_blank\')" style="flex-shrink:0;font-size:10px;padding:5px 10px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;">開く</button>';
+    // ver.20260818.19: 事前入力ボタン (DBの人材情報をform_responsesに投入してからURLコピー)
+    h += '<button onclick="prefillPersonHearing(\'' + c.id + '\',(document.getElementById(\'pFormTypeSelect_' + c.id + '\')||{}).value||\'' + _pFormType + '\',true)" title="DBに入っている人材情報を事前入力してからURLをコピーします" style="flex-shrink:0;font-size:10px;padding:5px 10px;background:#f0fdf4;color:#15803d;border:1.5px solid #86efac;border-radius:6px;cursor:pointer;font-weight:700;">🎯 事前入力＋コピー</button>';
     h += '</div>';
     h += '<div id="formResponseBadge_p_' + c.id + '" style="margin-top:6px;"></div>';
     h += '</div></div>';
