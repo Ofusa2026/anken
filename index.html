@@ -3331,7 +3331,7 @@ details[open] > ._upDocSummary::before { content: '▼ '; }
               <input type="checkbox" id="sbCh_mail" checked onchange="renderSupportBroadcastList();_sbUpdateSelectedCount();" style="width:16px;height:16px;cursor:pointer;">
               <span style="font-size:12.5px;font-weight:800;color:#0c447c;">📧 メール</span>
             </label>
-            <div style="font-size:10.5px;color:#64748b;line-height:1.7;padding-left:2px;">支援機関に登録のメール宛<br><span style="color:#0891b2;">※公式+メール両方ON=未連携はメールに自動振替</span></div>
+            <div style="font-size:10.5px;color:#64748b;line-height:1.7;padding-left:2px;">支援機関に登録のメール宛<br><span style="color:#0891b2;">※公式+メール両方ON=登録がある方すべてに送付（両方あれば両方）</span></div>
           </div>
           <!-- ④ えいしす -->
           <div style="display:flex;flex-direction:column;gap:3px;">
@@ -4994,7 +4994,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260819.04';
+var OFUSA_VERSION = 'ver.20260819.05';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -46564,7 +46564,7 @@ async function generateSupportBroadcastDrafts(){
     }
   }
   // ver.20260818.16: 送信チャネル (公式/メール) 未選択チェック。えいしす・O-Linkは付随なので単独では成立しない
-  var _mainCh = (typeof _sbSelectedChannel==='function') ? _sbSelectedChannel() : 'smart';
+  var _mainCh = (typeof _sbSelectedChannel==='function') ? _sbSelectedChannel() : 'both';
   _alsoOL = !!(document.getElementById('sbAlsoOLink')||{}).checked;
   var _alsoEi = !!(document.getElementById('sbAlsoMail')||{}).checked;
   if(_mainCh === 'none' && !_alsoOL && !_alsoEi){
@@ -46725,14 +46725,16 @@ async function sbSendBroadcast(){
   var isDeadline = (_sbType === 'deadline'); // 期限切迫はExcel添付のため全員メール（公式は添付不可）
   var officialable = isDeadline ? [] : items.filter(function(it){ var l=_sbOrgLinks(it.org.id); return (l.line.length + l.cw.length) > 0; });
   var _offIds = {}; officialable.forEach(function(it){ _offIds[it.org.id] = 1; });
-  // ver.20260810.20: 「メールアドレスにも送付」ON時は、連携済みの機関にも（メールがあれば）メールを追加送信する。
-  //   ※「未成約・既存以外」の絞り込みは、えいしすステータスの定義が決まってから追加予定（現状は対象を絞らず全機関）。
+  // ver.20260819.05: チャネル判定を尊重。both/mail はメール登録があれば必ず送る
+  //   (連携済みでも除外しない=マックス等「公式もメールも登録あり」の機関にメールが届かない問題への対応)
+  var _ch = (typeof _sbSelectedChannel==='function') ? _sbSelectedChannel() : 'both';
   var _alsoMail = !!(document.getElementById('sbAlsoMail') && document.getElementById('sbAlsoMail').checked);
   var mailable = items.filter(function(it){
     if(it.emails.length === 0) return false;
-    if(isDeadline) return true;        // 期限切迫は全員メール
-    if(_alsoMail) return true;          // メールにも送付ON → 連携済みでもメール
-    return !_offIds[it.org.id];         // 通常は未連携のみメール
+    if(isDeadline) return true;                          // 期限切迫は全員メール
+    if(_ch === 'both' || _ch === 'mail') return true;    // 両方送付/メールのみ → 登録あれば必ずメール
+    if(_alsoMail) return true;                            // (えいしす等の付随送付)
+    return !_offIds[it.org.id];                           // official のときだけ従来どおり未連携のみ
   });
   var doMail = mailable.length > 0;
   var doOfficial = officialable.length > 0;
@@ -47039,16 +47041,19 @@ async function _sbSendOfficialForOrg(org, bodyText, sentBy){
   return results;
 }
 function _sbSelectedChannel(){
-  // ver.20260818.16: 4チャネル独立化に伴い、公式/メールの2チェックボックスから判定
-  //   両方ON  → 'smart' (連携済み=公式・未連携=メール自動振替、旧「both」相当)
+  // ver.20260819.05: 4チャネル独立化に伴い、公式/メールの2チェックボックスから判定
+  //   両方ON  → 'both' (登録がある経路すべてに送付。連携済みでもメールを除外しない)
   //   公式のみ→ 'official' (未連携機関はスキップ)
   //   メールのみ→ 'mail' (連携機関でもメール送信)
   //   両方OFF → 'none' (バリデーションで停止)
+  //   ※ 旧 'smart' (連携済み=公式・未連携=メール排他) は廃止。マックス等
+  //     「公式もメールも登録あり」の機関にメールが届かない問題があったため、
+  //     登録がある方すべてに送る仕様に恒久変更。
   var oCb = document.getElementById('sbCh_official');
   var mCb = document.getElementById('sbCh_mail');
   var o = oCb ? !!oCb.checked : true;
   var m = mCb ? !!mCb.checked : true;
-  if(o && m) return 'smart';
+  if(o && m) return 'both';
   if(o) return 'official';
   if(m) return 'mail';
   return 'none';
