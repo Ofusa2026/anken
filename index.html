@@ -5056,7 +5056,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260819.20';
+var OFUSA_VERSION = 'ver.20260819.21';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -48850,44 +48850,45 @@ function soCopySummary(orgId){
 }
 
 // ver.20260819.20: マスタ登録シート完了通知を決まった LINE グループへ送信
-//   settings.so_notify_line_group (LINEグループ名) は全機関共通・初回のみ入力
-//   line_send_queue に INSERT → Mac側 line_sender.py が自動送信
+// ver.20260819.21: 送信先を line_send_queue の履歴から自動決定 (settings 廃止)
+//   line_send_queue から「【登録支援機関マスタ登録 完了のご連絡】」で始まる直近1件の
+//   group_name を採用。無ければ初回入力。
 async function soSendLineNotify(orgId){
   var o=(typeof supportOrgs!=='undefined'?supportOrgs:[]).find(function(x){ return x.id===orgId; });
   if(!o) return;
   if(!(DB_READY && typeof _sb!=='undefined' && _sb)){
     showToast('⚠️ DB未接続'); return;
   }
-  // 送信先LINEグループ名を settings から取得
+  // 送信先LINEグループ名を line_send_queue のログから取得 (直近の同種送信)
   var groupName = '';
   try{
-    var r = await _sb.from('settings').select('value').eq('key','so_notify_line_group').maybeSingle();
-    if(r.data && r.data.value){
-      try{ groupName = JSON.parse(r.data.value); }catch(e){ groupName = String(r.data.value); }
+    var r = await _sb.from('line_send_queue')
+      .select('group_name')
+      .like('message', '【登録支援機関マスタ登録 完了のご連絡】%')
+      .order('created_at', {ascending:false})
+      .limit(1)
+      .maybeSingle();
+    if(r && r.data && r.data.group_name){
+      groupName = r.data.group_name;
     }
   }catch(e){}
-  // 未設定なら初回入力モーダル
+  // 履歴なし → 初回入力
   if(!groupName){
-    var input = prompt('📤 送信先のLINEグループ名を入力してください\n\n（このグループ名は全ての登録支援機関で共通で使われます。\n以降このボタンを押した時はこのグループへ自動送信されます。）\n\n※ グループ名はLINE上の表示名と完全一致させてください', '');
-    if(!input){ showToast('キャンセルしました'); return; }
-    var ins = await _sb.from('settings').upsert({key:'so_notify_line_group', value:JSON.stringify(input.trim())},{onConflict:'key'});
-    if(ins.error){ alert('設定保存に失敗しました\n'+ins.error.message); return; }
+    var input = prompt('📤 送信先のLINEグループ名を入力してください\n\n（初回のみ入力。次回以降は送信履歴から自動で使われます）\n※ LINE上の表示名と完全一致させてください', '');
+    if(!input || !input.trim()){ showToast('キャンセルしました'); return; }
     groupName = input.trim();
-    showToast('✅ 送信先グループを設定しました');
   }
   // 送信内容
   var txt = soBuildSummary(o);
-  // 確認 (「⚙️ 送信先を変更」もここでオプション提示)
-  if(!confirm('📤 LINEグループ「'+groupName+'」に完了通知を送信します。\n\n■ 送信内容:\n'+txt+'\n\nよろしいですか？\n\n(送信先を変更したい場合はキャンセル→再クリック時に選択、または右下メニューから)')){
+  // 確認
+  if(!confirm('📤 LINEグループ「'+groupName+'」に完了通知を送信します。\n\n■ 送信内容:\n'+txt+'\n\nよろしいですか？')){
     // キャンセル時、送信先変更の希望を確認
-    if(confirm('送信先を変更しますか？\n（現在: '+groupName+'）')){
+    if(confirm('送信先を変更しますか？\n（現在: '+groupName+'）\n\n※ 変更内容は送信履歴に記録され、次回以降デフォルトとして使われます')){
       var newInput = prompt('新しい送信先LINEグループ名を入力してください', groupName);
-      if(newInput){
-        await _sb.from('settings').upsert({key:'so_notify_line_group', value:JSON.stringify(newInput.trim())},{onConflict:'key'});
-        showToast('✅ 送信先を変更しました。もう一度「📤 LINEグループへ送信」を押してください');
-      }
-    }
-    return;
+      if(!newInput || !newInput.trim()) return;
+      groupName = newInput.trim();
+      if(!confirm('新しい送信先「'+groupName+'」に送信しますか？')) return;
+    } else return;
   }
   // line_send_queue に INSERT
   showToast('⏳ 送信キューに追加中...');
