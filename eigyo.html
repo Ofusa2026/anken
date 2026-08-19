@@ -192,7 +192,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260730.26</div>
+      <div class="ver">ver.20260730.27</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -971,6 +971,10 @@ function renderDrawer(){
 
   el('dBody').innerHTML =
     '<div id="dMsg" class="msg"></div>'
+  + '<div style="margin-bottom:12px;padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;display:flex;align-items:center;gap:10px;justify-content:space-between;">'
+  +   '<span style="font-size:12.5px;color:#166534;">契約が決まったら、案シスの登録支援機関マスタに登録できます。</span>'
+  +   '<button class="btn btn-sm btn-primary" style="white-space:nowrap;" onclick="registerToMaster()">🏢 登録支援機関マスタに登録</button>'
+  + '</div>'
   + '<div class="sec"><h3>営業管理</h3><div class="form">'
   +   '<label>ステータス</label><select id="eStatus">'+STATUSES.map(function(s){return '<option'+(s===x.status?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
   +   '<label>担当者</label><select id="eStaff"><option value="">（未設定）</option>'
@@ -1114,6 +1118,35 @@ function saveLead(){
     showMsg('dMsg','保存しました','ok');
     Object.keys(patch).forEach(function(k){ curLead[k]=patch[k]; });
     load();
+  });
+}
+
+// 案シスの登録支援機関マスタ(support_orgs)に登録する
+function registerToMaster(){
+  if(!curLead){ return; }
+  var lead = curLead;
+  _sb.from('support_orgs').select('id,name').eq('reg_no', lead.reg_no).then(function(r){
+    if(r.error){ showMsg('dMsg','確認に失敗しました：'+r.error.message,'err'); return; }
+    var exists = (r.data && r.data.length>0);
+    if(exists){
+      if(!confirm('この登録支援機関はすでに案シスのマスタに登録があります（'+(r.data[0].name||'')+'）。\n\nそれでも新しく登録しますか？\n（通常はキャンセルしてください）')){ return; }
+    } else {
+      if(!confirm('「'+lead.name+'」を案シスの登録支援機関マスタに登録します。よろしいですか？')){ return; }
+    }
+    var newId = 's'+Date.now();
+    var row = {
+      id: newId, reg_no: lead.reg_no || null, name: lead.name || '',
+      reg_date: lead.reg_date || null, zip: lead.zip || null, pref: lead.pref || null,
+      city: lead.city || null, address: lead.address || null, tel: lead.tel || null,
+      rep_name: lead.rep_name || null, languages: lead.languages || null,
+      supporter_count: lead.supporter_count!=null ? String(lead.supporter_count) : null,
+      offices: lead.offices || null, memo: lead.memo || null, updated_at: new Date().toISOString()
+    };
+    _sb.from('support_orgs').insert(row).then(function(ins){
+      if(ins.error){ showMsg('dMsg','登録に失敗しました：'+ins.error.message,'err'); return; }
+      showMsg('dMsg','案シスの登録支援機関マスタに登録しました（ID: '+newId+'）','ok');
+      _sb.from('eigyo_leads').update({is_client:true}).eq('reg_no', lead.reg_no).then(function(){ curLead.is_client=true; load(); });
+    });
   });
 }
 
