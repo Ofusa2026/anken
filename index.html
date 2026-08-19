@@ -5056,7 +5056,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260819.28';
+var OFUSA_VERSION = 'ver.20260819.31';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -34490,6 +34490,8 @@ function _showAzukariTrackingModal(caseId, azukariUrl){
       }
       if(typeof logCaseAction==='function') logCaseAction(caseId, 'info_save', '郵送交付 紐付け（預かり証）');
       if(typeof showToast==='function') showToast('✅ 郵送交付を紐付けました');
+      // ver.20260819.29: 紐づけ時にステータスを自動で「郵送交付中」に変更
+      if(typeof _lpAutoUpdateStatus==='function') await _lpAutoUpdateStatus([caseId]);
     }catch(e){ if(typeof showToast==='function') showToast('紐付けエラー: '+e.message); }
     document.getElementById('_azuSelWrap').innerHTML = _renderSelSection();
     _bind();
@@ -34573,6 +34575,8 @@ function _showAzukariTrackingModal(caseId, azukariUrl){
       _selRec = rec;
       if(typeof showToast==='function') showToast('✅ 郵送交付を作成・紐付けしました');
       if(typeof renderLetterpackList === 'function'){ try{ renderLetterpackList(); }catch(e){} }
+      // ver.20260819.29: 紐づけ時にステータスを自動で「郵送交付中」に変更
+      if(typeof _lpAutoUpdateStatus==='function') await _lpAutoUpdateStatus([caseId]);
     }catch(e){ if(typeof showToast==='function') showToast('作成エラー: '+e.message); return; }
     document.getElementById('_azuSelWrap').innerHTML = _renderSelSection();
     _bind();
@@ -96181,6 +96185,36 @@ function _lpRenderDestChips(){
 function _lpToggleDest(idx){var o=LP_DEST_OPTIONS[idx];var i=_lpDestSel.indexOf(o);if(i>=0)_lpDestSel.splice(i,1);else _lpDestSel.push(o);_lpRenderDestChips();}
 async function lpLoadRecords(){if(!DB_READY)return;var res=await _sb.from('letterpack_records').select('*').order('created_at',{ascending:false});if(res.error){console.error('lp load err:',res.error);return;}lpRecords=(res.data||[]).map(function(r){return{id:r.id,sendNo:r.send_no||'',recvNo:r.recv_no||'',sendDate:r.send_date||'',recvDate:r.recv_date||'',memo:r.memo||'',caseIds:r.case_ids||[],createdAt:r.created_at||'',sendPhotoPath:r.send_photo_path||'',recvPhotoPath:r.recv_photo_path||'',preshipPhotoPath:r.preship_photo_path||'',receiptCheck:r.receipt_check||null,dest:r.dest||[],recipientConfirmedAt:r.recipient_confirmed_at||null};});renderLetterpackList();}
 async function lpSaveRecord(rec){var row={send_no:rec.sendNo||null,recv_no:rec.recvNo||null,send_date:rec.sendDate||null,recv_date:rec.recvDate||null,memo:rec.memo||null,case_ids:rec.caseIds||[],send_photo_path:rec.sendPhotoPath||null,recv_photo_path:rec.recvPhotoPath||null,preship_photo_path:rec.preshipPhotoPath||null,receipt_check:rec.receiptCheck||null,dest:rec.dest||[],recipient_confirmed_at:rec.recipientConfirmedAt||null};var res;if(rec.id){row.id=rec.id;res=await _sb.from('letterpack_records').upsert(row,{onConflict:'id'});}else{res=await _sb.from('letterpack_records').insert(row).select();if(!res.error&&res.data&&res.data[0])rec.id=res.data[0].id;}if(res.error){showToast('保存エラー: '+res.error.message);return null;}return rec.id;}
+// ver.20260819.29: 郵送交付に紐づけた案件のステータスを「郵送交付中」に自動変更
+//   ★郵送交付 or 郵送交付 のケースのみ対象 (他ステータスは変更しない安全策)
+async function _lpAutoUpdateStatus(caseIds){
+  if(!caseIds || !caseIds.length) return 0;
+  if(!(DB_READY && typeof _sb!=='undefined' && _sb)) return 0;
+  var targets = [];
+  caseIds.forEach(function(cid){
+    var c = (typeof cData!=='undefined'?cData:[]).find(function(x){ return x.id === cid; });
+    if(c && (c.status === '★郵送交付' || c.status === '郵送交付')){
+      targets.push(cid);
+    }
+  });
+  if(!targets.length) return 0;
+  try{
+    var r = await _sb.from('cases').update({status:'郵送交付中'}).in('id', targets);
+    if(r.error){ return 0; }
+    targets.forEach(function(cid){
+      var c = cData.find(function(x){ return x.id === cid; });
+      if(c){
+        var oldSt = c.status;
+        c.status = '郵送交付中';
+        if(typeof logCaseAction==='function') logCaseAction(cid, 'info_save', 'ステータス自動変更: '+oldSt+' → 郵送交付中 (郵送交付紐づけ時)');
+      }
+    });
+    try{ if(typeof renderCases==='function') renderCases(); }catch(e){}
+    if(typeof showToast==='function') showToast('✅ '+targets.length+'件のステータスを「郵送交付中」に変更しました');
+    return targets.length;
+  }catch(e){ return 0; }
+}
+
 async function lpDeleteRecord(id){if(!confirm('削除しますか？'))return;var rec=lpRecords.find(function(r){return r.id===id;});if(rec&&rec.caseIds&&rec.caseIds.length){await _sb.from('cases').update({letterpack_id:null}).in('id',rec.caseIds);rec.caseIds.forEach(function(cid){var c=cData.find(function(x){return x.id===cid;});if(c)c.letterpackId=null;});}await _sb.from('letterpack_records').delete().eq('id',id);lpRecords=lpRecords.filter(function(r){return r.id!==id;});renderLetterpackList();showToast('削除しました');}
 function openLetterpack(){switchPanel('letterpackScreen','nav-letterpack');lpSwitchMainTab('lp');lpLoadRecords();renderLpMailPanel();}
 
@@ -99065,7 +99099,7 @@ async function saveLpRecord(){var sendNo=document.getElementById('lp_send_no').v
   if(typeof _lpPreshipPhotoB64!=='undefined'&&_lpPreshipPhotoB64){
     try{var pp='letterpack/preship_'+_ts+'.jpg';await new Promise(function(res){storageUploadBase64('documents',pp,_lpPreshipPhotoB64.split(',')[1],_lpPreshipPhotoMime||'image/jpeg',function(d,e){if(!e)rec.preshipPhotoPath=pp;res();});});}catch(e){console.error('preship upload',e);}
   }
-  var savedId=await lpSaveRecord(rec);if(!savedId)return;rec.id=savedId;var idx=lpRecords.findIndex(function(r){return r.id===savedId;});if(idx>=0)lpRecords[idx]=rec;else lpRecords.unshift(rec);if(lpLinkedIds.length){await _sb.from('cases').update({letterpack_id:savedId}).in('id',lpLinkedIds);lpLinkedIds.forEach(function(cid){var c=cData.find(function(x){return x.id===cid;});if(c){c.letterpackId=savedId;logCaseAction(cid,'info_save','郵送交付登録');}});}closeLpModal();renderLetterpackList();showToast('保存しました');}
+  var savedId=await lpSaveRecord(rec);if(!savedId)return;rec.id=savedId;var idx=lpRecords.findIndex(function(r){return r.id===savedId;});if(idx>=0)lpRecords[idx]=rec;else lpRecords.unshift(rec);if(lpLinkedIds.length){await _sb.from('cases').update({letterpack_id:savedId}).in('id',lpLinkedIds);lpLinkedIds.forEach(function(cid){var c=cData.find(function(x){return x.id===cid;});if(c){c.letterpackId=savedId;logCaseAction(cid,'info_save','郵送交付登録');}});/* ver.20260819.29: 紐づけ時にステータス自動変更 */if(typeof _lpAutoUpdateStatus==='function')await _lpAutoUpdateStatus(lpLinkedIds);}closeLpModal();renderLetterpackList();showToast('保存しました');}
 // ===== /郵送交付管理 =====
 
 // ===== 要追完/指摘メール =====
