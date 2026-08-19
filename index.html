@@ -1139,6 +1139,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <div class="news-tab" id="newsTab_sent" onclick="newsSwitchTab('sent')" style="padding:10px 14px;cursor:pointer;font-size:13px;font-weight:700;border-bottom:2px solid transparent;color:#64748b;white-space:nowrap;">📤 配信済み <span id="newsCnt_sent" style="font-size:11px;color:#0ea5e9;font-weight:800;"></span></div>
     <div class="news-tab" id="newsTab_reject" onclick="newsSwitchTab('reject')" style="padding:10px 14px;cursor:pointer;font-size:13px;font-weight:700;border-bottom:2px solid transparent;color:#64748b;white-space:nowrap;">🗑 不採用 <span id="newsCnt_reject" style="font-size:11px;color:#94a3b8;font-weight:800;"></span></div>
     <div class="news-tab" id="newsTab_pub" onclick="newsSwitchTab('pub')" style="padding:10px 14px;cursor:pointer;font-size:13px;font-weight:700;border-bottom:2px solid transparent;color:#64748b;white-space:nowrap;">🗂️ 配信管理 <span id="newsCnt_pub" style="font-size:11px;color:#64748b;font-weight:800;"></span></div>
+    <!-- ver.20260819.17: 送信ログタブ追加 (support_broadcast_log から表示) -->
+    <div class="news-tab" id="newsTab_log" onclick="newsSwitchTab('log')" style="padding:10px 14px;cursor:pointer;font-size:13px;font-weight:700;border-bottom:2px solid transparent;color:#64748b;white-space:nowrap;">📊 送信ログ <span id="newsCnt_log" style="font-size:11px;color:#0891b2;font-weight:800;"></span></div>
   </div>
 
   <!-- 候補タブ -->
@@ -1159,6 +1161,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   <!-- 公開済みタブ -->
   <div id="newsPubBody" style="display:none;flex:1;overflow:auto;padding:12px 16px;background:#f8fafc;">
     <div id="newsPubList"></div>
+  </div>
+  <!-- ver.20260819.17: 送信ログタブの中身 (support_broadcast_log から表示) -->
+  <div id="newsLogBody" style="display:none;flex:1;overflow:auto;padding:12px 16px;background:#f8fafc;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+      <div style="font-size:11.5px;color:#475569;line-height:1.6;">実際に登録支援機関へ送信された履歴です。<span style="color:#0891b2;font-weight:700;">配信内容・配信方法・配信先</span>を確認できます。</div>
+      <button onclick="_sbLoadBroadcastLogs()" style="font-size:11px;padding:5px 12px;border:1px solid #cbd5e1;background:white;border-radius:6px;cursor:pointer;font-weight:700;">🔄 再読込</button>
+    </div>
+    <div id="newsLogList"><div style="text-align:center;padding:40px;color:#94a3b8;">⏳ 読み込み中…</div></div>
   </div>
 </div>
 
@@ -3276,14 +3286,18 @@ details[open] > ._upDocSummary::before { content: '▼ '; }
 <div class="modal-overlay" id="supportBroadcastModal" onclick="if(event.target===this)closeSupportBroadcastModal()">
   <div class="case-modal-box" style="width:70vw;max-width:70vw;">
     <div class="case-header" style="position:relative;">
-      <div class="case-header-name">📨 配信</div>
+      <!-- ver.20260819.17: 戻り方明確化 - 左に「← 戻る」ボタン -->
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button onclick="closeSupportBroadcastModal()" title="案件一覧に戻る" style="background:rgba(255,255,255,0.15);border:none;color:white;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">← 戻る</button>
+        <div class="case-header-name" style="margin:0;">📨 配信</div>
+      </div>
       <button onclick="closeSupportBroadcastModal()" title="閉じる" style="position:absolute;top:16px;right:20px;background:rgba(255,255,255,0.15);border:none;color:white;width:32px;height:32px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:5;">✕</button>
     </div>
     <div style="padding:18px 24px;overflow-y:auto;flex:1;">
       <!-- ver.20260819.15: ナビ帯撤去、代わりに「採用ニュースから挿入」バーに集約 -->
       <div style="margin-bottom:14px;">
         <label style="font-size:12px;font-weight:700;color:var(--gray-400);display:block;margin-bottom:6px;">配信内容</label>
-        <div style="display:flex;gap:8px;max-width:480px;">
+        <div style="display:flex;gap:8px;">
           <label style="display:flex;align-items:center;gap:6px;padding:8px 16px;border:1.5px solid var(--gray-200);border-radius:8px;cursor:pointer;flex:1;justify-content:center;" id="sb_type_oshirase_label">
             <input type="radio" name="sb_type" id="sb_type_oshirase" value="oshirase" onchange="renderSupportBroadcastList()" checked> 📢 お知らせ・ニュース
           </label>
@@ -3293,7 +3307,7 @@ details[open] > ._upDocSummary::before { content: '▼ '; }
         </div>
         <div id="sbTypeNote" style="font-size:11px;color:#94a3b8;margin-top:6px;"></div>
         <!-- ver.20260708.12: お知らせ(件名・本文 自由入力) -->
-        <div id="sbOshiraseInputs" style="display:none;margin-top:10px;max-width:820px;">
+        <div id="sbOshiraseInputs" style="display:none;margin-top:10px;">
           <input type="text" id="sbOshiraseSubject" placeholder="件名（例：年末年始の休業のお知らせ）" style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;margin-bottom:8px;">
           <textarea id="sbOshiraseBody" placeholder="本文を入力してください（各社に同じ内容が送信されます。宛名『○○ 御中』と署名は自動で付きます）" style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--gray-200);border-radius:8px;min-height:120px;resize:vertical;font-family:inherit;"></textarea>
           <!-- ver.20260818.15: ニュース候補から挿入UI (お知らせと統合) -->
@@ -3367,7 +3381,7 @@ details[open] > ._upDocSummary::before { content: '▼ '; }
           </div>
         </div>
         <!-- ver.20260818.14: O-Link予約投稿時刻 (即時 or 予約) -->
-        <div id="sbOLinkScheduleBox" style="display:none;margin-top:8px;padding:10px 14px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;max-width:640px;">
+        <div id="sbOLinkScheduleBox" style="display:none;margin-top:8px;padding:10px 14px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;">
           <label style="font-size:12px;font-weight:800;color:#15803d;display:block;margin-bottom:6px;">📬 O-Link 投稿タイミング</label>
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
             <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;">
@@ -5042,7 +5056,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260819.16';
+var OFUSA_VERSION = 'ver.20260819.17';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -15244,7 +15258,8 @@ function openHaishinJudgePage(){
 function openHaishinHistoryPage(){
   closeSupportBroadcastModal();
   switchPanel('newsScreen','nav-news');
-  newsSwitchTab('sent');
+  // ver.20260819.17: 「履歴」ボタンから送信ログタブへ (support_broadcast_log)
+  newsSwitchTab('log');
   if(!_newsRows.length) newsReload();
 }
 
@@ -15273,24 +15288,97 @@ var _NEWS_TAB_STAGES = {
   reject: ['reject']
 };
 
+// ver.20260819.17: 送信ログを support_broadcast_log から取得して表示
+async function _sbLoadBroadcastLogs(){
+  var list = document.getElementById('newsLogList');
+  if(!list) return;
+  list.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8;">⏳ 読み込み中…</div>';
+  if(!(DB_READY && typeof _sb !== 'undefined' && _sb)){
+    list.innerHTML = '<div style="text-align:center;padding:40px;color:#dc2626;">DB未接続</div>';
+    return;
+  }
+  try{
+    var res = await _sb.from('support_broadcast_log')
+      .select('id,org_id,org_name,broadcast_type,sent_at,case_count,triggered_by,status,error,subject,detail')
+      .order('sent_at', {ascending:false})
+      .limit(200);
+    if(res.error){
+      list.innerHTML = '<div style="text-align:center;padding:40px;color:#dc2626;">読み込みエラー: '+esc(res.error.message||'')+'</div>';
+      return;
+    }
+    var rows = res.data || [];
+    // カウント更新
+    var cntEl = document.getElementById('newsCnt_log');
+    if(cntEl) cntEl.textContent = '('+rows.length+')';
+    if(!rows.length){
+      list.innerHTML = '<div style="text-align:center;padding:40px;color:#94a3b8;">送信ログはまだありません</div>';
+      return;
+    }
+    // sent_at (day) でグループ化
+    var groups = {};
+    rows.forEach(function(r){
+      var d = String(r.sent_at||'').slice(0,10);
+      if(!groups[d]) groups[d] = [];
+      groups[d].push(r);
+    });
+    var days = Object.keys(groups).sort().reverse();
+    var h = '';
+    days.forEach(function(d){
+      h += '<div style="font-size:13px;font-weight:800;color:#0f2040;margin:14px 0 6px;padding-bottom:4px;border-bottom:2px solid #cbd5e1;">📅 '+d+' <span style="font-weight:600;color:#64748b;font-size:11px;">('+groups[d].length+'件)</span></div>';
+      groups[d].forEach(function(r){
+        var tm = String(r.sent_at||'').slice(11,16);
+        var typeLabel = r.broadcast_type === 'oshirase' ? '📢 お知らせ' : r.broadcast_type === 'news' ? '📰 ニュース' : r.broadcast_type === 'deadline' ? '⏰ 期限切迫' : '📤 '+esc(r.broadcast_type||'不明');
+        var typeBg = r.broadcast_type === 'oshirase' ? '#dbeafe' : r.broadcast_type === 'news' ? '#dcfce7' : r.broadcast_type === 'deadline' ? '#fed7aa' : '#f1f5f9';
+        var typeColor = r.broadcast_type === 'oshirase' ? '#1e40af' : r.broadcast_type === 'news' ? '#166534' : r.broadcast_type === 'deadline' ? '#9a3412' : '#475569';
+        var stColor = r.status === 'success' ? '#16a34a' : r.status === 'error' ? '#dc2626' : '#64748b';
+        var stLabel = r.status === 'success' ? '✅ 成功' : r.status === 'error' ? '❌ エラー' : '⚙️ '+esc(r.status||'');
+        h += '<div style="background:white;border:1px solid #e2e8f0;border-radius:8px;padding:10px 14px;margin-bottom:6px;">';
+        h += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">';
+        h += '<span style="font-size:11.5px;font-weight:700;color:#64748b;">'+tm+'</span>';
+        h += '<span style="font-size:10.5px;font-weight:800;background:'+typeBg+';color:'+typeColor+';padding:2px 8px;border-radius:5px;">'+typeLabel+'</span>';
+        h += '<span style="font-size:10.5px;font-weight:800;color:'+stColor+';">'+stLabel+'</span>';
+        if(r.triggered_by) h += '<span style="font-size:10.5px;color:#94a3b8;">by '+esc(r.triggered_by)+'</span>';
+        h += '<span style="font-size:10.5px;font-weight:700;color:#0891b2;margin-left:auto;">→ '+esc(r.org_name||r.org_id||'—')+'</span>';
+        h += '</div>';
+        if(r.subject) h += '<div style="font-size:12.5px;font-weight:700;color:#0f2040;margin-top:4px;">'+esc(r.subject)+'</div>';
+        if(r.detail){
+          var detailShort = String(r.detail);
+          if(detailShort.length > 200) detailShort = detailShort.substring(0,200)+'...';
+          h += '<div style="font-size:11px;color:#475569;margin-top:3px;line-height:1.5;white-space:pre-wrap;">'+esc(detailShort)+'</div>';
+        }
+        if(r.case_count) h += '<div style="font-size:10.5px;color:#64748b;margin-top:3px;">📋 案件件数: '+r.case_count+'</div>';
+        if(r.error) h += '<div style="font-size:10.5px;color:#dc2626;margin-top:3px;background:#fee2e2;padding:4px 8px;border-radius:4px;">⚠️ '+esc(r.error)+'</div>';
+        h += '</div>';
+      });
+    });
+    list.innerHTML = h;
+  }catch(e){
+    list.innerHTML = '<div style="text-align:center;padding:40px;color:#dc2626;">エラー: '+esc(String(e))+'</div>';
+  }
+}
+
 function newsSwitchTab(which){
   _newsTab = which || 'cand';
   var cand = document.getElementById('newsCandBody');
   var pub  = document.getElementById('newsPubBody');
+  var log  = document.getElementById('newsLogBody');
   var on   = 'border-bottom:2px solid #2563eb;color:#2563eb;';
   var off  = 'border-bottom:2px solid transparent;color:#64748b;';
   var base = 'padding:10px 14px;cursor:pointer;font-size:13px;font-weight:700;white-space:nowrap;';
 
-  ['cand','sched','sent','reject','pub'].forEach(function(k){
+  ['cand','sched','sent','reject','pub','log'].forEach(function(k){
     var el = document.getElementById('newsTab_'+k);
     if(el) el.setAttribute('style', base + (k===_newsTab ? on : off));
   });
 
   if(_newsTab === 'pub'){
-    cand.style.display='none'; pub.style.display='block';
+    cand.style.display='none'; pub.style.display='block'; if(log) log.style.display='none';
     renderNewsPublished();
+  } else if(_newsTab === 'log'){
+    cand.style.display='none'; pub.style.display='none'; if(log) log.style.display='block';
+    _sbLoadBroadcastLogs();
   } else {
-    cand.style.display='block'; pub.style.display='none';
+    cand.style.display='block'; pub.style.display='none'; if(log) log.style.display='none';
     renderNewsCand();
   }
 }
