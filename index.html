@@ -5056,7 +5056,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260819.21';
+var OFUSA_VERSION = 'ver.20260819.23';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -48749,11 +48749,17 @@ function _soHandoverHtml(o){
   if(team==='書類部'){
     h+='<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:9px;padding:11px 13px;font-size:12.5px;color:#166534;line-height:1.8;">✅ <b>書類部に移っています</b>'
       +(d.moved_at?('<br><span style="font-size:11px;color:#15803d;">'+esc(String(d.moved_at).slice(0,10))+' '+esc(d.moved_by||'')+'</span>'):'')+'</div>';
-    h+='<button onclick="soSendLineNotify(\''+o.id+'\')" style="margin-top:8px;width:100%;padding:10px;background:#06c755;color:white;border:none;border-radius:9px;font-size:12.5px;font-weight:800;cursor:pointer;">📤 LINEグループへ送信</button>';
+    h+='<div style="margin-top:8px;display:flex;gap:6px;">';
+    h+='<button onclick="soSendLineNotify(\''+o.id+'\')" style="flex:1;padding:10px;background:#06c755;color:white;border:none;border-radius:9px;font-size:12.5px;font-weight:800;cursor:pointer;">📤 LINEグループへ送信</button>';
+    h+='<button onclick="soLinkLineGroup()" title="送信先LINEグループを選択・変更" style="padding:10px 12px;background:white;color:#0f766e;border:1.5px solid #14b8a6;border-radius:9px;font-size:16px;font-weight:800;cursor:pointer;">⚙️</button>';
+    h+='</div>';
     h+='<button onclick="soMoveTeam(\''+o.id+'\',\'営業部\')" style="margin-top:8px;padding:7px 14px;background:white;color:#64748b;border:1.5px solid #cbd5e1;border-radius:8px;font-size:11.5px;font-weight:700;cursor:pointer;">営業部に戻す</button>';
   } else if(all){
     h+='<button onclick="soMoveTeam(\''+o.id+'\',\'書類部\')" style="width:100%;padding:12px;background:#16a34a;color:white;border:none;border-radius:9px;font-size:14px;font-weight:800;cursor:pointer;">✅ 書類部へ移す</button>';
-    h+='<button onclick="soSendLineNotify(\''+o.id+'\')" style="margin-top:8px;width:100%;padding:10px;background:#06c755;color:white;border:none;border-radius:9px;font-size:12.5px;font-weight:800;cursor:pointer;">📤 LINEグループへ送信</button>';
+    h+='<div style="margin-top:8px;display:flex;gap:6px;">';
+    h+='<button onclick="soSendLineNotify(\''+o.id+'\')" style="flex:1;padding:10px;background:#06c755;color:white;border:none;border-radius:9px;font-size:12.5px;font-weight:800;cursor:pointer;">📤 LINEグループへ送信</button>';
+    h+='<button onclick="soLinkLineGroup()" title="送信先LINEグループを選択・変更" style="padding:10px 12px;background:white;color:#0f766e;border:1.5px solid #14b8a6;border-radius:9px;font-size:16px;font-weight:800;cursor:pointer;">⚙️</button>';
+    h+='</div>';
   } else {
     h+='<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:9px;padding:11px 13px;font-size:12.5px;color:#78350f;line-height:1.8;">残り '+(SO_HANDOVER_ITEMS.length-doneN)+'項目のチェックが終わると、書類部へ移せます。</div>';
   }
@@ -48850,48 +48856,75 @@ function soCopySummary(orgId){
 }
 
 // ver.20260819.20: マスタ登録シート完了通知を決まった LINE グループへ送信
-// ver.20260819.21: 送信先を line_send_queue の履歴から自動決定 (settings 廃止)
-//   line_send_queue から「【登録支援機関マスタ登録 完了のご連絡】」で始まる直近1件の
-//   group_name を採用。無ければ初回入力。
+// ver.20260819.21: 送信先を line_send_queue の履歴から自動決定
+// ver.20260819.22: LINEグループ選択モーダルで紐づけ (line_groups から選択)
+// ver.20260819.23: 事前紐づけ+即送信方式。settings.so_notify_line_group を Source of Truth に
 async function soSendLineNotify(orgId){
   var o=(typeof supportOrgs!=='undefined'?supportOrgs:[]).find(function(x){ return x.id===orgId; });
   if(!o) return;
   if(!(DB_READY && typeof _sb!=='undefined' && _sb)){
     showToast('⚠️ DB未接続'); return;
   }
-  // 送信先LINEグループ名を line_send_queue のログから取得 (直近の同種送信)
-  var groupName = '';
+  // settings から紐づけ済みの送信先LINEグループ名を取得
+  var groupName = await _soGetLinkedGroup();
+  // 未紐づけ → 紐づけモーダル起動 → 紐づけ後に自動送信
+  if(!groupName){
+    _showSoLineGroupPicker(function(picked){
+      if(!picked) return;
+      _soSaveLinkedGroup(picked).then(function(){
+        showToast('✅ 送信先「'+picked+'」を紐づけました');
+        setTimeout(function(){ _doSoSendLineNotify(orgId, picked); }, 300);
+      });
+    });
+    return;
+  }
+  // 紐づけ済み → 即送信 (簡易トーストのみ、モーダル確認なし)
+  _doSoSendLineNotify(orgId, groupName);
+}
+
+// 送信先を紐づけ (事前設定用ボタンから呼ぶ)
+async function soLinkLineGroup(){
+  _showSoLineGroupPicker(function(picked){
+    if(!picked) return;
+    _soSaveLinkedGroup(picked).then(function(){
+      showToast('✅ 送信先を「'+picked+'」に紐づけました');
+      // UI 再描画
+      try{
+        var _sel = document.querySelector('.sup-detail-active');
+        if(!_sel) _sel = supportOrgs.find(function(x){ return x.id === window._soCurrentOrgId; });
+        if(typeof renderSupportDetail === 'function' && window._soCurrentOrgId){
+          var o = supportOrgs.find(function(x){ return x.id === window._soCurrentOrgId; });
+          if(o) renderSupportDetail(o);
+        }
+      }catch(e){}
+    });
+  });
+}
+
+// settings から紐づけ済み group_name を取得
+async function _soGetLinkedGroup(){
+  if(!(DB_READY && typeof _sb!=='undefined' && _sb)) return '';
   try{
-    var r = await _sb.from('line_send_queue')
-      .select('group_name')
-      .like('message', '【登録支援機関マスタ登録 完了のご連絡】%')
-      .order('created_at', {ascending:false})
-      .limit(1)
-      .maybeSingle();
-    if(r && r.data && r.data.group_name){
-      groupName = r.data.group_name;
+    var r = await _sb.from('settings').select('value').eq('key','so_notify_line_group').maybeSingle();
+    if(r && r.data && r.data.value){
+      try{ return JSON.parse(r.data.value); }catch(e){ return String(r.data.value); }
     }
   }catch(e){}
-  // 履歴なし → 初回入力
-  if(!groupName){
-    var input = prompt('📤 送信先のLINEグループ名を入力してください\n\n（初回のみ入力。次回以降は送信履歴から自動で使われます）\n※ LINE上の表示名と完全一致させてください', '');
-    if(!input || !input.trim()){ showToast('キャンセルしました'); return; }
-    groupName = input.trim();
-  }
-  // 送信内容
+  return '';
+}
+
+// settings に紐づけ先を保存
+async function _soSaveLinkedGroup(groupName){
+  if(!(DB_READY && typeof _sb!=='undefined' && _sb)) return { error:'DB未接続' };
+  return await _sb.from('settings').upsert({key:'so_notify_line_group', value:JSON.stringify(groupName)},{onConflict:'key'});
+}
+
+// 送信実行 (line_send_queue に INSERT)
+async function _doSoSendLineNotify(orgId, groupName){
+  var o=(typeof supportOrgs!=='undefined'?supportOrgs:[]).find(function(x){ return x.id===orgId; });
+  if(!o) return;
   var txt = soBuildSummary(o);
-  // 確認
-  if(!confirm('📤 LINEグループ「'+groupName+'」に完了通知を送信します。\n\n■ 送信内容:\n'+txt+'\n\nよろしいですか？')){
-    // キャンセル時、送信先変更の希望を確認
-    if(confirm('送信先を変更しますか？\n（現在: '+groupName+'）\n\n※ 変更内容は送信履歴に記録され、次回以降デフォルトとして使われます')){
-      var newInput = prompt('新しい送信先LINEグループ名を入力してください', groupName);
-      if(!newInput || !newInput.trim()) return;
-      groupName = newInput.trim();
-      if(!confirm('新しい送信先「'+groupName+'」に送信しますか？')) return;
-    } else return;
-  }
-  // line_send_queue に INSERT
-  showToast('⏳ 送信キューに追加中...');
+  showToast('⏳ 「'+groupName+'」へ送信中…');
   var qRes = await _sb.from('line_send_queue').insert({
     group_name: groupName,
     message: txt,
@@ -48903,7 +48936,88 @@ async function soSendLineNotify(orgId){
     alert('❌ 送信キュー登録に失敗しました\n\n'+qRes.error.message);
     return;
   }
-  showToast('✅ LINE送信キューに追加しました (Mac側で自動送信されます)');
+  showToast('✅ 「'+groupName+'」に送信キュー追加しました');
+}
+
+// LINEグループ選択モーダル (line_groups から選択)
+// ver.20260819.23: callback は選択された group_name のみを渡す (呼び元側で settings保存等を担当)
+function _showSoLineGroupPicker(callback){
+  var ex = document.getElementById('_soLineGroupPicker');
+  if(ex) ex.remove();
+  var m = document.createElement('div');
+  m.id = '_soLineGroupPicker';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10006;display:flex;align-items:center;justify-content:center;padding:16px;';
+  m.onclick = function(e){ if(e.target===m){ m.remove(); if(window._soPickerCallback) window._soPickerCallback(null); } };
+  m.innerHTML = '<div onclick="event.stopPropagation()" style="background:#fff;border-radius:14px;width:560px;max-width:96vw;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3);">'
+    +'<div style="padding:14px 18px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:flex-start;background:linear-gradient(135deg,#f0fdf4,#dcfce7);">'
+    +  '<div><div style="font-size:14px;font-weight:800;color:#15803d;">🟢 送信先LINEグループを紐づけ</div><div style="font-size:11px;color:#64748b;font-weight:600;margin-top:2px;">選んだグループが常にマスタ登録シート完了通知の送信先になります</div></div>'
+    +  '<button onclick="var m=document.getElementById(\'_soLineGroupPicker\');if(m){m.remove();if(window._soPickerCallback)window._soPickerCallback(null);}" style="background:#fff;border:1px solid #cbd5e1;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:14px;">✕</button>'
+    +'</div>'
+    +'<div style="padding:8px 18px 4px;"><input id="_soLGSearch" oninput="_soRenderLineGroups()" placeholder="🔍 グループ名で検索" style="width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;"></div>'
+    +'<div id="_soLGList" style="flex:1;overflow-y:auto;padding:4px 18px 16px;"><div style="color:#94a3b8;font-size:12px;padding:20px;text-align:center;">読み込み中...</div></div>'
+    +'</div>';
+  document.body.appendChild(m);
+  window._soPickerCallback = callback;
+  _soLoadLineGroups();
+}
+
+async function _soLoadLineGroups(){
+  var box = document.getElementById('_soLGList');
+  if(!box) return;
+  if(!(DB_READY && typeof _sb!=='undefined' && _sb)){
+    box.innerHTML='<div style="color:#dc2626;font-size:12px;padding:20px;text-align:center;">DB未接続</div>';
+    return;
+  }
+  try{
+    var r = await _sb.from('line_groups')
+      .select('group_id,group_name')
+      .eq('is_active',true)
+      .eq('is_hidden',false)
+      .order('last_seen_at',{ascending:false})
+      .limit(500);
+    window._soLineGroupsList = (r&&r.data)||[];
+    // 現在の紐づけ (settings 経由)
+    window._soCurrentGroupName = await _soGetLinkedGroup();
+    _soRenderLineGroups();
+  }catch(e){
+    box.innerHTML='<div style="color:#dc2626;font-size:12px;padding:20px;text-align:center;">読み込みエラー</div>';
+  }
+}
+
+function _soRenderLineGroups(){
+  var box = document.getElementById('_soLGList');
+  if(!box) return;
+  var q = ((document.getElementById('_soLGSearch')||{}).value||'').toLowerCase();
+  var cur = window._soCurrentGroupName || '';
+  var list = (window._soLineGroupsList||[]).filter(function(g){ return !q || (g.group_name||'').toLowerCase().indexOf(q)>=0; });
+  if(!list.length){
+    box.innerHTML='<div style="color:#94a3b8;font-size:12px;padding:20px;text-align:center;">'+(q?'該当するグループがありません':'LINEグループがありません（LINE Botに追加されたグループが表示されます）')+'</div>';
+    return;
+  }
+  // 現在の紐づけを先頭に
+  list.sort(function(a,b){
+    var ac = (a.group_name===cur)?0:1;
+    var bc = (b.group_name===cur)?0:1;
+    return ac-bc;
+  });
+  box.innerHTML = list.slice(0,200).map(function(g){
+    var isCurrent = (g.group_name===cur);
+    var gnameEsc = String(g.group_name||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return '<div onclick="_soPickLineGroup(\''+gnameEsc+'\')" style="cursor:pointer;font-size:12.5px;padding:10px 12px;border:1.5px solid '+(isCurrent?'#16a34a':'#eef2f7')+';border-radius:8px;margin-bottom:5px;display:flex;justify-content:space-between;align-items:center;background:'+(isCurrent?'#f0fdf4':'white')+';" onmouseover="if(!this.dataset.cur)this.style.background=\'#f0fdf4\'" onmouseout="if(!this.dataset.cur)this.style.background=\'white\'" '+(isCurrent?'data-cur="1"':'')+'>'
+      +'<span>🟢 '+esc(g.group_name||g.group_id)+(isCurrent?' <span style="font-size:10px;background:#16a34a;color:white;padding:1px 6px;border-radius:99px;margin-left:4px;">紐づけ中</span>':'')+'</span>'
+      +'<span style="color:#16a34a;font-weight:800;font-size:11px;">'+(isCurrent?'解除して選び直し':'→ 紐づけ')+'</span>'
+      +'</div>';
+  }).join('');
+}
+
+function _soPickLineGroup(groupName){
+  var m = document.getElementById('_soLineGroupPicker');
+  if(m) m.remove();
+  if(window._soPickerCallback){
+    var cb = window._soPickerCallback;
+    window._soPickerCallback = null;
+    cb(groupName);
+  }
 }
 
 // ver.20260727.42: 部署プルダウンから直接変える（確認なしで即反映）
