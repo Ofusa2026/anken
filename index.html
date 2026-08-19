@@ -5047,7 +5047,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260819.12';
+var OFUSA_VERSION = 'ver.20260819.13';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -65195,8 +65195,8 @@ function showTab(tab) {
         {k:'madoguchiReceiveDate',l:'窓口受取日程',type:'date'}
       ]},
       {section:'分野・業務', fields:[
-        {k:'applicantField',l:'申請分野',type:'esReadonly',esKey:'applicantField',id:'ei-applicantField'},
-        {k:'jobCategory',l:'業務区分',type:'esReadonly',esKey:'category',id:'ei-jobCategory'},
+        {k:'applicantField',l:'申請分野',type:'esEditableSelect',esKey:'applicantField',id:'ei-applicantField'},
+        {k:'jobCategory',l:'業務区分',type:'esEditableSelect',esKey:'category',id:'ei-jobCategory'},
         {k:'applicantFieldEn',l:'申請分野（翻訳）',type:'text'},
         {k:'jobCategoryEn',l:'業務区分（翻訳）',type:'text'}
       ]},
@@ -65282,6 +65282,50 @@ function showTab(tab) {
           var _esValShort = (_esValFull||'').replace(/（特定技能[１２]号）/g,'').replace(/（[^）]*分野[・・]特定技能[１２]号）/g,'').trim();
           h += '<div id="' + f.id + '" style="font-size:13px;font-weight:700;color:' + (_esVal?'var(--navy)':'var(--gray-300)') + ';padding:4px 0;">' + (_esValShort||'—') + '</div>';
           if(!_esVal) h += '<div style="font-size:10px;color:var(--gray-400);margin-top:2px;">雇用条件セットから自動取得</div>';
+        } else if (f.type === 'esEditableSelect') {
+          // ver.20260819.13: 直接編集可能な select (案A)。
+          //   c.applicantField/jobCategory を優先表示、無ければ雇用条件セットからフォールバック。
+          //   保存先は cases.applicant_field / cases.job_category。
+          //   分野変更時は業務区分選択肢を絞り込む。
+          var _selCo3 = c.company ? findCompanyByName(c.company, c.companyId) : null;
+          var _empSets3 = (_selCo3 && _selCo3.empSets) ? _selCo3.empSets : [];
+          var _empIdx3 = c.empSetIdx != null ? parseInt(c.empSetIdx,10) : 0;
+          var _es3 = _empSets3[_empIdx3] || {};
+          var _esFieldVal = _es3.applicantField || '';
+          var _esCatVal = _es3.category || '';
+          // 現在値: c.<field> 優先、無ければ ES から
+          var _curVal = '';
+          if(f.k === 'applicantField') _curVal = c.applicantField || _esFieldVal || '';
+          else if(f.k === 'jobCategory') _curVal = c.jobCategory || _esCatVal || '';
+          // select オプション
+          var _opts = [];
+          if(f.k === 'applicantField'){
+            _opts = (typeof FIELD_CATEGORY_MAP !== 'undefined') ? Object.keys(FIELD_CATEGORY_MAP) : [];
+          } else {
+            // 業務区分: 現在選択の分野で絞る
+            var _curField = c.applicantField || _esFieldVal || '';
+            if(_curField && typeof FIELD_CATEGORY_MAP !== 'undefined' && FIELD_CATEGORY_MAP[_curField]){
+              _opts = FIELD_CATEGORY_MAP[_curField];
+            } else {
+              _opts = (typeof ALL_JOB_CATEGORIES !== 'undefined') ? ALL_JOB_CATEGORIES : [];
+            }
+          }
+          // onchange: autoSaveInfo で保存。分野なら業務区分のオプションも更新
+          var _onchange = 'autoSaveInfo(\''+f.k+'\',this.value)';
+          if(f.k === 'applicantField'){
+            _onchange += ';if(typeof updateJobCategoryOptions===\'function\')setTimeout(updateJobCategoryOptions,50)';
+          }
+          h += '<select id="'+f.id+'" onchange="'+_onchange+'" style="width:100%;font-size:13px;font-weight:700;color:'+(_curVal?'var(--navy)':'var(--gray-300)')+';padding:5px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;cursor:pointer;outline:none;">';
+          h += '<option value="">— 選択 —</option>';
+          var _matched = false;
+          _opts.forEach(function(o){ var _sel=(o===_curVal); if(_sel) _matched=true; h += '<option value="'+esc(o)+'"'+(_sel?' selected':'')+'>'+esc(o)+'</option>'; });
+          if(!_matched && _curVal) h += '<option value="'+esc(_curVal)+'" selected>'+esc(_curVal)+'</option>';
+          h += '</select>';
+          // ES 由来のヒント表示 (異なる場合)
+          var _esHint = (f.k==='applicantField') ? _esFieldVal : _esCatVal;
+          if(_esHint && _esHint !== _curVal){
+            h += '<div style="font-size:10px;color:var(--gray-400);margin-top:2px;">📌 雇用条件セット: '+esc(_esHint)+'</div>';
+          }
         } else if (f.type === 'select') {
           h += '<select id="' + (f.id||'ei-'+f.k) + '" onchange="autoSaveInfo(\''+f.k+'\',this.value)" style="width:100%;font-size:13px;font-weight:700;color:var(--navy);padding:5px 2px;border:none;border-bottom:1.5px solid transparent;background:transparent;cursor:pointer;outline:none;">';
           if(f.k !== 'status') h += '<option value="">— 選択 —</option>';
@@ -65489,7 +65533,13 @@ function showTab(tab) {
   } else if (tab === 'person') {
     var p = personData[c.id] || {expire: c.expire, nationality: c.nationality};
     // ver.20260818.12: 分野未設定なら試験情報が正しく出せないためポップアップと警告バナーで通知
-    var _hasField = !!(c.applicantField && String(c.applicantField).trim());
+    // ver.20260819.13: es (雇用条件セット) の applicantField もフォールバックで判定 (要件3・4)
+    var _selCoField = c.company ? findCompanyByName(c.company, c.companyId) : null;
+    var _empSetsField = (_selCoField && _selCoField.empSets) ? _selCoField.empSets : [];
+    var _empIdxField = c.empSetIdx != null ? parseInt(c.empSetIdx,10) : 0;
+    var _esField = _empSetsField[_empIdxField] || {};
+    var _fieldForPerson = c.applicantField || _esField.applicantField || '';
+    var _hasField = !!(_fieldForPerson && String(_fieldForPerson).trim());
     if (!_hasField) {
       var _popKey = '_appfieldPopupShown_' + c.id;
       if (!window[_popKey]) {
@@ -65852,7 +65902,9 @@ function showTab(tab) {
     var showSkillExam3 = isTestRoute && !!(p.skillExam3);   // ver.20260810.13: 技能試験③（もう一つ追加）
     var showJpExam3 = isJpTestRoute && !!(p.jpExam3);       // ver.20260810.13: 日本語試験③（もう一つ追加）
     // ver.20260812.30: 介護分野は 介護日本語評価試験 が必要（通常の日本語試験に加えて別途）
-    var isKaigo = (c.applicantField || '').indexOf('介護') >= 0;
+    // ver.20260819.13: isKaigo 判定も es.applicantField をフォールバック (要件3)
+    var _fieldForKaigo = c.applicantField || (typeof _esField !== 'undefined' ? (_esField.applicantField || '') : '') || '';
+    var isKaigo = _fieldForKaigo.indexOf('介護') >= 0;
     var isKaigoJpTestRoute = isKaigo && p.kaigoJpEvalType && p.kaigoJpEvalType.indexOf('評価試験') >= 0;
     var olFields = [
       {key:'_s1',label:'🏛 試験情報（入管オンライン）',type:'section'},
