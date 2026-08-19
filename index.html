@@ -5056,7 +5056,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260819.24';
+var OFUSA_VERSION = 'ver.20260819.25';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -48753,14 +48753,14 @@ function _soHandoverHtml(o){
     h+='<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:9px;padding:11px 13px;font-size:12.5px;color:#166534;line-height:1.8;">✅ <b>書類部に移っています</b>'
       +(d.moved_at?('<br><span style="font-size:11px;color:#15803d;">'+esc(String(d.moved_at).slice(0,10))+' '+esc(d.moved_by||'')+'</span>'):'')+'</div>';
     h+='<div style="margin-top:8px;display:flex;gap:6px;">';
-    h+='<button onclick="soSendLineNotify(\''+o.id+'\')" style="flex:1;padding:10px;background:#06c755;color:white;border:none;border-radius:9px;font-size:12.5px;font-weight:800;cursor:pointer;">📤 LINEグループへ送信</button>';
+    h+='<button onclick="soSendLineNotify(\''+o.id+'\')" style="flex:1;padding:10px;background:#06c755;color:white;border:none;border-radius:9px;font-size:12.5px;font-weight:800;cursor:pointer;">'+_soGetSendButtonLabel()+'</button>';
     h+='<button onclick="soLinkLineGroup()" title="送信先LINEグループを選択・変更" style="padding:10px 12px;background:white;color:#0f766e;border:1.5px solid #14b8a6;border-radius:9px;font-size:16px;font-weight:800;cursor:pointer;">⚙️</button>';
     h+='</div>';
     h+='<button onclick="soMoveTeam(\''+o.id+'\',\'営業部\')" style="margin-top:8px;padding:7px 14px;background:white;color:#64748b;border:1.5px solid #cbd5e1;border-radius:8px;font-size:11.5px;font-weight:700;cursor:pointer;">営業部に戻す</button>';
   } else if(all){
     h+='<button onclick="soMoveTeam(\''+o.id+'\',\'書類部\')" style="width:100%;padding:12px;background:#16a34a;color:white;border:none;border-radius:9px;font-size:14px;font-weight:800;cursor:pointer;">✅ 書類部へ移す</button>';
     h+='<div style="margin-top:8px;display:flex;gap:6px;">';
-    h+='<button onclick="soSendLineNotify(\''+o.id+'\')" style="flex:1;padding:10px;background:#06c755;color:white;border:none;border-radius:9px;font-size:12.5px;font-weight:800;cursor:pointer;">📤 LINEグループへ送信</button>';
+    h+='<button onclick="soSendLineNotify(\''+o.id+'\')" style="flex:1;padding:10px;background:#06c755;color:white;border:none;border-radius:9px;font-size:12.5px;font-weight:800;cursor:pointer;">'+_soGetSendButtonLabel()+'</button>';
     h+='<button onclick="soLinkLineGroup()" title="送信先LINEグループを選択・変更" style="padding:10px 12px;background:white;color:#0f766e;border:1.5px solid #14b8a6;border-radius:9px;font-size:16px;font-weight:800;cursor:pointer;">⚙️</button>';
     h+='</div>';
   } else {
@@ -48910,16 +48910,38 @@ async function _soGetLinkedGroup(){
   try{
     var r = await _sb.from('settings').select('value').eq('key','so_notify_line_group').maybeSingle();
     if(r && r.data && r.data.value){
-      try{ return JSON.parse(r.data.value); }catch(e){ return String(r.data.value); }
+      var g = '';
+      try{ g = JSON.parse(r.data.value); }catch(e){ g = String(r.data.value); }
+      window._soLinkedGroupName = g;
+      return g;
     }
   }catch(e){}
+  window._soLinkedGroupName = '';
   return '';
 }
 
-// settings に紐づけ先を保存
+// settings に紐づけ先を保存 (ver.20260819.25: 保存後にキャッシュ+UI更新)
 async function _soSaveLinkedGroup(groupName){
   if(!(DB_READY && typeof _sb!=='undefined' && _sb)) return { error:'DB未接続' };
-  return await _sb.from('settings').upsert({key:'so_notify_line_group', value:JSON.stringify(groupName)},{onConflict:'key'});
+  var res = await _sb.from('settings').upsert({key:'so_notify_line_group', value:JSON.stringify(groupName)},{onConflict:'key'});
+  if(!res.error){
+    window._soLinkedGroupName = groupName;
+    // 現在表示中の詳細を再描画してボタンラベル更新
+    try{
+      if(typeof window._soCurrentOrgId !== 'undefined' && window._soCurrentOrgId){
+        var o = (typeof supportOrgs!=='undefined'?supportOrgs:[]).find(function(x){ return x.id === window._soCurrentOrgId; });
+        if(o && typeof renderSupportDetail === 'function') renderSupportDetail(o);
+      }
+    }catch(e){}
+  }
+  return res;
+}
+
+// ver.20260819.25: 送信ボタンラベル生成 (紐づけ先を表示)
+function _soGetSendButtonLabel(){
+  var g = window._soLinkedGroupName || '';
+  if(g) return '📤 「'+esc(g)+'」へ送信';
+  return '📤 LINEグループへ送信（未紐づけ）';
 }
 
 // 送信実行 (line_send_queue に INSERT)
@@ -49169,6 +49191,17 @@ function _soOrgEditImportAll(orgId, idsStr){
 }
 
 function renderSupportDetail(o) {
+  // ver.20260819.25: 現在表示中のorgIdをキャッシュ (紐づけ保存後の再描画で使用)
+  window._soCurrentOrgId = o && o.id ? o.id : '';
+  // 未取得なら紐づけ先を非同期取得 → 取得後にボタンラベル更新のため再描画
+  if(typeof window._soLinkedGroupName === 'undefined' && DB_READY && typeof _sb !== 'undefined' && _sb){
+    window._soLinkedGroupName = '';  // 二重取得防止
+    _soGetLinkedGroup().then(function(g){
+      if(g && window._soCurrentOrgId === (o&&o.id)){
+        try{ renderSupportDetail(o); }catch(e){}
+      }
+    });
+  }
   try{ _soAutoFillHoursFromForm(o); }catch(e){} // ver.20260723.09: 対応時間等が空なら回答から自動補完
   var el=document.getElementById('supportDetail'); if(!el) return;
   var linked=companies.filter(function(co){return co.supportOrgName===o.name;});
