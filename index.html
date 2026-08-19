@@ -5056,7 +5056,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260819.26';
+var OFUSA_VERSION = 'ver.20260819.27';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -48944,25 +48944,40 @@ function _soGetSendButtonLabel(){
   return '📤 LINEグループへ送信（未紐づけ）';
 }
 
-// 送信実行 (line_send_queue に INSERT)
+// 送信実行 (ver.20260819.27: キュー登録ではなく line-send Edge Function で即送信)
 async function _doSoSendLineNotify(orgId, groupName){
   var o=(typeof supportOrgs!=='undefined'?supportOrgs:[]).find(function(x){ return x.id===orgId; });
   if(!o) return;
   var txt = soBuildSummary(o);
   showToast('⏳ 「'+groupName+'」へ送信中…');
-  // ver.20260819.26: account は 'A' or 'B' の制約あり (旧 'alpha' はエラー)
-  var qRes = await _sb.from('line_send_queue').insert({
-    group_name: groupName,
-    message: txt,
-    account: 'A',
-    status: 'pending',
-    case_id: null
-  });
-  if(qRes.error){
-    alert('❌ 送信キュー登録に失敗しました\n\n'+qRes.error.message);
+  // group_name から group_id を取得 (line-send は group_id 必須)
+  var gid = '';
+  try{
+    var gr = await _sb.from('line_groups')
+      .select('group_id')
+      .eq('group_name', groupName)
+      .limit(1)
+      .maybeSingle();
+    if(gr && gr.data && gr.data.group_id) gid = gr.data.group_id;
+  }catch(e){}
+  if(!gid){
+    alert('❌ 送信失敗\n\nグループ「'+groupName+'」の group_id が見つかりません。\n⚙️ から紐づけをやり直してください。');
     return;
   }
-  showToast('✅ 「'+groupName+'」に送信キュー追加しました');
+  // line-send Edge Function で即送信
+  try{
+    var r = await _sb.functions.invoke('line-send', {
+      body: { group_id: gid, text: txt, sent_by: (typeof currentUser !== 'undefined' ? currentUser : null) }
+    });
+    var err = (r.error && (r.error.message || String(r.error))) || (r.data && r.data.error);
+    if(err){
+      alert('❌ 送信失敗\n\n'+err);
+      return;
+    }
+    showToast('✅ 「'+groupName+'」に送信しました');
+  }catch(e){
+    alert('❌ 送信失敗\n\n'+String(e));
+  }
 }
 
 // LINEグループ選択モーダル (line_groups から選択)
