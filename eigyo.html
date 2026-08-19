@@ -92,6 +92,9 @@ tbody tr:hover{background:#f7fafc;}
 .mtab{border:none;background:none;padding:9px 16px;font-size:14px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;border-radius:6px 6px 0 0;}
 .mtab:hover{background:#f7fafc;color:var(--text);}
 .mtab-on{color:var(--accent);border-bottom-color:var(--accent);}
+.dtab{border:none;background:none;padding:8px 14px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;border-radius:6px 6px 0 0;}
+.dtab:hover{background:#f7fafc;color:var(--text);}
+.dtab-on{color:var(--accent);border-bottom-color:var(--accent);}
 .subtabs{display:flex;gap:6px;margin-bottom:16px;}
 .stab{border:1px solid var(--line);background:#fff;padding:6px 14px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;border-radius:999px;}
 .stab-on{background:var(--accent);color:#fff;border-color:var(--accent);}
@@ -192,7 +195,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260730.27</div>
+      <div class="ver">ver.20260730.28</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -975,6 +978,12 @@ function renderDrawer(){
   +   '<span style="font-size:12.5px;color:#166534;">契約が決まったら、案シスの登録支援機関マスタに登録できます。</span>'
   +   '<button class="btn btn-sm btn-primary" style="white-space:nowrap;" onclick="registerToMaster()">🏢 登録支援機関マスタに登録</button>'
   + '</div>'
+  + '<div class="dtabs" style="display:flex;gap:4px;margin-bottom:12px;border-bottom:2px solid var(--line);">'
+  +   '<button id="dtab1" class="dtab dtab-on" onclick="switchDrawerTab(1)">営業管理/対応履歴</button>'
+  +   '<button id="dtab2" class="dtab" onclick="switchDrawerTab(2)">登録支援機関情報</button>'
+  +   '<button id="dtab3" class="dtab" onclick="switchDrawerTab(3)">書類部引き継ぎ</button>'
+  + '</div>'
+  + '<div id="dpane1">'
   + '<div class="sec"><h3>営業管理</h3><div class="form">'
   +   '<label>ステータス</label><select id="eStatus">'+STATUSES.map(function(s){return '<option'+(s===x.status?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
   +   '<label>担当者</label><select id="eStaff"><option value="">（未設定）</option>'
@@ -999,11 +1008,16 @@ function renderDrawer(){
   +   '<label>書類作成方法</label><select id="eDocMethod">'+DOC_METHODS.map(function(m){return '<option'+((m===(x.doc_method||''))?' selected':'')+'>'+esc(m)+'</option>';}).join('')+'</select>'
   +   '<label>メモ</label><textarea id="eMemo" placeholder="社内メモ">'+esc(x.memo||'')+'</textarea>'
   + '</div>'
-  + '<h3 style="margin:16px 0 8px;font-size:14px;border-top:1px solid var(--line);padding-top:14px;">📋 登録支援機関ヒアリング</h3>'
+  + '<div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="saveLead()">保存</button></div>'
+  + '</div>'  /* end 営業管理sec */
+  + '</div>'  /* end dpane1(前半)：この後、担当者以降もタブ1なので後で再オープン */
+  + '<div id="dpane2" style="display:none;">'
+  + '<h3 style="margin:4px 0 8px;font-size:14px;">📋 登録支援機関ヒアリング</h3>'
   + '<div class="form" style="grid-template-columns:130px 1fr;">'
   +   '<label>月間件数</label><input type="number" id="eHrMonthly" value="'+esc(x.hr_monthly_apps!=null?x.hr_monthly_apps:'')+'" placeholder="件/月">'
   +   '<label>年間件数</label><input type="number" id="eHrYearly" value="'+esc(x.hr_yearly_apps!=null?x.hr_yearly_apps:'')+'" placeholder="件/年">'
-  +   '<label>取扱分野</label><textarea id="eHrFields" placeholder="例：特定技能、技人国、技能実習…どの在留資格の申請があるか" style="min-height:48px;">'+esc(x.hr_fields||'')+'</textarea>'
+  +   '<label>取扱在留資格</label><textarea id="eHrVisa" placeholder="例：特定技能1号、技人国、技能実習 など" style="min-height:40px;">'+esc(x.hr_visa||'')+'</textarea>'
+  +   '<label>取扱分野</label><textarea id="eHrFields" placeholder="例：建設、介護、外食 など" style="min-height:40px;">'+esc(x.hr_fields||'')+'</textarea>'
   +   '<label>専売/複数社</label><select id="eHrExclusive">'+HR_EXCLUSIVE.map(function(m){return '<option'+((m===(x.hr_exclusive||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
   +   '<label>現在の依頼先</label><textarea id="eHrGyosei" placeholder="今どこの行政書士に依頼しているか、その割合・分野" style="min-height:48px;">'+esc(x.hr_current_gyosei||'')+'</textarea>'
   +   '<label>見込み</label><select id="eHrSpot">'+HR_SPOT.map(function(m){return '<option'+((m===(x.hr_spot||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
@@ -1024,8 +1038,9 @@ function renderDrawer(){
   + '<div class="form" style="grid-template-columns:130px 1fr;">'
   +   '<label>O-Link説明メモ</label><textarea id="eHrOlinkMemo" placeholder="新規依頼の出し方を先方が理解したか等" style="min-height:40px;">'+esc(x.hr_olink_memo||'')+'</textarea>'
   +   '<label>メモ</label><textarea id="eHrMemo" placeholder="その他ヒアリングで得た情報を自由に記入" style="min-height:64px;">'+esc(x.hr_memo||'')+'</textarea>'
-  + '</div><div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="saveLead()">保存</button></div></div>'
-
+  + '</div><div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="saveLead()">保存</button></div>'
+  + '</div>'  /* end dpane2 */
+  + '<div id="dpane1b">'
   + '<div class="sec"><h3>先方の担当者（最大3名）</h3>'
   +   [0,1,2].map(function(i){
         var c = (curLead.contacts && curLead.contacts[i]) || {};
@@ -1079,7 +1094,21 @@ function renderDrawer(){
   +   '<div class="k">支援開始</div><div>'+esc(x.support_start_date||'')+'</div>'
   +   '<div class="k">備考</div><div>'+esc(x.bikou||'-')+'</div>'
   + '</div></div>'
-  + offices;
+  + offices
+  + '</div>'
+  + '<div id="dpane3" style="display:none;">'
+  +   '<div class="sec"><h3>📋 書類部引き継ぎ（マスタ登録シート 1〜8）</h3>'
+  +   '<div style="padding:16px;color:var(--muted);font-size:13px;line-height:1.7;">この機関を「登録支援機関マスタに登録」すると、ここに1〜8の工程と営業ヒアリング情報がまとまって表示されます。<br><br>（この画面は順次拡充予定です）</div>'
+  +   '</div>'
+  + '</div>';
+}
+
+function switchDrawerTab(n){
+  var panes = {1:['dpane1','dpane1b'], 2:['dpane2'], 3:['dpane3']};
+  [1,2,3].forEach(function(t){
+    (panes[t]||[]).forEach(function(id){ var e=el(id); if(e) e.style.display = (t===n)?'':'none'; });
+    var b=el('dtab'+t); if(b) b.className = 'dtab'+(t===n?' dtab-on':'');
+  });
 }
 
 function saveLead(){
@@ -1097,6 +1126,7 @@ function saveLead(){
     memo:              el('eMemo').value.trim() || null,
     hr_monthly_apps:   el('eHrMonthly').value!==''? parseInt(el('eHrMonthly').value,10) : null,
     hr_yearly_apps:    el('eHrYearly').value!==''? parseInt(el('eHrYearly').value,10) : null,
+    hr_visa:           el('eHrVisa').value.trim() || null,
     hr_fields:         el('eHrFields').value.trim() || null,
     hr_exclusive:      el('eHrExclusive').value || null,
     hr_current_gyosei: el('eHrGyosei').value.trim() || null,
