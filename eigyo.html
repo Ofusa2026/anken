@@ -204,7 +204,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260820.11</div>
+      <div class="ver">ver.20260820.12</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -1143,21 +1143,26 @@ function switchDrawerTab(n){
 function loadHandover(){
   var box=el('handoverBody'); if(!box) return;
   var orgId = curLead && curLead.support_org_id;
-  if(!orgId){
-    box.innerHTML='<div style="padding:16px;color:var(--muted);font-size:13px;line-height:1.7;">この機関はまだ案シスの登録支援機関マスタに登録されていません。<br>「営業管理/対応履歴」タブ上部の「🏢 登録支援機関マスタに登録」を押すと、ここで1〜8の工程を入力でき、案シスの登録支援機関と連動します。</div>';
-    return;
-  }
   box.innerHTML='<div class="loading" style="padding:16px;">読み込み中...</div>';
-  _sb.from('support_org_handover').select('items').eq('org_id', orgId).then(function(r){
-    _handoverItems = (r.data && r.data[0] && r.data[0].items) ? r.data[0].items : {};
-    renderHandover();
-  });
+  if(orgId){
+    _sb.from('support_org_handover').select('items').eq('org_id', orgId).then(function(r){
+      _handoverItems = (r.data && r.data[0] && r.data[0].items) ? r.data[0].items : {};
+      renderHandover(true);
+    });
+  } else {
+    _handoverItems = (curLead && curLead.handover_items) ? curLead.handover_items : {};
+    renderHandover(false);
+  }
 }
-function renderHandover(){
+function renderHandover(registered){
   var box=el('handoverBody'); if(!box) return;
   var done=0;
   var h='<div class="sec"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><h3 style="margin:0;">📋 書類部引き継ぎ（1〜8）</h3><span id="handoverCount" class="sub"></span></div>';
-  h+='<div style="font-size:11.5px;color:var(--muted);margin-bottom:10px;">営シスで入力→案シスの登録支援機関「マスタ登録シート」に連動します。</div>';
+  if(registered){
+    h+='<div style="font-size:11.5px;color:#166534;margin-bottom:10px;">✓ 案シスの登録支援機関「マスタ登録シート」と連動中。営シス・案シスどちらでも編集できます。</div>';
+  } else {
+    h+='<div style="font-size:11.5px;color:var(--muted);margin-bottom:10px;">ここで先に入力しておけます。「🏢 登録支援機関マスタに登録」を押すと、この内容がまとめて案シスに送られます。</div>';
+  }
   SO_STEPS.forEach(function(st){
     var it=_handoverItems[st.key]||{}; if(it.done) done++;
     h+='<div style="border:1px solid var(--line);border-radius:9px;padding:11px 13px;margin-bottom:9px;">';
@@ -1180,7 +1185,7 @@ function renderHandover(){
     }
     h+='</div>';
   });
-  h+='<div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="saveHandover()">保存して案シスに反映</button></div>';
+  h+='<div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="saveHandover()">'+(registered?'保存して案シスに反映':'下書き保存')+'</button></div>';
   h+='</div>';
   box.innerHTML=h;
   var c=el('handoverCount'); if(c) c.textContent=done+' / 8';
@@ -1190,11 +1195,18 @@ function hoField(sel){ var kv=sel.getAttribute('data-hf').split('|'); _handoverI
 function hoMemo(ta){ var k=ta.getAttribute('data-hm'); _handoverItems[k]=_handoverItems[k]||{}; _handoverItems[k].memo=ta.value; }
 function saveHandover(){
   var orgId = curLead && curLead.support_org_id;
-  if(!orgId){ alert('先にマスタ登録が必要です'); return; }
-  _sb.from('support_org_handover').upsert({org_id:orgId, items:_handoverItems}, {onConflict:'org_id'}).then(function(r){
-    if(r.error){ alert('保存に失敗しました：'+r.error.message); return; }
-    showMsg('dMsg','書類部引き継ぎを保存し、案シスに反映しました。','ok');
-  });
+  if(orgId){
+    _sb.from('support_org_handover').upsert({org_id:orgId, items:_handoverItems}, {onConflict:'org_id'}).then(function(r){
+      if(r.error){ alert('保存に失敗しました：'+r.error.message); return; }
+      showMsg('dMsg','書類部引き継ぎを保存し、案シスに反映しました。','ok');
+    });
+  } else {
+    _sb.from('eigyo_leads').update({handover_items:_handoverItems}).eq('reg_no', curLead.reg_no).then(function(r){
+      if(r.error){ alert('保存に失敗しました：'+r.error.message); return; }
+      curLead.handover_items=_handoverItems;
+      showMsg('dMsg','下書きを保存しました。マスタ登録時に案シスへ送られます。','ok');
+    });
+  }
 }
 
 function saveLead(){
@@ -1286,6 +1298,9 @@ function registerToMaster(){
       if(ins.error){ showMsg('dMsg','登録に失敗しました：'+ins.error.message,'err'); return; }
       showMsg('dMsg','案シスの登録支援機関マスタに登録しました（ID: '+newId+'）','ok');
       _sb.from('eigyo_leads').update({is_client:true, support_org_id:newId}).eq('reg_no', lead.reg_no).then(function(){ curLead.is_client=true; curLead.support_org_id=newId; load(); });
+      if(lead.handover_items && Object.keys(lead.handover_items).length){
+        _sb.from('support_org_handover').upsert({org_id:newId, items:lead.handover_items}, {onConflict:'org_id'}).then(function(){});
+      }
     });
   });
 }
