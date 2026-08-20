@@ -5056,7 +5056,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260820.10';
+var OFUSA_VERSION = 'ver.20260820.11';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -41624,6 +41624,17 @@ function _appendAidemSrc(url, orgName){
   return url;
 }
 
+// ver.20260820.11: 推薦票を自社対応しない(other)場合、フォームURLに suisen=other を付与
+//   → form.html 側でベトナム家族情報・住民票の質問を出す (フェーズ2)
+function _appendSuisenParam(url, caseId){
+  if(!url || !caseId) return url;
+  var pd = (typeof personData!=='undefined' && personData[caseId]) ? personData[caseId] : {};
+  if(pd._suisenSelf === 'other'){
+    return url + (url.indexOf('?')>=0 ? '&' : '?') + 'suisen=other';
+  }
+  return url;
+}
+
 function openFormTrash() {
   if (!DB_READY) { showToast('⚠️ DB未接続'); return; }
   var html = '<div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;" id="formTrashModal">'
@@ -41972,6 +41983,7 @@ async function prefillPersonHearing(caseId, formType, alsoCopyUrl){
   if(alsoCopyUrl){
     var url = FORM_BASE_URL + '?case=' + encodeURIComponent(caseId) + '&type=' + formType + '&name=' + encodeURIComponent(c.applicant||c.name||'');
     url = _appendAidemSrc(url, c && c.org);
+    url = _appendSuisenParam(url, caseId);
     try{
       await navigator.clipboard.writeText(url);
       setTimeout(function(){ showToast('📋 URLをコピーしました'); }, 800);
@@ -42031,6 +42043,7 @@ function updatePersonFormUrl2(caseId, formType) {
   if (!c) return;
   var url = FORM_BASE_URL + '?case=' + encodeURIComponent(caseId) + '&type=' + formType + '&name=' + encodeURIComponent(c.applicant||c.name||'');
   url = _appendAidemSrc(url, c && c.org);
+    url = _appendSuisenParam(url, caseId);
   var el = document.getElementById('pPersonFormUrl_' + caseId);
   if (el) el.value = url;
 }
@@ -42041,6 +42054,7 @@ function updatePersonFormUrl(caseId, formType) {
   if (!c) return;
   var url = FORM_BASE_URL + '?case=' + encodeURIComponent(caseId) + '&type=' + formType + '&name=' + encodeURIComponent(c.applicant||c.name||'');
   url = _appendAidemSrc(url, c && c.org);
+    url = _appendSuisenParam(url, caseId);
   var el = document.getElementById('personFormUrl_' + caseId);
   if (el) el.value = url;
   // バッジ表示も更新
@@ -42807,6 +42821,7 @@ function _hfGenerateText(caseId, ruleId) {
   ) : 'tokutei_nintei';
   var formUrl = FORM_BASE_URL + '?case=' + encodeURIComponent(caseId) + '&type=' + formType + '&name=' + encodeURIComponent(cas.applicant || cas.name || '');
   formUrl = _appendAidemSrc(formUrl, cas && cas.org);
+  formUrl = _appendSuisenParam(formUrl, caseId);
   var pd2 = p || {};
   // ver.20260605.07: uploadUrl も generateDocText と同じパラメータ（appType/nationality/ryugaku）を付与
   var _coFolderId = '';
@@ -43444,6 +43459,7 @@ function _onStatusHearingForm(c) {
     : 'tokutei_nintei';
   var formUrl = FORM_BASE_URL + '?case=' + encodeURIComponent(caseId) + '&type=' + formType + '&name=' + encodeURIComponent(c.applicant || c.name || '');
   formUrl = _appendAidemSrc(formUrl, c && c.org);
+  formUrl = _appendSuisenParam(formUrl, caseId);
 
   // 人材ドライブURL
   var pd = personData[caseId] || {};
@@ -67615,6 +67631,20 @@ function _docYearLabel(name){
   var m = {'所得・課税証明書':'令和7年度','課税証明書':'令和7年度','納税証明書':'令和7年度','源泉徴収票':'令和6年分'};
   return m[name] ? (m[name] + name) : name;
 }
+// ver.20260820.11: ベトナム×(留学/技能実習) の推薦票・住民票の要否を選択で分岐
+//   _suisenSelf='self'  (登録支援機関でやる) → 大使館推薦票のみ (住民票なし)
+//   _suisenSelf='other' (自社で対応しない)   → 住民票のみ (推薦票なし)
+//   未選択 (従来)                            → 両方 (住民票・大使館推薦票)
+function _addVietnamSuisenDocs(list, seen, cas){
+  var pd = (typeof personData!=='undefined' && personData[cas.id]) ? personData[cas.id] : {};
+  var sel = pd._suisenSelf || '';
+  var toAdd;
+  if(sel === 'self')      toAdd = ['大使館推薦票'];
+  else if(sel === 'other') toAdd = ['住民票'];
+  else                     toAdd = ['住民票','大使館推薦票'];
+  toAdd.forEach(function(d){ if(!seen[d]){ seen[d]=1; list.push(d); } });
+}
+
 function _getDocList(cas) {
   var appType = cas.appType || '';
   var listKey = null;
@@ -67659,8 +67689,9 @@ function _getDocList(cas) {
       });
     }
     // ver.20260608.02: 変更 × ベトナム × (留学 or 技能実習) → 住民票・大使館推薦票
+    // ver.20260820.11: 推薦票の自社対応可否で分岐 (_addVietnamSuisenDocs)
     if (listKey === '変更' && natRaw.indexOf('ベトナム') !== -1 && (isRyugaku || isJisshu)) {
-      ['住民票','大使館推薦票'].forEach(function(d){ if(!_seen2[d]){ _seen2[d]=1; _cl.push(d); } });
+      _addVietnamSuisenDocs(_cl, _seen2, cas);
     }
     _addConstructionDocs(_cl, cas);
     _addGijinkokuChushoDocs(_cl, cas);
@@ -67672,8 +67703,9 @@ function _getDocList(cas) {
   if (!isGiji && isRyugaku) (REQUIRED_DOCS_RYUGAKU[listKey]||[]).forEach(function(d){if(!seen[d]){seen[d]=1;docList.push(d);}});
   if (natKey) ((REQUIRED_DOCS_NATIONALITY[natKey]||{})[listKey]||[]).forEach(function(d){if(!seen[d]){seen[d]=1;docList.push(d);}});
   // ver.20260608.02: 変更 × ベトナム × (留学 or 技能実習) → 住民票・大使館推薦票
+  // ver.20260820.11: 推薦票の自社対応可否で分岐 (_addVietnamSuisenDocs)
   if (listKey === '変更' && natRaw.indexOf('ベトナム') !== -1 && (isRyugaku || isJisshu)) {
-    ['住民票','大使館推薦票'].forEach(function(d){ if(!seen[d]){ seen[d]=1; docList.push(d); } });
+    _addVietnamSuisenDocs(docList, seen, cas);
   }
   _addConstructionDocs(docList, cas);
   _addGijinkokuChushoDocs(docList, cas);
@@ -69327,6 +69359,7 @@ function _guideSelectRule(caseId, ruleId, btn) {
   ) : 'tokutei_nintei';
   var _formUrl = FORM_BASE_URL + '?case=' + encodeURIComponent(caseId) + '&type=' + _formType + '&name=' + encodeURIComponent(cas.applicant||cas.name||'');
   _formUrl = _appendAidemSrc(_formUrl, cas && cas.org);
+  _formUrl = _appendSuisenParam(_formUrl, caseId);
 
   var _driveUrl = p.driveUrl || '';
   var _uploadUrl = '';
@@ -90262,6 +90295,7 @@ function generateDocText(caseId,ruleId){
   ) : 'tokutei_nintei';
   var _formUrl = FORM_BASE_URL + '?case=' + encodeURIComponent(caseId) + '&type=' + _formType + '&name=' + encodeURIComponent(cas.applicant||cas.name||'');
   _formUrl = _appendAidemSrc(_formUrl, cas && cas.org);
+  _formUrl = _appendSuisenParam(_formUrl, caseId);
 
   // アップロードURL生成（ドライブURLがあれば）
   var _driveUrl = p.driveUrl || '';
@@ -93174,8 +93208,59 @@ function submitNewCase() {
       }, 1600);
     });
     hideLoading();showToast('✅ 案件を登録しました');loadAllFromSupabase();
+    // ver.20260820.11: ベトナム×(技能実習/留学) は推薦票の自社対応可否をポップアップで確認
+    try{ setTimeout(function(){ _maybeAskSuisen(newId, data, nationality); }, 2200); }catch(e){}
   } else {
     hideLoading();showToast('✅ 案件を登録しました（ローカル）');renderStats();applyFilters();
+    try{ setTimeout(function(){ _maybeAskSuisen(newId, data, nationality); }, 500); }catch(e){}
+  }
+}
+
+// ver.20260820.11: ベトナム × (技能実習 or 留学) の変更申請で、推薦票を自社(登録支援機関)で
+//   対応するか確認するモーダル。選択に応じて必要書類 (住民票/大使館推薦票) が自動で切り替わる。
+function _maybeAskSuisen(caseId, data, nationality){
+  var nat = (nationality || data.nationality || '').toString();
+  var cur = (data.currentStatus || data.residenceStatus || '').toString();
+  var at  = (data.appType || '').toString();
+  var isVN = nat.indexOf('ベトナム') >= 0;
+  var isRyugaku = cur.indexOf('留学') >= 0;
+  var isJisshu  = cur.indexOf('技能実習') >= 0;
+  var isHenkou  = at.indexOf('変更') >= 0;
+  // 対象: ベトナム × 変更 × (留学 or 技能実習)
+  if(!(isVN && isHenkou && (isRyugaku || isJisshu))) return;
+
+  var old = document.getElementById('_suisenAskModal'); if(old) old.remove();
+  var m = document.createElement('div');
+  m.id = '_suisenAskModal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:11000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  m.innerHTML =
+    '<div style="background:white;border-radius:16px;max-width:440px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);" onclick="event.stopPropagation();">'
+    + '<div style="font-size:16px;font-weight:800;color:#0f2040;margin-bottom:6px;">🇻🇳 推薦票の対応確認</div>'
+    + '<div style="font-size:12.5px;color:#475569;line-height:1.7;margin-bottom:16px;">'
+    +   'この案件（ベトナム・'+(isJisshu?'技能実習':'留学')+'）の<b>大使館推薦票</b>は、登録支援機関（自社）で対応しますか？<br>'
+    +   '<span style="color:#94a3b8;font-size:11px;">・「はい」→ 必要書類に<b>大使館推薦票</b>を入れます（住民票なし）<br>'
+    +   '・「いいえ」→ 必要書類に<b>住民票</b>を入れ、推薦票を外します（ヒアリングフォームに質問が追加されます）</span>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;">'
+    +   '<button id="_suiSelfBtn" style="flex:1;padding:11px;background:#dcfce7;color:#15803d;border:1.5px solid #16a34a;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;">はい（自社で対応）</button>'
+    +   '<button id="_suiOtherBtn" style="flex:1;padding:11px;background:#eff6ff;color:#1e40af;border:1.5px solid #3b82f6;border-radius:10px;font-size:13px;font-weight:800;cursor:pointer;">いいえ（対応しない）</button>'
+    + '</div>'
+    + '</div>';
+  m.onclick = function(){ m.remove(); };
+  document.body.appendChild(m);
+  document.getElementById('_suiSelfBtn').onclick = function(){ _setSuisenSelf(caseId, 'self'); m.remove(); };
+  document.getElementById('_suiOtherBtn').onclick = function(){ _setSuisenSelf(caseId, 'other'); m.remove(); };
+}
+
+function _setSuisenSelf(caseId, val){
+  if(!personData[caseId]) personData[caseId] = {};
+  personData[caseId]._suisenSelf = val;   // 'self' or 'other'
+  try{ if(typeof persistPersonData==='function') persistPersonData(caseId); }catch(e){}
+  try{ if(typeof persistPersonToDB==='function' && DB_READY) persistPersonToDB(caseId, personData[caseId]); }catch(e){}
+  // 必要書類の再計算に反映（書類チェックタブ等を開いていれば再描画）
+  try{ if(typeof renderCaseDocsIfOpen==='function') renderCaseDocsIfOpen(caseId); }catch(e){}
+  if(typeof showToast==='function'){
+    showToast(val==='self' ? '✅ 推薦票は自社対応：大使館推薦票を必要書類に設定' : '✅ 自社対応しない：住民票を必要書類に設定（推薦票は外れます）');
   }
 }
 
