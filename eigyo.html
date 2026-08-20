@@ -204,7 +204,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260820.10</div>
+      <div class="ver">ver.20260820.11</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -1112,17 +1112,88 @@ function renderDrawer(){
   + offices
   + '</div>'
   + '<div id="dpane3" style="display:none;">'
-  +   '<div class="sec"><h3>📋 書類部引き継ぎ（マスタ登録シート 1〜8）</h3>'
-  +   '<div style="padding:16px;color:var(--muted);font-size:13px;line-height:1.7;">この機関を「登録支援機関マスタに登録」すると、ここに1〜8の工程と営業ヒアリング情報がまとまって表示されます。<br><br>（この画面は順次拡充予定です）</div>'
-  +   '</div>'
+  +   '<div id="handoverBody"><div class="loading" style="padding:16px;">…</div></div>'
   + '</div>';
 }
 
+var SO_STEPS = [
+  {key:'form',   label:'1. 登録支援機関情報ヒアリングフォーム送付', memo:true},
+  {key:'price',  label:'2. 案件管理システムへ単価登録', memo:true},
+  {key:'official',label:'3. 公式アカウント紐づけ（LINE / Chatwork）', memo:true},
+  {key:'mail',   label:'4. 配信用メールアドレス登録', memo:true},
+  {key:'tool',   label:'5. 連絡ツールと窓口の確認', memo:true,
+    fields:[{k:'jinzai',label:'人材との連絡',opts:['','LINE','Chatwork','Messenger','メール','その他']},
+            {k:'kigyo',label:'企業との連絡',opts:['','LINE','Chatwork','Messenger','メール','その他']},
+            {k:'mJinzai',label:'人材の窓口',opts:['','登録支援機関','直接','送り出し機関','その他']},
+            {k:'mKigyo',label:'企業の窓口',opts:['','登録支援機関','直接','送り出し機関','その他']}]},
+  {key:'kyogikai',label:'6. 協議会の案内・フォローの業務分担', memo:true,
+    fields:[{k:'tantou',label:'担当',opts:['','登録支援機関','所属機関','大房行政書士法人','その他']}]},
+  {key:'olink',  label:'7. O-Linkの説明（特に新規依頼の方法）', memo:true, dateField:{k:'setsumeiDate',label:'説明日'}},
+  {key:'free',   label:'8. 自由記入', memo:true}
+];
+var _handoverItems = {};
 function switchDrawerTab(n){
   var panes = {1:['dpane1','dpane1b'], 2:['dpane2'], 3:['dpane3']};
   [1,2,3].forEach(function(t){
     (panes[t]||[]).forEach(function(id){ var e=el(id); if(e) e.style.display = (t===n)?'':'none'; });
     var b=el('dtab'+t); if(b) b.className = 'dtab'+(t===n?' dtab-on':'');
+  });
+  if(n===3) loadHandover();
+}
+function loadHandover(){
+  var box=el('handoverBody'); if(!box) return;
+  var orgId = curLead && curLead.support_org_id;
+  if(!orgId){
+    box.innerHTML='<div style="padding:16px;color:var(--muted);font-size:13px;line-height:1.7;">この機関はまだ案シスの登録支援機関マスタに登録されていません。<br>「営業管理/対応履歴」タブ上部の「🏢 登録支援機関マスタに登録」を押すと、ここで1〜8の工程を入力でき、案シスの登録支援機関と連動します。</div>';
+    return;
+  }
+  box.innerHTML='<div class="loading" style="padding:16px;">読み込み中...</div>';
+  _sb.from('support_org_handover').select('items').eq('org_id', orgId).then(function(r){
+    _handoverItems = (r.data && r.data[0] && r.data[0].items) ? r.data[0].items : {};
+    renderHandover();
+  });
+}
+function renderHandover(){
+  var box=el('handoverBody'); if(!box) return;
+  var done=0;
+  var h='<div class="sec"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><h3 style="margin:0;">📋 書類部引き継ぎ（1〜8）</h3><span id="handoverCount" class="sub"></span></div>';
+  h+='<div style="font-size:11.5px;color:var(--muted);margin-bottom:10px;">営シスで入力→案シスの登録支援機関「マスタ登録シート」に連動します。</div>';
+  SO_STEPS.forEach(function(st){
+    var it=_handoverItems[st.key]||{}; if(it.done) done++;
+    h+='<div style="border:1px solid var(--line);border-radius:9px;padding:11px 13px;margin-bottom:9px;">';
+    h+='<label style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;cursor:pointer;">'
+      +'<input type="checkbox" data-hk="'+st.key+'" '+(it.done?'checked':'')+' onchange="hoToggle(this)"> '+esc(st.label)+'</label>';
+    if(st.fields){
+      h+='<div class="form form-compact" style="margin-top:8px;">';
+      st.fields.forEach(function(f){
+        h+='<label>'+esc(f.label)+'</label><select data-hf="'+st.key+'|'+f.k+'" onchange="hoField(this)">'
+          +f.opts.map(function(o){return '<option'+((o===(it[f.k]||''))?' selected':'')+'>'+esc(o||'（未選択）')+'</option>';}).join('')+'</select>';
+      });
+      h+='</div>';
+    }
+    if(st.dateField){
+      h+='<div class="form form-compact" style="margin-top:8px;"><label>'+esc(st.dateField.label)+'</label>'
+        +'<input type="date" data-hf="'+st.key+'|'+st.dateField.k+'" value="'+esc(it[st.dateField.k]||'')+'" onchange="hoField(this)"></div>';
+    }
+    if(st.memo){
+      h+='<textarea data-hm="'+st.key+'" placeholder="メモ" onchange="hoMemo(this)" style="width:100%;margin-top:8px;min-height:38px;font-size:12.5px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;">'+esc(it.memo||'')+'</textarea>';
+    }
+    h+='</div>';
+  });
+  h+='<div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="saveHandover()">保存して案シスに反映</button></div>';
+  h+='</div>';
+  box.innerHTML=h;
+  var c=el('handoverCount'); if(c) c.textContent=done+' / 8';
+}
+function hoToggle(cb){ var k=cb.getAttribute('data-hk'); _handoverItems[k]=_handoverItems[k]||{}; _handoverItems[k].done=cb.checked; }
+function hoField(sel){ var kv=sel.getAttribute('data-hf').split('|'); _handoverItems[kv[0]]=_handoverItems[kv[0]]||{}; _handoverItems[kv[0]][kv[1]]=sel.value; }
+function hoMemo(ta){ var k=ta.getAttribute('data-hm'); _handoverItems[k]=_handoverItems[k]||{}; _handoverItems[k].memo=ta.value; }
+function saveHandover(){
+  var orgId = curLead && curLead.support_org_id;
+  if(!orgId){ alert('先にマスタ登録が必要です'); return; }
+  _sb.from('support_org_handover').upsert({org_id:orgId, items:_handoverItems}, {onConflict:'org_id'}).then(function(r){
+    if(r.error){ alert('保存に失敗しました：'+r.error.message); return; }
+    showMsg('dMsg','書類部引き継ぎを保存し、案シスに反映しました。','ok');
   });
 }
 
