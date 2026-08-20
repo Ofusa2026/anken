@@ -5056,7 +5056,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260819.31';
+var OFUSA_VERSION = 'ver.20260820.01';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -70480,6 +70480,15 @@ function _officialAcctBoxHtml(cid, opts){
   opts = opts || {};
   var fs = (opts.size==='sm') ? '9px' : '10px';
   var w  = opts.width ? ('display:block;width:'+opts.width+';box-sizing:border-box;') : '';
+  // ver.20260820.01: KMTの人材は「💬 KMT送信」ボタンに置き換え (紐づけ・個別案内は非表示)
+  try{
+    var _c = (typeof cData!=='undefined'?cData:[]).find(function(x){return x.id===cid;});
+    if(_c && typeof _isKmtCompany==='function' && _isKmtCompany(_c.company)){
+      var _kmtMode = opts.docs ? 'doc' : (opts.mode || 'doc');
+      var _kmtOptsJs = "{caseId:'"+esc(cid)+"',mode:'"+esc(_kmtMode)+"',source:'"+esc(opts.source||'notice')+"'}";
+      return '<button data-kmt-btn="'+esc(cid)+'" data-oa-link="'+esc(cid)+'" data-oa-sz="'+esc(opts.size||'')+'" data-oa-w="'+esc(opts.width||'')+'" onclick="event.stopPropagation();_kmtShinsaSendModal(null,null,'+_kmtOptsJs+')" title="KMTのチャットに直接送信" style="'+w+'font-size:'+fs+';font-weight:800;padding:3px 8px;border-radius:5px;cursor:pointer;border:1.5px solid #059669;background:#dcfce7;color:#059669;white-space:nowrap;">💬 KMT送信</button>';
+    }
+  }catch(e){}
   var links = _officialAcctLinks(cid);
   if(links.length){
     var nm = _officialAcctIcon(links[0].ch) + ' ' + links[0].gname + (links.length>1?(' ほか'+(links.length-1)):'');
@@ -70495,6 +70504,11 @@ function _officialAcctBoxHtml(cid, opts){
 // 個別案内ボタン（未紐づけはグレーアウト）
 function _individualNoticeBtnHtml(cid, opts){
   opts = opts || {};
+  // ver.20260820.01: KMTの人材は _officialAcctBoxHtml 側で「💬 KMT送信」ボタンに置き換えるので、こちらは空を返す (重複防止)
+  try{
+    var _c = (typeof cData!=='undefined'?cData:[]).find(function(x){return x.id===cid;});
+    if(_c && typeof _isKmtCompany==='function' && _isKmtCompany(_c.company)) return '';
+  }catch(e){}
   var fs = (opts.size==='sm') ? '9px' : '10px';
   var w  = opts.width ? ('display:block;width:'+opts.width+';box-sizing:border-box;') : '';
   var _mode = opts.mode || '';
@@ -70573,6 +70587,105 @@ function _openOfficialAcctMenu(ev, cid){
   },0);
 }
 // ver.20260723.19: 📣 個別案内 — 送信前プレビューつき。opts.docs=true(書類回収アラート)なら不足書類チェック＋依頼日更新
+// ver.20260820.01: 個別案内の文面組み立てを純粋関数として切り出し (KMT送信でも流用)
+//   opts.mode: 'doc'(既定, 書類回収) | 'hearing'(ヒアリングフォーム未回答)
+//   opts.selectedDocs: [{docName, daysDiff}] 選択済み書類 (省略時は全て)
+//   返り値: { text: '...', docItems: [...], mode }
+//   ※ docItems は依頼日更新用に返す (送信成功後に req::更新するため)
+function _buildNoticeText(cid, opts){
+  opts = opts || {};
+  var mode = opts.mode || 'doc';
+  var c = (typeof cData!=='undefined'?cData:[]).find(function(x){return x.id===cid;}) || {};
+  var nm = (c.applicant||c.name||'').trim();
+  var hearingUrl = '';
+  if(mode === 'hearing'){
+    try{
+      var _pAppType   = c.appType || '';
+      var _pResStatus = c.residenceStatus || c.currentStatus || '';
+      var _pIsGiji    = _pResStatus.indexOf('技術') >= 0 || _pResStatus.indexOf('技人国') >= 0 || _pResStatus.indexOf('人文') >= 0 || _pResStatus.indexOf('国際業務') >= 0;
+      var _pIsKoushin = _pAppType.indexOf('更新') >= 0;
+      var _pIsHenkou  = _pAppType.indexOf('変更') >= 0;
+      var _pFormType  = _pIsGiji ? (_pIsKoushin ? 'gijinkoku_koushin' : (_pIsHenkou ? 'gijinkoku_henkou' : 'gijinkoku_nintei'))
+                                  : (_pIsKoushin ? 'tokutei_koushin'   : (_pIsHenkou ? 'tokutei_henkou'   : 'tokutei_nintei'));
+      if(typeof FORM_BASE_URL !== 'undefined'){
+        hearingUrl = FORM_BASE_URL + '?case=' + encodeURIComponent(cid) + '&type=' + _pFormType + '&name=' + encodeURIComponent(nm||c.name||'');
+        if(typeof _appendAidemSrc === 'function') hearingUrl = _appendAidemSrc(hearingUrl, c && c.org);
+      }
+    }catch(e){}
+  }
+  var docItems = [];
+  if(mode !== 'hearing'){
+    try{
+      var today = Date.now();
+      var dc = (typeof docCheck!=='undefined'?docCheck[cid]:null) || {};
+      var docList = (typeof _getDocList==='function')?(_getDocList(c)||[]):[];
+      docList.forEach(function(docName){
+        if(dc['skip::'+docName]||dc['staff::'+docName]) return;
+        var reqDate = dc['req::'+docName]; if(!reqDate) return;
+        var daysDiff = Math.floor((today-new Date(reqDate).getTime())/86400000);
+        if(daysDiff>=7) docItems.push({docName:docName, daysDiff:daysDiff});
+      });
+    }catch(e){}
+  }
+  var text = '';
+  if(mode === 'hearing'){
+    text = '【ヒアリングフォームご回答のお願い】\n\n'
+      + (nm ? (nm+'様\n') : '')
+      + 'お世話になっております。大房行政書士法人です。\n'
+      + '以下のヒアリングフォームがまだご回答いただけていません。\nお手数ですがご回答をお願いいたします。\n\n';
+    if(hearingUrl){ text += '▼ 回答はこちらから📝\n' + hearingUrl + '\n'; }
+  } else if(docItems.length){
+    var picked = opts.selectedDocs || docItems;
+    text = '【不足書類のご案内】\n\n'
+      + (nm ? (nm+'様\n') : '')
+      + 'お世話になっております。大房行政書士法人です。\n'
+      + '以下の書類がまだ届いていません。\nご準備のうえご提出をお願いいたします。\n\n';
+    picked.forEach(function(d){ text += '□ ' + d.docName + '\n'; });
+    var _upUrl = (typeof _applicantUploadUrl==='function') ? _applicantUploadUrl(cid) : '';
+    if(_upUrl){ text += '\n▼ 書類のアップロードはこちら📎\n' + _upUrl + '\n'; }
+  } else {
+    text = (nm ? (nm+'様\n') : '')+'お世話になっております。大房行政書士法人です。\n\n';
+  }
+  return { text: text, docItems: docItems, mode: mode };
+}
+
+// ver.20260820.01: 個別案内送信成功後の依頼日更新ロジックを切り出し (LINE/CW/KMT送信で共通利用)
+//   ①案内文に載せた書類 → 今日に更新 (再案内カウント)
+//   ②依頼日がまだ無い未取得書類 → 今日を初回案内日として設定
+function _applyNoticeReqUpdate(cid, selectedDocs){
+  try{
+    var c = (typeof cData!=='undefined'?cData:[]).find(function(x){return x.id===cid;}) || {};
+    var dc = (typeof docCheck!=='undefined'?docCheck:{})[cid] || ((docCheck[cid]={}) && docCheck[cid]);
+    var todayStr = new Date().toISOString().slice(0,10);
+    var updated = 0;
+    (selectedDocs||[]).forEach(function(d){
+      if(!dc['req0::'+d.docName] && dc['req::'+d.docName]) dc['req0::'+d.docName] = dc['req::'+d.docName];
+      dc['req::'+d.docName] = todayStr;
+      dc['reqN::'+d.docName] = String(parseInt(dc['reqN::'+d.docName]||'1',10)+1);
+      updated++;
+    });
+    // ②初回案内: 依頼日が未設定の未取得書類に今日をセット
+    try{
+      var _dl = (typeof _getDocList==='function')?(_getDocList(c)||[]):[];
+      var _newSet = 0;
+      _dl.forEach(function(docName){
+        if(dc['skip::'+docName]||dc['staff::'+docName]) return;
+        if(dc[docName]) return;
+        if(dc['req::'+docName]) return;
+        dc['req::'+docName] = todayStr;
+        dc['req0::'+docName] = todayStr;
+        dc['reqN::'+docName] = '1';
+        _newSet++; updated++;
+      });
+      if(_newSet && typeof showToast==='function') showToast('🗓 初回案内日として '+_newSet+'件の書類に依頼日を設定しました');
+    }catch(e){}
+    if(updated && typeof persistDocCheck==='function') persistDocCheck();
+    if(updated && typeof _renderPersonDocAlertList==='function' && document.getElementById('personDocAlertModal')){ try{ _renderPersonDocAlertList(); }catch(e){} }
+    if(updated && typeof updatePersonDocAlertBadge==='function'){ try{ updatePersonDocAlertBadge(); }catch(e){} }
+    return updated;
+  }catch(e){ return 0; }
+}
+
 function _openIndividualNoticeModal(cid, opts){
   opts = opts || {};
   var mode = opts.mode || 'doc';   // ver.20260816.02: 'doc'=書類回収 / 'hearing'=ヒアリングフォーム未回答
@@ -81675,19 +81788,56 @@ async function _kmtDqSend(caseId){
   }
 }
 
-async function _kmtShinsaSendModal(docId, docType){
-  docType = _KMT_SEND_CFG[docType] ? docType : 'shinsa';
-  var _cfg=_KMT_SEND_CFG[docType];
-  var d=(_cfg.list()||[]).find(function(x){return x.id===docId;});
-  if(!d){ alert('行データが見つかりません'); return; }
+async function _kmtShinsaSendModal(docId, docType, opts){
+  // ver.20260820.01: opts 拡張 (case ベース呼び出し・本文差し替え・成功コールバック)
+  //   opts.caseId  : 案件IDベースで人材名を取得 (docId/docType 不要、案件系ボタンから利用)
+  //   opts.bodyText: 送信本文を差し替え (未指定なら従来通り _cfg.msg で組み立て)
+  //   opts.source  : ログ用ソース ('individual_notice','hearing' 等)
+  //   opts.mode    : 'doc' | 'hearing' (caseIdモード時の文面生成に使用)
+  //   opts.onSuccess: 送信成功後コールバック (依頼日更新等)
+  opts = opts || {};
+  var _isCaseMode = !!opts.caseId;
+  var caseId = opts.caseId || null;
+  var caseObj = null;
+  var displayName = '';
+  var bodyText = '';
+  var _cfg = null;
+  var d = null;
+  if(_isCaseMode){
+    // 案件ベース: cData から名前引く、docType は 'shinsa' 相当扱いだが後段でスキップ
+    caseObj = (typeof cData!=='undefined'?cData:[]).find(function(x){return x.id===caseId;}) || {};
+    displayName = (caseObj.applicant || caseObj.name || '').trim();
+    if(!displayName){ alert('案件情報が見つかりません'); return; }
+    if(opts.bodyText){
+      bodyText = opts.bodyText;
+    } else {
+      var _bn = _buildNoticeText(caseId, {mode: opts.mode||'doc'});
+      bodyText = _bn.text;
+      window._kmtLastDocItems = _bn.docItems;   // 送信成功時に依頼日更新するため保持
+    }
+  } else {
+    // 従来動作: アーカイブレコードから取得
+    docType = _KMT_SEND_CFG[docType] ? docType : 'shinsa';
+    _cfg = _KMT_SEND_CFG[docType];
+    d = (_cfg.list()||[]).find(function(x){return x.id===docId;});
+    if(!d){ alert('行データが見つかりません'); return; }
+    displayName = d.name || '';
+    if(opts.bodyText){
+      bodyText = opts.bodyText;
+    } else {
+      var lines = ['@全員 ', _cfg.msg(displayName)];
+      if(d.driveUrl) lines.push(_cfg.urlLabel+d.driveUrl);
+      bodyText = lines.join('\n');
+    }
+  }
   showToast('💬 KMTのチャット候補を取得中...');
   var rooms;
   try{
     rooms=await kmtFetch('chat_rooms?select=id,worker_id,workers(id,name,apply_status,shinsa_completion_chat_posted,companies(name))&worker_id=not.is.null&is_deleted=eq.false&limit=2000');
   }catch(e){ alert('⚠️ KMT DBに接続できませんでした: '+e.message); return; }
   rooms=(rooms||[]).filter(function(r){return r.workers && r.workers.name;});
-  var target=_kmtNorm(d.name);
-  var toks=String(d.name||'').split(/[\s\u3000]+/).map(_kmtNorm).filter(function(t){return t.length>=2;});
+  var target=_kmtNorm(displayName);
+  var toks=String(displayName||'').split(/[\s\u3000]+/).map(_kmtNorm).filter(function(t){return t.length>=2;});
   rooms.forEach(function(r){
     var wn=_kmtNorm(r.workers.name);
     if(target && wn===target) r._rank=0;
@@ -81697,9 +81847,6 @@ async function _kmtShinsaSendModal(docId, docType){
   rooms.sort(function(a,b){ return a._rank-b._rank || String(a.workers.name).localeCompare(String(b.workers.name)); });
   var exact=rooms.filter(function(r){return r._rank===0;});
   var preselect=(exact.length===1)?exact[0].id:'';
-  var lines=['@全員 ', _cfg.msg(d.name||'')];
-  if(d.driveUrl) lines.push(_cfg.urlLabel+d.driveUrl);
-  var bodyText=lines.join('\n');
   var old=document.getElementById('_kmtSendModal'); if(old) old.remove();
   var m=document.createElement('div');
   m.id='_kmtSendModal';
@@ -81717,8 +81864,9 @@ async function _kmtShinsaSendModal(docId, docType){
   }
   var visible=rooms.filter(function(r){return r._rank<=1;});
   var listHtml=visible.length?visible.map(rowHtml).join(''):'<div style="font-size:12px;color:#dc2626;font-weight:700;padding:10px;">⚠️ KMTに該当人材が見つかりません（別名登録の可能性）。上の検索で全人材から探せます。</div>';
+  var _cfgTitle = _cfg ? _cfg.title : '個別案内';
   m.innerHTML='<div style="background:white;border-radius:14px;max-width:640px;width:92vw;max-height:86vh;display:flex;flex-direction:column;padding:18px 20px;" onclick="event.stopPropagation();">'
-    +'<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:2px;">💬 KMTチャットに送信（'+_cfg.title+'）— '+esc(d.name||'')+'</div>'
+    +'<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:2px;">💬 KMTチャットに送信（'+esc(_cfgTitle)+'）— '+esc(displayName)+'</div>'
     +'<div style="font-size:11px;color:#64748b;margin-bottom:10px;">送信先のKMT人材チャットを選んでください（◎完全一致 / ○部分一致）</div>'
     +'<input id="_kmtSearch" placeholder="🔍 人材名・企業名で検索（全'+rooms.length+'ルーム）" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12px;margin-bottom:8px;">'
     +'<div id="_kmtList" style="display:flex;flex-direction:column;gap:6px;overflow-y:auto;flex:1;min-height:80px;max-height:38vh;padding:2px;">'+listHtml+'</div>'
@@ -81757,10 +81905,56 @@ async function _kmtShinsaSendModal(docId, docType){
     var sel=document.querySelector('input[name="_kmtTarget"]:checked');
     if(!sel){ alert('送信先を選んでください'); return; }
     var _editEl=document.getElementById('_kmtBodyEdit');
-    var _body=(_editEl && _editEl.value.trim()) ? _editEl.value : bodyText; // ver.20260723.05: 編集内容を送信（空なら元の文面）
-    _kmtShinsaDoSend(docId, sel.getAttribute('data-worker'), sel.value, sel.getAttribute('data-wname'), _body, docType);
+    var _body=(_editEl && _editEl.value.trim()) ? _editEl.value : bodyText;
+    // ver.20260820.01: caseMode なら _kmtShinsaDoSend の代わりに新経路 _kmtCaseDoSend を呼ぶ
+    if(_isCaseMode){
+      _kmtCaseDoSend(caseId, sel.getAttribute('data-worker'), sel.value, sel.getAttribute('data-wname'), _body, opts);
+    } else {
+      _kmtShinsaDoSend(docId, sel.getAttribute('data-worker'), sel.value, sel.getAttribute('data-wname'), _body, docType);
+    }
   };
 }
+
+// ver.20260820.01: 案件ベースのKMTチャット送信 (アーカイブレコード無し)
+//   _kmtShinsaDoSend と違い、KMTステータス更新は行わない・アーカイブ側の reported 更新もなし
+//   代わりに opts.mode='doc' なら書類回収の依頼日更新を実施
+async function _kmtCaseDoSend(caseId, workerId, roomId, workerName, bodyText, opts){
+  opts = opts || {};
+  var btn=document.getElementById('_kmtSendBtn');
+  if(btn){ btn.disabled=true; btn.textContent='送信中...'; }
+  try{
+    // 二重送信ガード: 同ルームの同内容 (先頭50文字で判定)
+    if(roomId){
+      var _dupKey = String(bodyText||'').substring(0, 50);
+      if(_dupKey.length >= 8){
+        var dup = await kmtFetch('chat_messages?chat_room_id=eq.'+encodeURIComponent(roomId)+'&content=like.*'+encodeURIComponent(_dupKey)+'*&select=id&limit=1');
+        if(dup && dup.length){
+          if(!confirm('⚠️ このチャットには既に同内容の投稿があります。\nもう一度送信しますか？')){ if(btn){btn.disabled=false;btn.textContent='💬 この人材に送信';} return; }
+        }
+      }
+    }
+    if(!roomId){
+      var created=await kmtFetch('chat_rooms',{method:'POST',headers:{'Prefer':'return=representation'},body:JSON.stringify({worker_id:workerId,created_by:'大房・'+(currentUser||''),status:'active'})});
+      roomId=(Array.isArray(created)?created[0]:created).id;
+    }
+    // チャット投稿
+    await kmtFetch('chat_messages',{method:'POST',body:JSON.stringify({
+      chat_room_id:roomId, room_id:roomId, sender_id:null, sender_name:'大房・'+(currentUser||''),
+      content:bodyText, created_at:new Date().toISOString()
+    })});
+    // 依頼日更新 (書類回収モードのみ)
+    if((opts.mode||'doc') === 'doc' && window._kmtLastDocItems && window._kmtLastDocItems.length){
+      try{ _applyNoticeReqUpdate(caseId, window._kmtLastDocItems); }catch(e){}
+      window._kmtLastDocItems = null;
+    }
+    var mm=document.getElementById('_kmtSendModal'); if(mm) mm.remove();
+    showToast('✅ KMTチャットへ送信しました');
+  }catch(e){
+    if(btn){ btn.disabled=false; btn.textContent='💬 この人材に送信'; }
+    alert('❌ 送信に失敗しました: '+e.message);
+  }
+}
+
 async function _kmtShinsaDoSend(docId, workerId, roomId, workerName, bodyText, docType){
   docType = _KMT_SEND_CFG[docType] ? docType : 'shinsa';
   var _cfg=_KMT_SEND_CFG[docType];
