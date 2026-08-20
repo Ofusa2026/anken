@@ -92,6 +92,9 @@ tbody tr:hover{background:#f7fafc;}
 .mtab{border:none;background:none;padding:9px 16px;font-size:14px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;border-radius:6px 6px 0 0;}
 .mtab:hover{background:#f7fafc;color:var(--text);}
 .mtab-on{color:var(--accent);border-bottom-color:var(--accent);}
+.dtab{border:none;background:none;padding:8px 14px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;border-radius:6px 6px 0 0;}
+.dtab:hover{background:#f7fafc;color:var(--text);}
+.dtab-on{color:var(--accent);border-bottom-color:var(--accent);}
 .subtabs{display:flex;gap:6px;margin-bottom:16px;}
 .stab{border:1px solid var(--line);background:#fff;padding:6px 14px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;border-radius:999px;}
 .stab-on{background:var(--accent);color:#fff;border-color:var(--accent);}
@@ -142,7 +145,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
 /* ドロワー */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;z-index:50;}
 .overlay.on{display:block;}
-.drawer{position:fixed;top:0;right:0;bottom:0;width:min(620px,100%);background:#fff;z-index:51;
+.drawer{position:fixed;top:0;right:0;bottom:0;width:60vw;max-width:100%;background:#fff;z-index:51;
   transform:translateX(100%);transition:transform .2s;overflow-y:auto;box-shadow:-4px 0 20px rgba(0,0,0,.12);}
 .drawer.on{transform:translateX(0);}
 .dhead{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);padding:16px 20px;z-index:2;}
@@ -153,6 +156,15 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
 .kv{display:grid;grid-template-columns:96px 1fr;gap:6px 10px;font-size:13px;}
 .kv .k{color:var(--muted);font-size:12px;}
 .form{display:grid;grid-template-columns:96px 1fr;gap:8px 10px;align-items:center;font-size:13px;}
+.drawer .form.form-compact{grid-template-columns:82px minmax(120px,260px) 82px minmax(120px,260px);gap:7px 14px;justify-content:start;}
+.drawer .form.form-compact > label{font-size:12px;color:var(--muted);white-space:nowrap;}
+.drawer .form.form-compact > select,.drawer .form.form-compact > input{width:100%;max-width:260px;}
+.drawer .form.form-compact > .span2{grid-column:2 / -1;max-width:none;}
+.drawer .form.form-compact > .full{grid-column:1 / -1;max-width:none;}
+.drawer .form.form-compact > textarea.full{min-height:110px;max-height:220px;resize:vertical;}
+.drawer .form input, .drawer .form select, .drawer .form textarea{font-size:13px;padding:5px 8px;}
+.drawer .sec{padding:12px 14px;}
+.drawer .sec h3{font-size:13px;margin-bottom:8px;}
 .form label{color:var(--muted);font-size:12px;}
 .form input,.form select,.form textarea{
   width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:7px;font-size:13px;font-family:inherit;color:var(--text);background:#fff;}
@@ -192,7 +204,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260730.23</div>
+      <div class="ver">ver.20260820.12</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -560,6 +572,11 @@ var _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 var STATUSES = ['未接触','接触済み','商談予定','商談中','案件依頼前','要経過観察','見込みなし','契約中','対象外','テレアポ失注'];
 var DOC_METHODS = ['','行政書士','登録支援機関（システム利用）','登録支援機関（システム未利用）','所属機関'];
+var HR_TOOLS = ['','LINE','Chatwork','Messenger','メール','その他'];
+var HR_MADOGUCHI = ['','登録支援機関','直接','送り出し機関','その他'];
+var HR_KYOGIKAI = ['','登録支援機関','所属機関','大房行政書士法人','その他'];
+var HR_EXCLUSIVE = ['','専売（弊社のみ）','複数社に依頼','未確認'];
+var HR_SPOT = ['','スポット','定期依頼','トライアル次第','未確認'];
 // KPIカードに出すステータス
 var KPI_STATUSES = ['未接触','接触済み','商談予定','案件依頼前','要経過観察','見込みなし','契約中','対象外','テレアポ失注'];
 var KINDS    = ['架電','メール','訪問','郵送','その他'];
@@ -753,8 +770,9 @@ function loadStaff(){
 // 営業対象外はリストに出さない（士業・個人／既存顧客／支援業務休止中）
 function applyExclusions(q){
   // 士業・個人と休止中は除外。取引あり(is_client)は「契約中」として表示するため除外しない。
-  return q.not('entity_type','in','("'+SHIGYO.join('","')+'")')
-          .eq('is_suspended', false);
+  // entity_typeがnull（新規登録など）は除外対象にせず表示する。
+  return q.or('entity_type.is.null,entity_type.not.in.("'+SHIGYO.join('","')+'")')
+          .or('is_suspended.is.null,is_suspended.eq.false');
 }
 
 function buildQuery(forCount){
@@ -966,31 +984,78 @@ function renderDrawer(){
 
   el('dBody').innerHTML =
     '<div id="dMsg" class="msg"></div>'
-  + '<div class="sec"><h3>営業管理</h3><div class="form">'
+  + '<div style="margin-bottom:12px;padding:10px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;display:flex;align-items:center;gap:10px;justify-content:space-between;">'
+  +   '<span style="font-size:12.5px;color:#166534;">契約が決まったら、案シスの登録支援機関マスタに登録できます。</span>'
+  +   '<button class="btn btn-sm btn-primary" style="white-space:nowrap;" onclick="registerToMaster()">🏢 登録支援機関マスタに登録</button>'
+  + '</div>'
+  + '<div class="dtabs" style="display:flex;gap:4px;margin-bottom:12px;border-bottom:2px solid var(--line);">'
+  +   '<button id="dtab1" class="dtab dtab-on" onclick="switchDrawerTab(1)">営業管理/対応履歴</button>'
+  +   '<button id="dtab2" class="dtab" onclick="switchDrawerTab(2)">登録支援機関情報</button>'
+  +   '<button id="dtab3" class="dtab" onclick="switchDrawerTab(3)">書類部引き継ぎ</button>'
+  + '</div>'
+  + '<div id="dpane1">'
+  + '<div class="sec"><h3>営業管理</h3><div class="form form-compact">'
   +   '<label>ステータス</label><select id="eStatus">'+STATUSES.map(function(s){return '<option'+(s===x.status?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
   +   '<label>担当者</label><select id="eStaff"><option value="">（未設定）</option>'
   +     staffOptions.map(function(s){return '<option'+(s===x.staff?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
   +   '<label>優先度</label><select id="ePrio">'+PRIOS.map(function(p){return '<option value="'+esc(p)+'"'+(p===(x.priority||'')?' selected':'')+'>'+(p||'（未設定）')+'</option>';}).join('')+'</select>'
-  +   '<label>初回接触日</label><div style="display:flex;gap:6px;">'
-  +     '<input type="date" id="eFirstDate" value="'+esc(x.first_contact_date||'')+'">'
+  +   '<label>書類作成方法</label><select id="eDocMethod">'+DOC_METHODS.map(function(m){return '<option'+((m===(x.doc_method||''))?' selected':'')+'>'+esc(m)+'</option>';}).join('')+'</select>'
+  +   '<label>初回接触日</label><div class="span2" style="display:flex;gap:6px;">'
+  +     '<input type="date" id="eFirstDate" value="'+esc(x.first_contact_date||'')+'" style="flex:1;">'
   +     '<select id="eFirstKind" style="flex:0 0 130px;"><option value="">（経路）</option>'
   +       FIRST_KINDS.map(function(t){return '<option'+(t===x.first_contact_kind?' selected':'')+'>'+esc(t)+'</option>';}).join('')
   +     '</select></div>'
-  +   '<label>商談予定日</label><div style="display:flex;gap:6px;">'
-  +     '<input type="date" id="eMeetDate" value="'+esc(x.meeting_date||'')+'">'
+  +   '<label>商談予定日</label><div class="span2" style="display:flex;gap:6px;">'
+  +     '<input type="date" id="eMeetDate" value="'+esc(x.meeting_date||'')+'" style="flex:1;">'
   +     '<select id="eMeetKind" style="flex:0 0 130px;"><option value="">（形式）</option>'
   +       MEETING_KINDS.map(function(t){return '<option'+(t===x.meeting_kind?' selected':'')+'>'+esc(t)+'</option>';}).join('')
   +     '</select></div>'
-  +   '<label>ネクストアクション</label><div style="display:flex;gap:6px;">'
+  +   '<label>ネクストアクション</label><div class="span2" style="display:flex;gap:6px;">'
   +     '<select id="eNextKind" style="flex:1;"><option value="">（未設定）</option>'
   +       NEXT_KINDS.map(function(k){return '<option'+(k===(x.next_action_kind||'')?' selected':'')+'>'+esc(k)+'</option>';}).join('')
   +     '</select>'
   +     '<input type="date" id="eNextDate" value="'+esc(x.next_action_date||'')+'" style="flex:1;">'
   +   '</div>'
-  +   '<label>書類作成方法</label><select id="eDocMethod">'+DOC_METHODS.map(function(m){return '<option'+((m===(x.doc_method||''))?' selected':'')+'>'+esc(m)+'</option>';}).join('')+'</select>'
-  +   '<label>メモ</label><textarea id="eMemo" placeholder="社内メモ">'+esc(x.memo||'')+'</textarea>'
-  + '</div><div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="saveLead()">保存</button></div></div>'
-
+  +   '<label class="full" style="margin-bottom:-4px;">メモ（社内用）</label><textarea id="eMemo" class="full" placeholder="社内メモ（自由記入）" style="min-height:110px;">'+esc(x.memo||'')+'</textarea>'
+  + '</div>'
+  + '<div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="saveLead()">保存</button></div>'
+  + '</div>'  /* end 営業管理sec */
+  + '</div>'  /* end dpane1(前半)：この後、担当者以降もタブ1なので後で再オープン */
+  + '<div id="dpane2" style="display:none;">'
+  + '<div style="display:flex;align-items:center;justify-content:space-between;margin:4px 0 8px;">'
+  +   '<h3 style="margin:0;font-size:14px;">📋 登録支援機関ヒアリング</h3>'
+  +   '<button class="btn btn-sm" onclick="issueHearingFormUrl()" style="white-space:nowrap;">🔗 ヒアリングフォームURL発行</button>'
+  + '</div>'
+  + '<div class="form" style="grid-template-columns:130px 1fr;">'
+  +   '<label>予定開始日</label><input type="date" id="eHrStartDate" value="'+esc(x.hr_start_date||'')+'">'
+  +   '<label>ドライブURL</label><input type="text" id="eHrDriveUrl" class="span2" value="'+esc(x.hr_drive_url||'')+'" placeholder="https://drive.google.com/drive/folders/...">'
+  +   '<label>月間件数</label><input type="number" id="eHrMonthly" value="'+esc(x.hr_monthly_apps!=null?x.hr_monthly_apps:'')+'" placeholder="件/月">'
+  +   '<label>年間件数</label><input type="number" id="eHrYearly" value="'+esc(x.hr_yearly_apps!=null?x.hr_yearly_apps:'')+'" placeholder="件/年">'
+  +   '<label>取扱在留資格</label><textarea id="eHrVisa" placeholder="例：特定技能1号、技人国、技能実習 など" style="min-height:40px;">'+esc(x.hr_visa||'')+'</textarea>'
+  +   '<label>取扱分野</label><textarea id="eHrFields" placeholder="例：建設、介護、外食 など" style="min-height:40px;">'+esc(x.hr_fields||'')+'</textarea>'
+  +   '<label>専売/複数社</label><select id="eHrExclusive">'+HR_EXCLUSIVE.map(function(m){return '<option'+((m===(x.hr_exclusive||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
+  +   '<label>現在の依頼先</label><textarea id="eHrGyosei" placeholder="今どこの行政書士に依頼しているか、その割合・分野" style="min-height:48px;">'+esc(x.hr_current_gyosei||'')+'</textarea>'
+  +   '<label>見込み</label><select id="eHrSpot">'+HR_SPOT.map(function(m){return '<option'+((m===(x.hr_spot||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
+  +   '<label>獲得見込み</label><div style="display:flex;gap:6px;"><input type="number" id="eHrPotential" value="'+esc(x.hr_potential_apps!=null?x.hr_potential_apps:'')+'" placeholder="月◯件" style="flex:0 0 110px;"><input type="text" id="eHrPotentialField" value="'+esc(x.hr_potential_field||'')+'" placeholder="分野（例：特定技能）" style="flex:1;"></div>'
+  +   '<label>獲得条件</label><textarea id="eHrCondition" placeholder="どうなったら残りの申請件数を弊社に任せてもらえそうか" style="min-height:48px;">'+esc(x.hr_condition||'')+'</textarea>'
+  + '</div>'
+  + '<h3 style="margin:16px 0 8px;font-size:14px;">💬 連絡ツールと窓口</h3>'
+  + '<div class="form" style="grid-template-columns:130px 1fr 130px 1fr;">'
+  +   '<label>人材との連絡</label><select id="eHrContactJinzai">'+HR_TOOLS.map(function(m){return '<option'+((m===(x.hr_contact_jinzai||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
+  +   '<label>企業との連絡</label><select id="eHrContactKigyo">'+HR_TOOLS.map(function(m){return '<option'+((m===(x.hr_contact_kigyo||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
+  +   '<label>人材の窓口</label><select id="eHrWindowJinzai">'+HR_MADOGUCHI.map(function(m){return '<option'+((m===(x.hr_window_jinzai||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
+  +   '<label>企業の窓口</label><select id="eHrWindowKigyo">'+HR_MADOGUCHI.map(function(m){return '<option'+((m===(x.hr_window_kigyo||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
+  + '</div>'
+  + '<div class="form" style="grid-template-columns:130px 1fr 130px 1fr;">'
+  +   '<label>協議会の担当</label><select id="eHrKyogikai">'+HR_KYOGIKAI.map(function(m){return '<option'+((m===(x.hr_kyogikai||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
+  +   '<label>O-Link説明日</label><input type="date" id="eHrOlinkDate" value="'+esc(x.hr_olink_date||'')+'">'
+  + '</div>'
+  + '<div class="form" style="grid-template-columns:130px 1fr;">'
+  +   '<label>O-Link説明メモ</label><textarea id="eHrOlinkMemo" placeholder="新規依頼の出し方を先方が理解したか等" style="min-height:40px;">'+esc(x.hr_olink_memo||'')+'</textarea>'
+  +   '<label>メモ</label><textarea id="eHrMemo" placeholder="その他ヒアリングで得た情報を自由に記入" style="min-height:64px;">'+esc(x.hr_memo||'')+'</textarea>'
+  + '</div><div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="saveLead()">保存</button></div>'
+  + '</div>'  /* end dpane2 */
+  + '<div id="dpane1b">'
   + '<div class="sec"><h3>先方の担当者（最大3名）</h3>'
   +   [0,1,2].map(function(i){
         var c = (curLead.contacts && curLead.contacts[i]) || {};
@@ -1044,7 +1109,104 @@ function renderDrawer(){
   +   '<div class="k">支援開始</div><div>'+esc(x.support_start_date||'')+'</div>'
   +   '<div class="k">備考</div><div>'+esc(x.bikou||'-')+'</div>'
   + '</div></div>'
-  + offices;
+  + offices
+  + '</div>'
+  + '<div id="dpane3" style="display:none;">'
+  +   '<div id="handoverBody"><div class="loading" style="padding:16px;">…</div></div>'
+  + '</div>';
+}
+
+var SO_STEPS = [
+  {key:'form',   label:'1. 登録支援機関情報ヒアリングフォーム送付', memo:true},
+  {key:'price',  label:'2. 案件管理システムへ単価登録', memo:true},
+  {key:'official',label:'3. 公式アカウント紐づけ（LINE / Chatwork）', memo:true},
+  {key:'mail',   label:'4. 配信用メールアドレス登録', memo:true},
+  {key:'tool',   label:'5. 連絡ツールと窓口の確認', memo:true,
+    fields:[{k:'jinzai',label:'人材との連絡',opts:['','LINE','Chatwork','Messenger','メール','その他']},
+            {k:'kigyo',label:'企業との連絡',opts:['','LINE','Chatwork','Messenger','メール','その他']},
+            {k:'mJinzai',label:'人材の窓口',opts:['','登録支援機関','直接','送り出し機関','その他']},
+            {k:'mKigyo',label:'企業の窓口',opts:['','登録支援機関','直接','送り出し機関','その他']}]},
+  {key:'kyogikai',label:'6. 協議会の案内・フォローの業務分担', memo:true,
+    fields:[{k:'tantou',label:'担当',opts:['','登録支援機関','所属機関','大房行政書士法人','その他']}]},
+  {key:'olink',  label:'7. O-Linkの説明（特に新規依頼の方法）', memo:true, dateField:{k:'setsumeiDate',label:'説明日'}},
+  {key:'free',   label:'8. 自由記入', memo:true}
+];
+var _handoverItems = {};
+function switchDrawerTab(n){
+  var panes = {1:['dpane1','dpane1b'], 2:['dpane2'], 3:['dpane3']};
+  [1,2,3].forEach(function(t){
+    (panes[t]||[]).forEach(function(id){ var e=el(id); if(e) e.style.display = (t===n)?'':'none'; });
+    var b=el('dtab'+t); if(b) b.className = 'dtab'+(t===n?' dtab-on':'');
+  });
+  if(n===3) loadHandover();
+}
+function loadHandover(){
+  var box=el('handoverBody'); if(!box) return;
+  var orgId = curLead && curLead.support_org_id;
+  box.innerHTML='<div class="loading" style="padding:16px;">読み込み中...</div>';
+  if(orgId){
+    _sb.from('support_org_handover').select('items').eq('org_id', orgId).then(function(r){
+      _handoverItems = (r.data && r.data[0] && r.data[0].items) ? r.data[0].items : {};
+      renderHandover(true);
+    });
+  } else {
+    _handoverItems = (curLead && curLead.handover_items) ? curLead.handover_items : {};
+    renderHandover(false);
+  }
+}
+function renderHandover(registered){
+  var box=el('handoverBody'); if(!box) return;
+  var done=0;
+  var h='<div class="sec"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><h3 style="margin:0;">📋 書類部引き継ぎ（1〜8）</h3><span id="handoverCount" class="sub"></span></div>';
+  if(registered){
+    h+='<div style="font-size:11.5px;color:#166534;margin-bottom:10px;">✓ 案シスの登録支援機関「マスタ登録シート」と連動中。営シス・案シスどちらでも編集できます。</div>';
+  } else {
+    h+='<div style="font-size:11.5px;color:var(--muted);margin-bottom:10px;">ここで先に入力しておけます。「🏢 登録支援機関マスタに登録」を押すと、この内容がまとめて案シスに送られます。</div>';
+  }
+  SO_STEPS.forEach(function(st){
+    var it=_handoverItems[st.key]||{}; if(it.done) done++;
+    h+='<div style="border:1px solid var(--line);border-radius:9px;padding:11px 13px;margin-bottom:9px;">';
+    h+='<label style="display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;cursor:pointer;">'
+      +'<input type="checkbox" data-hk="'+st.key+'" '+(it.done?'checked':'')+' onchange="hoToggle(this)"> '+esc(st.label)+'</label>';
+    if(st.fields){
+      h+='<div class="form form-compact" style="margin-top:8px;">';
+      st.fields.forEach(function(f){
+        h+='<label>'+esc(f.label)+'</label><select data-hf="'+st.key+'|'+f.k+'" onchange="hoField(this)">'
+          +f.opts.map(function(o){return '<option'+((o===(it[f.k]||''))?' selected':'')+'>'+esc(o||'（未選択）')+'</option>';}).join('')+'</select>';
+      });
+      h+='</div>';
+    }
+    if(st.dateField){
+      h+='<div class="form form-compact" style="margin-top:8px;"><label>'+esc(st.dateField.label)+'</label>'
+        +'<input type="date" data-hf="'+st.key+'|'+st.dateField.k+'" value="'+esc(it[st.dateField.k]||'')+'" onchange="hoField(this)"></div>';
+    }
+    if(st.memo){
+      h+='<textarea data-hm="'+st.key+'" placeholder="メモ" onchange="hoMemo(this)" style="width:100%;margin-top:8px;min-height:38px;font-size:12.5px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;">'+esc(it.memo||'')+'</textarea>';
+    }
+    h+='</div>';
+  });
+  h+='<div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="saveHandover()">'+(registered?'保存して案シスに反映':'下書き保存')+'</button></div>';
+  h+='</div>';
+  box.innerHTML=h;
+  var c=el('handoverCount'); if(c) c.textContent=done+' / 8';
+}
+function hoToggle(cb){ var k=cb.getAttribute('data-hk'); _handoverItems[k]=_handoverItems[k]||{}; _handoverItems[k].done=cb.checked; }
+function hoField(sel){ var kv=sel.getAttribute('data-hf').split('|'); _handoverItems[kv[0]]=_handoverItems[kv[0]]||{}; _handoverItems[kv[0]][kv[1]]=sel.value; }
+function hoMemo(ta){ var k=ta.getAttribute('data-hm'); _handoverItems[k]=_handoverItems[k]||{}; _handoverItems[k].memo=ta.value; }
+function saveHandover(){
+  var orgId = curLead && curLead.support_org_id;
+  if(orgId){
+    _sb.from('support_org_handover').upsert({org_id:orgId, items:_handoverItems}, {onConflict:'org_id'}).then(function(r){
+      if(r.error){ alert('保存に失敗しました：'+r.error.message); return; }
+      showMsg('dMsg','書類部引き継ぎを保存し、案シスに反映しました。','ok');
+    });
+  } else {
+    _sb.from('eigyo_leads').update({handover_items:_handoverItems}).eq('reg_no', curLead.reg_no).then(function(r){
+      if(r.error){ alert('保存に失敗しました：'+r.error.message); return; }
+      curLead.handover_items=_handoverItems;
+      showMsg('dMsg','下書きを保存しました。マスタ登録時に案シスへ送られます。','ok');
+    });
+  }
 }
 
 function saveLead(){
@@ -1059,13 +1221,87 @@ function saveLead(){
     next_action_kind:  el('eNextKind').value || null,
     next_action_date:  el('eNextDate').value || null,
     doc_method:        el('eDocMethod').value || null,
-    memo:              el('eMemo').value.trim() || null
+    memo:              el('eMemo').value.trim() || null,
+    hr_start_date:     el('eHrStartDate').value || null,
+    hr_drive_url:      el('eHrDriveUrl').value.trim() || null,
+    hr_monthly_apps:   el('eHrMonthly').value!==''? parseInt(el('eHrMonthly').value,10) : null,
+    hr_yearly_apps:    el('eHrYearly').value!==''? parseInt(el('eHrYearly').value,10) : null,
+    hr_visa:           el('eHrVisa').value.trim() || null,
+    hr_fields:         el('eHrFields').value.trim() || null,
+    hr_exclusive:      el('eHrExclusive').value || null,
+    hr_current_gyosei: el('eHrGyosei').value.trim() || null,
+    hr_spot:           el('eHrSpot').value || null,
+    hr_potential_apps: el('eHrPotential').value!==''? parseInt(el('eHrPotential').value,10) : null,
+    hr_potential_field: el('eHrPotentialField').value.trim() || null,
+    hr_condition:      el('eHrCondition').value.trim() || null,
+    hr_contact_jinzai: el('eHrContactJinzai').value || null,
+    hr_contact_kigyo:  el('eHrContactKigyo').value || null,
+    hr_window_jinzai:  el('eHrWindowJinzai').value.trim() || null,
+    hr_window_kigyo:   el('eHrWindowKigyo').value.trim() || null,
+    hr_kyogikai:       el('eHrKyogikai').value || null,
+    hr_olink_date:     el('eHrOlinkDate').value || null,
+    hr_olink_memo:     el('eHrOlinkMemo').value.trim() || null,
+    hr_memo:           el('eHrMemo').value.trim() || null
   };
   _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
     if(r.error){ showMsg('dMsg','保存に失敗しました：'+r.error.message,'err'); return; }
     showMsg('dMsg','保存しました','ok');
     Object.keys(patch).forEach(function(k){ curLead[k]=patch[k]; });
     load();
+  });
+}
+
+// ヒアリングフォームのURLを発行（案シスと同じ形式）
+function issueHearingFormUrl(){
+  if(!curLead){ return; }
+  var orgId = curLead.support_org_id;
+  if(!orgId){
+    alert('先に「🏢 登録支援機関マスタに登録」を押してください。\n\nヒアリングフォームは、登録支援機関マスタに登録された機関に対して発行できます。');
+    return;
+  }
+  var url = 'https://ofusa2026.github.io/form/form.html?type=support_org&case=' + encodeURIComponent(orgId) + '&name=' + encodeURIComponent(curLead.name||'');
+  var nm = (curLead.name||'').trim() || 'ご担当';
+  var msg = nm + ' ご担当者様\n\n'
+    + 'いつもお世話になっております。大房行政書士法人です。\n'
+    + '登録支援機関情報のご登録にあたり、下記フォームより貴機関の情報のご入力をお願いいたします。\n\n'
+    + '▼ 入力フォーム\n' + url + '\n\n'
+    + 'ご入力いただいた内容は当方で確認のうえ登録いたします。\n'
+    + 'どうぞよろしくお願いいたします。';
+  if(navigator.clipboard){ navigator.clipboard.writeText(msg).then(function(){}).catch(function(){}); }
+  showMsg('dMsg','ヒアリングフォームの案内文（URL入り）をコピーしました。メール等に貼り付けてください。','ok');
+  window.open(url,'_blank');
+}
+
+// 案シスの登録支援機関マスタ(support_orgs)に登録する
+function registerToMaster(){
+  if(!curLead){ return; }
+  var lead = curLead;
+  _sb.from('support_orgs').select('id,name').eq('reg_no', lead.reg_no).then(function(r){
+    if(r.error){ showMsg('dMsg','確認に失敗しました：'+r.error.message,'err'); return; }
+    var exists = (r.data && r.data.length>0);
+    if(exists){
+      if(!confirm('この登録支援機関はすでに案シスのマスタに登録があります（'+(r.data[0].name||'')+'）。\n\nそれでも新しく登録しますか？\n（通常はキャンセルしてください）')){ return; }
+    } else {
+      if(!confirm('「'+lead.name+'」を案シスの登録支援機関マスタに登録します。よろしいですか？')){ return; }
+    }
+    var newId = 's'+Date.now();
+    var row = {
+      id: newId, reg_no: lead.reg_no || null, name: lead.name || '',
+      reg_date: lead.reg_date || null, zip: lead.zip || null, pref: lead.pref || null,
+      city: lead.city || null, address: lead.address || null, tel: lead.tel || null,
+      rep_name: lead.rep_name || null, languages: lead.languages || null,
+      drive_url: lead.hr_drive_url || null,
+      supporter_count: lead.supporter_count!=null ? String(lead.supporter_count) : null,
+      offices: lead.offices || null, memo: lead.memo || null, updated_at: new Date().toISOString()
+    };
+    _sb.from('support_orgs').insert(row).then(function(ins){
+      if(ins.error){ showMsg('dMsg','登録に失敗しました：'+ins.error.message,'err'); return; }
+      showMsg('dMsg','案シスの登録支援機関マスタに登録しました（ID: '+newId+'）','ok');
+      _sb.from('eigyo_leads').update({is_client:true, support_org_id:newId}).eq('reg_no', lead.reg_no).then(function(){ curLead.is_client=true; curLead.support_org_id=newId; load(); });
+      if(lead.handover_items && Object.keys(lead.handover_items).length){
+        _sb.from('support_org_handover').upsert({org_id:newId, items:lead.handover_items}, {onConflict:'org_id'}).then(function(){});
+      }
+    });
   });
 }
 
