@@ -3369,7 +3369,7 @@ details[open] > ._upDocSummary::before { content: '▼ '; }
               <input type="checkbox" id="sbCh_mail" checked onchange="renderSupportBroadcastList();_sbUpdateSelectedCount();" style="width:16px;height:16px;cursor:pointer;flex-shrink:0;">
               <span style="font-size:12.5px;font-weight:800;color:#0c447c;white-space:nowrap;">📧 メール</span>
             </label>
-            <div style="font-size:10.5px;color:#64748b;line-height:1.5;padding-left:2px;">登録メール宛<br>公式+メールで両方送付</div>
+            <div style="font-size:10.5px;color:#64748b;line-height:1.5;padding-left:2px;">登録メール宛</div>
           </div>
           <!-- ④ えいしす -->
           <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0;">
@@ -5056,7 +5056,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260820.07';
+var OFUSA_VERSION = 'ver.20260820.08';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -46927,12 +46927,13 @@ async function generateSupportBroadcastDrafts(){
         showToast('お知らせの件名と本文を入力してください');
         return;
       }
-      // ver.20260818.14: O-Link投稿 (最初のループ回のみ1回だけ実行)
+      // ver.20260820.08: O-Link投稿は「配信内容を確認」(プレビュー)では実行しない。
+      //   実際の送信 sbSendBroadcast() でのみ投稿する (バグ: プレビューを開くたびに二重投稿されていた)
+      //   ここでは予約時刻のバリデーションだけ行う (問題があればプレビューを出さない)
       if(i === 0){
         var alsoOLink = (document.getElementById('sbAlsoOLink')||{}).checked;
         if(alsoOLink){
           var timing = (document.querySelector('input[name="sbOLinkTiming"]:checked')||{}).value || 'now';
-          var publishAtIso;
           if(timing === 'scheduled'){
             var dtVal = (document.getElementById('sbOLinkPublishAt')||{}).value || '';
             if(!dtVal){
@@ -46946,17 +46947,7 @@ async function generateSupportBroadcastDrafts(){
               showToast('O-Link 予約時刻が不正です');
               return;
             }
-            publishAtIso = _future.toISOString();
-          } else {
-            publishAtIso = new Date().toISOString();
           }
-          var oRes = await _sbCreateOLinkPost(oSub, oBody, publishAtIso);
-          if(oRes && oRes.error){
-            document.getElementById('supportBroadcastPreviewModal').style.display = 'none';
-            alert('❌ O-Link投稿失敗: '+oRes.error);
-            return;
-          }
-          showToast('📬 O-Linkに'+(timing==='scheduled'?'予約':'即時')+'投稿しました');
         }
       }
       var subject = oSub;
@@ -47068,7 +47059,10 @@ async function sbSendBroadcast(){
   });
   var doMail = mailable.length > 0;
   var doOfficial = officialable.length > 0;
-  if(!mailable.length && !officialable.length){
+  // ver.20260820.08: O-Linkのみチェック (メール・公式なし) でも投稿できるようにする
+  var _olinkOnly = !!(document.getElementById('sbAlsoOLink') && document.getElementById('sbAlsoOLink').checked)
+                   && (document.querySelector('input[name="sb_type"]:checked')||{}).value === 'oshirase';
+  if(!mailable.length && !officialable.length && !_olinkOnly){
     showToast('送信対象がありません（メール未登録／未連携）');
     return;
   }
@@ -47088,8 +47082,36 @@ async function sbSendBroadcast(){
   if(btn){ btn.disabled = true; btn.textContent = '⏳ 送信中…'; }
   var _sender = (typeof currentUser!=='undefined'?currentUser:null);
   var mailOk=0, mailNg=0, offOk=0, offNg=0, offFail=[];
+  var olinkMsg='';
   try{
     if(!(DB_READY && typeof _sb!=='undefined' && _sb)) throw new Error('DB未接続のため実行できません');
+    // 0) O-Link投稿 (ver.20260820.08: 実送信時に1回だけ投稿。お知らせタイプのみ)
+    var _alsoOLinkSend = !!(document.getElementById('sbAlsoOLink') && document.getElementById('sbAlsoOLink').checked);
+    var _sbTypeSend = (document.querySelector('input[name="sb_type"]:checked')||{}).value || 'oshirase';
+    if(_alsoOLinkSend && _sbTypeSend === 'oshirase'){
+      var _olSub = ((document.getElementById('sbOshiraseSubject')||{}).value||'').trim();
+      var _olBody = ((document.getElementById('sbOshiraseBody')||{}).value||'').trim();
+      if(_olSub && _olBody){
+        var _olTiming = (document.querySelector('input[name="sbOLinkTiming"]:checked')||{}).value || 'now';
+        var _olPublishAt;
+        if(_olTiming === 'scheduled'){
+          var _olDt = (document.getElementById('sbOLinkPublishAt')||{}).value || '';
+          var _olF = new Date(_olDt);
+          _olPublishAt = isNaN(_olF.getTime()) ? new Date().toISOString() : _olF.toISOString();
+        } else {
+          _olPublishAt = new Date().toISOString();
+        }
+        var _olRes = await _sbCreateOLinkPost(_olSub, _olBody, _olPublishAt);
+        if(_olRes && _olRes.error){
+          if(!confirm('⚠️ O-Link投稿に失敗しました:\n'+_olRes.error+'\n\nメール・公式アカウントの送信は続けますか？')){
+            if(btn){ btn.disabled = false; btn.textContent = '📤 この内容で送信する'; }
+            return;
+          }
+        } else {
+          olinkMsg = '📬O-Link '+(_olTiming==='scheduled'?'予約':'即時')+'投稿 ';
+        }
+      }
+    }
     // 1) メール（既存の send-support-broadcast をそのまま使用）
     if(doMail && mailable.length){
       var payloadItems = mailable.map(function(it){
@@ -47106,6 +47128,24 @@ async function sbSendBroadcast(){
       mailNg = results.length - mailOk;
       var nowIso = new Date().toISOString();
       mailable.forEach(function(it, idx){ if(results[idx] && results[idx].ok) sbSaveLastBroadcastAt(it.org, nowIso); });
+      // ver.20260820.08: メール送信の失敗詳細を収集 (どの機関・宛先が漏れたか特定用)
+      try{
+        var _mailFail = [];
+        mailable.forEach(function(it, idx){
+          var r = results[idx];
+          if(!r || !r.ok){
+            _mailFail.push(it.org.name + '（' + (it.emails||[]).join('、') + '）' + (r && r.error ? (' ← '+r.error) : (r ? '' : ' ← 結果なし')));
+          }
+        });
+        // 件数不一致チェック (payload数 と results数がずれると index紐付けが崩れる)
+        if(results.length !== payloadItems.length){
+          _mailFail.push('⚠️ 送信件数不一致: 送信'+payloadItems.length+'件 → 結果'+results.length+'件 (順序ズレの可能性)');
+        }
+        if(_mailFail.length){
+          console.error('📨 メール送信 失敗/漏れ分:', _mailFail);
+          window._sbLastMailFail = _mailFail;
+        }
+      }catch(_e){}
     }
     // 2) 公式アカウント（1社ずつ、連携先ごとに line-send / chatwork-send）
     if(doOfficial && officialable.length){
@@ -47118,13 +47158,25 @@ async function sbSendBroadcast(){
       }
     }
     var msg='';
+    if(olinkMsg) msg += olinkMsg;
     if(doMail) msg += '📨メール '+mailOk+'件'+(mailNg>0?('（失敗'+mailNg+'）'):'')+' ';
     if(doOfficial) msg += '🟢公式 '+offOk+'件'+(offNg>0?('（失敗'+offNg+'）'):'');
     showToast(((mailNg+offNg)>0?'⚠️ ':'✅ ') + '送信完了：' + msg);
+    // ver.20260820.08: 失敗/漏れがあれば詳細をまとめてalert表示 (どの機関・宛先が漏れたか一目で分かる)
+    var _failLines = [];
+    if(window._sbLastMailFail && window._sbLastMailFail.length){
+      _failLines.push('📨【メール 未送信/失敗】');
+      window._sbLastMailFail.forEach(function(f){ _failLines.push('・'+f); });
+    }
     if(offFail.length){
       console.error('公式アカウント送信 失敗分:', offFail);
-      showToast('公式送信に失敗があります：' + offFail.slice(0,5).map(function(f){ return f.org+'/'+f.channel+'（'+(f.err||'')+'）'; }).join(' / '));
+      _failLines.push((_failLines.length?'\n':'')+'🟢【公式アカウント 未送信/失敗】');
+      offFail.forEach(function(f){ _failLines.push('・'+f.org+' / '+f.channel+'（'+(f.target||'')+'）'+(f.err?(' ← '+f.err):'')); });
     }
+    if(_failLines.length){
+      alert('⚠️ 一部の送信に失敗・漏れがありました。\n以下をご確認ください:\n\n' + _failLines.join('\n'));
+    }
+    window._sbLastMailFail = null;  // 次回に持ち越さない
     if((mailNg+offNg)===0){ closeSupportBroadcastPreview(); closeSupportBroadcastModal(); }
     try{ renderSupportBroadcastList(); }catch(reErr){}
   }catch(e){
