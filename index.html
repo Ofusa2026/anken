@@ -5056,7 +5056,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260820.12';
+var OFUSA_VERSION = 'ver.20260820.13';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -17008,19 +17008,21 @@ function renderPartTask(){
   // ver.20260728.03: 使えるものを上に、準備中は下にまとめて折りたたむ
   var _ready=PART_TASKS.filter(function(t){ return t.ready; });
   var _soon =PART_TASKS.filter(function(t){ return !t.ready; });
-  function _cards(list, startNo){
-    return list.map(function(t,i){
+  // ver.20260820.13: 使えるタスクは左右で切り替えるタブUIに。★申請(shinsei)を右端へ。
+  _ready.sort(function(a,b){
+    var ra = (a.key==='shinsei') ? 1 : 0;
+    var rb = (b.key==='shinsei') ? 1 : 0;
+    return ra - rb;   // shinsei を末尾へ、他は元の順を維持（安定ソート）
+  });
+  function _cardOne(t, no){
     var h='<div style="background:white;border:1px solid #e2e8f0;border-left:4px solid '+(t.ready?'#0ea5e9':'#cbd5e1')+';border-radius:10px;padding:14px 16px;margin-bottom:10px;">';
     h+='<div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;">';
-    h+='<span style="font-size:11px;font-weight:800;color:white;background:'+(t.ready?'#0ea5e9':'#94a3b8')+';border-radius:99px;padding:2px 9px;">'+(t.ready?(startNo+i+1):'—')+'</span>';
+    h+='<span style="font-size:11px;font-weight:800;color:white;background:'+(t.ready?'#0ea5e9':'#94a3b8')+';border-radius:99px;padding:2px 9px;">'+(t.ready?(no+1):'—')+'</span>';
     h+='<span style="font-size:15px;font-weight:800;color:#0f2040;">'+t.icon+' '+_partEsc(t.title)+'</span>';
     if(!t.ready) h+='<span style="font-size:10px;font-weight:800;color:#b45309;background:#fef3c7;border-radius:99px;padding:2px 9px;">準備中</span>';
-    // ver.20260727.24: 週次タスクは曜日を出し、その曜日なら強調する
-    // ver.20260728.03: 残件数のバッジ
     var _ct=_partCounts[t.key];
     if(_ct && typeof _ct.main==='number'){
       var _cu=_ct.unit||'件';
-      var _hot=(t.key==='order') ? (_ct.main<=5) : (_ct.main>0);
       var _cc = (t.key==='order')
         ? (_ct.main<=5 ? ['#fee2e2','#b91c1c'] : ['#dcfce7','#166534'])
         : (_ct.main>0 ? ['#fef3c7','#b45309'] : ['#f1f5f9','#94a3b8']);
@@ -17034,7 +17036,6 @@ function renderPartTask(){
       h+='<span style="font-size:10px;font-weight:800;border-radius:99px;padding:2px 9px;background:'
         +(_isDay?'#dc2626':'#e0e7ff')+';color:'+(_isDay?'white':'#3730a3')+';">📅 毎週'+_PART_WD[_wd]+'曜'+(_isDay?'（今日）':'')+'</span>';
     }
-    // ver.20260727.23: 右上に完了ボタン（当日ぶんの記録）
     var _d=_partDone[t.key];
     if(_d){
       h+='<button onclick="partToggleDone(\''+t.key+'\')" title="押すと取り消せます" style="margin-left:auto;padding:5px 13px;background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:7px;font-size:11.5px;font-weight:800;cursor:pointer;white-space:nowrap;">✅ '+(t.cycle==='weekly'?'今週完了':'完了')+(_d.done_by?('（'+_partEsc(_d.done_by)+'）'):'')+'</button>';
@@ -17043,8 +17044,6 @@ function renderPartTask(){
     }
     h+='</div>';
     h+='<div style="font-size:12.5px;color:#475569;line-height:1.8;margin-top:6px;">'+_partEsc(t.desc)+'</div>';
-    // ver.20260727.25: 書類ごとに完了を記録できるようにする
-    // ver.20260727.44: 書類発行は取得待ちの件数を出す
     if(t.key==='docs' && typeof _dirRows!=='undefined'){
       var _tn=_dirRows.filter(function(x){ return (x.status||'todo')!=='done'; }).length;
       var _wn=_dirRows.filter(function(x){ return x.status==='waiting'; }).length;
@@ -17071,16 +17070,57 @@ function renderPartTask(){
     }
     h+='</div>';
     return h;
-    }).join('');
   }
-  var _h = _cards(_ready, 0);
+  // アクティブタブの範囲を正規化
+  if(typeof window._partActiveTab!=='number' || window._partActiveTab<0 || window._partActiveTab>=_ready.length){
+    window._partActiveTab = 0;
+  }
+  var _cur = window._partActiveTab;
+  // タブヘッダー (左右ボタン + タブボタン)
+  var _h = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">';
+  _h += '<button onclick="_partTabStep(-1)" title="前のタブ" style="width:36px;height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:0;background:white;border:1.5px solid #cbd5e1;border-radius:8px;cursor:pointer;font-size:16px;color:#475569;font-weight:800;">‹</button>';
+  _h += '<div style="flex:1;display:flex;gap:6px;overflow-x:auto;">';
+  _ready.forEach(function(t, i){
+    var on = (i===_cur);
+    var _ct=_partCounts[t.key];
+    var _cnt = (_ct && typeof _ct.main==='number') ? _ct.main : null;
+    var _isShinsei = (t.key==='shinsei');
+    var _bg = on ? (_isShinsei?'#fef3c7':'#e0f2fe') : 'white';
+    var _bd = on ? (_isShinsei?'2px solid #f59e0b':'2px solid #0ea5e9') : '1px solid #e2e8f0';
+    var _fg = on ? (_isShinsei?'#b45309':'#0369a1') : '#64748b';
+    _h += '<div onclick="_partTabSet('+i+')" style="flex:1;min-width:90px;padding:9px 8px;border-radius:8px;background:'+_bg+';border:'+_bd+';cursor:pointer;text-align:center;transition:all .12s;">';
+    _h += '<div style="font-size:13px;font-weight:'+(on?'800':'700')+';color:'+_fg+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+t.icon+' '+_partEsc(t.title)+'</div>';
+    if(_cnt!==null){
+      var _hot = (t.key==='order') ? (_cnt<=5) : (_cnt>0);
+      _h += '<div style="font-size:11px;font-weight:700;margin-top:2px;color:'+(on?_fg:(_hot?'#b45309':'#94a3b8'))+';">'+_cnt+(_ct.unit||'件')+'</div>';
+    }
+    _h += '</div>';
+  });
+  _h += '</div>';
+  _h += '<button onclick="_partTabStep(1)" title="次のタブ" style="width:36px;height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:0;background:white;border:1.5px solid #cbd5e1;border-radius:8px;cursor:pointer;font-size:16px;color:#475569;font-weight:800;">›</button>';
+  _h += '</div>';
+  // アクティブタブのカード本体
+  if(_ready[_cur]){
+    _h += _cardOne(_ready[_cur], _cur);
+  }
+  // 準備中の作業 (折りたたみ・従来通り下に)
   if(_soon.length){
     var _open=!!window._partSoonOpen;
-    _h+='<div onclick="window._partSoonOpen=!window._partSoonOpen;renderPartTask();" style="cursor:pointer;padding:9px 14px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:9px;font-size:12px;font-weight:700;color:#64748b;margin-bottom:10px;">'
+    _h+='<div onclick="window._partSoonOpen=!window._partSoonOpen;renderPartTask();" style="cursor:pointer;padding:9px 14px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:9px;font-size:12px;font-weight:700;color:#64748b;margin:16px 0 10px;">'
       +(_open?'▼':'▶')+' 準備中の作業 '+_soon.length+'件'+(_open?'':'（クリックで開く）')+'</div>';
-    _h+='<div style="display:'+(_open?'block':'none')+';">'+_cards(_soon, _ready.length)+'</div>';
+    _h+='<div style="display:'+(_open?'block':'none')+';">'+_soon.map(function(t,i){ return _cardOne(t, _ready.length+i); }).join('')+'</div>';
   }
   el.innerHTML=_h;
+}
+
+// ver.20260820.13: パートの方ご依頼タブ切替
+function _partTabSet(i){ window._partActiveTab = i; renderPartTask(); }
+function _partTabStep(dir){
+  var _readyLen = PART_TASKS.filter(function(t){ return t.ready; }).length;
+  var cur = (typeof window._partActiveTab==='number') ? window._partActiveTab : 0;
+  cur = (cur + dir + _readyLen) % _readyLen;
+  window._partActiveTab = cur;
+  renderPartTask();
 }
 
 function _partEsc(v){
