@@ -5056,7 +5056,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260820.05';
+var OFUSA_VERSION = 'ver.20260820.06';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -90064,6 +90064,22 @@ function _dtgAnswerKensetsu(caseId, isKensetsu){
   if(typeof currentCase!=='undefined' && currentCase && typeof renderDocsTab==='function'){ try{ renderDocsTab(currentCase); }catch(e){} }
 }
 
+// ver.20260820.06: 推薦票の要否確認 (ベトナム案件のみ)
+function _dtgAnswerSuisen(caseId, isYes){
+  if(!personData[caseId]) personData[caseId] = {};
+  personData[caseId]._suisenAnswer = isYes ? 'yes' : 'no';
+  try{ if(typeof persistPersonData==='function') persistPersonData(caseId); }catch(e){}
+  var note = document.getElementById('dtgSuisenAnswerNote');
+  if(note){
+    note.textContent = isYes ? '→ 追加書類として推薦票を案内します' : '→ 推薦票は案内しません';
+    note.style.color = isYes ? '#15803d' : '#64748b';
+  }
+  var by=document.getElementById('dtgSuiYes'), bn=document.getElementById('dtgSuiNo');
+  if(by){ by.style.background=isYes?'#dcfce7':'white'; by.style.borderColor=isYes?'#059669':'#d1d5db'; }
+  if(bn){ bn.style.background=!isYes?'#f1f5f9':'white'; bn.style.borderColor=!isYes?'#64748b':'#d1d5db'; }
+  if(typeof showToast==='function') showToast(isYes ? '推薦票を追加案内' : '推薦票は案内しない');
+}
+
 function openDocTextGenerator(caseId){
   var cas=cData.find(function(c){return c.id===caseId;});
   if(!cas){showToast('⚠️ 案件が見つかりません');return;}
@@ -90139,6 +90155,25 @@ function openDocTextGenerator(caseId){
     h+='<button id="dtgKenNo" onclick="_dtgAnswerKensetsu(\''+caseId+'\',false)" style="padding:6px 16px;border:1.5px solid '+(_prevKen==='no'?'#64748b':'#d1d5db')+';background:'+(_prevKen==='no'?'#f1f5f9':'white')+';border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">いいえ</button>';
     h+='</div>';
     h+='<div id="dtgKensetsuAnswerNote" style="font-size:11px;font-weight:700;margin-top:8px;color:'+(_prevKen==='yes'?'#15803d':'#94a3b8')+';">'+(_prevKen==='yes'?'→ 建設分野：技能者IDを必要書類に追加しました':(_prevKen==='no'?'→ 建設分野ではない：技能者IDは追加しません':'→ どちらか選んでください（テキスト生成前に）'))+'</div>';
+    h+='</div>';
+  }
+
+  // ver.20260820.06: 推薦票の要否確認 (ベトナム案件のみ)
+  //   ベトナム × 変更/認定 の案件で、ベトナム大使館の推薦票を案内するか選択
+  var _natCheck = cas.nationality || p.nationality || '';
+  var _atSui = cas.appType || '';
+  var _isSuiAsk = (_natCheck.indexOf('ベトナム')>=0) &&
+                  (_atSui.indexOf('変更')!==-1 || _atSui.indexOf('認定')!==-1);
+  if(_isSuiAsk){
+    var _prevSui = p._suisenAnswer || '';
+    h+='<div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:12px;margin-bottom:14px;">';
+    h+='<div style="font-size:12px;font-weight:800;color:#15803d;margin-bottom:4px;">🇻🇳 推薦票の要否確認</div>';
+    h+='<div style="font-size:11px;color:#475569;margin-bottom:8px;line-height:1.6;">この案件でベトナム大使館の<b>推薦票（すいせんひょう）</b>を追加案内しますか？<br><span style="color:#94a3b8;">※「はい」で【追加書類】に「推薦者表」が追加されます。</span></div>';
+    h+='<div style="display:flex;gap:8px;">';
+    h+='<button id="dtgSuiYes" onclick="_dtgAnswerSuisen(\''+caseId+'\',true)" style="padding:6px 16px;border:1.5px solid '+(_prevSui==='yes'?'#059669':'#d1d5db')+';background:'+(_prevSui==='yes'?'#dcfce7':'white')+';border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">はい（案内する）</button>';
+    h+='<button id="dtgSuiNo" onclick="_dtgAnswerSuisen(\''+caseId+'\',false)" style="padding:6px 16px;border:1.5px solid '+(_prevSui==='no'?'#64748b':'#d1d5db')+';background:'+(_prevSui==='no'?'#f1f5f9':'white')+';border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">いいえ（案内しない）</button>';
+    h+='</div>';
+    h+='<div id="dtgSuisenAnswerNote" style="font-size:11px;font-weight:700;margin-top:8px;color:'+(_prevSui==='yes'?'#15803d':(_prevSui==='no'?'#64748b':'#94a3b8'))+';">'+(_prevSui==='yes'?'→ 追加書類として推薦票を案内します':(_prevSui==='no'?'→ 推薦票は案内しません':'→ どちらか選んでください（テキスト生成前に）'))+'</div>';
     h+='</div>';
   }
 
@@ -90263,6 +90298,12 @@ function generateDocText(caseId,ruleId){
     }
     if(matched) additions.push(cond.append);
   });
+
+  // ver.20260820.06: 推薦票の要否確認 (ベトナム案件で「はい」を選んだ場合のみ追加)
+  //   ベトナム × 変更/認定 で p._suisenAnswer==='yes' なら【追加書類】として推薦票を append
+  if((vars.nationality||'').indexOf('ベトナム')>=0 && p._suisenAnswer==='yes'){
+    additions.push('\n【追加書類】\n□ 推薦者表（すいせんしゃひょう）');
+  }
 
   // {docList}を必要書類タブの実際のリスト（skip除外・未取得）で生成
   // テキスト生成時だけ適用する表示用の年度マッピング（書類チェックタブ・DBには影響しない）
