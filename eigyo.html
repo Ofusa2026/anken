@@ -204,7 +204,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260820.09</div>
+      <div class="ver">ver.20260820.10</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -1022,7 +1022,10 @@ function renderDrawer(){
   + '</div>'  /* end 営業管理sec */
   + '</div>'  /* end dpane1(前半)：この後、担当者以降もタブ1なので後で再オープン */
   + '<div id="dpane2" style="display:none;">'
-  + '<h3 style="margin:4px 0 8px;font-size:14px;">📋 登録支援機関ヒアリング</h3>'
+  + '<div style="display:flex;align-items:center;justify-content:space-between;margin:4px 0 8px;">'
+  +   '<h3 style="margin:0;font-size:14px;">📋 登録支援機関ヒアリング</h3>'
+  +   '<button class="btn btn-sm" onclick="issueHearingFormUrl()" style="white-space:nowrap;">🔗 ヒアリングフォームURL発行</button>'
+  + '</div>'
   + '<div class="form" style="grid-template-columns:130px 1fr;">'
   +   '<label>予定開始日</label><input type="date" id="eHrStartDate" value="'+esc(x.hr_start_date||'')+'">'
   +   '<label>ドライブURL</label><input type="text" id="eHrDriveUrl" class="span2" value="'+esc(x.hr_drive_url||'')+'" placeholder="https://drive.google.com/drive/folders/...">'
@@ -1165,6 +1168,27 @@ function saveLead(){
   });
 }
 
+// ヒアリングフォームのURLを発行（案シスと同じ形式）
+function issueHearingFormUrl(){
+  if(!curLead){ return; }
+  var orgId = curLead.support_org_id;
+  if(!orgId){
+    alert('先に「🏢 登録支援機関マスタに登録」を押してください。\n\nヒアリングフォームは、登録支援機関マスタに登録された機関に対して発行できます。');
+    return;
+  }
+  var url = 'https://ofusa2026.github.io/form/form.html?type=support_org&case=' + encodeURIComponent(orgId) + '&name=' + encodeURIComponent(curLead.name||'');
+  var nm = (curLead.name||'').trim() || 'ご担当';
+  var msg = nm + ' ご担当者様\n\n'
+    + 'いつもお世話になっております。大房行政書士法人です。\n'
+    + '登録支援機関情報のご登録にあたり、下記フォームより貴機関の情報のご入力をお願いいたします。\n\n'
+    + '▼ 入力フォーム\n' + url + '\n\n'
+    + 'ご入力いただいた内容は当方で確認のうえ登録いたします。\n'
+    + 'どうぞよろしくお願いいたします。';
+  if(navigator.clipboard){ navigator.clipboard.writeText(msg).then(function(){}).catch(function(){}); }
+  showMsg('dMsg','ヒアリングフォームの案内文（URL入り）をコピーしました。メール等に貼り付けてください。','ok');
+  window.open(url,'_blank');
+}
+
 // 案シスの登録支援機関マスタ(support_orgs)に登録する
 function registerToMaster(){
   if(!curLead){ return; }
@@ -1190,7 +1214,7 @@ function registerToMaster(){
     _sb.from('support_orgs').insert(row).then(function(ins){
       if(ins.error){ showMsg('dMsg','登録に失敗しました：'+ins.error.message,'err'); return; }
       showMsg('dMsg','案シスの登録支援機関マスタに登録しました（ID: '+newId+'）','ok');
-      _sb.from('eigyo_leads').update({is_client:true}).eq('reg_no', lead.reg_no).then(function(){ curLead.is_client=true; load(); });
+      _sb.from('eigyo_leads').update({is_client:true, support_org_id:newId}).eq('reg_no', lead.reg_no).then(function(){ curLead.is_client=true; curLead.support_org_id=newId; load(); });
     });
   });
 }
