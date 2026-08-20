@@ -5056,7 +5056,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260820.04';
+var OFUSA_VERSION = 'ver.20260820.05';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -17695,6 +17695,41 @@ function _execBulkAssignTask(ids){
       window._btSelections = null;
       if(typeof cancelGroupSelect === 'function') cancelGroupSelect();
       if(typeof _updateBulkTasksBadge === 'function') _updateBulkTasksBadge();
+      // ver.20260820.05: 依頼(status=1)のタスクは対応する案件ステータスにも一括変更 (確認モーダル付き)
+      try{
+        var _reqMap = {1:'1-6作成', 2:'サイン書類作成', 6:'スキャン作成', 11:'修正'};
+        var _statusChanges = [];
+        taskIndices.forEach(function(ti){
+          if(selections[ti] !== 1) return;
+          var newStatus = _reqMap[ti];
+          if(!newStatus) return;
+          var _targets = ids.filter(function(cid){
+            var _c = cData.find(function(x){return x.id===cid;});
+            return _c && _c.status !== newStatus;
+          });
+          if(_targets.length) _statusChanges.push({ids:_targets, newStatus:newStatus, taskName:TASK_NAMES[ti]});
+        });
+        if(_statusChanges.length){
+          var _msgLines = _statusChanges.map(function(sc){
+            return '・「'+sc.taskName+'」→ '+sc.ids.length+'件を「'+sc.newStatus+'」に';
+          }).join('\n');
+          setTimeout(function(){
+            if(confirm('タスク依頼に合わせて、以下の案件ステータスも変更しますか？\n\n'+_msgLines)){
+              _statusChanges.forEach(function(sc){
+                _sb.from('cases').update({status:sc.newStatus, updated_at:new Date().toISOString()}).in('id', sc.ids).then(function(rs){
+                  if(rs.error){ console.warn('bulk status update err:', rs.error); return; }
+                  sc.ids.forEach(function(cid){
+                    var _c = cData.find(function(x){return x.id===cid;});
+                    if(_c) _c.status = sc.newStatus;
+                  });
+                  try{ if(typeof renderCases==='function') renderCases(); }catch(e){}
+                });
+              });
+              showToast('✅ 案件ステータスも一括変更しました');
+            }
+          }, 400);
+        }
+      }catch(e){ console.warn('bulk status change err:', e); }
       // メイン一覧の再描画
       try { if(typeof renderDocs === 'function') renderDocs(); } catch(e){}
       try { if(typeof renderCases === 'function') renderCases(); } catch(e){}
@@ -40988,6 +41023,23 @@ function setDocTaskStatus(caseId, taskIdx, status) {
   }
   // ver.20260803.08: 「依頼」になった瞬間、担当者が未設定なら班から自動振り分け
   if(status===1){ _autoAssignOnRequest(caseId, taskIdx); }
+  // ver.20260820.05: 依頼時に案件ステータスも自動変更モーダル (完了時と同じパターン)
+  //   1-6作成/サイン書類作成/スキャン作成/修正 の依頼 → 対応する案件ステータスに変更確認
+  if(status===1){
+    var _AUTO_STATUS_MAP_REQ = {1:'1-6作成', 2:'サイン書類作成', 6:'スキャン作成', 11:'修正'};
+    var _reqStatus = _AUTO_STATUS_MAP_REQ[taskIdx];
+    if(_reqStatus){
+      var _casReq = cData.find(function(x){return x.id===caseId;});
+      if(_casReq && _casReq.status !== _reqStatus){
+        setTimeout(function(){
+          if(confirm('タスク「'+TASK_NAMES[taskIdx]+'」を依頼しました。\n案件ステータスも「'+_reqStatus+'」に変更しますか？')){
+            if(typeof autoSaveInfoFor === 'function') autoSaveInfoFor(_casReq, 'status', _reqStatus);
+            else autoSaveInfo('status', _reqStatus);
+          }
+        }, 300);
+      }
+    }
+  }
   docTaskStatus[caseId+'_'+taskIdx] = status;
   var c = currentCase;
   if (!c) return;
