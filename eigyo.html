@@ -204,7 +204,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260820.15</div>
+      <div class="ver">ver.20260820.16</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -1095,7 +1095,6 @@ function renderDrawer(){
   +   '<label>種別</label><select id="nKind">'+KINDS.map(function(k){return '<option>'+esc(k)+'</option>';}).join('')+'</select>'
   +   '<label>記入者</label><input type="text" id="nAuthor" value="'+esc(x.staff||'')+'">'
   +   '<label>内容</label><textarea id="nBody" placeholder="話した内容・先方の反応など"></textarea>'
-  +   '<label>→ ステータス</label><select id="nStatusTo"><option value="">（変更しない）</option>'+STATUSES.map(function(s){return '<option>'+esc(s)+'</option>';}).join('')+'</select>'
   + '</div><div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="addNote()">履歴を追加</button></div></div>'
 
   + '<div class="sec"><h3>対応履歴</h3><div id="noteList"><div class="loading">読み込み中...</div></div></div>'
@@ -1386,25 +1385,14 @@ function loadNotes(regNo){
 
 function addNote(){
   var body = el('nBody').value.trim();
-  var statusTo = el('nStatusTo').value || '';
-  // 内容が空でも、ステータス変更が選ばれていればステータスだけ変更する
-  if(!body && statusTo){
-    _sb.from('eigyo_leads').update({status:statusTo}).eq('reg_no', curLead.reg_no).then(function(r){
-      if(r.error){ showMsg('dMsg','ステータス変更に失敗：'+r.error.message,'err'); return; }
-      curLead.status = statusTo; el('eStatus').value = statusTo; el('nStatusTo').value='';
-      showMsg('dMsg','ステータスを「'+statusTo+'」に変更しました','ok');
-      load();
-    });
-    return;
-  }
-  if(!body){ showMsg('dMsg','内容を入力してください（またはステータスを選んでください）','err'); return; }
+  if(!body){ showMsg('dMsg','内容を入力してください','err'); return; }
   var rec = {
     reg_no:    curLead.reg_no,
     note_date: el('nDate').value || today(),
     kind:      el('nKind').value,
     author:    el('nAuthor').value.trim() || null,
     body:      body,
-    status_to: el('nStatusTo').value || null
+    status_to: null
   };
   _sb.from('eigyo_notes').insert(rec).then(function(r){
     if(r.error){ showMsg('dMsg','追加に失敗しました：'+r.error.message,'err'); return; }
@@ -1412,7 +1400,7 @@ function addNote(){
     if(rec.status_to) patch.status = rec.status_to;
     _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(){
       showMsg('dMsg','履歴を追加しました','ok');
-      el('nBody').value=''; el('nStatusTo').value='';
+      el('nBody').value='';
       if(rec.status_to){ curLead.status = rec.status_to; el('eStatus').value = rec.status_to; }
       curLead.last_contact_date = rec.note_date;
       loadNotes(curLead.reg_no);
