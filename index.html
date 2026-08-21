@@ -5077,7 +5077,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260821.08';
+var OFUSA_VERSION = 'ver.20260821.09';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -7823,6 +7823,9 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20260821.09', date:'2026-08-21', notify:true, items:[
+    '🔧 <b>再依頼したタスクが確認事項に残り続ける不具合を修正</b>：一度「確認依頼」したタスクを、修正のため<b>もう一度「依頼」に戻すと確認依頼フラグが消えず</b>、依頼中なのに確認事項に居座っていました。<b>「確認」より前の状態に戻したら確認依頼フラグを自動で解除</b>するようにしました。あわせて確認事項には<b>ステータスが「確認」のものだけ</b>を出すようにし、確認依頼ボタンも<b>「確認」にしてからでないと送れない</b>ようにして再発を防止しました。'
+  ]},
   { version:'ver.20260821.08', date:'2026-08-21', notify:true, items:[
     '💴 雇用条件セットの入力欄を拡張：<b>手当を4→6個</b>、<b>その他控除を②→④まで</b>入力できるようにしました。直接編集で追加した手当・控除が保存されないことがあったのを、入力欄として持たせて確実に保存できるようにしています（控除合計にも自動反映）。'
   ]},
@@ -38659,7 +38662,7 @@ function _isMyReviewTask(c, i, me){
   var st = docTaskStatus[tk] || 0;
   if(st >= 4) return false;              // 完了は対象外
   if(taskNotifications[tk]) return false; // 新通知システムに移行済みは二重表示しない
-  if((taskConfirm[tk]||0)===1 && (taskAssignee[tk+'_checker']||'')===me) return true; // A
+  if(st === 3 && (taskConfirm[tk]||0)===1 && (taskAssignee[tk+'_checker']||'')===me) return true; // A（ver.20260821.09: st===3必須。依頼中/未着手のまま確認事項に残る不具合を修正）
   if(st === 3 && (c.staff||'')===me) return true;                                     // B
   return false;
 }
@@ -41630,6 +41633,13 @@ function setDocTaskStatus(caseId, taskIdx, status) {
     }
   }
   docTaskStatus[caseId+'_'+taskIdx] = status;
+  // ver.20260821.09: 再依頼などで「確認(3)」より前に戻したら、確認依頼フラグ・確認フローを解除する
+  //   （確認依頼済みのまま status を依頼/着手中/未着手に戻すと確認事項に残り続ける不具合の主因）
+  if(status < 3){
+    var _rk = caseId+'_'+taskIdx;
+    if((taskConfirm[_rk]||0)!==0) taskConfirm[_rk]=0;
+    if(typeof taskReviewState!=='undefined' && (taskReviewState[_rk]||0)!==0) taskReviewState[_rk]=0;
+  }
   var c = currentCase;
   if (!c) return;
   var done = 0;
@@ -41729,6 +41739,15 @@ function saveTaskConfirm(tkey){
   if (window._confirmLock[tkey]) return;
   window._confirmLock[tkey] = true;
   setTimeout(function(){ delete window._confirmLock[tkey]; }, 1000);
+
+  // ver.20260821.09: 確認依頼は「確認(3)」段階のときだけ送れるようにする
+  //   （依頼中/未着手のまま確認依頼が飛び、確認事項に残り続ける不具合の再発防止）
+  var _stC = docTaskStatus[tkey] || 0;
+  if(_stC < 3){
+    var _stLbl = (['未着手','依頼','着手中','確認','完了','不要'][_stC]) || String(_stC);
+    showToast('このタスクは「'+_stLbl+'」です。確認依頼はタスクを「確認」にしてから送ってください');
+    return;
+  }
 
   var cur=taskConfirm[tkey]||0;
   // ver.20260806.4: 確認ボタンは「送信のみ・冪等」。何回押しても確認依頼中(1)のままで、
