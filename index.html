@@ -5077,7 +5077,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260821.07';
+var OFUSA_VERSION = 'ver.20260821.08';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -7823,6 +7823,9 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20260821.08', date:'2026-08-21', notify:true, items:[
+    '💴 雇用条件セットの入力欄を拡張：<b>手当を4→6個</b>、<b>その他控除を②→④まで</b>入力できるようにしました。直接編集で追加した手当・控除が保存されないことがあったのを、入力欄として持たせて確実に保存できるようにしています（控除合計にも自動反映）。'
+  ]},
   { version:'ver.20260821.07', date:'2026-08-21', notify:true, items:[
     '📄 大使館推薦票の対応確認ポップアップを、<b>「大房で対応／企業対応」</b>の二択に分かりやすくしました（内容は同じ：大房で対応＝大使館推薦票のみ／企業対応＝住民票を追加）。'
   ]},
@@ -54699,7 +54702,7 @@ var EMP_SET_FIELDS = [
     {k:'calcHourly',l:'時間換算額',ph:'',type:'number',tr:1},
     {k:'totalMonthly',l:'支払概算額（基本給＋手当）',ph:'',type:'number',tr:1}
   ]},
-  {section:'手当', type:'dynamic', baseKey:'allowance', maxItems:4, fields:[
+  {section:'手当', type:'dynamic', baseKey:'allowance', maxItems:6, fields:[
     {k:'Name',l:'名称',ph:'例: 通勤手当',tr:1},
     {k:'Amount',l:'金額（円）',ph:'10000',type:'number',tr:1},
     {k:'Cond',l:'計算方法・条件',ph:'例: 実費支給',tr:1}
@@ -54730,6 +54733,12 @@ var EMP_SET_FIELDS = [
     {k:'deductOther2Name',l:'その他控除②がある場合の控除の名前',ph:'',tr:1},
     {k:'deductOther2Amount',l:'その他控除②がある場合の控除の控除額',ph:'',type:'number',tr:1},
     {k:'deductOther2Type',l:'その他控除② 実費フラグ',type:'checkbox',cbLabel:'実費（控除合計から除外）'},
+    {k:'deductOther3Name',l:'その他控除③がある場合の控除の名前',ph:'',tr:1},
+    {k:'deductOther3Amount',l:'その他控除③がある場合の控除の控除額',ph:'',type:'number',tr:1},
+    {k:'deductOther3Type',l:'その他控除③ 実費フラグ',type:'checkbox',cbLabel:'実費（控除合計から除外）'},
+    {k:'deductOther4Name',l:'その他控除④がある場合の控除の名前',ph:'',tr:1},
+    {k:'deductOther4Amount',l:'その他控除④がある場合の控除の控除額',ph:'',type:'number',tr:1},
+    {k:'deductOther4Type',l:'その他控除④ 実費フラグ',type:'checkbox',cbLabel:'実費（控除合計から除外）'},
     {k:'deductTotal',l:'控除する金額の合計（自動計算・実費は除外）',ph:'',type:'number',tr:1,readOnly:true}
   ]},
   {section:'手取り', fields:[
@@ -55298,7 +55307,7 @@ function editEmpSet(coId, idx) {
   // ver.20260608.27: 雇用条件を開いた時点で最低賃金チェックを実行（割れていれば赤アラート）
   setTimeout(function(){ try{ _checkEmpMinWage(); }catch(e){} }, 60);
   // placeholderの色修正＆控除フィールドの自動計算
-  var DEDUCT_KEYS = ['deductTax','deductSocial','deductEmployment','deductFood','deductHousing','deductUtility','deductOther1Amount','deductOther2Amount'];
+  var DEDUCT_KEYS = ['deductTax','deductSocial','deductEmployment','deductFood','deductHousing','deductUtility','deductOther1Amount','deductOther2Amount','deductOther3Amount','deductOther4Amount'];
   EMP_SET_FIELDS.forEach(function(sec){ sec.fields.forEach(function(f){
     var el=document.getElementById('esf_'+f.k); if(el && el.value) el.style.color='inherit';
     if(el) {
@@ -55519,6 +55528,8 @@ function calcEmpDeductTotal() {
   var utility = parseFloat(document.getElementById('esf_deductUtility')?.value) || 0;
   var other1 = parseFloat(document.getElementById('esf_deductOther1Amount')?.value) || 0;
   var other2 = parseFloat(document.getElementById('esf_deductOther2Amount')?.value) || 0;
+  var other3 = parseFloat(document.getElementById('esf_deductOther3Amount')?.value) || 0;
+  var other4 = parseFloat(document.getElementById('esf_deductOther4Amount')?.value) || 0;
   // ver.20260818.07: 「実費」チェックONの項目は合計から除外(saysay側の「(実費)」表記と整合)
   var _isActual = function(k){ var el=document.getElementById('esf_'+k); return el && el.type==='checkbox' && el.checked; };
   if(_isActual('deductFoodType'))    food = 0;
@@ -55526,7 +55537,9 @@ function calcEmpDeductTotal() {
   if(_isActual('deductUtilityType')) utility = 0;
   if(_isActual('deductOther1Type'))  other1 = 0;
   if(_isActual('deductOther2Type'))  other2 = 0;
-  var totalDeduct = tax + social + employment + food + housing + utility + other1 + other2;
+  if(_isActual('deductOther3Type'))  other3 = 0;
+  if(_isActual('deductOther4Type'))  other4 = 0;
+  var totalDeduct = tax + social + employment + food + housing + utility + other1 + other2 + other3 + other4;
   var el = document.getElementById('esf_deductTotal');
   if (el) { el.value = totalDeduct || ''; el.style.color = 'inherit'; }
   return totalDeduct;
@@ -55902,7 +55915,7 @@ function checkEmpSetConsistency(coId, idx){
   summary+='基本給（月給）: '+(es.salaryMonthly||'未入力')+'円\n';
   summary+='基本給（時給）: '+(es.salaryHourly||'未入力')+'円\n';
   summary+='月間所定労働時間: '+(es.monthlyH||'')+'時間'+(es.monthlyM||'')+'分\n';
-  for(var i=1;i<=4;i++){
+  for(var i=1;i<=6;i++){
     var n=es['allowance'+i+'Name']||'';var a=es['allowance'+i+'Amt']||es['allowance'+i+'Amount']||'';
     if(n||a) summary+='手当'+i+': '+n+' '+a+'円\n';
   }
@@ -57687,6 +57700,8 @@ var _ES_ALIAS = {
   'allowance2Amount':'allowance2Amt','allowance2Calc':'allowance2Cond','allowance2CalcEn':'allowance2CondEn',
   'allowance3Amount':'allowance3Amt','allowance3Calc':'allowance3Cond','allowance3CalcEn':'allowance3CondEn',
   'allowance4Amount':'allowance4Amt','allowance4Calc':'allowance4Cond','allowance4CalcEn':'allowance4CondEn',
+  'allowance5Amount':'allowance5Amt','allowance5Calc':'allowance5Cond','allowance5CalcEn':'allowance5CondEn',
+  'allowance6Amount':'allowance6Amt','allowance6Calc':'allowance6Cond','allowance6CalcEn':'allowance6CondEn',
   'deductSocialIns':'deductSocial',
   'deductEmpIns':'deductEmployment',
   'fixedOTAmount':'fixedOTAmt',

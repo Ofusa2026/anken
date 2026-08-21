@@ -204,7 +204,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260820.12</div>
+      <div class="ver">ver.20260820.15</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -579,7 +579,7 @@ var HR_EXCLUSIVE = ['','専売（弊社のみ）','複数社に依頼','未確�
 var HR_SPOT = ['','スポット','定期依頼','トライアル次第','未確認'];
 // KPIカードに出すステータス
 var KPI_STATUSES = ['未接触','接触済み','商談予定','案件依頼前','要経過観察','見込みなし','契約中','対象外','テレアポ失注'];
-var KINDS    = ['架電','メール','訪問','郵送','その他'];
+var KINDS    = ['架電','メール','オンライン商談','訪問','郵送','その他'];
 var FIRST_KINDS   = ['テレアポ（自社）','テレアポ（外注）','セミナー','交流会','紹介','問い合わせ'];
 var MEETING_KINDS = ['オンライン','訪問'];
 var NEXT_KINDS    = ['メール','電話','訪問','待ち'];
@@ -995,7 +995,7 @@ function renderDrawer(){
   + '</div>'
   + '<div id="dpane1">'
   + '<div class="sec"><h3>営業管理</h3><div class="form form-compact">'
-  +   '<label>ステータス</label><select id="eStatus">'+STATUSES.map(function(s){return '<option'+(s===x.status?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
+  +   '<label>ステータス</label><select id="eStatus" onchange="saveStatusNow()">'+STATUSES.map(function(s){return '<option'+(s===x.status?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
   +   '<label>担当者</label><select id="eStaff"><option value="">（未設定）</option>'
   +     staffOptions.map(function(s){return '<option'+(s===x.staff?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
   +   '<label>優先度</label><select id="ePrio">'+PRIOS.map(function(p){return '<option value="'+esc(p)+'"'+(p===(x.priority||'')?' selected':'')+'>'+(p||'（未設定）')+'</option>';}).join('')+'</select>'
@@ -1209,6 +1209,17 @@ function saveHandover(){
   }
 }
 
+function saveStatusNow(){
+  if(!curLead) return;
+  var newStatus = el('eStatus').value;
+  _sb.from('eigyo_leads').update({status:newStatus}).eq('reg_no', curLead.reg_no).then(function(r){
+    if(r.error){ showMsg('dMsg','ステータス保存に失敗：'+r.error.message,'err'); return; }
+    curLead.status = newStatus;
+    showMsg('dMsg','ステータスを「'+newStatus+'」に保存しました','ok');
+    load();
+  });
+}
+
 function saveLead(){
   var patch = {
     status:            el('eStatus').value,
@@ -1375,7 +1386,18 @@ function loadNotes(regNo){
 
 function addNote(){
   var body = el('nBody').value.trim();
-  if(!body){ showMsg('dMsg','内容を入力してください','err'); return; }
+  var statusTo = el('nStatusTo').value || '';
+  // 内容が空でも、ステータス変更が選ばれていればステータスだけ変更する
+  if(!body && statusTo){
+    _sb.from('eigyo_leads').update({status:statusTo}).eq('reg_no', curLead.reg_no).then(function(r){
+      if(r.error){ showMsg('dMsg','ステータス変更に失敗：'+r.error.message,'err'); return; }
+      curLead.status = statusTo; el('eStatus').value = statusTo; el('nStatusTo').value='';
+      showMsg('dMsg','ステータスを「'+statusTo+'」に変更しました','ok');
+      load();
+    });
+    return;
+  }
+  if(!body){ showMsg('dMsg','内容を入力してください（またはステータスを選んでください）','err'); return; }
   var rec = {
     reg_no:    curLead.reg_no,
     note_date: el('nDate').value || today(),
