@@ -204,7 +204,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260823.02</div>
+      <div class="ver">ver.20260823.03</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -642,6 +642,35 @@ function searchVariants(kw){
   [kw, toZenkakuKana(toHankakuAscii(kw)), toZenkakuAscii(kw)].forEach(function(x){ x=(x||'').trim(); if(x) set[x]=1; });
   return Object.keys(set);
 }
+/* 検索語をスペース（半角・全角）で分割し、全語を含むレコードにヒットするOR句を作る。
+   例：「TAI Mac Engineering 株式会社」→ ＴＡＩ／Ｍａｃ／…を全部含む name にヒット
+   （DB側のスペース有無・全半角の違いを吸収） */
+function searchOrParts(kw, cols){
+  var terms = kw.split(/[\s\u3000]+/).filter(function(t){ return t; });
+  if(!terms.length) return [];
+  function safe1(v){ return (v||'').replace(/[,()*"\\]/g,' ').trim(); }
+  var parts=[];
+  if(terms.length===1){
+    searchVariants(terms[0]).forEach(function(v){
+      var s=safe1(v); if(!s) return;
+      cols.forEach(function(col){ parts.push(col+'.ilike.*'+s+'*'); });
+    });
+    return parts;
+  }
+  var transforms=[function(x){return x;},
+                  function(x){return toZenkakuKana(toHankakuAscii(x));},
+                  function(x){return toZenkakuAscii(x);}];
+  var seen={};
+  transforms.forEach(function(tr){
+    var tv=terms.map(function(t){ return safe1(tr(t)); });
+    if(tv.some(function(t){return !t;})) return;
+    var key=tv.join('\u0001'); if(seen[key]) return; seen[key]=1;
+    cols.forEach(function(col){
+      parts.push('and('+tv.map(function(t){ return col+'.ilike.*'+t+'*'; }).join(',')+')');
+    });
+  });
+  return parts;
+}
 function el(id){ return document.getElementById(id); }
 function showMsg(id,txt,cls){ var m=el(id); m.textContent=txt; m.className='msg '+(cls||''); if(!txt) m.className='msg'; }
 
@@ -787,14 +816,8 @@ function buildQuery(forCount){
   var q = _sb.from('eigyo_leads').select('*', { count: forCount ? 'exact' : undefined });
   var kw = el('fQ').value.trim();
   if(kw){
-    // 半角⇄全角のあいまい検索：複数表記でOR検索
-    var variants = searchVariants(kw);
-    var orParts = [];
-    variants.forEach(function(v){
-      var safe = v.replace(/[,()*"\\]/g,' ').trim();
-      if(!safe) return;
-      ['reg_no','name','address','rep_name','tel'].forEach(function(col){ orParts.push(col+'.ilike.*'+safe+'*'); });
-    });
+    // 半角⇄全角＋スペース無視のあいまい検索（全語AND）
+    var orParts = searchOrParts(kw, ['reg_no','name','address','rep_name','tel']);
     if(orParts.length){ q = q.or(orParts.join(',')); }
   }
   q = applyPrefFilter(q);
@@ -2692,12 +2715,7 @@ function mailSearchLeads(){
   if(!kw){ el('mailSearchResults').style.display='none'; return; }
   var box=el('mailSearchResults');
   box.style.display='block'; box.innerHTML='<span class="sub">検索中…</span>';
-  var variants=searchVariants(kw),orParts=[];
-  variants.forEach(function(v){
-    var safe=v.replace(/[,()*"\\]/g,' ').trim();
-    if(!safe) return;
-    ['reg_no','name'].forEach(function(col){ orParts.push(col+'.ilike.*'+safe+'*'); });
-  });
+  var orParts=searchOrParts(kw, ['reg_no','name']);
   if(!orParts.length){ box.innerHTML='<span class="sub">検索語が無効です。</span>'; return; }
   _sb.from('eigyo_leads').select('reg_no,name,status,contacts').or(orParts.join(',')).limit(15).then(function(r){
     var rows=(r.data)||[];
