@@ -5103,7 +5103,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260824.09';
+var OFUSA_VERSION = 'ver.20260824.14';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -7849,6 +7849,21 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20260824.14', date:'2026-08-24', notify:true, items:[
+    '⚠️ <b>更新案件で在留期限の3ヶ月前より前に申請ステータスへ変更すると警告が出る</b>ようにしました。申請ステイ／★申請(不足あり)／★申請 に変更したとき、まだ申請できない時期なら「在留期限の3ヶ月前（申請可能日）になるまで申請できません」とお知らせします（変更自体は止めません）。'
+  ]},
+  { version:'ver.20260824.13', date:'2026-08-24', notify:false, items:[
+    '🔧 テキスト生成「人材必要書類リスト（ヒアリングなし）」で改行が ¥n と表示されて改行されない不具合を修正しました。'
+  ]},
+  { version:'ver.20260824.12', date:'2026-08-24', notify:false, items:[
+    '📋 書類フォーム・アップロードのマスタで、特定活動（特定技能1号移行準備）の人材アップロード「開く」を、特定活動の5点だけが表示されるURLにしました。'
+  ]},
+  { version:'ver.20260824.11', date:'2026-08-24', notify:false, items:[
+    '📋 書類フォーム・アップロードのマスタを調整：「社会保険未加入者（現在留学中の者）」を1行にまとめ、特定活動（特定技能1号移行準備）の人材ヒアリングを特定技能1号のものを流用する表示にしました。'
+  ]},
+  { version:'ver.20260824.10', date:'2026-08-24', notify:false, items:[
+    '📋 書類フォーム・アップロードのマスタの「在留資格以外（書類）」に「現在留学中の者」を追加しました。'
+  ]},
   { version:'ver.20260824.09', date:'2026-08-24', notify:false, items:[
     '📋 書類フォーム・アップロードのマスタで、特定活動（特定技能1号移行準備）の人材アップロードを「作成済み（共通）」表示にしました。'
   ]},
@@ -32110,7 +32125,7 @@ var TPL_FORMS_COLS = [
 var TPL_FORMS_DEFAULT_ROWS = [
   {label:'特定技能1号',              coType:'company',              jzToken:'tokutei_'},
   {label:'特定技能2号',              coType:'company_tokutei2',     jzToken:'tokutei2_'},
-  {label:'特定活動（特定技能1号移行準備）', coType:'company', jzToken:'', matchStatus:'特定活動', noCoUp:true, coRefLabel:'特定技能1号', jzUpReady:true},
+  {label:'特定活動（特定技能1号移行準備）', coType:'company', jzToken:'', matchStatus:'特定活動', noCoUp:true, coRefLabel:'特定技能1号', jzUpReady:true, jzRefToken:'tokutei_', jzRefLabel:'特定技能1号', jzUpDocs:['顔写真','在留カード（表）','在留カード（裏）','パスポート','合格証（技能・日本語）／専門級']},
   {label:'特定活動（告示9号）',      coType:'company_designated9',  jzToken:'designated9'},
   {label:'特定活動（告示46号）',     coType:'company_designated46', jzToken:'designated46'},
   {label:'特定活動（告示55号）',     coType:'', jzToken:''},
@@ -32128,7 +32143,7 @@ var TPL_FORMS_DEFAULT_ROWS = [
   {label:'永住者',                   coType:'', jzToken:'', noCompany:true},
   {label:'家族滞在',                 coType:'', jzToken:'', noCompany:true},
   {label:'医療',                     coType:'', jzToken:'', noCompany:true},
-  {label:'社会保険未加入者',         coType:'', jzToken:'', group:'other', noCompany:true},
+  {label:'社会保険未加入者（現在留学中の者）', coType:'', jzToken:'', group:'other', noCompany:true},
   {label:'二国間取決において定められた遵守すべき手続に係る書類', coType:'', jzToken:'', group:'other', noCompany:true}
 ];
 var _tplFormsRows = null;
@@ -32163,6 +32178,14 @@ function _tplFormsFmtLM(lm){
   var p=function(n){return (n<10?'0':'')+n;};
   return d.getFullYear()+'/'+p(d.getMonth()+1)+'/'+p(d.getDate());
 }
+// ver.20260824.12: 書類ラベル配列を zinzai_dataup.html の docs= パラメータ(base64url of JSON [{l,r}]) に変換
+function _tplDocsParam(labels){
+  try{
+    var arr = (labels||[]).map(function(l){ return {l:String(l), r:true}; });
+    var b64 = btoa(unescape(encodeURIComponent(JSON.stringify(arr))));
+    return b64.replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  }catch(e){ return ''; }
+}
 function renderTplFormsMaster(){
   var box=document.getElementById('tplFormsContent'); if(!box) return;
   if(!_tplFormsRows) _tplFormsRows = TPL_FORMS_DEFAULT_ROWS.slice();
@@ -32189,7 +32212,9 @@ function renderTplFormsMaster(){
       var _appTypes=[{k:'nintei',l:'認定'},{k:'henkou',l:'変更'},{k:'koushin',l:'更新'}];
       // ver.20260824.02: 人材ヒアリングフォームは認定/変更/更新でそれぞれ判定（form.htmlの <在留資格>_nintei/_henkou/_koushin）
       if(col.src==='form' && col.mode==='person'){
-        var _base=String(row.jzToken||'').replace(/_$/,'');
+        // ver.20260824.11: jzRefToken があれば別在留資格の人材ヒアリングを流用（判定・開くも流用元）
+        var _jzUse = row.jzRefToken || row.jzToken || '';
+        var _base=String(_jzUse).replace(/_$/,'');
         var _rows=_appTypes.map(function(t){
           var tok=_base?(_base+'_'+t.k):'';
           var made2=false;
@@ -32198,14 +32223,19 @@ function renderTplFormsMaster(){
           var u = tok? (FORM_BASE_URL+'?type='+tok) : '';
           return _miniRow(t.l, bh, u);
         }).join('');
-        return '<td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;vertical-align:top;min-width:132px;">'+_rows+'<div style="font-size:9px;color:#94a3b8;margin-top:3px;text-align:right;">更新 '+fileLM.form+'</div></td>';
+        var _jzRefNote = row.jzRefLabel ? '<div style="font-size:8.5px;color:#7c3aed;font-weight:700;margin-top:2px;text-align:right;">'+esc2(row.jzRefLabel)+'を流用</div>' : '';
+        return '<td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;vertical-align:top;min-width:132px;">'+_rows+_jzRefNote+'<div style="font-size:9px;color:#94a3b8;margin-top:3px;text-align:right;">更新 '+fileLM.form+'</div></td>';
       }
       // 人材アップロードは汎用1ファイル。認定/変更/更新とも同じ状態（共通）を3行で表示
       if(col.src==='jzup'){
         var _jzMade = (!!(row.jzToken) || row.jzUpReady) && jzup.ok; // ver.20260824.09: 人材トークンあり or jzUpReady の行は「作成済み(共通)」。それ以外は未作成
+        // ver.20260824.12: jzUpDocs があれば、その書類だけ表示するURL（docs=）にする
+        var _jzUpUrl = (row.jzToken||row.jzUpReady)
+          ? ((row.jzUpDocs && row.jzUpDocs.length) ? (jzUpUrl+'?docs='+_tplDocsParam(row.jzUpDocs)) : jzUpUrl)
+          : '';
         var _rows2=_appTypes.map(function(t){
           var bh = !jzup.ok? _miniNa : (_jzMade?_miniOk:_miniNg);
-          return _miniRow(t.l, bh, ((row.jzToken||row.jzUpReady)?jzUpUrl:''));
+          return _miniRow(t.l, bh, _jzUpUrl);
         }).join('');
         return '<td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;vertical-align:top;min-width:132px;">'+_rows2+'<div style="font-size:9px;color:#94a3b8;margin-top:3px;text-align:right;">更新 '+fileLM.jzup+'（共通）</div></td>';
       }
@@ -45246,7 +45276,7 @@ function autoSaveInfo(key, value) {
   c[key] = value;
   _markCaseChanged(c.id);
   // ver.20260818.05: 「申請済(番号待)」にした瞬間、申請日が空なら今日を自動セット
-  if(key === 'status') _maybeAutoSetReceiptDate(c, value);
+  if(key === 'status') { _maybeAutoSetReceiptDate(c, value); _maybeWarnApplyTooEarly(c, value); }
   // ver.20260613.02: 特定活動の案件を「完了」にしたら、1号申請用の複製を促す
   if(key === 'status' && value === '完了' && oldVal !== '完了'){
     var _pd = (typeof personData!=='undefined' && personData[c.id]) ? personData[c.id] : {};
@@ -91062,12 +91092,12 @@ function _initDefaultDocTextRules(){
         append:'\n【ベトナム・技能実習生の追加情報】\n① ベトナムの家族の住所\n② ベトナムの家族の電話番号\n③ ベトナムの送り出し機関の名前（技能実習生）\n④ 住民票（じゅうみんひょう）の原本（げんぽん）のコピー（※３か月以内に発行したもの）\n　→国籍・在留資格・在留カード番号・在留期限など記載されているもの。市役所（しやくしょ）でもらえます！\n　→マイナンバーカードがあればコンビニで発行できます！'}
      ]},
     {id:'dt1_nohearing',name:'人材必要書類リスト（ヒアリングなし）',category:'人材',noHearing:true,
-     template:'{applicant}様\\nお世話になっております。\\n大房行政書士法人の{staff}と申します。\\n\\n{appType}のお手続きにあたり、書類のご提出をお願いいたします。\\n\\n📎 書類のアップロード\\n{uploadUrl}\\n📖 見本・取得方法は上記URLで確認できます\\n※スマートフォンで写真を撮って、そのままアップロードできます\\n※1週間以内をめどにご提出をお願いいたします\\n※お時間がかかる書類があれば教えてください\\n\\n【ご用意いただく書類】\\n{docList}\\n\\nご不明な点はお気軽にご連絡ください。\\nよろしくお願いいたします。',
+     template:'{applicant}様\nお世話になっております。\n大房行政書士法人の{staff}と申します。\n\n{appType}のお手続きにあたり、書類のご提出をお願いいたします。\n\n📎 書類のアップロード\n{uploadUrl}\n📖 見本・取得方法は上記URLで確認できます\n※スマートフォンで写真を撮って、そのままアップロードできます\n※1週間以内をめどにご提出をお願いいたします\n※お時間がかかる書類があれば教えてください\n\n【ご用意いただく書類】\n{docList}\n\nご不明な点はお気軽にご連絡ください。\nよろしくお願いいたします。',
      conditions:[
        {and:[{field:'appType',contains:'変更'},{field:'nationality',contains:'ベトナム'},{field:'currentStatus',contains:'留学'}],
-        append:'\\n【ベトナム・留学生の追加情報】\\n① ベトナムの家族の住所\\n② ベトナムの家族の電話番号\\n③ 日本における学校名（留学生）\\n　※留学生は卒業証明書の写真をこちらに送ってください！\\n④ 住民票（じゅうみんひょう）の原本（げんぽん）のコピー（※３か月以内に発行したもの）\\n　→国籍・在留資格・在留カード番号・在留期限など記載されているもの。市役所（しやくしょ）でもらえます！\\n　→マイナンバーカードがあればコンビニで発行できます！'},
+        append:'\n【ベトナム・留学生の追加情報】\n① ベトナムの家族の住所\n② ベトナムの家族の電話番号\n③ 日本における学校名（留学生）\n　※留学生は卒業証明書の写真をこちらに送ってください！\n④ 住民票（じゅうみんひょう）の原本（げんぽん）のコピー（※３か月以内に発行したもの）\n　→国籍・在留資格・在留カード番号・在留期限など記載されているもの。市役所（しやくしょ）でもらえます！\n　→マイナンバーカードがあればコンビニで発行できます！'},
        {and:[{field:'appType',contains:'変更'},{field:'nationality',contains:'ベトナム'},{field:'currentStatus',contains:'技能実習'}],
-        append:'\\n【ベトナム・技能実習生の追加情報】\\n① ベトナムの家族の住所\\n② ベトナムの家族の電話番号\\n③ ベトナムの送り出し機関の名前（技能実習生）\\n④ 住民票（じゅうみんひょう）の原本（げんぽん）のコピー（※３か月以内に発行したもの）\\n　→国籍・在留資格・在留カード番号・在留期限など記載されているもの。市役所（しやくしょ）でもらえます！\\n　→マイナンバーカードがあればコンビニで発行できます！'}
+        append:'\n【ベトナム・技能実習生の追加情報】\n① ベトナムの家族の住所\n② ベトナムの家族の電話番号\n③ ベトナムの送り出し機関の名前（技能実習生）\n④ 住民票（じゅうみんひょう）の原本（げんぽん）のコピー（※３か月以内に発行したもの）\n　→国籍・在留資格・在留カード番号・在留期限など記載されているもの。市役所（しやくしょ）でもらえます！\n　→マイナンバーカードがあればコンビニで発行できます！'}
      ]},
     {id:'dt2',name:'所属機関必要書類リスト（入管）',category:'所属機関',
      template:'【{company}】様\nお世話になっております。\n大房行政書士法人の{staff}と申します。\n\n特定技能の申請に必要なご対応を2点ご案内いたします。\n\n① 企業情報ヒアリングフォーム\n{hearingUrl}\n※各種申請書類の作成に必要な情報です\n\n② 書類のアップロード\n{uploadUrl}\n📖 見本・取得方法は上記URLで確認できます\n※スマートフォンからもアップロード可能です。\n\n【ご用意いただく書類】\n{docList}\n\nご不明な点はお気軽にご連絡ください。\nよろしくお願いいたします。',
@@ -91974,6 +92004,28 @@ function updateCaseField(caseId,field,value){
 //   基本情報タブの status変更 / クイック編集の status変更 の両方から呼ばれる。
 //   既に受付日が入っている場合は何もしない(誤上書き防止)。
 //   ver.20260818.06: 自動セットではなく確認ダイアログでOKなら入れる方式に変更
+// ver.20260824.14: 更新案件の申請可能日（在留期限の暦3ヶ月前）判定と、申請系ステータスへの変更時の警告
+//   在留期限の3ヶ月前より前だとオンライン申請でエラーになるため、案シス上で気づけるようにする。
+function _applyLockInfo(c){
+  if(!c) return null;
+  if((c.appType||'').indexOf('更新')<0) return null; // 更新案件のみ
+  var raw = String(c.expire||'').slice(0,10).replace(/\//g,'-');
+  var m = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if(!m) return null;
+  var d = new Date(Number(m[1]), Number(m[2])-1, Number(m[3]));
+  var allow = new Date(d.getFullYear(), d.getMonth()-3, d.getDate()); // 暦3ヶ月前
+  var today = new Date(); today.setHours(0,0,0,0);
+  function fmt(x){ return x.getFullYear()+'/'+String(x.getMonth()+1).padStart(2,'0')+'/'+String(x.getDate()).padStart(2,'0'); }
+  var daysLeft = Math.ceil((allow.getTime()-today.getTime())/86400000);
+  return { locked: today.getTime() < allow.getTime(), allowDate: fmt(allow), expire: fmt(d), daysLeft: daysLeft };
+}
+var _APPLY_STATUS_LIST = ['申請ステイ','★申請(不足あり)','★申請 (不足あり)','★申請'];
+function _maybeWarnApplyTooEarly(c, newStatus){
+  if(_APPLY_STATUS_LIST.indexOf(newStatus)<0) return;
+  var info = _applyLockInfo(c);
+  if(!info || !info.locked) return;
+  alert('⚠️ まだ申請できません\n\nこの案件は在留期限（'+info.expire+'）の3ヶ月前＝【'+info.allowDate+'】から申請可能です（あと'+info.daysLeft+'日）。\n\n※オンライン申請は在留期限の3ヶ月前からのため、それより前に申請するとエラーになります。ステータスはこのまま変更されています。');
+}
 function _maybeAutoSetReceiptDate(c, newStatus){
   if(!c || newStatus !== '申請済(番号待)') return;
   if((c.receiptDate||'').trim()) return;
@@ -92010,7 +92062,7 @@ function saveCaseField(caseId, field, value){
     currentCase[field] = value;
   }
   // ver.20260818.05: 「申請済(番号待)」にした瞬間、申請日が空なら今日を自動セット
-  if(field === 'status') _maybeAutoSetReceiptDate(c, value);
+  if(field === 'status') { _maybeAutoSetReceiptDate(c, value); _maybeWarnApplyTooEarly(c, value); }
   // ver.20260818.03: 変更をトラック。openCase の裏取得や Realtime の上書きから保護。
   //   グループ内追加メンバーで「⋯クイック編集→完了」した直後に他ルートで上書きされる
   //   レースを防ぐ。既存の他 save 関数(autoSaveInfo等)と同じ扱いに揃える。
@@ -95909,12 +95961,12 @@ function loadAllFromSupabase() {
                 // ver.20260822.11: dt1_nohearing（人材必要書類リスト・ヒアリングなし版）を追加/最新化
                 var _dt1nhIdx = docTextRules.findIndex(function(r){return r.id==='dt1_nohearing';});
                 var _dt1nhNew = {id:'dt1_nohearing',name:'人材必要書類リスト（ヒアリングなし）',category:'人材',noHearing:true,
-                  template:'{applicant}様\\nお世話になっております。\\n大房行政書士法人の{staff}と申します。\\n\\n{appType}のお手続きにあたり、書類のご提出をお願いいたします。\\n\\n📎 書類のアップロード\\n{uploadUrl}\\n📖 見本・取得方法は上記URLで確認できます\\n※スマートフォンで写真を撮って、そのままアップロードできます\\n※1週間以内をめどにご提出をお願いいたします\\n※お時間がかかる書類があれば教えてください\\n\\n【ご用意いただく書類】\\n{docList}\\n\\nご不明な点はお気軽にご連絡ください。\\nよろしくお願いいたします。',
+                  template:'{applicant}様\nお世話になっております。\n大房行政書士法人の{staff}と申します。\n\n{appType}のお手続きにあたり、書類のご提出をお願いいたします。\n\n📎 書類のアップロード\n{uploadUrl}\n📖 見本・取得方法は上記URLで確認できます\n※スマートフォンで写真を撮って、そのままアップロードできます\n※1週間以内をめどにご提出をお願いいたします\n※お時間がかかる書類があれば教えてください\n\n【ご用意いただく書類】\n{docList}\n\nご不明な点はお気軽にご連絡ください。\nよろしくお願いいたします。',
                   conditions:[
                     {and:[{field:'appType',contains:'変更'},{field:'nationality',contains:'ベトナム'},{field:'currentStatus',contains:'留学'}],
-                     append:'\\n【ベトナム・留学生の追加情報】\\n① ベトナムの家族の住所\\n② ベトナムの家族の電話番号\\n③ 日本における学校名（留学生）\\n　※留学生は卒業証明書の写真をこちらに送ってください！\\n④ 住民票（じゅうみんひょう）の原本（げんぽん）のコピー（※３か月以内に発行したもの）\\n　→国籍・在留資格・在留カード番号・在留期限など記載されているもの。市役所（しやくしょ）でもらえます！\\n　→マイナンバーカードがあればコンビニで発行できます！'},
+                     append:'\n【ベトナム・留学生の追加情報】\n① ベトナムの家族の住所\n② ベトナムの家族の電話番号\n③ 日本における学校名（留学生）\n　※留学生は卒業証明書の写真をこちらに送ってください！\n④ 住民票（じゅうみんひょう）の原本（げんぽん）のコピー（※３か月以内に発行したもの）\n　→国籍・在留資格・在留カード番号・在留期限など記載されているもの。市役所（しやくしょ）でもらえます！\n　→マイナンバーカードがあればコンビニで発行できます！'},
                     {and:[{field:'appType',contains:'変更'},{field:'nationality',contains:'ベトナム'},{field:'currentStatus',contains:'技能実習'}],
-                     append:'\\n【ベトナム・技能実習生の追加情報】\\n① ベトナムの家族の住所\\n② ベトナムの家族の電話番号\\n③ ベトナムの送り出し機関の名前（技能実習生）\\n④ 住民票（じゅうみんひょう）の原本（げんぽん）のコピー（※３か月以内に発行したもの）\\n　→国籍・在留資格・在留カード番号・在留期限など記載されているもの。市役所（しやくしょ）でもらえます！\\n　→マイナンバーカードがあればコンビニで発行できます！'}
+                     append:'\n【ベトナム・技能実習生の追加情報】\n① ベトナムの家族の住所\n② ベトナムの家族の電話番号\n③ ベトナムの送り出し機関の名前（技能実習生）\n④ 住民票（じゅうみんひょう）の原本（げんぽん）のコピー（※３か月以内に発行したもの）\n　→国籍・在留資格・在留カード番号・在留期限など記載されているもの。市役所（しやくしょ）でもらえます！\n　→マイナンバーカードがあればコンビニで発行できます！'}
                   ]};
                 if(_dt1nhIdx !== -1) docTextRules[_dt1nhIdx] = _dt1nhNew;
                 else docTextRules.push(_dt1nhNew);
