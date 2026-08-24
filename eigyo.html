@@ -204,7 +204,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260820.16</div>
+      <div class="ver">ver.20260823.03</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -520,11 +520,19 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
 <div id="mailBox" style="display:none;position:fixed;z-index:64;top:50%;left:50%;transform:translate(-50%,-50%);
      width:min(680px,96vw);max-height:90vh;overflow:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 30px rgba(0,0,0,.2);">
   <h2 style="margin:0 0 4px;font-size:18px;color:var(--accent);">✉️ メール配信</h2>
-  <p style="margin:0 0 14px;font-size:12px;color:var(--muted);">大房行政書士法人名義で送信します。宛名（○○御中）と署名は自動で付きます。</p>
+  <p style="margin:0 0 14px;font-size:12px;color:var(--muted);">大房行政書士法人名義で送信します。宛名（○○御中）と大房行政書士法人の定型署名は自動で付きます。チェックを外した会社には送信されません。</p>
 
   <div class="form" style="grid-template-columns:1fr;">
     <label style="font-weight:700;">配信先ステータス（複数選択可）</label>
     <div id="mailStatusBoxes" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px;"></div>
+
+    <label style="font-weight:700;">会社を検索して追加（機関名・登録番号）</label>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:2px;">
+      <input type="text" id="mailSearchQ" placeholder="例：ＦＵＪＩ／協同組合／26登-013700" style="flex:1;padding:7px 9px;border:1px solid var(--line);border-radius:7px;" onkeydown="if(event.key==='Enter'){event.preventDefault();mailSearchLeads();}">
+      <button class="btn btn-sm" onclick="mailSearchLeads()">🔍 検索</button>
+    </div>
+    <div id="mailSearchResults" style="display:none;background:#f7fafc;border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:4px;max-height:150px;overflow:auto;"></div>
+
     <div id="mailRecipInfo" style="background:#f7fafc;border-radius:8px;padding:10px 12px;margin-bottom:6px;"></div>
 
     <label style="font-weight:700;">件名</label>
@@ -571,7 +579,7 @@ var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 var STATUSES = ['未接触','接触済み','商談予定','商談中','案件依頼前','要経過観察','見込みなし','契約中','対象外','テレアポ失注'];
-var DOC_METHODS = ['','行政書士','登録支援機関（システム利用）','登録支援機関（システム未利用）','所属機関'];
+var DOC_METHODS = ['','行政書士','登録支援機関（システム利用）','登録支援機関（システム未利用）','登録支援機関＋行政書士','所属機関'];
 var HR_TOOLS = ['','LINE','Chatwork','Messenger','メール','その他'];
 var HR_MADOGUCHI = ['','登録支援機関','直接','送り出し機関','その他'];
 var HR_KYOGIKAI = ['','登録支援機関','所属機関','大房行政書士法人','その他'];
@@ -633,6 +641,35 @@ function searchVariants(kw){
   var set={};
   [kw, toZenkakuKana(toHankakuAscii(kw)), toZenkakuAscii(kw)].forEach(function(x){ x=(x||'').trim(); if(x) set[x]=1; });
   return Object.keys(set);
+}
+/* 検索語をスペース（半角・全角）で分割し、全語を含むレコードにヒットするOR句を作る。
+   例：「TAI Mac Engineering 株式会社」→ ＴＡＩ／Ｍａｃ／…を全部含む name にヒット
+   （DB側のスペース有無・全半角の違いを吸収） */
+function searchOrParts(kw, cols){
+  var terms = kw.split(/[\s\u3000]+/).filter(function(t){ return t; });
+  if(!terms.length) return [];
+  function safe1(v){ return (v||'').replace(/[,()*"\\]/g,' ').trim(); }
+  var parts=[];
+  if(terms.length===1){
+    searchVariants(terms[0]).forEach(function(v){
+      var s=safe1(v); if(!s) return;
+      cols.forEach(function(col){ parts.push(col+'.ilike.*'+s+'*'); });
+    });
+    return parts;
+  }
+  var transforms=[function(x){return x;},
+                  function(x){return toZenkakuKana(toHankakuAscii(x));},
+                  function(x){return toZenkakuAscii(x);}];
+  var seen={};
+  transforms.forEach(function(tr){
+    var tv=terms.map(function(t){ return safe1(tr(t)); });
+    if(tv.some(function(t){return !t;})) return;
+    var key=tv.join('\u0001'); if(seen[key]) return; seen[key]=1;
+    cols.forEach(function(col){
+      parts.push('and('+tv.map(function(t){ return col+'.ilike.*'+t+'*'; }).join(',')+')');
+    });
+  });
+  return parts;
 }
 function el(id){ return document.getElementById(id); }
 function showMsg(id,txt,cls){ var m=el(id); m.textContent=txt; m.className='msg '+(cls||''); if(!txt) m.className='msg'; }
@@ -779,14 +816,8 @@ function buildQuery(forCount){
   var q = _sb.from('eigyo_leads').select('*', { count: forCount ? 'exact' : undefined });
   var kw = el('fQ').value.trim();
   if(kw){
-    // 半角⇄全角のあいまい検索：複数表記でOR検索
-    var variants = searchVariants(kw);
-    var orParts = [];
-    variants.forEach(function(v){
-      var safe = v.replace(/[,()*"\\]/g,' ').trim();
-      if(!safe) return;
-      ['reg_no','name','address','rep_name','tel'].forEach(function(col){ orParts.push(col+'.ilike.*'+safe+'*'); });
-    });
+    // 半角⇄全角＋スペース無視のあいまい検索（全語AND）
+    var orParts = searchOrParts(kw, ['reg_no','name','address','rep_name','tel']);
     if(orParts.length){ q = q.or(orParts.join(',')); }
   }
   q = applyPrefFilter(q);
@@ -2589,8 +2620,19 @@ function jsonpPost(url, action, data, callback) {
 
 /* ================= メール配信機能 ================= */
 var GAS_MAILBOX_URL = 'https://script.google.com/macros/s/AKfycbx7MUVJ-14GYqtiCw0Gfvkj2_IHhvIfzYKxx21LogKv4JUZ5zUdH3WuVMFj3fuxpouhjQ/exec';
-var MAIL_STATUSES = ['接触済み','商談予定','案件依頼前','要経過観察','見込みなし','契約中','対象外','テレアポ失注'];
-var _mailPdfB64=null,_mailPdfName=null,_mailImgB64=null,_mailImgName=null,_mailRecipients=[];
+var MAIL_STATUSES = STATUSES.slice(); // 未接触・商談中を含む全ステータス
+var _mailPdfB64=null,_mailPdfName=null,_mailImgB64=null,_mailImgName=null;
+var _mailCandStatus=[];   // ステータス由来の候補 [{reg_no,name,emails}]
+var _mailCandExtra=[];    // 検索で個別追加した候補
+var _mailExcluded={};     // チェックを外した会社 reg_no→true
+var MAIL_SIGNATURE = 'ーーーーーーーーーーーーーーーーーーーーーーー\n'
+  + '大房行政書士法人\n'
+  + '外国人雇用をサポート\n'
+  + '\u3012144-0052\u3000\n'
+  + '東京都大田区蒲田5-11-10 FUNDES蒲田8階\n'
+  + 'http://gyosei-cambo.com\n'
+  + '電話  :03-6424-8849\n'
+  + 'ーーーーーーーーーーーーーーーーーーーーーーー';
 
 function openMailModal(){
   var boxes = MAIL_STATUSES.map(function(s){
@@ -2600,32 +2642,103 @@ function openMailModal(){
   el('mailStatusBoxes').innerHTML = boxes;
   el('mailSubject').value=''; el('mailBody').value=''; el('mailTestTo').value=(me||'');
   mailClearPdf(); mailClearImg();
-  el('mailRecipInfo').innerHTML='<span class="sub">配信先のステータスを選んでください。</span>';
-  _mailRecipients=[];
+  _mailCandStatus=[]; _mailCandExtra=[]; _mailExcluded={};
+  el('mailSearchQ').value=''; el('mailSearchResults').style.display='none'; el('mailSearchResults').innerHTML='';
+  mailRenderRecipients();
   el('mailOv').style.display='block'; el('mailBox').style.display='block';
 }
 function closeMailModal(){ el('mailOv').style.display='none'; el('mailBox').style.display='none'; }
 function mailSelectedStatuses(){ return Array.prototype.map.call(document.querySelectorAll('.mailStatusCb:checked'),function(c){return c.value;}); }
 
+function mailLeadEmails(x){
+  var emails=[]; (x.contacts||[]).forEach(function(c){ if(c&&c.email&&/@/.test(c.email)) emails.push(c.email.trim()); });
+  return emails;
+}
 function mailRefreshRecipients(){
   var sts=mailSelectedStatuses();
-  if(!sts.length){ el('mailRecipInfo').innerHTML='<span class="sub">配信先のステータスを選んでください。</span>'; _mailRecipients=[]; return; }
+  if(!sts.length){ _mailCandStatus=[]; mailRenderRecipients(); return; }
   el('mailRecipInfo').innerHTML='<span class="sub">集計中…</span>';
   _sb.from('eigyo_leads').select('reg_no,name,contacts').in('status',sts).then(function(r){
     var rows=(r.data)||[],recips=[];
     rows.forEach(function(x){
-      var emails=[]; (x.contacts||[]).forEach(function(c){ if(c&&c.email&&/@/.test(c.email)) emails.push(c.email.trim()); });
+      var emails=mailLeadEmails(x);
       if(emails.length) recips.push({reg_no:x.reg_no,name:x.name,emails:emails});
     });
-    _mailRecipients=recips;
-    var tot=recips.reduce(function(a,b){return a+b.emails.length;},0);
-    if(!recips.length){
-      el('mailRecipInfo').innerHTML='<div style="color:#c53030;font-size:12px;">該当ステータスに、メール登録済みのリードがありません。<br>詳細画面の「先方の担当者」にメールを入れると配信先になります。</div>';
-    } else {
-      el('mailRecipInfo').innerHTML='<div style="font-size:13px;"><b>'+recips.length+'</b> 社（<b>'+tot+'</b> 通）が本配信の対象です。</div>'
-        +'<div class="sub" style="margin-top:4px;max-height:110px;overflow:auto;">'+recips.map(function(p){return esc(p.name)+'（'+p.emails.map(esc).join('、')+'）';}).join('<br>')+'</div>';
-    }
+    _mailCandStatus=recips;
+    mailRenderRecipients();
   });
+}
+
+/* ステータス候補＋検索追加分をマージ（reg_noで重複排除） */
+function mailAllCandidates(){
+  var seen={},list=[];
+  _mailCandStatus.forEach(function(p){ if(!seen[p.reg_no]){ seen[p.reg_no]=1; list.push(p); } });
+  _mailCandExtra.forEach(function(p){ if(!seen[p.reg_no]){ seen[p.reg_no]=1; list.push(Object.assign({extra:true},p)); } });
+  return list;
+}
+function mailCurrentRecipients(){
+  return mailAllCandidates().filter(function(p){ return !_mailExcluded[p.reg_no]; });
+}
+function mailRenderRecipients(){
+  var all=mailAllCandidates();
+  if(!all.length){
+    el('mailRecipInfo').innerHTML='<span class="sub">ステータスを選ぶか、上の検索で会社を追加してください。<br>※メール未登録の会社は配信先になりません（詳細画面の「先方の担当者」にメールを登録してください）。</span>';
+    return;
+  }
+  var cur=mailCurrentRecipients();
+  var tot=cur.reduce(function(a,b){return a+b.emails.length;},0);
+  var head='<div id="mailRecipCount" style="font-size:13px;"><b>'+cur.length+'</b> 社（<b>'+tot+'</b> 通）が本配信の対象です。'
+    +(all.length>cur.length?' <span class="sub">（'+(all.length-cur.length)+'社を除外中）</span>':'')+'</div>'
+    +'<div class="sub" style="font-size:11px;margin:2px 0 4px;">チェックを外した会社には送信されません。</div>';
+  var rows=all.map(function(p){
+    var ex=!!_mailExcluded[p.reg_no];
+    return '<label style="display:flex;align-items:flex-start;gap:6px;padding:2px 0;font-size:12px;'+(ex?'opacity:.45;':'')+'cursor:pointer;">'
+      +'<input type="checkbox" '+(ex?'':'checked')+' onchange="mailToggleRecip(\''+esc(p.reg_no)+'\',this.checked)" style="margin-top:2px;">'
+      +'<span>'+esc(p.name)+(p.extra?' <span style="background:#bee3f8;color:#2b6cb0;border-radius:4px;font-size:10px;padding:0 4px;">追加</span>':'')
+      +'<span class="sub">（'+p.emails.map(esc).join('、')+'）</span></span></label>';
+  }).join('');
+  el('mailRecipInfo').innerHTML=head+'<div style="max-height:160px;overflow:auto;">'+rows+'</div>';
+}
+function mailToggleRecip(reg,checked){
+  if(checked) delete _mailExcluded[reg]; else _mailExcluded[reg]=true;
+  var cur=mailCurrentRecipients(),all=mailAllCandidates();
+  var tot=cur.reduce(function(a,b){return a+b.emails.length;},0);
+  var c=el('mailRecipCount');
+  if(c) c.innerHTML='<b>'+cur.length+'</b> 社（<b>'+tot+'</b> 通）が本配信の対象です。'
+    +(all.length>cur.length?' <span class="sub">（'+(all.length-cur.length)+'社を除外中）</span>':'');
+}
+
+/* 会社検索（半角⇄全角あいまい）→ 個別追加 */
+var _mailSearchHits=[];
+function mailSearchLeads(){
+  var kw=el('mailSearchQ').value.trim();
+  if(!kw){ el('mailSearchResults').style.display='none'; return; }
+  var box=el('mailSearchResults');
+  box.style.display='block'; box.innerHTML='<span class="sub">検索中…</span>';
+  var orParts=searchOrParts(kw, ['reg_no','name']);
+  if(!orParts.length){ box.innerHTML='<span class="sub">検索語が無効です。</span>'; return; }
+  _sb.from('eigyo_leads').select('reg_no,name,status,contacts').or(orParts.join(',')).limit(15).then(function(r){
+    var rows=(r.data)||[];
+    _mailSearchHits=rows.map(function(x){ return {reg_no:x.reg_no,name:x.name,status:x.status,emails:mailLeadEmails(x)}; });
+    if(!_mailSearchHits.length){ box.innerHTML='<span class="sub">該当なし。別の言葉で検索してください。</span>'; return; }
+    box.innerHTML=_mailSearchHits.map(function(p,i){
+      if(!p.emails.length){
+        return '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px;color:var(--muted);">'
+          +'<span style="width:52px;"></span><span>'+esc(p.name)+'（'+esc(p.status||'')+'）<span style="font-size:10px;">メール未登録</span></span></div>';
+      }
+      return '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px;">'
+        +'<button class="btn btn-sm" onclick="mailAddLead('+i+')">＋追加</button>'
+        +'<span>'+esc(p.name)+'（'+esc(p.status||'')+'）<span class="sub">'+p.emails.map(esc).join('、')+'</span></span></div>';
+    }).join('');
+  });
+}
+function mailAddLead(i){
+  var p=_mailSearchHits[i]; if(!p||!p.emails.length) return;
+  delete _mailExcluded[p.reg_no];
+  var dup=_mailCandExtra.some(function(x){return x.reg_no===p.reg_no;})
+       || _mailCandStatus.some(function(x){return x.reg_no===p.reg_no;});
+  if(!dup) _mailCandExtra.push({reg_no:p.reg_no,name:p.name,emails:p.emails});
+  mailRenderRecipients();
 }
 
 function mailHandlePdf(input){var f=input.files[0];if(!f)return;
@@ -2652,7 +2765,7 @@ function mailBuildAttachments(){
 function mailBuildBody(orgName){
   return orgName+' 御中\n\n'
     + el('mailBody').value.trim()
-    + '\n\n大房行政書士法人';
+    + '\n\n\n' + MAIL_SIGNATURE;
 }
 
 /* 1通送信（案シスと同じ sendMail 形式） */
@@ -2681,23 +2794,25 @@ function mailSendTest(){
 function mailSend(){
   var sub=el('mailSubject').value.trim(), bodyRaw=el('mailBody').value.trim();
   if(!sub||!bodyRaw){ alert('件名と本文を入力してください'); return; }
-  if(!_mailRecipients.length){ alert('配信先がありません。'); return; }
-  var tot=_mailRecipients.reduce(function(a,b){return a+b.emails.length;},0);
-  if(!confirm('本配信します。\n\n'+_mailRecipients.length+'社（'+tot+'通）に送信します。よろしいですか？\n\n※先にテスト送信で見た目を確認することをおすすめします。')) return;
+  var _sendList=mailCurrentRecipients();
+  if(!_sendList.length){ alert('配信先がありません。\nステータスを選ぶか、検索で会社を追加してください。'); return; }
+  var tot=_sendList.reduce(function(a,b){return a+b.emails.length;},0);
+  var exCnt=mailAllCandidates().length-_sendList.length;
+  if(!confirm('本配信します。\n\n'+_sendList.length+'社（'+tot+'通）に送信します。'+(exCnt>0?'\n（チェックを外した'+exCnt+'社は送信されません）':'')+'\nよろしいですか？\n\n※先にテスト送信で見た目を確認することをおすすめします。')) return;
   var btn=el('mailSendBtn'); btn.disabled=true;
   var atts=mailBuildAttachments();
   var i=0, okCount=0, ngCount=0;
   function next(){
-    if(i>=_mailRecipients.length){
+    if(i>=_sendList.length){
       btn.disabled=false; btn.textContent='🚀 本配信する';
-      var notes=_mailRecipients.map(function(p){ return {reg_no:p.reg_no,note_date:today(),kind:'メール',author:(me||''),body:'メール配信：'+sub}; });
+      var notes=_sendList.map(function(p){ return {reg_no:p.reg_no,note_date:today(),kind:'メール',author:(me||''),body:'メール配信：'+sub}; });
       _sb.from('eigyo_notes').insert(notes).then(function(){});
       alert('本配信が完了しました。\n成功 '+okCount+'社 / 失敗 '+ngCount+'社');
       closeMailModal();
       return;
     }
-    var p=_mailRecipients[i];
-    btn.textContent='送信中… ('+(i+1)+'/'+_mailRecipients.length+')';
+    var p=_sendList[i];
+    btn.textContent='送信中… ('+(i+1)+'/'+_sendList.length+')';
     mailSendOne(p.emails, sub, mailBuildBody(p.name), atts, function(ok){
       if(ok) okCount++; else ngCount++;
       i++; setTimeout(next, 300);
