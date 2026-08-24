@@ -5103,7 +5103,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260824.06';
+var OFUSA_VERSION = 'ver.20260824.09';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -7849,6 +7849,15 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20260824.09', date:'2026-08-24', notify:false, items:[
+    '📋 書類フォーム・アップロードのマスタで、特定活動（特定技能1号移行準備）の人材アップロードを「作成済み（共通）」表示にしました。'
+  ]},
+  { version:'ver.20260824.08', date:'2026-08-24', notify:true, items:[
+    '📋 書類フォーム・アップロードのマスタに<b>承認欄</b>を追加しました（在留資格の右で「承認する／承認済み（誰が・いつ）」を記録）。また特定活動（特定技能1号移行準備）は企業ヒアリングを<b>特定技能1号のものを流用</b>（企業アップロードは対象外）、技術・人文知識・国際業務は企業ヒアリング/アップロードを<b>特定活動（告示46号）のものを流用</b>する設定にしました。'
+  ]},
+  { version:'ver.20260824.07', date:'2026-08-24', notify:true, items:[
+    '📅 「申請済(番号待)」に変更したとき、<b>申請受付日に今日の日付が自動で入る</b>ようにしました（これまでの確認ダイアログを廃止）。すでに日付が入っている場合は上書きしません。'
+  ]},
   { version:'ver.20260824.06', date:'2026-08-24', notify:false, items:[
     '📋 書類フォーム・アップロードのマスタから件数表示を外し、作成が確実に確認できないものは「未作成」と表示するようにしました。'
   ]},
@@ -32101,11 +32110,11 @@ var TPL_FORMS_COLS = [
 var TPL_FORMS_DEFAULT_ROWS = [
   {label:'特定技能1号',              coType:'company',              jzToken:'tokutei_'},
   {label:'特定技能2号',              coType:'company_tokutei2',     jzToken:'tokutei2_'},
-  {label:'特定活動（特定技能1号移行準備）', coType:'', jzToken:'', matchStatus:'特定活動'},
+  {label:'特定活動（特定技能1号移行準備）', coType:'company', jzToken:'', matchStatus:'特定活動', noCoUp:true, coRefLabel:'特定技能1号', jzUpReady:true},
   {label:'特定活動（告示9号）',      coType:'company_designated9',  jzToken:'designated9'},
   {label:'特定活動（告示46号）',     coType:'company_designated46', jzToken:'designated46'},
   {label:'特定活動（告示55号）',     coType:'', jzToken:''},
-  {label:'技術・人文知識・国際業務', coType:'company_gijinkoku',    jzToken:'gijinkoku_'},
+  {label:'技術・人文知識・国際業務', coType:'company_designated46',    jzToken:'gijinkoku_', coRefLabel:'特定活動（告示46号）'},
   {label:'技能実習1号ロ',            coType:'', jzToken:''},
   {label:'技能実習2号ロ',            coType:'', jzToken:''},
   {label:'技能実習3号イ',            coType:'', jzToken:''},
@@ -32193,15 +32202,19 @@ function renderTplFormsMaster(){
       }
       // 人材アップロードは汎用1ファイル。認定/変更/更新とも同じ状態（共通）を3行で表示
       if(col.src==='jzup'){
-        var _jzMade = !!(row.jzToken) && jzup.ok; // ver.20260824.06: 人材トークンがある行だけ「作成済み」。確実でなければ未作成
+        var _jzMade = (!!(row.jzToken) || row.jzUpReady) && jzup.ok; // ver.20260824.09: 人材トークンあり or jzUpReady の行は「作成済み(共通)」。それ以外は未作成
         var _rows2=_appTypes.map(function(t){
           var bh = !jzup.ok? _miniNa : (_jzMade?_miniOk:_miniNg);
-          return _miniRow(t.l, bh, (row.jzToken?jzUpUrl:''));
+          return _miniRow(t.l, bh, ((row.jzToken||row.jzUpReady)?jzUpUrl:''));
         }).join('');
         return '<td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;vertical-align:top;min-width:132px;">'+_rows2+'<div style="font-size:9px;color:#94a3b8;margin-top:3px;text-align:right;">更新 '+fileLM.jzup+'（共通）</div></td>';
       }
       // ver.20260824.04: 企業が不要な行（在留資格以外の書類など）は企業列を「対象外」表示にする
       if(row.noCompany && (col.src==='coup' || (col.src==='form' && col.mode==='company'))){
+        return '<td style="padding:8px 10px;border-bottom:1px solid #f1f5f9;text-align:center;vertical-align:top;"><span style="font-size:11px;font-weight:700;color:#cbd5e1;">—</span><div style="font-size:9px;color:#cbd5e1;margin-top:2px;">対象外</div></td>';
+      }
+      // ver.20260824.08: 企業アップロードだけ対象外の行
+      if(row.noCoUp && col.src==='coup'){
         return '<td style="padding:8px 10px;border-bottom:1px solid #f1f5f9;text-align:center;vertical-align:top;"><span style="font-size:11px;font-weight:700;color:#cbd5e1;">—</span><div style="font-size:9px;color:#cbd5e1;margin-top:2px;">対象外</div></td>';
       }
       // 企業ヒアリング / 企業アップロード（従来の単一表示）
@@ -32216,11 +32229,13 @@ function renderTplFormsMaster(){
       var badge = na?naBadge:(made?okBadge:ngBadge);
       var link = url? '<a href="'+esc2(url)+'" target="_blank" rel="noopener" style="font-size:10px;color:#2563eb;text-decoration:none;display:block;margin-top:3px;">開く ↗</a>' : '';
       var lmTxt = '<div style="font-size:9px;color:#94a3b8;margin-top:2px;">更新 '+colLM+(col.mode==='generic'?'（共通）':'')+'</div>';
-      return '<td style="padding:8px 10px;border-bottom:1px solid #f1f5f9;text-align:center;vertical-align:top;">'+badge+lmTxt+link+'</td>';
+      var refNote = row.coRefLabel ? '<div style="font-size:8.5px;color:#7c3aed;font-weight:700;margin-top:2px;">'+esc2(row.coRefLabel)+'を流用</div>' : '';
+      return '<td style="padding:8px 10px;border-bottom:1px solid #f1f5f9;text-align:center;vertical-align:top;">'+badge+refNote+lmTxt+link+'</td>';
     }
     var h='<div style="overflow-x:auto;"><table style="border-collapse:collapse;width:100%;min-width:760px;background:white;border:1px solid #e2e8f0;border-radius:10px;">';
     h+='<thead><tr style="background:#f8fafc;">';
     h+='<th style="padding:10px;text-align:left;font-size:12px;color:#334155;border-bottom:2px solid #e2e8f0;">在留資格</th>';
+    h+='<th style="padding:10px;text-align:center;font-size:12px;color:#334155;border-bottom:2px solid #e2e8f0;white-space:nowrap;">承認</th>';
     TPL_FORMS_COLS.forEach(function(c){ h+='<th style="padding:10px;text-align:center;font-size:12px;color:#334155;border-bottom:2px solid #e2e8f0;white-space:nowrap;">'+esc2(c.label)+'</th>'; });
     h+='<th style="padding:10px;text-align:center;font-size:11px;color:#94a3b8;border-bottom:2px solid #e2e8f0;">編集</th></tr></thead><tbody>';
     // ver.20260822.08: 希望在留資格ごとの手続き件数（案件データから毎回集計）で多い順に自動並び替え
@@ -32232,11 +32247,21 @@ function renderTplFormsMaster(){
     var _zair = _all.filter(function(v){ return v.row.group!=='other'; });
     var _other = _all.filter(function(v){ return v.row.group==='other'; });
     // ver.20260824.05: 在留資格は登録順（手動で並べた順）で表示する（件数は表示のみ・並び替えには使わない）
-    var _colspan = TPL_FORMS_COLS.length + 2;
+    var _colspan = TPL_FORMS_COLS.length + 3;
     function _rowTr(v, showCnt){
       var row=v.row, i=v.idx;
       var t='<tr>';
       t+='<td style="padding:8px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;font-weight:700;color:#0f2040;">'+esc2(row.label)+'</td>';
+      // ver.20260824.08: 承認欄（承認済み＝誰が・いつ／未承認＝承認ボタン）
+      if(row.approved){
+        t+='<td style="padding:8px 6px;border-bottom:1px solid #f1f5f9;text-align:center;vertical-align:top;white-space:nowrap;">'
+          +'<div style="display:inline-block;background:#dcfce7;color:#166534;font-size:10.5px;font-weight:800;padding:2px 9px;border-radius:20px;">✅ 承認済み</div>'
+          +'<div style="font-size:8.5px;color:#94a3b8;margin-top:2px;">'+esc2(row.approvedBy||'')+(row.approvedAt?(' '+_fmtEmpSetTs(row.approvedAt)):'')+'</div>'
+          +'<button onclick="tplFormsToggleApprove('+i+')" style="font-size:9px;color:#b91c1c;background:none;border:none;cursor:pointer;text-decoration:underline;margin-top:1px;">取消</button></td>';
+      } else {
+        t+='<td style="padding:8px 6px;border-bottom:1px solid #f1f5f9;text-align:center;vertical-align:top;white-space:nowrap;">'
+          +'<button onclick="tplFormsToggleApprove('+i+')" style="font-size:10.5px;font-weight:700;padding:4px 12px;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:7px;cursor:pointer;">承認する</button></td>';
+      }
       TPL_FORMS_COLS.forEach(function(c){ t+=cell(row,c); });
       t+='<td style="padding:8px;border-bottom:1px solid #f1f5f9;text-align:center;white-space:nowrap;">'
         +'<button onclick="tplFormsEditRow('+i+')" style="font-size:10px;padding:2px 7px;background:#f8fafc;color:#475569;border:1px solid #cbd5e1;border-radius:5px;cursor:pointer;">編集</button> '
@@ -32253,6 +32278,19 @@ function renderTplFormsMaster(){
     h+='<div style="font-size:10px;color:#94a3b8;margin-top:10px;">・「作成済み」は実際のフォーム/アップロードのファイル内容から自動判定しています（企業/人材ヒアリングは在留資格ごとに判定。作成が確実に確認できないものは「未作成」と表示します）。<br>・在留資格は登録した順（手動の並び）で表示します。<br>・更新日は各ファイルの最終更新日（GitHub Pagesの Last-Modified）です。ヒアリングフォームは form.html 共通、アップロードは各ファイル共通の日付になります。</div>';
     box.innerHTML=h;
   });
+}
+// ver.20260824.08: 承認欄のトグル（承認する／取消）
+function tplFormsToggleApprove(i){
+  var row=_tplFormsRows[i]; if(!row) return;
+  if(row.approved){
+    if(!confirm('「'+row.label+'」の承認を取り消しますか？')) return;
+    row.approved=false; delete row.approvedBy; delete row.approvedAt;
+  } else {
+    row.approved=true;
+    row.approvedBy=(typeof currentUser!=='undefined'&&currentUser)?currentUser:'';
+    row.approvedAt=new Date().toISOString();
+  }
+  _tplFormsSaveRows(); renderTplFormsMaster();
 }
 function tplFormsAddRow(){
   var label=prompt('在留資格の表示名を入力（例：特定活動（告示X号））'); if(!label) return;
@@ -91938,7 +91976,7 @@ function _maybeAutoSetReceiptDate(c, newStatus){
   if((c.receiptDate||'').trim()) return;
   var _d = new Date();
   var _s = _d.getFullYear()+'-'+String(_d.getMonth()+1).padStart(2,'0')+'-'+String(_d.getDate()).padStart(2,'0');
-  if(!confirm('申請日を今日('+_s+')にしますか？')) return;
+  // ver.20260824.07: 確認ダイアログなしで自動的に今日(当日)をセット（空のときのみ・既入力は上書きしない）
   c.receiptDate = _s;
   if(typeof currentCase !== 'undefined' && currentCase && currentCase.id === c.id){
     currentCase.receiptDate = _s;
