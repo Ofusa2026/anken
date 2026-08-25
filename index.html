@@ -5103,7 +5103,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260825.04';
+var OFUSA_VERSION = 'ver.20260825.05';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -7849,6 +7849,9 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20260825.05', date:'2026-08-25', notify:false, items:[
+    '🔧 サイン書類の<b>「PDF結合エラー」を修正</b>しました。結合プレビュー用データの生成方法を修正（base64破損の解消）し、暗号化されたPDFも読み込めるようにしました。エラー時のメッセージも「undefined」ではなく原因が分かる表示に改善しています。'
+  ]},
   { version:'ver.20260825.04', date:'2026-08-25', notify:true, items:[
     '📋 配信画面に<b>配信履歴ドロワー</b>を追加しました。「📤 履歴」ボタンで右からスライド表示され、O-Link投稿とメール配信の履歴を検索・期間/チャネルで絞り込み、詳細確認・フォームへの投入（コピー再送）・削除ができます。（公式アカウント・案シスのチャネルは今後対応）'
   ]},
@@ -104957,7 +104960,7 @@ async function sigModalMergeAndLoad() {
       return new Promise(function(resolve, reject) {
         var r = new FileReader();
         r.onload = function(e) { resolve(e.target.result); };
-        r.onerror = reject;
+        r.onerror = function() { reject(new Error('ファイルの読み込みに失敗しました' + (f && f.name ? '（' + f.name + '）' : ''))); };
         r.readAsArrayBuffer(f);
       });
     }));
@@ -104978,7 +104981,7 @@ async function sigModalMergeAndLoad() {
         _binOne += String.fromCharCode.apply(null, _u8one.subarray(_k, _k + 8192));
       }
       var _b64one = btoa(_binOne);
-      var doc = await PDFLib.PDFDocument.load(buffers[i]);
+      var doc = await PDFLib.PDFDocument.load(buffers[i], { ignoreEncryption: true });
       var _idxs = doc.getPageIndices();
       st.docMeta.push({
         name: (st.fileList[i] && st.fileList[i].name) ? st.fileList[i].name.replace(/\.pdf$/i, '') : ('書類' + (i + 1)),
@@ -104993,12 +104996,12 @@ async function sigModalMergeAndLoad() {
     var mergedBytes = await mergedDoc.save();
     var uint8 = new Uint8Array(mergedBytes);
 
-    // base64変換（プレビュー描画用）
-    var CHUNK = 8192;
-    var b64 = '';
-    for (var j = 0; j < uint8.length; j += CHUNK) {
-      b64 += btoa(String.fromCharCode.apply(null, uint8.subarray(j, j + CHUNK)));
+    // base64変換（プレビュー描画用）。ver.20260825.05: チャンクごとのbtoaは境界でパディングが入り破損するため、バイナリ文字列を全連結してから最後に1回だけbtoa
+    var _binMerged = '';
+    for (var j = 0; j < uint8.length; j += 8192) {
+      _binMerged += String.fromCharCode.apply(null, uint8.subarray(j, j + 8192));
     }
+    var b64 = btoa(_binMerged);
 
     st.pdfBytes = uint8;
     st.pdfBase64 = b64;
@@ -105009,7 +105012,8 @@ async function sigModalMergeAndLoad() {
     if (wrap) wrap.style.display = 'block';
     sigModalRender();
   } catch(e) {
-    if (ms) { ms.textContent = '❌ PDF結合エラー: ' + e.message; }
+    var _emsg = (e && e.message) ? e.message : (e && e.name) ? e.name : (typeof e === 'string' ? e : '不明なエラー（PDFが破損しているか、暗号化されている可能性があります）');
+    if (ms) { ms.textContent = '❌ PDF結合エラー: ' + _emsg; }
     console.error('merge error:', e);
   }
 }
