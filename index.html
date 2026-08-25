@@ -3339,7 +3339,7 @@ details[open] > ._upDocSummary::before { content: '▼ '; }
               <button type="button" onclick="openHaishinJudgePage()" title="ニュース候補の採用/保留/不採用判定ページへ" style="font-size:11px;font-weight:800;color:#0f2040;background:white;border:1.5px solid #cbd5e1;padding:3px 10px;border-radius:6px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;">
                 📢 候補判定 <span id="sbNavJudgeBadge" style="display:none;background:#dc2626;color:white;font-size:10px;font-weight:800;padding:1px 6px;border-radius:99px;">0</span>
               </button>
-              <button type="button" onclick="openHaishinHistoryPage()" title="配信履歴ページへ" style="font-size:11px;font-weight:800;color:#0f2040;background:white;border:1.5px solid #cbd5e1;padding:3px 10px;border-radius:6px;cursor:pointer;">
+              <button type="button" onclick="openHaishinDrawer()" title="配信履歴" style="font-size:11px;font-weight:800;color:#0f2040;background:white;border:1.5px solid #cbd5e1;padding:3px 10px;border-radius:6px;cursor:pointer;">
                 📤 履歴
               </button>
             </div>
@@ -5103,7 +5103,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260824.19';
+var OFUSA_VERSION = 'ver.20260825.04';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -7849,6 +7849,21 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20260825.04', date:'2026-08-25', notify:true, items:[
+    '📋 配信画面に<b>配信履歴ドロワー</b>を追加しました。「📤 履歴」ボタンで右からスライド表示され、O-Link投稿とメール配信の履歴を検索・期間/チャネルで絞り込み、詳細確認・フォームへの投入（コピー再送）・削除ができます。（公式アカウント・案シスのチャネルは今後対応）'
+  ]},
+  { version:'ver.20260825.03', date:'2026-08-25', notify:false, items:[
+    '🔧 サイン書類の署名枠<b>自動配置の過検知を修正</b>しました。受診者の申告書（1-3号の別紙）で申請人署名枠が2つ付く不具合を解消し、同一位置の重複枠を自動で除去するようにしました。'
+  ]},
+  { version:'ver.20260825.02', date:'2026-08-25', notify:false, items:[
+    '🔧 家族滞在の<b>扶養者 検索を改善</b>しました。これまで完了・審査完了の案件が検索に出ませんでしたが、<b>完了案件も含めて</b>氏名・案件名で検索・紐付けできるようになりました（扶養者情報パネルも完了案件を表示）。'
+  ]},
+  { version:'ver.20260825.01', date:'2026-08-25', notify:true, items:[
+    '🔧 <b>雇用条件のAI翻訳で「手当」が翻訳されない不具合を修正</b>しました。これまで手当（名称・金額・計算方法/条件）が翻訳対象から漏れていましたが、AI翻訳ボタンで手当も母国語に翻訳されるようになりました。'
+  ]},
+  { version:'ver.20260824.21', date:'2026-08-24', notify:false, items:[
+    '👪 家族滞在案件の書類タブに<b>「扶養者情報（参照）」パネル</b>を追加しました。紐付けた扶養者案件の氏名・生年月日・在留資格・在留カード番号・勤務先などを常に最新で表示し、変更・解除・扶養者案件を開くができます。'
+  ]},
   { version:'ver.20260824.20', date:'2026-08-24', notify:true, items:[
     '👪 <b>家族滞在の対応がひととおり使えるようになりました。</b><br>' +
     '案件登録から書類回収まで、次の流れで進められます：<br>' +
@@ -15487,6 +15502,201 @@ function openHaishinJudgePage(){
   switchPanel('newsScreen','nav-news');
   newsSwitchTab('cand');
   if(!_newsRows.length) newsReload();
+}
+// ================= ver.20260825.04: 配信履歴ドロワー（案A Phase1・O-Link＋メール統合） =================
+var _hd = { items:[], page:1, q:'', period:'all', from:'', to:'', channels:{'O-Link':true,'公式アカウント':true,'メール':true,'案シス':true}, loaded:false };
+var _hdSearchTimer=null;
+function _hdEsc(s){ return (typeof esc==='function')?esc(String(s==null?'':s)):String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+function openHaishinDrawer(){
+  if(!document.getElementById('_hdDrawer')) _hdBuild();
+  var ov=document.getElementById('_hdOverlay'), dw=document.getElementById('_hdDrawer');
+  ov.style.display='block'; dw.style.transform='translateX(0)';
+  document.addEventListener('keydown', _hdEscKey);
+  if(!_hd.loaded){ _hdLoad(); } else { _hdRender(); }
+}
+function _hdEscKey(e){ if(e.key==='Escape') _hdClose(); }
+function _hdClose(){
+  var ov=document.getElementById('_hdOverlay'), dw=document.getElementById('_hdDrawer');
+  if(dw) dw.style.transform='translateX(100%)';
+  if(ov) ov.style.display='none';
+  document.removeEventListener('keydown', _hdEscKey);
+}
+function _hdBuild(){
+  if(!document.getElementById('_hdStyle')){
+    var st=document.createElement('style'); st.id='_hdStyle';
+    st.textContent='#_hdDrawer{position:fixed;top:0;right:0;height:100vh;width:400px;max-width:100vw;background:#fff;border-left:3px solid #2563eb;box-shadow:-8px 0 30px rgba(0,0,0,.18);z-index:1000;transform:translateX(100%);transition:transform 200ms ease-out;display:flex;flex-direction:column;}'
+      +'#_hdOverlay{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:999;display:none;}'
+      +'@media(max-width:560px){#_hdDrawer{width:100vw;border-left:none;}}'
+      +'.hdCard{border:1px solid #e5e7eb;border-radius:10px;padding:9px 11px;margin-bottom:7px;cursor:pointer;background:#fff;}'
+      +'.hdCard:hover{background:#f8fafc;}'
+      +'.hdCard.newest{border-left:3px solid #2563eb;}'
+      +'.hdBadge{display:inline-block;font-size:9.5px;font-weight:800;padding:1px 7px;border-radius:99px;}'
+      +'.hdBtn{border:none;background:none;cursor:pointer;font-size:13px;padding:2px 4px;}';
+    document.head.appendChild(st);
+  }
+  var ov=document.createElement('div'); ov.id='_hdOverlay'; ov.onclick=_hdClose; document.body.appendChild(ov);
+  var dw=document.createElement('div'); dw.id='_hdDrawer';
+  dw.innerHTML=''
+   +'<div style="padding:14px 16px 10px;border-bottom:1px solid #eef2f7;">'
+   +'  <div style="display:flex;align-items:center;justify-content:space-between;">'
+   +'    <div style="font-size:15px;font-weight:800;color:#0f2040;">📋 配信履歴 <span id="_hdCount" style="font-size:11px;font-weight:800;color:#fff;background:#2563eb;border-radius:99px;padding:1px 8px;margin-left:4px;">0</span></div>'
+   +'    <button class="hdBtn" onclick="_hdClose()" style="font-size:18px;color:#64748b;">×</button>'
+   +'  </div>'
+   +'  <input id="_hdSearch" oninput="_hdOnSearch()" placeholder="🔎 件名・本文で検索" style="width:100%;margin-top:9px;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:12px;box-sizing:border-box;">'
+   +'  <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap;">'
+   +'    <select id="_hdPeriod" onchange="_hdOnPeriod()" style="font-size:11px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;"><option value="all">全期間</option><option value="this">今月</option><option value="last">先月</option><option value="custom">任意</option></select>'
+   +'    <input id="_hdFrom" type="date" onchange="_hdOnCustom()" style="display:none;font-size:11px;padding:3px;border:1px solid #cbd5e1;border-radius:6px;">'
+   +'    <input id="_hdTo" type="date" onchange="_hdOnCustom()" style="display:none;font-size:11px;padding:3px;border:1px solid #cbd5e1;border-radius:6px;">'
+   +'  </div>'
+   +'  <div id="_hdChannels" style="display:flex;gap:9px;margin-top:7px;flex-wrap:wrap;font-size:11px;color:#334155;">'
+   +    ['O-Link','公式アカウント','メール','案シス'].map(function(c){return '<label style="display:flex;align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" checked onchange="_hdOnChannel(\''+c+'\',this.checked)"> '+c+'</label>';}).join('')
+   +'  </div>'
+   +'</div>'
+   +'<div id="_hdList" style="flex:1;overflow-y:auto;padding:12px 14px;"><div style="color:#94a3b8;font-size:12px;">読み込み中…</div></div>'
+   +'<div id="_hdPager" style="border-top:1px solid #eef2f7;padding:8px 14px;display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#64748b;"></div>';
+  document.body.appendChild(dw);
+}
+function _hdLoad(){
+  var list=document.getElementById('_hdList'); if(list) list.innerHTML='<div style="color:#94a3b8;font-size:12px;">読み込み中…</div>';
+  if(!_sb){ if(list) list.innerHTML='<div style="color:#dc2626;font-size:12px;">DB未接続</div>'; return; }
+  var items=[];
+  _sb.from('news_posts').select('id,title,body,audience,published,published_at,created_at,target_org_ids').order('created_at',{ascending:false}).limit(500).then(function(nr){
+    (nr&&nr.data||[]).forEach(function(r){
+      var orgs=[]; try{ orgs=Array.isArray(r.target_org_ids)?r.target_org_ids:[]; }catch(e){}
+      items.push({ id:r.id, source:'news', channel:'O-Link', subject:r.title||'', body:r.body||'', dt:r.published_at||r.created_at, sender:'', orgs:orgs, sentCount:orgs.length, published:r.published });
+    });
+    _sb.from('support_broadcast_log').select('id,broadcast_type,subject,detail,org_name,case_count,triggered_by,sent_at,created_at,schedule_id,status').order('sent_at',{ascending:false}).limit(1000).then(function(mr){
+      // メールは機関ごと1行 → 件名+日付でグループ化して1配信にまとめる
+      var groups={};
+      (mr&&mr.data||[]).forEach(function(r){
+        var d=(r.sent_at||r.created_at||'').slice(0,16);
+        var key=(r.subject||'')+'|'+d+'|'+(r.broadcast_type||'');
+        if(!groups[key]) groups[key]={ id:'mail_'+r.id, source:'mail', channel:'メール', subject:r.subject||('メール配信('+(r.broadcast_type||'')+')'), body:r.detail||'', dt:r.sent_at||r.created_at, sender:r.triggered_by||'', orgs:[], sentCount:0, ids:[] };
+        var g=groups[key];
+        if(r.org_name) g.orgs.push(r.org_name);
+        g.sentCount += (r.case_count!=null? 0 : 0); // 送信先数は行数で数える
+        g.ids.push(r.id);
+      });
+      Object.keys(groups).forEach(function(k){ var g=groups[k]; g.sentCount=g.orgs.length; items.push(g); });
+      items.sort(function(a,b){ return String(b.dt||'').localeCompare(String(a.dt||'')); });
+      _hd.items=items; _hd.loaded=true; _hd.page=1; _hdRender();
+    }).catch(function(){ _hd.items=items; _hd.loaded=true; _hdRender(); });
+  }).catch(function(e){ if(list) list.innerHTML='<div style="color:#dc2626;font-size:12px;">読み込みエラー: '+_hdEsc(e&&e.message||e)+'</div>'; });
+}
+function _hdFilItems(){
+  var q=_hd.q.toLowerCase();
+  var now=new Date(); var y=now.getFullYear(), mo=now.getMonth();
+  return _hd.items.filter(function(it){
+    if(!_hd.channels[it.channel]) return false;
+    if(q){ if((String(it.subject||'')+' '+String(it.body||'')).toLowerCase().indexOf(q)<0) return false; }
+    if(_hd.period!=='all'){
+      var d=new Date(it.dt); if(isNaN(d)) return false;
+      if(_hd.period==='this'){ if(d.getFullYear()!==y||d.getMonth()!==mo) return false; }
+      else if(_hd.period==='last'){ var lm=new Date(y,mo-1,1); if(d.getFullYear()!==lm.getFullYear()||d.getMonth()!==lm.getMonth()) return false; }
+      else if(_hd.period==='custom'){ if(_hd.from && it.dt<_hd.from) return false; if(_hd.to && String(it.dt).slice(0,10)>_hd.to) return false; }
+    }
+    return true;
+  });
+}
+function _hdChBadge(ch){
+  var m={'O-Link':['#eef2ff','#4338ca'],'公式アカウント':['#dcfce7','#166534'],'メール':['#fef3c7','#92400e'],'案シス':['#e0f2fe','#075985']};
+  var c=m[ch]||['#f1f5f9','#475569'];
+  return '<span class="hdBadge" style="background:'+c[0]+';color:'+c[1]+';">'+_hdEsc(ch)+'</span>';
+}
+function _hdRender(){
+  var fil=_hdFilItems();
+  var cnt=document.getElementById('_hdCount'); if(cnt) cnt.textContent=fil.length;
+  var per=20, pages=Math.max(1,Math.ceil(fil.length/per));
+  if(_hd.page>pages) _hd.page=pages;
+  var start=(_hd.page-1)*per, pageItems=fil.slice(start,start+per);
+  var list=document.getElementById('_hdList');
+  if(!fil.length){ list.innerHTML='<div style="color:#94a3b8;font-size:12px;padding:20px 0;text-align:center;">該当する配信履歴がありません</div>'; }
+  else{
+    list.innerHTML=pageItems.map(function(it,i){
+      var newest=(_hd.page===1&&i===0)?' newest':'';
+      var dt=String(it.dt||'').replace('T',' ').slice(0,16);
+      return '<div class="hdCard'+newest+'" onclick="_hdDetail(\''+it.id+'\')">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">'
+        +'  <span style="font-size:10px;color:#64748b;">'+_hdEsc(dt)+'</span>'
+        +'  <span>'+_hdChBadge(it.channel)+(it.sentCount?'<span style="font-size:9.5px;color:#64748b;margin-left:5px;">送信先'+it.sentCount+'</span>':'')+'</span>'
+        +'</div>'
+        +'<div style="font-size:12.5px;font-weight:700;color:#0f2040;margin:4px 0;line-height:1.4;">'+_hdEsc(it.subject||'(件名なし)')+(it.source==='news'&&!it.published?' <span style="font-size:9px;color:#9ca3af;">[下書き]</span>':'')+'</div>'
+        +'<div style="display:flex;gap:2px;justify-content:flex-end;" onclick="event.stopPropagation();">'
+        +'  <button class="hdBtn" title="フォームに投入" onclick="_hdInject(\''+it.id+'\')">📋</button>'
+        +'  <button class="hdBtn" title="詳細" onclick="_hdDetail(\''+it.id+'\')">👁</button>'
+        +'  <button class="hdBtn" title="削除" onclick="_hdDelete(\''+it.id+'\')">🗑</button>'
+        +'</div></div>';
+    }).join('');
+  }
+  var pg=document.getElementById('_hdPager');
+  if(pg){ pg.innerHTML='<button class="hdBtn" '+(_hd.page<=1?'disabled':'')+' onclick="_hd.page--;_hdRender();" style="'+(_hd.page<=1?'opacity:.4;':'')+'">‹ 前</button>'
+    +'<span>'+_hd.page+' / '+pages+'</span>'
+    +'<button class="hdBtn" '+(_hd.page>=pages?'disabled':'')+' onclick="_hd.page++;_hdRender();" style="'+(_hd.page>=pages?'opacity:.4;':'')+'">次 ›</button>'; }
+}
+function _hdOnSearch(){ if(_hdSearchTimer)clearTimeout(_hdSearchTimer); _hdSearchTimer=setTimeout(function(){ _hd.q=String((document.getElementById('_hdSearch')||{}).value||'').trim(); _hd.page=1; _hdRender(); },300); }
+function _hdOnPeriod(){ _hd.period=(document.getElementById('_hdPeriod')||{}).value||'all'; var cu=_hd.period==='custom'; document.getElementById('_hdFrom').style.display=cu?'':'none'; document.getElementById('_hdTo').style.display=cu?'':'none'; _hd.page=1; _hdRender(); }
+function _hdOnCustom(){ _hd.from=(document.getElementById('_hdFrom')||{}).value||''; _hd.to=(document.getElementById('_hdTo')||{}).value||''; _hd.page=1; _hdRender(); }
+function _hdOnChannel(ch,on){ _hd.channels[ch]=on; _hd.page=1; _hdRender(); }
+function _hdFind(id){ return _hd.items.find(function(x){return x.id===id;}); }
+function _hdDetail(id){
+  var it=_hdFind(id); if(!it) return;
+  var old=document.getElementById('_hdModal'); if(old) old.remove();
+  var m=document.createElement('div'); m.id='_hdModal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1100;display:flex;align-items:center;justify-content:center;padding:16px;';
+  m.onclick=function(){ m.remove(); };
+  var dt=String(it.dt||'').replace('T',' ').slice(0,16);
+  var orgsHtml=it.orgs&&it.orgs.length? ('<div style="margin-top:8px;"><div style="font-size:11px;font-weight:700;color:#64748b;margin-bottom:3px;">送信先一覧（'+it.orgs.length+'）</div><div style="font-size:11px;color:#334155;max-height:120px;overflow:auto;border:1px solid #eef2f7;border-radius:6px;padding:6px;">'+it.orgs.map(_hdEsc).join('、')+'</div></div>') : '<div style="margin-top:8px;font-size:11px;color:#94a3b8;">送信先：全機関（個別指定なし）</div>';
+  m.innerHTML='<div style="background:#fff;border-radius:14px;max-width:600px;width:100%;max-height:85vh;overflow:auto;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.3);" onclick="event.stopPropagation();">'
+    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">'+_hdChBadge(it.channel)+'<span style="font-size:11px;color:#64748b;">'+_hdEsc(dt)+'</span>'+(it.sender?'<span style="font-size:11px;color:#64748b;">／送信者: '+_hdEsc(it.sender)+'</span>':'')+'</div>'
+    +'<div style="font-size:16px;font-weight:800;color:#0f2040;margin-bottom:6px;">'+_hdEsc(it.subject||'(件名なし)')+'</div>'
+    +'<div style="font-size:12px;color:#334155;white-space:pre-wrap;line-height:1.7;border-top:1px solid #eef2f7;padding-top:10px;">'+_hdEsc(it.body||'')+'</div>'
+    + orgsHtml
+    +'<div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;">'
+    +'  <button onclick="_hdInject(\''+it.id+'\')" style="padding:8px 14px;background:#eef2ff;color:#4338ca;border:1.5px solid #a5b4fc;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">📋 コピーして再送</button>'
+    +'  <button onclick="_hdDelete(\''+it.id+'\')" style="padding:8px 14px;background:#fff;color:#b91c1c;border:1.5px solid #fca5a5;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">🗑 削除</button>'
+    +'  <button onclick="document.getElementById(\'_hdModal\').remove()" style="padding:8px 14px;background:#f1f5f9;color:#475569;border:1.5px solid #cbd5e1;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">閉じる</button>'
+    +'</div></div>';
+  document.body.appendChild(m);
+}
+function _hdInject(id){
+  var it=_hdFind(id); if(!it) return;
+  var sEl=document.getElementById('sbOshiraseSubject'), bEl=document.getElementById('sbOshiraseBody');
+  var hasContent=(sEl&&sEl.value.trim())||(bEl&&bEl.value.trim());
+  if(hasContent && !confirm('入力中の件名・本文を、この履歴の内容で上書きしますか？')) return;
+  if(sEl) sEl.value=it.subject||'';
+  if(bEl) bEl.value=it.body||'';
+  var ol=document.getElementById('sbAlsoOLink'), ml=document.getElementById('sbAlsoMail');
+  if(ol) ol.checked=(it.channel==='O-Link');
+  if(ml) ml.checked=(it.channel==='メール');
+  var md=document.getElementById('_hdModal'); if(md) md.remove();
+  _hdClose();
+  if(typeof showToast==='function') showToast('📋 配信フォームに投入しました（'+it.channel+'）');
+}
+function _hdDelete(id){
+  var it=_hdFind(id); if(!it) return;
+  var warn;
+  if(it.source==='news') warn='このO-Link配信履歴を削除します。\n\n⚠️ O-Linkのニュース記事も同時に削除され、登録支援機関のマイページから見えなくなります。\n\n本当に削除しますか？（取り消せません）';
+  else warn='このメール配信ログを削除します。\n\n⚠️ 送信済みのメールは取り消せません（ログの記録のみ削除されます）。\n\n本当に削除しますか？';
+  if(!confirm(warn)) return;
+  if(!_sb){ alert('DB未接続'); return; }
+  if(it.source==='news'){
+    _sb.from('news_posts').delete().eq('id',it.id).then(function(r){
+      if(r&&r.error){ alert('削除失敗: '+(r.error.message||'')); return; }
+      _hdAfterDelete(it.id);
+    });
+  } else {
+    var ids=(it.ids||[]);
+    _sb.from('support_broadcast_log').delete().in('id',ids).then(function(r){
+      if(r&&r.error){ alert('削除失敗: '+(r.error.message||'')); return; }
+      _hdAfterDelete(it.id);
+    });
+  }
+}
+function _hdAfterDelete(id){
+  _hd.items=_hd.items.filter(function(x){return x.id!==id;});
+  var md=document.getElementById('_hdModal'); if(md) md.remove();
+  _hdRender();
+  if(typeof showToast==='function') showToast('🗑 配信履歴を削除しました');
 }
 function openHaishinHistoryPage(){
   closeSupportBroadcastModal();
@@ -56733,20 +56943,29 @@ function aiTranslateAllEmp(coId, idx) {
   var toTranslate = {};
   var numericFilled = 0;
   var TRANSLATE_TYPES = {fieldSelect:1, fieldSelect2:1, catSelect:1, catSelect2:1};
+  function _empCollectField(fieldKey, f) {
+    // tr:1 または fieldSelect/catSelectタイプなら翻訳対象
+    if (!f.tr && !TRANSLATE_TYPES[f.type]) return;
+    var el = document.getElementById('esf_' + fieldKey);
+    var val = el ? (el.tagName === 'TEXTAREA' ? el.value : el.value.trim()) : '';
+    if (!val) return;
+    if (/^[\d\s:.,\/\-]+$/.test(val)) {
+      var enEl = document.getElementById('esf_' + fieldKey + 'En');
+      if (enEl) { if (enEl.tagName === 'TEXTAREA') enEl.value = val; else enEl.value = val; numericFilled++; }
+    } else {
+      toTranslate[fieldKey] = val;
+    }
+  }
   EMP_SET_FIELDS.forEach(function(sec) {
-    sec.fields.forEach(function(f) {
-      // tr:1 または fieldSelect/catSelectタイプなら翻訳対象
-      if (!f.tr && !TRANSLATE_TYPES[f.type]) return;
-      var el = document.getElementById('esf_' + f.k);
-      var val = el ? (el.tagName === 'TEXTAREA' ? el.value : el.value.trim()) : '';
-      if (!val) return;
-      if (/^[\d\s:.,\/\-]+$/.test(val)) {
-        var enEl = document.getElementById('esf_' + f.k + 'En');
-        if (enEl) { if (enEl.tagName === 'TEXTAREA') enEl.value = val; else enEl.value = val; numericFilled++; }
-      } else {
-        toTranslate[f.k] = val;
+    if (sec.type === 'dynamic') {
+      // ver.20260825.01: 手当など動的セクションは baseKey+番号+サブキー(例 allowance1Name)で展開して翻訳対象にする
+      var _maxI = sec.maxItems || 6;
+      for (var _i = 1; _i <= _maxI; _i++) {
+        (function(idx){ sec.fields.forEach(function(f){ _empCollectField(sec.baseKey + idx + f.k, f); }); })(_i);
       }
-    });
+    } else {
+      sec.fields.forEach(function(f) { _empCollectField(f.k, f); });
+    }
   });
   var keys = Object.keys(toTranslate);
   if (!keys.length && numericFilled > 0) { showToast('✅ 数値 ' + numericFilled + '件をコピーしました（翻訳対象テキストなし）'); return; }
@@ -70299,6 +70518,9 @@ function renderDocsTab(cas) {
   if (listKey) h += '<button onclick="openCaseDocsEditor(\''+cas.id+'\',\''+listKey+'\')" style="margin-right:4px;font-size:11px;padding:4px 10px;background:'+(window._caseCustomDocs&&window._caseCustomDocs[cas.id]&&window._caseCustomDocs[cas.id][listKey]?'#ccfbf1':'#f3f4f6')+';color:'+(window._caseCustomDocs&&window._caseCustomDocs[cas.id]&&window._caseCustomDocs[cas.id][listKey]?'#7c3aed':'#6b7280')+';border:1px solid '+(window._caseCustomDocs&&window._caseCustomDocs[cas.id]&&window._caseCustomDocs[cas.id][listKey]?'#c4b5fd':'#e5e7eb')+';border-radius:7px;font-weight:700;cursor:pointer;">✏️ 個別編集'+(window._caseCustomDocs&&window._caseCustomDocs[cas.id]&&window._caseCustomDocs[cas.id][listKey]?' ★':'')+'</button>';
   h += '<button onclick="openRequiredDocsEditor(\'' + listKey + '\')" style="padding:8px 16px;background:#f5f3ff;color:#7c3aed;border:1.5px solid #c4b5fd;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">✏️ リスト編集</button>';
   h += '</div>';
+
+  // ver.20260824.20: 家族滞在の扶養者 参照パネル（紐付けがあれば扶養者情報を常に最新で表示）
+  try{ if(String(cas.residenceStatus||'').indexOf('家族滞在')>=0) h += _kazokuSupporterPanelHtml(cas); }catch(e){}
 
   // Driveスキャン結果表示エリア
   h += '<div id="driveScanResult_' + cas.id + '" style="margin-bottom:10px;"></div>';
@@ -94749,6 +94971,79 @@ function submitNewCase() {
 // ver.20260820.11: ベトナム × (技能実習 or 留学) の変更申請で、推薦票を自社(登録支援機関)で
 //   対応するか確認するモーダル。選択に応じて必要書類 (住民票/大使館推薦票) が自動で切り替わる。
 // ver.20260824.19: 家族滞在の扶養者紐付け（大房で対応済/対応中の扶養者案件を検索→備考にタグ記載）
+// ver.20260824.20: 家族滞在の扶養者 参照パネル（備考の紐付タグから扶養者案件を引いて常に最新を表示）
+function _kazokuGetSupporterId(cas){
+  var m = String((cas&&cas.memo)||'').match(/【扶養者紐付】case_id=([^\s（(]+)/);
+  return m ? m[1] : '';
+}
+function _kazokuSupporterPanelHtml(cas){
+  if(!cas) return '';
+  var isKazoku = String(cas.residenceStatus||'').indexOf('家族滞在')>=0;
+  if(!isKazoku) return '';
+  var supId = _kazokuGetSupporterId(cas);
+  if(!supId){
+    return '<div style="margin-top:8px;padding:10px 12px;background:#fdf2f8;border:1px dashed #f9a8d4;border-radius:10px;font-size:11.5px;color:#9d174d;">'
+      +'👪 扶養者はまだ紐付けられていません。'
+      +'<button onclick="_openKazokuSupporterSearch(\''+cas.id+'\')" style="margin-left:8px;padding:4px 10px;background:#fce7f3;color:#be185d;border:1px solid #ec4899;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;">扶養者を紐付け</button></div>';
+  }
+  var sup=(cData||[]).find(function(x){return x.id===supId;});
+  if(sup){
+    return _kzSupPanelInner(cas, {id:sup.id, applicant:(sup.applicant||sup.applicantName), name:sup.name, birthdate:sup.birthdate, nationality:sup.nationality, residenceStatus:sup.residenceStatus, residenceCard:sup.residenceCard, passport:sup.passport, company:sup.company, status:sup.status});
+  }
+  // cDataに無い（完了案件など）→ DBから取得して非同期表示（常に最新を参照）
+  try{ setTimeout(function(){ _kzFillSupporterPanelFromDB(cas.id, supId); }, 0); }catch(e){}
+  return '<div id="_kzSupPanel_'+cas.id+'" style="margin-top:8px;padding:12px 14px;background:#fdf2f8;border:1px solid #f9a8d4;border-radius:10px;font-size:11.5px;color:#9d174d;">👪 扶養者情報を読み込み中…</div>';
+}
+function _kzSupPanelInner(cas, sup){
+  function row(lbl,val){ return val?('<div style="display:flex;gap:8px;font-size:11.5px;margin-top:3px;"><span style="color:#9d174d;min-width:92px;font-weight:700;">'+lbl+'</span><span style="color:#334155;">'+esc(String(val))+'</span></div>'):''; }
+  var body = row('氏名', sup.applicant)
+    + row('案件名', sup.name)
+    + row('生年月日', sup.birthdate)
+    + row('国籍', sup.nationality)
+    + row('在留資格', sup.residenceStatus)
+    + row('在留カード番号', sup.residenceCard)
+    + row('パスポート', sup.passport)
+    + row('勤務先', sup.company)
+    + row('ステータス', sup.status);
+  return '<div id="_kzSupPanel_'+cas.id+'" style="margin-top:8px;padding:12px 14px;background:#fdf2f8;border:1px solid #f9a8d4;border-radius:10px;">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">'
+    +'<div style="font-size:12.5px;font-weight:800;color:#be185d;">👪 扶養者情報（参照）</div>'
+    +'<div>'
+    +'<button onclick="openCase(\''+sup.id+'\')" style="padding:3px 9px;background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;border-radius:6px;font-size:10.5px;font-weight:700;cursor:pointer;">扶養者案件を開く</button>'
+    +'<button onclick="_openKazokuSupporterSearch(\''+cas.id+'\')" style="margin-left:5px;padding:3px 9px;background:#fce7f3;color:#be185d;border:1px solid #f9a8d4;border-radius:6px;font-size:10.5px;font-weight:700;cursor:pointer;">変更</button>'
+    +'<button onclick="_kazokuSupporterUnlink(\''+cas.id+'\')" style="margin-left:5px;padding:3px 9px;background:white;color:#b91c1c;border:1px solid #fca5a5;border-radius:6px;font-size:10.5px;font-weight:700;cursor:pointer;">解除</button>'
+    +'</div></div>'
+    + body
+    +'<div style="font-size:10px;color:#c084b6;margin-top:6px;">※ 紐付け先の案件を常に参照（最新の内容が表示されます）。備考に紐付けを記載。</div>'
+    +'</div>';
+}
+function _kzFillSupporterPanelFromDB(casId, supId){
+  if(!_sb) return;
+  _sb.from('cases').select('id,name,applicant,status,residence_status').eq('id',supId).then(function(cr){
+    var crow=(cr&&cr.data&&cr.data[0])||null;
+    _sb.from('persons').select('id,birthdate,nationality,passport,residence_card,residence_status').eq('id',supId).then(function(pr){
+      var prow=(pr&&pr.data&&pr.data[0])||{};
+      var el=document.getElementById('_kzSupPanel_'+casId); if(!el) return;
+      if(!crow){
+        el.outerHTML='<div id="_kzSupPanel_'+casId+'" style="margin-top:8px;padding:10px 12px;background:#fff7ed;border:1px solid #fdba74;border-radius:10px;font-size:11.5px;color:#c2410c;">⚠️ 紐付け先の扶養者案件（case_id='+esc(supId)+'）が見つかりません。'
+          +'<button onclick="_openKazokuSupporterSearch(\''+casId+'\')" style="margin-left:8px;padding:4px 10px;background:#ffedd5;color:#c2410c;border:1px solid #fb923c;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;">紐付けし直す</button>'
+          +'<button onclick="_kazokuSupporterUnlink(\''+casId+'\')" style="margin-left:6px;padding:4px 10px;background:white;color:#b91c1c;border:1px solid #fca5a5;border-radius:7px;font-size:11px;font-weight:700;cursor:pointer;">解除</button></div>';
+        return;
+      }
+      var sup={id:crow.id, applicant:crow.applicant, name:crow.name, status:crow.status, residenceStatus:crow.residence_status||prow.residence_status, birthdate:prow.birthdate, nationality:prow.nationality, residenceCard:prow.residence_card, passport:prow.passport, company:''};
+      el.outerHTML=_kzSupPanelInner({id:casId}, sup);
+    });
+  }).catch(function(e){});
+}
+function _kazokuSupporterUnlink(caseId){
+  var c=(cData||[]).find(function(x){return x.id===caseId;});
+  if(!c) return;
+  if(!confirm('扶養者の紐付けを解除しますか？（備考の紐付け記載を削除します）')) return;
+  var cur=String(c.memo||'').replace(/【扶養者紐付】case_id=[^\n]*\n?/g,'').trim();
+  if(typeof saveCaseField==='function') saveCaseField(caseId,'memo',cur);
+  if(typeof showToast==='function') showToast('👪 扶養者の紐付けを解除しました');
+  if(typeof currentCase!=='undefined' && currentCase && currentCase.id===caseId){ try{ openCase(caseId); }catch(e){} }
+}
 function _maybeAskKazokuSupporter(caseId, data){
   var rs = String((data&&(data.residenceStatus))||'');
   if(rs.indexOf('家族滞在') < 0) return;
@@ -94788,27 +95083,40 @@ function _openKazokuSupporterSearch(caseId){
   document.body.appendChild(m);
   var inp=document.getElementById('_kzSearchInput'); if(inp) inp.focus();
 }
+var _kzSearchCache = {}; // supporterCaseId -> {id,name,applicant,status,residence_status}
+var _kzSearchTimer = null;
 function _kazokuSupporterSearchRun(caseId){
-  var q=String((document.getElementById('_kzSearchInput')||{}).value||'').trim().toLowerCase();
+  var q=String((document.getElementById('_kzSearchInput')||{}).value||'').trim();
   var box=document.getElementById('_kzSearchResults'); if(!box) return;
   if(q.length<2){ box.innerHTML='<div style="color:#94a3b8;font-size:12px;padding:10px;">2文字以上入力してください</div>'; return; }
-  var hits=(cData||[]).filter(function(c){
-    if(c.id===caseId) return false;
-    var hay=[c.applicant,c.applicantName,c.name,c.birthdate,c.passport,c.company].map(function(x){return String(x||'').toLowerCase();}).join(' ');
-    return hay.indexOf(q)>=0;
-  }).slice(0,20);
-  if(!hits.length){ box.innerHTML='<div style="color:#94a3b8;font-size:12px;padding:10px;">該当する案件がありません</div>'; return; }
-  box.innerHTML=hits.map(function(c){
-    var nm=esc(c.applicant||c.applicantName||'(名前なし)');
-    var sub=[c.name,c.birthdate,c.passport,c.company].filter(Boolean).map(function(x){return esc(String(x));}).join(' ／ ');
-    return '<div onclick="_kazokuSupporterLink(\''+caseId+'\',\''+c.id+'\')" style="padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:6px;cursor:pointer;" onmouseover="this.style.background=\'#fdf2f8\'" onmouseout="this.style.background=\'white\'">'
-      +'<div style="font-size:13px;font-weight:700;color:#0f2040;">'+nm+'</div>'
-      +'<div style="font-size:10.5px;color:#64748b;margin-top:2px;">'+sub+'</div></div>';
-  }).join('');
+  if(_kzSearchTimer) clearTimeout(_kzSearchTimer);
+  box.innerHTML='<div style="color:#94a3b8;font-size:12px;padding:10px;">🔎 検索中...</div>';
+  _kzSearchTimer=setTimeout(function(){
+    // 完了案件も対象にするためDBを直接検索（cDataは完了/審査完了を除外しているため）
+    if(!_sb){ box.innerHTML='<div style="color:#dc2626;font-size:12px;padding:10px;">DB未接続</div>'; return; }
+    var like='%'+q.replace(/[%_,]/g,' ')+'%';
+    _sb.from('cases').select('id,name,applicant,status,residence_status')
+      .or('applicant.ilike.'+like+',name.ilike.'+like)
+      .limit(25)
+      .then(function(res){
+        var rows=(res&&res.data)||[];
+        rows=rows.filter(function(c){return c.id!==caseId;});
+        if(!rows.length){ box.innerHTML='<div style="color:#94a3b8;font-size:12px;padding:10px;">該当する案件がありません</div>'; return; }
+        box.innerHTML=rows.map(function(c){
+          _kzSearchCache[c.id]={id:c.id,name:c.name,applicant:c.applicant,status:c.status,residence_status:c.residence_status};
+          var nm=esc(c.applicant||'(名前なし)');
+          var stColor=(c.status==='完了'||c.status==='審査完了')?'#059669':'#64748b';
+          var sub=[c.name,c.residence_status].filter(Boolean).map(function(x){return esc(String(x));}).join(' ／ ');
+          return '<div onclick="_kazokuSupporterLink(\''+caseId+'\',\''+c.id+'\')" style="padding:10px 12px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:6px;cursor:pointer;" onmouseover="this.style.background=\'#fdf2f8\'" onmouseout="this.style.background=\'white\'">'
+            +'<div style="font-size:13px;font-weight:700;color:#0f2040;">'+nm+' <span style="font-size:10px;font-weight:700;color:'+stColor+';">['+esc(String(c.status||''))+']</span></div>'
+            +'<div style="font-size:10.5px;color:#64748b;margin-top:2px;">'+sub+'</div></div>';
+        }).join('');
+      }).catch(function(e){ box.innerHTML='<div style="color:#dc2626;font-size:12px;padding:10px;">検索エラー: '+esc(String(e&&e.message||e))+'</div>'; });
+  }, 300);
 }
 function _kazokuSupporterLink(caseId, supporterCaseId){
   var c=(cData||[]).find(function(x){return x.id===caseId;});
-  var sup=(cData||[]).find(function(x){return x.id===supporterCaseId;});
+  var sup=(cData||[]).find(function(x){return x.id===supporterCaseId;}) || _kzSearchCache[supporterCaseId];
   if(!c||!sup){ alert('案件が見つかりません'); return; }
   var supName=sup.applicant||sup.applicantName||'';
   var tag='【扶養者紐付】case_id='+supporterCaseId+'（'+supName+'）';
@@ -104921,6 +105229,7 @@ async function sigAutoPlace() {
   var hits = ANCHORS.map(function(){ return 0; });
   // 受診者の申告書（Laporan Penerima Pemeriksaan）は専用フラグで管理
   var _laporan_done = false;
+  var _laporanPage = 0; // ver.20260825.03: 受診者の申告書ページ番号（申請人アンカーの二重配置防止）
 
   try {
     var pdfDoc = await pdfjsLib.getDocument({ data: st.pdfBytes.slice() }).promise;
@@ -104991,6 +105300,7 @@ async function sigAutoPlace() {
            || /Tanda[\s\u00a0]*tangan[\s\u00a0]*pemohon/i.test(lines[li2].text)
            || /Ch\u1eef[\s\u00a0]*k\u00fd[\s\u00a0]*c\u1ee7a[\s\u00a0]*ng\u01b0\u1eddi[\s\u00a0]*l\u00e0m[\s\u00a0]*\u0111\u01a1n/i.test(lines[li2].text)) {
             newBoxes.push({ page: pn, x: Math.round(lines[li2].x), y: Math.round(lines[li2].y - 36), w: 220, h: 36 });
+            _laporanPage = pn; // このページでは汎用の申請人アンカー(枠4)を使わない（二重配置防止）
             break;
           }
         }
@@ -104999,6 +105309,7 @@ async function sigAutoPlace() {
       // --- アンカーごとにマッチ検索 ---
       ANCHORS.forEach(function(anchor, ai){
         if (hits[ai] >= anchor.maxHit) return;
+        if (ai === 3 && pn === _laporanPage) return; // 受診者の申告書ページは専用ブロックで配置済み（二重防止）
         var _re = new RegExp(anchor.re.source, 'ig');
         var m = _re.exec(fullText);
         // noPrefix指定時: マッチ直前の非空白文字が指定文字なら、そのマッチは飛ばして次を探す
@@ -105043,6 +105354,16 @@ async function sigAutoPlace() {
       if (a.page !== b.page) return a.page - b.page;
       return b.y - a.y;
     });
+
+    // ver.20260825.03: 安全ネット — 同一ページで中心がほぼ同じ(±18px)重複枠を除去（過検知対策）
+    //   1-5号の乙①/乙②(y差57px)や別ラベルの近接枠は残す（しきい値18pxで安全）
+    var _dedup = [];
+    newBoxes.forEach(function(b){
+      var cx=b.x+b.w/2, cy=b.y+b.h/2;
+      var dup=_dedup.some(function(o){ return o.page===b.page && Math.abs((o.x+o.w/2)-cx)<18 && Math.abs((o.y+o.h/2)-cy)<18; });
+      if(!dup) _dedup.push(b);
+    });
+    newBoxes = _dedup;
 
     st.boxes = newBoxes;
     sigBoxSelect(0);
