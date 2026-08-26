@@ -206,7 +206,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.04</div>
+      <div class="ver">ver.20260824.05</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -277,7 +277,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
         <th style="width:180px;">社内メモ</th>
         <th style="width:120px;">ネクストアクション</th>
       </tr></thead>
-      <tbody id="rows"><tr><td colspan="14" class="loading">読み込み中...</td></tr></tbody>
+      <tbody id="rows"><tr><td colspan="15" class="loading">読み込み中...</td></tr></tbody>
     </table>
   </div>
 
@@ -844,10 +844,10 @@ function buildQuery(forCount){
 }
 
 function load(){
-  el('rows').innerHTML = '<tr><td colspan="14" class="loading">読み込み中...</td></tr>';
+  el('rows').innerHTML = '<tr><td colspan="15" class="loading">読み込み中...</td></tr>';
   buildQuery(true).range(page*PAGE, page*PAGE+PAGE-1).then(function(r){
     if(r.error){
-      el('rows').innerHTML = '<tr><td colspan="14" class="empty">読み込みエラー：'+esc(r.error.message)+'</td></tr>';
+      el('rows').innerHTML = '<tr><td colspan="15" class="empty">読み込みエラー：'+esc(r.error.message)+'</td></tr>';
       return;
     }
     curRows = r.data || [];
@@ -859,7 +859,7 @@ function load(){
 
 function render(){
   if(!curRows.length){
-    el('rows').innerHTML = '<tr><td colspan="14" class="empty">該当するリードがありません。<br><span class="sub">まだ取り込んでいない場合は、右上の「📥 CSV取込」から eigyo_leads.csv を読み込んでください。</span></td></tr>';
+    el('rows').innerHTML = '<tr><td colspan="15" class="empty">該当するリードがありません。<br><span class="sub">まだ取り込んでいない場合は、右上の「📥 CSV取込」から eigyo_leads.csv を読み込んでください。</span></td></tr>';
     el('cntTxt').textContent = '0 件';
     el('pageTxt').textContent = '-';
     return;
@@ -1320,35 +1320,132 @@ function issueHearingFormUrl(){
 }
 
 // 案シスの登録支援機関マスタ(support_orgs)に登録する
+// 营シスが持つ項目 → support_orgs のカラム対応
+var MASTER_MAP = [
+  {k:'name',            label:'名称',        v:function(l){return l.name;}},
+  {k:'reg_date',        label:'登録日',      v:function(l){return l.reg_date;}},
+  {k:'zip',             label:'郵便番号',    v:function(l){return l.zip;}},
+  {k:'pref',            label:'都道府県',    v:function(l){return l.pref;}},
+  {k:'city',            label:'市区町村',    v:function(l){return l.city;}},
+  {k:'address',         label:'住所',        v:function(l){return l.address;}},
+  {k:'tel',             label:'電話',        v:function(l){return l.tel;}},
+  {k:'rep_name',        label:'代表者',      v:function(l){return l.rep_name;}},
+  {k:'languages',       label:'対応言語',    v:function(l){return l.languages;}},
+  {k:'drive_url',       label:'ドライブURL', v:function(l){return l.hr_drive_url;}},
+  {k:'supporter_count', label:'支援者数',    v:function(l){return l.supporter_count!=null ? String(l.supporter_count) : null;}},
+  {k:'offices',         label:'拠点',        v:function(l){return l.offices;}, json:true},
+  {k:'memo',            label:'メモ',        v:function(l){return l.memo;}}
+];
+function _mEmpty(v){ if(v===null||v===undefined) return true; if(typeof v==='string') return v.trim()===''; if(Array.isArray(v)) return v.length===0; return false; }
+function _mShow(v,json){ if(_mEmpty(v)) return '<span style="color:#a0aec0;">（空）</span>'; if(json){ try{ var n=Array.isArray(v)?v.length:Object.keys(v).length; return '（拠点データ '+n+' 件）'; }catch(e){ return '（データ）'; } } return esc(String(v)); }
+
 function registerToMaster(){
   if(!curLead){ return; }
   var lead = curLead;
-  _sb.from('support_orgs').select('id,name').eq('reg_no', lead.reg_no).then(function(r){
+  _sb.from('support_orgs').select('*').eq('reg_no', lead.reg_no).then(function(r){
     if(r.error){ showMsg('dMsg','確認に失敗しました：'+r.error.message,'err'); return; }
-    var exists = (r.data && r.data.length>0);
-    if(exists){
-      if(!confirm('この登録支援機関はすでに案シスのマスタに登録があります（'+(r.data[0].name||'')+'）。\n\nそれでも新しく登録しますか？\n（通常はキャンセルしてください）')){ return; }
-    } else {
+    var existing = (r.data && r.data.length>0) ? r.data[0] : null;
+    if(!existing){
+      // 案シスに無い → 新規登録
       if(!confirm('「'+lead.name+'」を案シスの登録支援機関マスタに登録します。よろしいですか？')){ return; }
+      var newId = 's'+Date.now();
+      var row = { id:newId, reg_no:lead.reg_no||null, updated_at:new Date().toISOString() };
+      MASTER_MAP.forEach(function(m){ var nv=m.v(lead); if(!_mEmpty(nv)) row[m.k]=nv; });
+      if(_mEmpty(row.name)) row.name = lead.name || '';
+      _sb.from('support_orgs').insert(row).then(function(ins){
+        if(ins.error){ showMsg('dMsg','登録に失敗しました：'+ins.error.message,'err'); return; }
+        _finishMaster(newId, lead, '案シスの登録支援機関マスタに登録しました（ID: '+newId+'）');
+      });
+      return;
     }
-    var newId = 's'+Date.now();
-    var row = {
-      id: newId, reg_no: lead.reg_no || null, name: lead.name || '',
-      reg_date: lead.reg_date || null, zip: lead.zip || null, pref: lead.pref || null,
-      city: lead.city || null, address: lead.address || null, tel: lead.tel || null,
-      rep_name: lead.rep_name || null, languages: lead.languages || null,
-      drive_url: lead.hr_drive_url || null,
-      supporter_count: lead.supporter_count!=null ? String(lead.supporter_count) : null,
-      offices: lead.offices || null, memo: lead.memo || null, updated_at: new Date().toISOString()
-    };
-    _sb.from('support_orgs').insert(row).then(function(ins){
-      if(ins.error){ showMsg('dMsg','登録に失敗しました：'+ins.error.message,'err'); return; }
-      showMsg('dMsg','案シスの登録支援機関マスタに登録しました（ID: '+newId+'）','ok');
-      _sb.from('eigyo_leads').update({is_client:true, support_org_id:newId}).eq('reg_no', lead.reg_no).then(function(){ curLead.is_client=true; curLead.support_org_id=newId; load(); });
-      if(lead.handover_items && Object.keys(lead.handover_items).length){
-        _sb.from('support_org_handover').upsert({org_id:newId, items:lead.handover_items}, {onConflict:'org_id'}).then(function(){});
-      }
+    // 案シスに既存あり → 空欄補完 と 重複を仕分け（既存は上書きしない）
+    var autofills = {}, afLabels = [], conflicts = [];
+    MASTER_MAP.forEach(function(m){
+      var nv = m.v(lead); if(_mEmpty(nv)) return;          // 营シス側が空なら何もしない
+      var ex = existing[m.k];
+      if(_mEmpty(ex)){ autofills[m.k]=nv; afLabels.push(m.label); return; }  // 案シス空欄→補完
+      var same = m.json ? (JSON.stringify(ex)===JSON.stringify(nv)) : (String(ex)===String(nv));
+      if(same) return;                                     // 同じ→何もしない
+      conflicts.push({k:m.k,label:m.label,ex:ex,nv:nv,json:!!m.json});       // 両方に値→重複
     });
+    if(conflicts.length===0){
+      if(afLabels.length===0){
+        alert('案シス側にすでに情報が入っており、営シスから補完できる項目はありません。\n（この機関を案件に紐付けます）');
+        _linkExisting(existing.id, lead); return;
+      }
+      if(!confirm('案シスの空欄 '+afLabels.length+' 項目（'+afLabels.join('、')+'）を営シスの情報で補完します。\n既存の入力は上書きしません。よろしいですか？')){ return; }
+      autofills.updated_at = new Date().toISOString();
+      _sb.from('support_orgs').update(autofills).eq('id', existing.id).then(function(u){
+        if(u.error){ showMsg('dMsg','補完に失敗しました：'+u.error.message,'err'); return; }
+        _finishMaster(existing.id, lead, '案シスの空欄 '+afLabels.length+' 項目を補完しました');
+      });
+      return;
+    }
+    // 重複あり → 確認モーダル
+    _openMergeModal(existing, lead, autofills, afLabels, conflicts);
+  });
+}
+
+function _linkExisting(orgId, lead){
+  _sb.from('eigyo_leads').update({is_client:true, support_org_id:orgId}).eq('reg_no', lead.reg_no).then(function(){
+    curLead.is_client=true; curLead.support_org_id=orgId; load();
+  });
+}
+function _finishMaster(orgId, lead, msg){
+  showMsg('dMsg', msg, 'ok');
+  _linkExisting(orgId, lead);
+  if(lead.handover_items && Object.keys(lead.handover_items).length){
+    _sb.from('support_org_handover').upsert({org_id:orgId, items:lead.handover_items}, {onConflict:'org_id'}).then(function(){});
+  }
+}
+
+var _mergeCtx = null;
+function _openMergeModal(existing, lead, autofills, afLabels, conflicts){
+  _mergeCtx = {existing:existing, lead:lead, autofills:autofills, conflicts:conflicts};
+  var box = el('mergeBox');
+  if(!box){
+    box = document.createElement('div'); box.id='mergeBox';
+    box.style.cssText='display:none;position:fixed;z-index:65;top:50%;left:50%;transform:translate(-50%,-50%);width:min(640px,94vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 30px rgba(0,0,0,.18);';
+    document.body.appendChild(box);
+    var ov = document.createElement('div'); ov.id='mergeOv'; ov.className='overlay'; ov.style.zIndex='64'; ov.onclick=_closeMergeModal;
+    document.body.appendChild(ov);
+  }
+  var h = '<h2 style="margin:0 0 4px;font-size:18px;color:var(--accent);">重複項目の確認</h2>';
+  h += '<p style="margin:0 0 14px;font-size:12px;color:var(--muted);">案シスに既に登録があります（'+esc(existing.name||'')+'）。<br>下の項目は<b>案シス・営シスの両方に値</b>があります。営シスで上書きするか、案シスのまま残す（スキップ）か選んでください。</p>';
+  if(afLabels.length){ h += '<div style="font-size:12px;color:#166534;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 10px;margin-bottom:12px;">案シスで空欄だった '+afLabels.length+' 項目は自動で補完します：'+esc(afLabels.join('、'))+'</div>'; }
+  conflicts.forEach(function(c){
+    h += '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:10px;">'
+      + '<div style="font-weight:600;font-size:13px;margin-bottom:8px;">'+esc(c.label)+'</div>'
+      + '<label style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;margin-bottom:6px;cursor:pointer;"><input type="radio" name="mg_'+c.k+'" value="skip" checked style="margin-top:3px;"><span>案シスのまま（スキップ）<br><span style="color:#4a5568;">'+_mShow(c.ex,c.json)+'</span></span></label>'
+      + '<label style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;cursor:pointer;"><input type="radio" name="mg_'+c.k+'" value="over" style="margin-top:3px;"><span>営シスで上書き<br><span style="color:#c05621;">'+_mShow(c.nv,c.json)+'</span></span></label>'
+      + '</div>';
+  });
+  h += '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">'
+    + '<button class="btn" onclick="_closeMergeModal()">キャンセル</button>'
+    + '<button class="btn btn-primary" onclick="_applyMerge()">この内容で反映</button></div>';
+  box.innerHTML = h; box.style.display='block'; el('mergeOv').classList.add('on');
+}
+function _closeMergeModal(){ var b=el('mergeBox'); if(b) b.style.display='none'; var o=el('mergeOv'); if(o) o.classList.remove('on'); _mergeCtx=null; }
+function _applyMerge(){
+  if(!_mergeCtx) return;
+  var ctx=_mergeCtx, patch={};
+  Object.keys(ctx.autofills).forEach(function(k){ patch[k]=ctx.autofills[k]; });
+  ctx.conflicts.forEach(function(c){
+    var sel = document.querySelector('input[name="mg_'+c.k+'"]:checked');
+    if(sel && sel.value==='over') patch[c.k]=c.nv;
+  });
+  var cnt = Object.keys(patch).length;
+  if(cnt===0){
+    _closeMergeModal();
+    alert('上書き・補完する項目がありません。案件への紐付けのみ行います。');
+    _linkExisting(ctx.existing.id, ctx.lead); return;
+  }
+  patch.updated_at = new Date().toISOString();
+  var lead=ctx.lead, id=ctx.existing.id;
+  _sb.from('support_orgs').update(patch).eq('id', id).then(function(u){
+    if(u.error){ showMsg('dMsg','反映に失敗しました：'+u.error.message,'err'); return; }
+    _closeMergeModal();
+    _finishMaster(id, lead, '案シスのマスタを更新しました（'+cnt+' 項目）');
   });
 }
 
