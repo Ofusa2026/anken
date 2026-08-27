@@ -210,7 +210,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.07</div>
+      <div class="ver">ver.20260824.08</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -1064,6 +1064,7 @@ function renderDrawer(){
   +     (x.apt_meet_sent
         ? '<button class="btn" onclick="markMeetSent(false)" style="background:#f0fff4;border-color:#9ae6b4;color:#276749;">✓ 送信済み（クリックで取消）</button>'
         : '<button class="btn btn-primary" onclick="markMeetSent(true)">✅ Meet送信済みにする</button>')
+  +     ((x.apt_person||x.apt_email||x.apt_role) ? '<button class="btn" onclick="fillContactFromAppt()">👤 担当者欄に反映</button>' : '')
   +   '</div>'
   +   ((x.apt_getter||x.apt_reason||x.apt_memo||x.apt_env||x.apt_got_at||x.apt_person)
       ? '<div class="span2" style="font-size:11.5px;color:#4a5568;background:#f7fafc;border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-top:4px;white-space:pre-wrap;">'
@@ -1476,14 +1477,34 @@ function apptDoImport(){
     apt_meet_sent:false, apt_meet_sent_at:null, updated_at:new Date().toISOString() };
   if(d.apt_at){ aptFields.meeting_date=d.apt_at.slice(0,10); if(!aptFields.meeting_kind) aptFields.meeting_kind='オンライン'; }
   // 既存照合：会社名 完全一致 → 電話一致
-  var finder=_sb.from('eigyo_leads').select('reg_no,name,tel,status,pref,city,address,website').eq('name', d.name);
+  var finder=_sb.from('eigyo_leads').select('reg_no,name,tel,status,pref,city,address,website,contacts').eq('name', d.name);
   finder.then(function(r){
     var hit=(r.data&&r.data.length)?r.data[0]:null;
     if(!hit && d.tel){
-      _sb.from('eigyo_leads').select('reg_no,name,status,pref,city,address,website').eq('tel', d.tel).then(function(r2){
+      _sb.from('eigyo_leads').select('reg_no,name,status,pref,city,address,website,contacts').eq('tel', d.tel).then(function(r2){
         applyImport((r2.data&&r2.data.length)?r2.data[0]:null, d, aptFields);
       });
     } else { applyImport(hit, d, aptFields); }
+  });
+}
+function apptContact(d){
+  if(!d.apt_person && !d.apt_email && !d.apt_role) return null;
+  var nm=(d.apt_person||'').split('/')[0].trim();  // "丹野(タンノ)様/男性" → "丹野(タンノ)様"
+  return { name:nm||null, title:d.apt_role||null, email:d.apt_email||null, tel:d.tel||null };
+}
+// 既に取り込み済みのリードで、アポの担当者情報を「先方の担当者1」に反映
+function fillContactFromAppt(){
+  if(!curLead) return;
+  var c=apptContact({apt_person:curLead.apt_person, apt_role:curLead.apt_role, apt_email:curLead.apt_email, tel:curLead.tel});
+  if(!c){ showMsg('dMsg','アポの担当者情報がありません','err'); return; }
+  var existing=curLead.contacts||[];
+  if(existing[0] && (existing[0].name||existing[0].email||existing[0].tel)){
+    if(!confirm('担当者1にすでに入力があります。アポの担当者で上書きしますか？')) return;
+  }
+  var arr=existing.slice(); arr[0]=c;
+  _sb.from('eigyo_leads').update({contacts:arr}).eq('reg_no',curLead.reg_no).then(function(r){
+    if(r.error){ showMsg('dMsg','反映に失敗：'+r.error.message,'err'); return; }
+    curLead.contacts=arr; showMsg('dMsg','アポの担当者を担当者欄に反映しました','ok'); openDrawer(curLead.reg_no);
   });
 }
 function applyImport(hit, d, aptFields){
@@ -1493,14 +1514,17 @@ function applyImport(hit, d, aptFields){
     if(!hit.address && d.address) patch.address=d.address;
     if(!hit.website && d.website) patch.website=d.website;
     if(hit.status==='未接触'||!hit.status) patch.status='商談予定';
+    if(!hit.contacts || !hit.contacts.length){ var c=apptContact(d); if(c) patch.contacts=[c]; }  // 担当者が未登録なら自動セット
     _sb.from('eigyo_leads').update(patch).eq('reg_no', hit.reg_no).then(function(u){
       if(u.error){ alert('登録に失敗しました：'+u.error.message); return; }
       closeApptImport(); load(); refreshApptChip(); openDrawer(hit.reg_no);
     });
   } else {
     var regNo='M-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
+    var c2=apptContact(d);
     var rec=Object.assign({ reg_no:regNo, name:d.name, tel:d.tel||null, address:d.address||null, website:d.website||null,
-      entity_type:null, status:'商談予定', is_manual:true, source:'アポ取込', source_date:today(), created_at:new Date().toISOString() }, aptFields);
+      entity_type:null, status:'商談予定', is_manual:true, source:'アポ取込', source_date:today(),
+      contacts:c2?[c2]:[], created_at:new Date().toISOString() }, aptFields);
     _sb.from('eigyo_leads').insert(rec).then(function(ins){
       if(ins.error){ alert('新規登録に失敗しました：'+ins.error.message); return; }
       closeApptImport(); load(); refreshApptChip(); openDrawer(regNo);
