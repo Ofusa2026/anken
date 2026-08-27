@@ -5163,7 +5163,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260827.15';
+var OFUSA_VERSION = 'ver.20260827.16';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -7911,6 +7911,10 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20260827.16', date:'2026-08-27', notify:true, items:[
+    '🔙 <b>書類回収アラートの「書類チェックへ」で飛んだあと、一覧へ戻れるボタンを追加</b>しました。画面右下に「🔙 書類回収アラートへ戻る」が出て、押すとアラート一覧が再表示されます（企業・人材どちらのアラートにも対応。ドラッグで移動可・✕で消せます）。',
+    '🖱️ 画面右下の<b>フローティングボタン（💬 LINEキュー／案 案件一覧／🤖 AIアシスタント）は、実はドラッグで好きな位置に動かせます</b>（位置は端末ごとに記憶）。入力欄などに重なって邪魔なときは掴んでどかしてください。分かりづらかったので、各ボタンにマウスを乗せたとき「ドラッグで移動できます」と表示するようにしました。'
+  ]},
   { version:'ver.20260827.15', date:'2026-08-27', notify:false, items:[
     '📆 <b>未着手の案件は必ず日数が出る</b>ようにしました。ステータス変更の記録と食い違いがある場合でも、未着手なら「登録から◯日」を表示します（未着手以外で記録が食い違う案件は、誤った日数を出さないよう引き続き空白です）。'
   ]},
@@ -13117,6 +13121,7 @@ function _forceCaseAlertOpenCompany(coId){
     returnBtn.id = '_forceCoDocReturnBtn';
     returnBtn.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;padding:14px 22px;background:linear-gradient(135deg,#dc2626,#b91c1c);color:white;border:none;border-radius:30px;font-size:14px;font-weight:800;cursor:pointer;box-shadow:0 8px 24px rgba(220,38,38,.5);';
     returnBtn.innerHTML = '🔙 書類不足モーダルへ戻る';
+    returnBtn.title = 'ドラッグで移動できます';
     returnBtn.onclick = function(){
       var f = document.getElementById('_forceCaseAlertModal');
       if(f){
@@ -72604,7 +72609,32 @@ function updatePersonDocAlertBadge() {
   }
 }
 
+// ver.20260827.16: 書類回収アラートから「書類チェックへ」で飛んだあと、一覧へ戻るフローティングボタン
+//   kind: 'co'=企業書類回収アラート / 'person'=人材書類回収アラート
+function _spawnDocAlertReturnBtn(kind){
+  try{
+    var old=document.getElementById('_docAlertReturnBtn'); if(old) old.remove();
+    var b=document.createElement('button');
+    b.id='_docAlertReturnBtn';
+    b.style.cssText='position:fixed;bottom:150px;right:24px;z-index:9999;padding:13px 20px;background:linear-gradient(135deg,#dc2626,#b91c1c);color:white;border:none;border-radius:30px;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 8px 24px rgba(220,38,38,.5);display:flex;align-items:center;gap:6px;';
+    b.innerHTML='🔙 書類回収アラートへ戻る<span onclick="event.stopPropagation();this.parentNode.remove();" title="このボタンを消す" style="margin-left:4px;font-size:12px;opacity:.75;padding:0 4px;">✕</span>';
+    b.title='ドラッグで移動できます';
+    b.onclick=function(){
+      var me=document.getElementById('_docAlertReturnBtn'); if(me) me.remove();
+      if(kind==='co'){ if(typeof showCoDocAlertModal==='function') showCoDocAlertModal(); }
+      else { if(typeof showPersonDocAlertModal==='function') showPersonDocAlertModal(); }
+    };
+    document.body.appendChild(b);
+    if(typeof makeFloatingDraggable==='function'){
+      setTimeout(function(){
+        makeFloatingDraggable({ el:b, storageKey:'ofusa_docalert_return_pos_v1', sizeW:b.offsetWidth||220, sizeH:b.offsetHeight||46 });
+      },0);
+    }
+  }catch(e){ console.error('docAlertReturnBtn err', e); }
+}
 function showPersonDocAlertModal() {
+  // ver.20260827.16: アラートを開いたら戻るボタンは不要になるので消す
+  try{ var _rb=document.getElementById('_docAlertReturnBtn'); if(_rb) _rb.remove(); }catch(e){}
   // ver.20260804.17: 催促の送信記録が未ロードなら先に読む（起点判定に使うため）
   try{ if(!window._docLineSentMap && typeof _loadDocLineSent==='function') _loadDocLineSent(); }catch(e){}
   // ver.20260804.09: フォーム回答の索引が未ロードなら先に読んでから開く
@@ -74203,7 +74233,7 @@ function _renderPersonDocAlertList(){
       // ver.20260728.04: 会社が株式会社KMTの案件は、KMTチャットへも送れるようにする
       // ver.20260820.03: 既存の「KMTチャットへ」は _pdaLineBoxHtml (中の _officialAcctBoxHtml) の
       //   「💬 KMT送信」と機能重複するため撤去
-      h += '<button onclick="document.getElementById(\'personDocAlertModal\').remove();showCaseDetail(\''+cid+'\',\'docs\')" style="font-size:10px;padding:3px 10px;background:'+(hasWarn?'#dc2626':'#d97706')+';color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;white-space:nowrap;">書類チェックへ</button>';
+      h += '<button onclick="document.getElementById(\'personDocAlertModal\').remove();_spawnDocAlertReturnBtn(\'person\');showCaseDetail(\''+cid+'\',\'docs\')" style="font-size:10px;padding:3px 10px;background:'+(hasWarn?'#dc2626':'#d97706')+';color:white;border:none;border-radius:5px;cursor:pointer;font-weight:700;white-space:nowrap;">書類チェックへ</button>';
       h += '</div>';
       h += '</div>';
       group.items.forEach(function(item) {
@@ -76283,6 +76313,7 @@ function updateCoDocAlertBadge() {
 }
 
 function showCoDocAlertModal() {
+  try{ var _rb=document.getElementById('_docAlertReturnBtn'); if(_rb) _rb.remove(); }catch(e){}
   var alerts = _getCoDocAlerts();
   window._coDocAlerts = alerts;
   // ver.20260623: フィルタ状態を保持（モーダルを閉じて再度開いても維持）
@@ -76573,7 +76604,7 @@ function _renderCoDocAlertList(){
       h += _mailA
         ? '<button onclick="coDocMailOne(\''+coId+'\')" style="font-size:10px;padding:3px 10px;background:#fffbeb;color:#d97706;border:1.5px solid #fcd34d;border-radius:6px;cursor:pointer;font-weight:700;">🔔 個別案内</button>'
         : '<button onclick="coDocMailOne(\''+coId+'\')" title="宛先を入力して送信すると、会社マスタに登録されます。メールボックスから件名（スレッド）を選んで返信もできます" style="font-size:10px;padding:3px 10px;background:#fffbeb;color:#d97706;border:1.5px dashed #fcd34d;border-radius:6px;cursor:pointer;font-weight:700;">🔔 個別案内（メール未登録）</button>';
-      h += '<button onclick="document.getElementById(\'coDocAlertModal\').remove();openCompanyDetail(\''+coId+'\',\'coDocs\')" style="font-size:10px;padding:3px 10px;background:#dc2626;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">書類チェックへ</button>';
+      h += '<button onclick="document.getElementById(\'coDocAlertModal\').remove();_spawnDocAlertReturnBtn(\'co\');openCompanyDetail(\''+coId+'\',\'coDocs\')" style="font-size:10px;padding:3px 10px;background:#dc2626;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">書類チェックへ</button>';
       h += '</div>';
       h += '</div>';
       group.items.forEach(function(item) {
@@ -107424,7 +107455,7 @@ function openLineShare(url, docType) {
 .oc-kn-meta { font-size:9px; color:#a0aec0; margin-top:4px; }
 </style>
 
-<button id="ofusa-chat-btn" onclick="ocToggle()" title="AIアシスタント" style="display:none;" aria-hidden="true">🤖</button>
+<button id="ofusa-chat-btn" onclick="ocToggle()" title="AIアシスタント（ドラッグで移動できます）" style="display:none;" aria-hidden="true">🤖</button>
 
 <!-- ver.20260821.17: 画面右下の「◀ 戻る」ボタンは不要のため非表示（復活する場合はこの行を戻す） -->
 <!-- <button id="ofusa-back-btn" onclick="_goBack()" title="◀ 戻る" aria-label="戻る">◀</button> -->
@@ -108130,7 +108161,7 @@ async function ocKnDelete(id) {
 .oc-kn-meta{font-size:9px;color:#a0aec0;margin-top:4px;}
 </style>
 
-<button id="ofusa-chat-btn" onclick="ocToggle()" title="AIアシスタント" style="display:none;" aria-hidden="true">🤖</button>
+<button id="ofusa-chat-btn" onclick="ocToggle()" title="AIアシスタント（ドラッグで移動できます）" style="display:none;" aria-hidden="true">🤖</button>
 
 <div id="ofusa-chat-panel">
   <div class="oc-head">
@@ -108492,7 +108523,7 @@ window.makeFloatingDraggable = function(opts){
     if(!caseBtn){
       caseBtn = document.createElement('button');
       caseBtn.id = 'ofusa-case-btn';
-      caseBtn.title = '案件一覧へ';
+      caseBtn.title = '案件一覧へ（ドラッグで移動できます）';
       caseBtn.textContent = '案';
       caseBtn.style.cssText = 'position:fixed;bottom:80px;right:88px;z-index:9000;width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,#0ea5e9,#2563eb);color:#fff;border:none;font-size:22px;font-weight:800;cursor:pointer;box-shadow:0 4px 20px rgba(37,99,235,.45);display:flex;align-items:center;justify-content:center;transition:.2s;';
       caseBtn.onmouseover = function(){ this.style.transform='scale(1.1)'; };
@@ -108512,7 +108543,7 @@ window.makeFloatingDraggable = function(opts){
     if(!lineBtn){
       lineBtn = document.createElement('button');
       lineBtn.id = 'ofusa-line-btn';
-      lineBtn.title = 'LINE送信キューを開く';
+      lineBtn.title = 'LINE送信キューを開く（ドラッグで移動できます）';
       lineBtn.innerHTML = '💬<span id="ofusa-line-btn-badge" style="display:none;position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;padding:0 5px;border-radius:99px;background:#dc2626;color:white;font-size:11px;font-weight:800;line-height:20px;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.3);"></span>';
       lineBtn.style.cssText = 'position:fixed;bottom:80px;right:152px;z-index:10005;width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,#06c755,#059212);color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 4px 20px rgba(6,199,85,.45);display:flex;align-items:center;justify-content:center;transition:.2s;';
       lineBtn.onmouseover = function(){ this.style.transform='scale(1.1)'; };
