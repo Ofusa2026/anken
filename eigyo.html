@@ -210,7 +210,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.06</div>
+      <div class="ver">ver.20260824.07</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -1058,7 +1058,7 @@ function renderDrawer(){
   +   '<label class="full" style="margin:6px 0 -2px;font-weight:700;color:var(--accent);">🗓 アポ管理（Meet）</label>'
   +   '<label>アポ日時</label><input type="datetime-local" id="eAptAt" class="span2" value="'+esc(x.apt_at?toLocalDT(x.apt_at):'')+'">'
   +   '<label>送信先メール</label><input type="text" id="eAptEmail" class="span2" placeholder="相手のメールアドレス" value="'+esc(x.apt_email||'')+'">'
-  +   '<label>Meet URL</label><input type="text" id="eAptMeet" class="span2" placeholder="Googleカレンダーで発行したMeetリンクを貼る" value="'+esc(x.apt_meet_url||'')+'">'
+  +   '<label>Meet URL</label><input type="text" id="eAptMeet" class="span2" placeholder="カレンダーのコピー内容を丸ごと貼ってOK（ビデオ通話リンクだけ自動抽出）" onblur="this.value=extractMeetUrl(this.value)" value="'+esc(x.apt_meet_url||'')+'">'
   +   '<div class="span2" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;">'
   +     '<button class="btn" onclick="copyApptMsg()">📧 送信文をコピー</button>'
   +     (x.apt_meet_sent
@@ -1299,7 +1299,7 @@ function saveLead(){
     memo:              el('eMemo').value.trim() || null,
     apt_at:            (el('eAptAt')&&el('eAptAt').value) ? new Date(el('eAptAt').value).toISOString() : null,
     apt_email:         (el('eAptEmail')&&el('eAptEmail').value.trim()) || null,
-    apt_meet_url:      (el('eAptMeet')&&el('eAptMeet').value.trim()) || null,
+    apt_meet_url:      extractMeetUrl((el('eAptMeet')&&el('eAptMeet').value)||'') || null,
     hr_start_date:     el('eHrStartDate').value || null,
     hr_drive_url:      el('eHrDriveUrl').value.trim() || null,
     hr_monthly_apps:   el('eHrMonthly').value!==''? parseInt(el('eHrMonthly').value,10) : null,
@@ -1370,7 +1370,7 @@ function refreshApptChip(){
 }
 function copyApptMsg(){
   if(!curLead) return;
-  var url=(el('eAptMeet')&&el('eAptMeet').value.trim())||'';
+  var url=extractMeetUrl((el('eAptMeet')&&el('eAptMeet').value)||'');
   var atv=(el('eAptAt')&&el('eAptAt').value)||'';
   var when='', d=null;
   if(atv){ d=new Date(atv); var wd=['日','月','火','水','木','金','土'][d.getDay()]; var p=function(n){return('0'+n).slice(-2);}; when=(d.getMonth()+1)+'/'+d.getDate()+'('+wd+')'+p(d.getHours())+':'+p(d.getMinutes()); }
@@ -1387,6 +1387,16 @@ function copyApptMsg(){
     function(){ alert(body); });
 }
 function esc0(s){ return s==null?'':String(s); }
+// カレンダーのコピー内容から meet.google.com のビデオ通話リンクだけ抽出（tel.meetやPINは無視）
+function extractMeetUrl(s){
+  if(!s) return '';
+  s=String(s);
+  var m=s.match(/https?:\/\/meet\.google\.com\/[a-z0-9-]+/i);
+  if(m) return m[0];
+  var all=s.match(/https?:\/\/[^\s]+/g)||[];
+  for(var i=0;i<all.length;i++){ if(!/tel\.meet/i.test(all[i])) return all[i]; }
+  return s.trim();
+}
 function markMeetSent(flag){
   if(!curLead) return;
   var patch = flag ? {apt_meet_sent:true, apt_meet_sent_at:new Date().toISOString()} : {apt_meet_sent:false, apt_meet_sent_at:null};
