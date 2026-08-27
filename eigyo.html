@@ -210,7 +210,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.10</div>
+      <div class="ver">ver.20260824.12</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -708,6 +708,7 @@ function onLoggedIn(session){
   initUi();
   loadStaff();
   load();
+  checkTomorrowReminder();
 }
 
 /* ---------------- 初期化 ---------------- */
@@ -1352,6 +1353,49 @@ function issueHearingFormUrl(){
 }
 
 /* ============ アポ管理（Meetリンク送り忘れ対策） ============ */
+// 前日リマインド：翌日アポ×Meet未送信をポップアップで強制表示
+function checkTomorrowReminder(){
+  var now=new Date();
+  var t0=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1,0,0,0);
+  var t1=new Date(now.getFullYear(),now.getMonth(),now.getDate()+2,0,0,0);
+  var key='apptRemind:'+t0.getFullYear()+('0'+(t0.getMonth()+1)).slice(-2)+('0'+t0.getDate()).slice(-2);
+  try{ if(localStorage.getItem(key)==='done') return; }catch(e){}
+  _sb.from('eigyo_leads').select('reg_no,name,apt_at,apt_email,apt_meet_url')
+    .gte('apt_at', t0.toISOString()).lt('apt_at', t1.toISOString()).eq('apt_meet_sent', false)
+    .order('apt_at',{ascending:true}).then(function(r){
+      if(r.error || !r.data || !r.data.length) return;
+      showRemindModal(r.data, key);
+  });
+}
+function showRemindModal(list, key){
+  var box=el('remindBox');
+  if(!box){
+    box=document.createElement('div'); box.id='remindBox';
+    box.style.cssText='display:none;position:fixed;z-index:70;top:50%;left:50%;transform:translate(-50%,-50%);width:min(560px,94vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 40px rgba(0,0,0,.25);border-top:6px solid #c53030;';
+    document.body.appendChild(box);
+    var ov=document.createElement('div'); ov.id='remindOv'; ov.className='overlay on'; ov.style.zIndex='69'; document.body.appendChild(ov);
+  }
+  var wd=['日','月','火','水','木','金','土'];
+  var h='<h2 style="margin:0 0 4px;font-size:19px;color:#c53030;">🔔 明日のアポ：Meet未送信 '+list.length+'件</h2>'
+    + '<p style="margin:0 0 14px;font-size:12.5px;color:var(--muted);">明日商談予定なのに、まだMeetリンクを送っていない先です。今日中に送付してください。</p>';
+  list.forEach(function(x){
+    var d=new Date(x.apt_at), p=function(n){return('0'+n).slice(-2);};
+    var t=(d.getMonth()+1)+'/'+d.getDate()+'('+wd[d.getDay()]+') '+p(d.getHours())+':'+p(d.getMinutes());
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #feb2b2;background:#fff5f5;border-radius:8px;padding:10px 12px;margin-bottom:8px;">'
+      + '<div><div style="font-weight:600;font-size:14px;">'+esc(x.name||'')+'</div>'
+      + '<div style="font-size:12px;color:#c53030;">🕒 '+esc(t)+(x.apt_meet_url?'　<span style="color:#718096;">Meet URL入力済</span>':'　<span style="color:#c53030;">Meet URL未入力</span>')+'</div></div>'
+      + '<button class="btn btn-primary" onclick="remindOpen(\''+esc(x.reg_no)+'\')">開く</button>'
+      + '</div>';
+  });
+  h+='<div style="display:flex;justify-content:space-between;gap:10px;margin-top:16px;">'
+    + '<button class="btn" onclick="remindDone(\''+esc(key)+'\')">今日はもう表示しない</button>'
+    + '<button class="btn btn-primary" onclick="closeRemindModal()">閉じる</button></div>';
+  box.innerHTML=h; box.style.display='block';
+}
+function closeRemindModal(){ var b=el('remindBox'); if(b) b.style.display='none'; var o=el('remindOv'); if(o) o.remove(); }
+function remindDone(key){ try{ localStorage.setItem(key,'done'); }catch(e){} closeRemindModal(); }
+function remindOpen(regNo){ closeRemindModal(); openDrawer(regNo); }
+
 var apptOnly = false;
 function toggleApptOnly(){ apptOnly = !apptOnly; page=0; var c=el('apptChip'); if(c) c.style.background = apptOnly?'#c53030':'#fff5f5', c.style.color = apptOnly?'#fff':'#c53030'; load(); }
 function toLocalDT(iso){ try{ var d=new Date(iso); var p=function(n){return('0'+n).slice(-2);}; return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes()); }catch(e){ return ''; } }
@@ -1432,29 +1476,61 @@ function parseAppt(t){
 }
 function parseAptAt(s){
   if(!s) return null;
-  var m=s.match(/(\d{1,2})\s*[\/月]\s*(\d{1,2})[^\d]*?(\d{1,2})\s*[:：]\s*(\d{2})/);
-  var mo,da,hh,mi;
-  if(m){ mo=+m[1];da=+m[2];hh=+m[3];mi=+m[4]; }
-  else { var m2=s.match(/(\d{1,2})\s*[\/月]\s*(\d{1,2})/); if(!m2) return null; mo=+m2[1];da=+m2[2];hh=0;mi=0; }
+  var md=s.match(/(\d{1,2})\s*[\/月]\s*(\d{1,2})/);
+  if(!md) return null;
+  var mo=+md[1], da=+md[2], hh=0, mi=0;
+  var tc=s.match(/(\d{1,2})\s*[:：]\s*(\d{2})/);          // 10:00
+  var th=s.match(/(\d{1,2})\s*時\s*(\d{1,2})?\s*分?/);     // 17時 / 17時30分
+  if(tc){ hh=+tc[1]; mi=+tc[2]; }
+  else if(th){ hh=+th[1]; mi=th[2]?+th[2]:0; }
   var now=new Date(), y=now.getFullYear();
   var d=new Date(y,mo-1,da,hh,mi,0);
   if(d.getTime()-now.getTime() < -7*86400000){ d=new Date(y+1,mo-1,da,hh,mi,0); }
   return d;
 }
+// クライアント側メールを選ぶ（代行会社dgloss等やmailtoは除外、会社ドメイン優先）
+function pickClientEmail(t, website){
+  var emails=(t.match(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g)||[]);
+  if(!emails.length) return '';
+  var dom=((website||'').match(/https?:\/\/([^\/\s]+)/)||[])[1]||''; dom=dom.replace(/^www\./,'').toLowerCase();
+  var pick='';
+  if(dom) emails.forEach(function(e){ if(!pick && e.toLowerCase().indexOf(dom)>-1) pick=e; });
+  if(!pick) emails.forEach(function(e){ if(!pick && !/@dgloss\.co\.jp$/i.test(e) && !/^(support|info|mail|noreply)@/i.test(e)) pick=e; });
+  return pick||emails[0];
+}
+// 形式を自動判定して正規化した d を返す
+function parseApptAny(t){
+  var isB=/■\s*(企業名|日時|電話番号)\s*[:：]/.test(t);
+  if(isB) return parseApptB(t);
+  var mp=parseAppt(t), ph=parsePhones(mp['電話番号']||''), website=mp['会社HP']||'';
+  var envM=(mp['備考']||'').match(/商談環境[：: ]*\s*([SABC])/);
+  var a=parseAptAt(mp['商談日時']||'');
+  return { name:mp['会社名']||'', website:website, tel:ph.primary, tel_display:ph.display, address:mp['住所']||'',
+    apt_person:mp['担当者名']||'', apt_role:mp['役職']||'', apt_dept:mp['所属部署名']||'',
+    apt_getter:mp['アポ獲得者']||'', apt_got_at:mp['アポ獲得日']||'',
+    apt_test_closing:mp['テストクロージング']||'', apt_reason:mp['アポOKいただけた理由']||'', apt_memo:mp['備考']||'',
+    apt_env:envM?envM[1]:'', apt_email:pickClientEmail(t,website), apt_at:a?a.toISOString():null, apt_raw:t };
+}
+// ディグロス形式（■ラベル：値）
+function parseApptB(t){
+  function g(l){ var m=t.match(new RegExp('■\\s*'+l+'\\s*[:：]\\s*([^\\n\\r]+)')); return m?m[1].trim():''; }
+  function gc(l){ var m=t.match(new RegExp('■\\s*'+l+'\\s*[:：]\\s*([^\\]\\)\\n\\r￼　]+)')); return m?m[1].trim():''; }
+  var website=(t.match(/■\s*URL\s*[:：]\s*\[?\s*(https?:\/\/[^\]\)\s￼]+)/)||[])[1]||'';
+  var ph=parsePhones(g('電話番号'));
+  var person=gc('担当者'); if(person && !/様$/.test(person)) person+='様';
+  var a=parseAptAt(g('日時'));
+  var reason=''; var hm=t.match(/■\s*ヒアリング結果[:：]?\s*([\s\S]*?)(?=\n\s*[・■]\s*備考|\n-{3,}|$)/); if(hm) reason=hm[1].trim();
+  var memo=''; var mm=t.match(/[・■]\s*備考[:：]?\s*([\s\S]*?)(?=\n-{3,}|ご確認の程|$)/); if(mm) memo=mm[1].trim();
+  return { name:g('企業名')||g('会社名'), website:website, tel:ph.primary, tel_display:ph.display, address:g('住所'),
+    apt_person:person, apt_role:'', apt_dept:gc('部署名'),
+    apt_getter:'ディグロス', apt_got_at:'',
+    apt_test_closing:'', apt_reason:reason, apt_memo:memo,
+    apt_env:'', apt_email:pickClientEmail(t,website), apt_at:a?a.toISOString():null, apt_raw:t };
+}
 function apptParsePreview(){
   var t=el('apptText').value||''; if(!t.trim()){ alert('本文を貼り付けてください'); return; }
-  var mp=parseAppt(t);
-  var emailM=t.match(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/);
-  var envM=(mp['備考']||'').match(/商談環境[：: ]*\s*([SABC])/);
-  var atd=parseAptAt(mp['商談日時']||'');
-  var ph=parsePhones(mp['電話番号']||'');
-  var d={
-    name: mp['会社名']||'', website: mp['会社HP']||'', tel: ph.primary, tel_display: ph.display,
-    address: mp['住所']||'', apt_person: mp['担当者名']||'', apt_role: mp['役職']||'', apt_dept: mp['所属部署名']||'',
-    apt_getter: mp['アポ獲得者']||'', apt_got_at: mp['アポ獲得日']||'',
-    apt_test_closing: mp['テストクロージング']||'', apt_reason: mp['アポOKいただけた理由']||'', apt_memo: mp['備考']||'',
-    apt_env: envM?envM[1]:'', apt_email: emailM?emailM[0]:'', apt_at: atd?atd.toISOString():null, apt_raw: t
-  };
+  var d=parseApptAny(t);
+  var atd=d.apt_at?new Date(d.apt_at):null;
   _apptParsed=d;
   if(!d.name){ var eb=el('apptParseBtn'); if(eb) eb.textContent='🔍 解析する'; el('apptPrev').innerHTML='<div style="background:#fff5f5;border:1px solid #feb2b2;color:#c53030;border-radius:8px;padding:8px 12px;font-size:13px;margin-top:12px;">⚠️ 会社名が読み取れませんでした。【会社名】の行があるか、フォーマットをご確認ください。</div>'; return; }
   var atLabel = atd ? ((atd.getMonth()+1)+'/'+atd.getDate()+' '+('0'+atd.getHours()).slice(-2)+':'+('0'+atd.getMinutes()).slice(-2)) : '（未取得）';
