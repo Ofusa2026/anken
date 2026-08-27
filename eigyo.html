@@ -210,7 +210,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.08</div>
+      <div class="ver">ver.20260824.10</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -1419,7 +1419,7 @@ function openApptImport(){
   box.innerHTML='<h2 style="margin:0 0 4px;font-size:18px;color:var(--accent);">📥 アポ取込</h2>'
     + '<p style="margin:0 0 10px;font-size:12px;color:var(--muted);">ChatWorkの【アポ獲得報告】の本文をそのまま貼り付けて「解析」を押してください。</p>'
     + '<textarea id="apptText" style="width:100%;min-height:200px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;padding:10px;" placeholder="【アポ獲得報告】…"></textarea>'
-    + '<div style="text-align:right;margin-top:8px;"><button class="btn btn-primary" onclick="apptParsePreview()">🔍 解析する</button></div>'
+    + '<div style="text-align:right;margin-top:8px;"><button class="btn btn-primary" id="apptParseBtn" onclick="apptParsePreview()">🔍 解析する</button></div>'
     + '<div id="apptPrev"></div>';
   box.style.display='block'; el('apptOv').classList.add('on');
 }
@@ -1447,18 +1447,22 @@ function apptParsePreview(){
   var emailM=t.match(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/);
   var envM=(mp['備考']||'').match(/商談環境[：: ]*\s*([SABC])/);
   var atd=parseAptAt(mp['商談日時']||'');
+  var ph=parsePhones(mp['電話番号']||'');
   var d={
-    name: mp['会社名']||'', website: mp['会社HP']||'', tel:(mp['電話番号']||'').replace(/[^0-9]/g,''),
+    name: mp['会社名']||'', website: mp['会社HP']||'', tel: ph.primary, tel_display: ph.display,
     address: mp['住所']||'', apt_person: mp['担当者名']||'', apt_role: mp['役職']||'', apt_dept: mp['所属部署名']||'',
     apt_getter: mp['アポ獲得者']||'', apt_got_at: mp['アポ獲得日']||'',
     apt_test_closing: mp['テストクロージング']||'', apt_reason: mp['アポOKいただけた理由']||'', apt_memo: mp['備考']||'',
     apt_env: envM?envM[1]:'', apt_email: emailM?emailM[0]:'', apt_at: atd?atd.toISOString():null, apt_raw: t
   };
   _apptParsed=d;
-  if(!d.name){ el('apptPrev').innerHTML='<div style="color:#c53030;margin-top:10px;">会社名が読み取れませんでした。フォーマットをご確認ください。</div>'; return; }
+  if(!d.name){ var eb=el('apptParseBtn'); if(eb) eb.textContent='🔍 解析する'; el('apptPrev').innerHTML='<div style="background:#fff5f5;border:1px solid #feb2b2;color:#c53030;border-radius:8px;padding:8px 12px;font-size:13px;margin-top:12px;">⚠️ 会社名が読み取れませんでした。【会社名】の行があるか、フォーマットをご確認ください。</div>'; return; }
   var atLabel = atd ? ((atd.getMonth()+1)+'/'+atd.getDate()+' '+('0'+atd.getHours()).slice(-2)+':'+('0'+atd.getMinutes()).slice(-2)) : '（未取得）';
-  var rows=[['会社名',d.name],['商談日時',atLabel],['送信先メール',d.apt_email||'（本文に無し）'],['担当者',d.apt_person+(d.apt_role?'（'+d.apt_role+'）':'')],['電話',d.tel],['住所',d.address],['アポ獲得者',d.apt_getter],['商談環境',d.apt_env||'—']];
-  el('apptPrev').innerHTML='<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px;">'
+  var pbtn=el('apptParseBtn'); if(pbtn){ pbtn.textContent='✅ 解析完了（再解析する）'; }
+  var rows=[['会社名',d.name],['商談日時',atLabel],['送信先メール',d.apt_email||'（本文に無し）'],['担当者',d.apt_person+(d.apt_role?'（'+d.apt_role+'）':'')],['電話',d.tel_display||d.tel],['住所',d.address],['アポ獲得者',d.apt_getter],['商談環境',d.apt_env||'—']];
+  el('apptPrev').innerHTML='<div style="margin-top:12px;">'
+    + '<div style="background:#f0fff4;border:1px solid #9ae6b4;color:#276749;border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;margin-bottom:10px;">✅ 解析が完了しました。内容を確認して「この内容で登録」を押してください。</div>'
+    + '<div style="border-top:1px solid var(--line);padding-top:12px;">'
     + '<div style="font-size:13px;font-weight:600;margin-bottom:6px;">解析結果</div>'
     + '<table style="width:100%;font-size:12.5px;border-collapse:collapse;">'
     + rows.map(function(r){return '<tr><td style="padding:3px 8px;color:#718096;white-space:nowrap;vertical-align:top;">'+esc(r[0])+'</td><td style="padding:3px 8px;">'+esc(r[1]||'—')+'</td></tr>';}).join('')
@@ -1466,7 +1470,7 @@ function apptParsePreview(){
     + '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;">'
     + '<button class="btn" onclick="closeApptImport()">キャンセル</button>'
     + '<button class="btn btn-primary" onclick="apptDoImport()">この内容で登録</button></div>'
-    + '<p style="font-size:11px;color:var(--muted);margin:8px 0 0;">既存リードに会社名/電話が一致すればそのリードにアポ情報を追記します。無ければ新規リードを作成します。</p></div>';
+    + '<p style="font-size:11px;color:var(--muted);margin:8px 0 0;">既存リードに会社名/電話が一致すればそのリードにアポ情報を追記します。無ければ新規リードを作成します。</p></div></div>';
 }
 function apptDoImport(){
   if(!_apptParsed||!_apptParsed.name) return;
@@ -1488,14 +1492,37 @@ function apptDoImport(){
   });
 }
 function apptContact(d){
-  if(!d.apt_person && !d.apt_email && !d.apt_role) return null;
+  if(!d.apt_person && !d.apt_email && !d.apt_role && !(d.tel_display||d.tel)) return null;
   var nm=(d.apt_person||'').split('/')[0].trim();  // "丹野(タンノ)様/男性" → "丹野(タンノ)様"
-  return { name:nm||null, title:d.apt_role||null, email:d.apt_email||null, tel:d.tel||null };
+  return { name:nm||null, title:d.apt_role||null, email:d.apt_email||null, tel:(d.tel_display||d.tel)||null };
+}
+// 【電話番号】欄から電話番号を個別抽出（複数対応・「優先」を先頭・重複除去）
+function parsePhones(block){
+  if(!block) return {primary:'', display:'', all:[]};
+  var found=[];
+  block.split(/\r?\n/).forEach(function(ln){
+    var prio=/優先/.test(ln);
+    (ln.match(/0\d[\d\-()\s]{7,}\d/g)||[]).forEach(function(x){
+      var digits=x.replace(/[^0-9]/g,'');
+      if(digits.length>=10 && digits.length<=11) found.push({raw:x.replace(/\s+/g,'').trim(), digits:digits, prio:prio});
+    });
+  });
+  if(!found.length){
+    (block.match(/0\d[\d\-()\s]{7,}\d/g)||[]).forEach(function(x){
+      var digits=x.replace(/[^0-9]/g,'');
+      if(digits.length>=10 && digits.length<=11) found.push({raw:x.replace(/\s+/g,'').trim(), digits:digits, prio:false});
+    });
+  }
+  found.sort(function(a,b){ return (b.prio?1:0)-(a.prio?1:0); });
+  var uniq=[], seen={}; found.forEach(function(f){ if(!seen[f.digits]){ seen[f.digits]=1; uniq.push(f); } });
+  return { primary: uniq.length?uniq[0].digits:'', display: uniq.map(function(f){return f.raw;}).join(' / '), all:uniq };
 }
 // 既に取り込み済みのリードで、アポの担当者情報を「先方の担当者1」に反映
 function fillContactFromAppt(){
   if(!curLead) return;
-  var c=apptContact({apt_person:curLead.apt_person, apt_role:curLead.apt_role, apt_email:curLead.apt_email, tel:curLead.tel});
+  var telDisp=curLead.tel;
+  if(curLead.apt_raw){ var pp=parsePhones(parseAppt(curLead.apt_raw)['電話番号']||''); if(pp.display) telDisp=pp.display; }
+  var c=apptContact({apt_person:curLead.apt_person, apt_role:curLead.apt_role, apt_email:curLead.apt_email, tel:curLead.tel, tel_display:telDisp});
   if(!c){ showMsg('dMsg','アポの担当者情報がありません','err'); return; }
   var existing=curLead.contacts||[];
   if(existing[0] && (existing[0].name||existing[0].email||existing[0].tel)){
