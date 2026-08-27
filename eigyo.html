@@ -86,6 +86,10 @@ tbody tr:hover{background:#f7fafc;}
 .b-要経過観察{background:#faf5ff;color:#6b46c1;}
 .b-商談済み→依頼待ち{background:#fffaf0;color:#c05621;}
 .memo-line{margin-top:3px;font-size:11px;color:#8a6d3b;background:#fffbeb;border-left:3px solid #f6c453;padding:2px 6px;border-radius:3px;line-height:1.4;white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;cursor:help;}
+.apt-chip{display:inline-block;font-size:10px;font-weight:600;padding:1px 6px;border-radius:10px;margin-top:2px;}
+.apt-pending{background:#fff5f5;color:#c53030;border:1px solid #feb2b2;}
+.apt-soon{background:#c53030;color:#fff;border-color:#c53030;}
+.apt-sent{background:#f0fff4;color:#276749;border:1px solid #9ae6b4;}
 .b-見込みなし{background:#fff5f5;color:#c53030;}
 .b-契約中{background:#f0fff4;color:#276749;}
 .b-対象外{background:#f7fafc;color:#a0aec0;}
@@ -206,12 +210,14 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.05</div>
+      <div class="ver">ver.20260824.06</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
       <button class="btn btn-primary" onclick="openQuote()">📄 見積書作成</button>
       <button class="btn btn-primary" onclick="openMailModal()">✉️ メール配信</button>
+      <button class="btn btn-primary" onclick="openApptImport()">📥 アポ取込</button>
+      <button class="btn" id="apptChip" onclick="toggleApptOnly()" style="display:none;background:#fff5f5;border-color:#feb2b2;color:#c53030;">🔴 Meet未送信 <span id="apptChipN">0</span>件</button>
       <button class="btn" onclick="openQuoteList()">🗂 見積書履歴</button>
       <button class="btn" onclick="el('csvFile').click()">📥 CSV取込</button>
       <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="importCsv(this)">
@@ -831,6 +837,7 @@ function buildQuery(forCount){
   if(el('fEntity').value) q = q.eq('entity_type', el('fEntity').value);
   if(el('fIndustry').value) q = q.eq('industry', el('fIndustry').value);
   if(el('fSelf').value)     q = q.eq('self_support', el('fSelf').value);
+  if(apptOnly){ q = q.not('apt_at','is',null).eq('apt_meet_sent', false); }
   q = applyExclusions(q);
 
   var sort = el('fSort').value;
@@ -854,6 +861,7 @@ function load(){
     total = (r.count===null||r.count===undefined) ? curRows.length : r.count;
     render();
     loadKpis();
+    refreshApptChip();
   });
 }
 
@@ -894,7 +902,7 @@ function render(){
       + '<td><span class="badge b-'+esc(x.status)+'">'+esc(x.status)+'</span></td>'
       + '<td class="sub">'+esc(x.staff||'')+'</td>'
       + '<td class="sub">'+(x.first_contact_date ? esc(x.first_contact_date)+(x.first_contact_kind?'<div class="sub">'+esc(x.first_contact_kind)+'</div>':'') : '—')+'</td>'
-      + '<td class="sub">'+(x.meeting_date ? esc(x.meeting_date)+(x.meeting_kind?'<div class="sub">'+esc(x.meeting_kind)+'</div>':'') : '—')+'</td>'
+      + '<td class="sub">'+apptCell(x)+'</td>'
       + '<td>'+(x.memo ? '<div class="memo-line" title="'+esc(x.memo)+'">'+esc(x.memo)+'</div>' : '<span class="sub">—</span>')+'</td>'
       + '<td>'+due+'</td>'
       + '</tr>';
@@ -1047,6 +1055,26 @@ function renderDrawer(){
   +     '<select id="eMeetKind" style="flex:0 0 130px;"><option value="">（形式）</option>'
   +       MEETING_KINDS.map(function(t){return '<option'+(t===x.meeting_kind?' selected':'')+'>'+esc(t)+'</option>';}).join('')
   +     '</select></div>'
+  +   '<label class="full" style="margin:6px 0 -2px;font-weight:700;color:var(--accent);">🗓 アポ管理（Meet）</label>'
+  +   '<label>アポ日時</label><input type="datetime-local" id="eAptAt" class="span2" value="'+esc(x.apt_at?toLocalDT(x.apt_at):'')+'">'
+  +   '<label>送信先メール</label><input type="text" id="eAptEmail" class="span2" placeholder="相手のメールアドレス" value="'+esc(x.apt_email||'')+'">'
+  +   '<label>Meet URL</label><input type="text" id="eAptMeet" class="span2" placeholder="Googleカレンダーで発行したMeetリンクを貼る" value="'+esc(x.apt_meet_url||'')+'">'
+  +   '<div class="span2" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;">'
+  +     '<button class="btn" onclick="copyApptMsg()">📧 送信文をコピー</button>'
+  +     (x.apt_meet_sent
+        ? '<button class="btn" onclick="markMeetSent(false)" style="background:#f0fff4;border-color:#9ae6b4;color:#276749;">✓ 送信済み（クリックで取消）</button>'
+        : '<button class="btn btn-primary" onclick="markMeetSent(true)">✅ Meet送信済みにする</button>')
+  +   '</div>'
+  +   ((x.apt_getter||x.apt_reason||x.apt_memo||x.apt_env||x.apt_got_at||x.apt_person)
+      ? '<div class="span2" style="font-size:11.5px;color:#4a5568;background:#f7fafc;border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-top:4px;white-space:pre-wrap;">'
+        + (x.apt_person?'<b>担当:</b> '+esc(x.apt_person)+(x.apt_role?'（'+esc(x.apt_role)+'）':'')+'\n':'')
+        + (x.apt_getter?'<b>獲得:</b> '+esc(x.apt_getter)+(x.apt_got_at?'（'+esc(x.apt_got_at)+'）':'')+'\n':'')
+        + (x.apt_env?'<b>商談環境:</b> '+esc(x.apt_env)+'\n':'')
+        + (x.apt_test_closing?'<b>テストクロージング:</b> '+esc(x.apt_test_closing)+'\n':'')
+        + (x.apt_reason?'<b>アポOK理由:</b>\n'+esc(x.apt_reason)+'\n':'')
+        + (x.apt_memo?'<b>備考:</b>\n'+esc(x.apt_memo):'')
+        + '</div>'
+      : '')
   +   '<label>ネクストアクション</label><div class="span2" style="display:flex;gap:6px;">'
   +     '<select id="eNextKind" style="flex:1;"><option value="">（未設定）</option>'
   +       NEXT_KINDS.map(function(k){return '<option'+(k===(x.next_action_kind||'')?' selected':'')+'>'+esc(k)+'</option>';}).join('')
@@ -1269,6 +1297,9 @@ function saveLead(){
     next_action_date:  el('eNextDate').value || null,
     doc_method:        el('eDocMethod').value || null,
     memo:              el('eMemo').value.trim() || null,
+    apt_at:            (el('eAptAt')&&el('eAptAt').value) ? new Date(el('eAptAt').value).toISOString() : null,
+    apt_email:         (el('eAptEmail')&&el('eAptEmail').value.trim()) || null,
+    apt_meet_url:      (el('eAptMeet')&&el('eAptMeet').value.trim()) || null,
     hr_start_date:     el('eHrStartDate').value || null,
     hr_drive_url:      el('eHrDriveUrl').value.trim() || null,
     hr_monthly_apps:   el('eHrMonthly').value!==''? parseInt(el('eHrMonthly').value,10) : null,
@@ -1319,8 +1350,155 @@ function issueHearingFormUrl(){
   window.open(url,'_blank');
 }
 
-// 案シスの登録支援機関マスタ(support_orgs)に登録する
-// 营シスが持つ項目 → support_orgs のカラム対応
+/* ============ アポ管理（Meetリンク送り忘れ対策） ============ */
+var apptOnly = false;
+function toggleApptOnly(){ apptOnly = !apptOnly; page=0; var c=el('apptChip'); if(c) c.style.background = apptOnly?'#c53030':'#fff5f5', c.style.color = apptOnly?'#fff':'#c53030'; load(); }
+function toLocalDT(iso){ try{ var d=new Date(iso); var p=function(n){return('0'+n).slice(-2);}; return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes()); }catch(e){ return ''; } }
+function apptCell(x){
+  if(!x.apt_at){ return x.meeting_date ? esc(x.meeting_date)+(x.meeting_kind?'<div class="sub">'+esc(x.meeting_kind)+'</div>':'') : '—'; }
+  var d=new Date(x.apt_at), p=function(n){return('0'+n).slice(-2);};
+  var s=(d.getMonth()+1)+'/'+d.getDate()+' '+p(d.getHours())+':'+p(d.getMinutes());
+  if(x.apt_meet_sent){ return esc(s)+'<div><span class="apt-chip apt-sent">✓Meet送信済</span></div>'; }
+  var soon=(d.getTime()-Date.now())<2*86400000;
+  return esc(s)+'<div><span class="apt-chip apt-pending'+(soon?' apt-soon':'')+'">🔴Meet未送信</span></div>';
+}
+function refreshApptChip(){
+  _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).not('apt_at','is',null).eq('apt_meet_sent',false).then(function(r){
+    var n=r.count||0, c=el('apptChip'); if(!c) return;
+    el('apptChipN').textContent=n; c.style.display = n>0 ? '' : (apptOnly?'':'none');
+  });
+}
+function copyApptMsg(){
+  if(!curLead) return;
+  var url=(el('eAptMeet')&&el('eAptMeet').value.trim())||'';
+  var atv=(el('eAptAt')&&el('eAptAt').value)||'';
+  var when='', d=null;
+  if(atv){ d=new Date(atv); var wd=['日','月','火','水','木','金','土'][d.getDay()]; var p=function(n){return('0'+n).slice(-2);}; when=(d.getMonth()+1)+'/'+d.getDate()+'('+wd+')'+p(d.getHours())+':'+p(d.getMinutes()); }
+  var person=(curLead.apt_person||'').replace(/\/.*$/,'').replace(/様$/,'')||'ご担当者';
+  var body='件名：'+(when?when+' ':'')+'オンライン商談のご案内（大房行政書士法人）\n\n'
+    + esc0(curLead.name||'')+'\n'+person+'様\n\n'
+    + 'お世話になっております。大房行政書士法人でございます。\n'
+    + (when?when+'〜':'')+'のオンライン商談につきまして、下記URLよりご参加ください。\n\n'
+    + '▼参加リンク（Google Meet）\n'+(url||'（Meet URLをここに）')+'\n\n'
+    + '当日は、行政書士法改正に伴う企業リスクや直近の入管監査に関する情報を共有させていただきます。\n'
+    + 'どうぞよろしくお願いいたします。';
+  if(!url){ if(!confirm('Meet URLが未入力です。URL欄が空のまま送信文をコピーしますか？')) return; }
+  navigator.clipboard.writeText(body).then(function(){ showMsg('dMsg','送信文をコピーしました。メールに貼り付けてください','ok'); },
+    function(){ alert(body); });
+}
+function esc0(s){ return s==null?'':String(s); }
+function markMeetSent(flag){
+  if(!curLead) return;
+  var patch = flag ? {apt_meet_sent:true, apt_meet_sent_at:new Date().toISOString()} : {apt_meet_sent:false, apt_meet_sent_at:null};
+  _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
+    if(r.error){ showMsg('dMsg','更新に失敗しました：'+r.error.message,'err'); return; }
+    curLead.apt_meet_sent=flag; showMsg('dMsg', flag?'Meet送信済みにしました':'未送信に戻しました','ok');
+    openDrawer(curLead.reg_no); load(); refreshApptChip();
+  });
+}
+// --- 取込モーダル ---
+function openApptImport(){
+  var box=el('apptBox');
+  if(!box){
+    box=document.createElement('div'); box.id='apptBox';
+    box.style.cssText='display:none;position:fixed;z-index:65;top:50%;left:50%;transform:translate(-50%,-50%);width:min(680px,95vw);max-height:90vh;overflow-y:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 30px rgba(0,0,0,.18);';
+    document.body.appendChild(box);
+    var ov=document.createElement('div'); ov.id='apptOv'; ov.className='overlay'; ov.style.zIndex='64'; ov.onclick=closeApptImport; document.body.appendChild(ov);
+  }
+  box.innerHTML='<h2 style="margin:0 0 4px;font-size:18px;color:var(--accent);">📥 アポ取込</h2>'
+    + '<p style="margin:0 0 10px;font-size:12px;color:var(--muted);">ChatWorkの【アポ獲得報告】の本文をそのまま貼り付けて「解析」を押してください。</p>'
+    + '<textarea id="apptText" style="width:100%;min-height:200px;font-size:12.5px;border:1px solid var(--line);border-radius:8px;padding:10px;" placeholder="【アポ獲得報告】…"></textarea>'
+    + '<div style="text-align:right;margin-top:8px;"><button class="btn btn-primary" onclick="apptParsePreview()">🔍 解析する</button></div>'
+    + '<div id="apptPrev"></div>';
+  box.style.display='block'; el('apptOv').classList.add('on');
+}
+function closeApptImport(){ var b=el('apptBox'); if(b) b.style.display='none'; var o=el('apptOv'); if(o) o.classList.remove('on'); _apptParsed=null; }
+var _apptParsed=null;
+function parseAppt(t){
+  var map={}, re=/【([^】]+)】[ \t]*\r?\n?([\s\S]*?)(?=\r?\n【[^】]+】|$)/g, m;
+  while((m=re.exec(t))){ map[m[1].trim()]=(m[2]||'').trim(); }
+  return map;
+}
+function parseAptAt(s){
+  if(!s) return null;
+  var m=s.match(/(\d{1,2})\s*[\/月]\s*(\d{1,2})[^\d]*?(\d{1,2})\s*[:：]\s*(\d{2})/);
+  var mo,da,hh,mi;
+  if(m){ mo=+m[1];da=+m[2];hh=+m[3];mi=+m[4]; }
+  else { var m2=s.match(/(\d{1,2})\s*[\/月]\s*(\d{1,2})/); if(!m2) return null; mo=+m2[1];da=+m2[2];hh=0;mi=0; }
+  var now=new Date(), y=now.getFullYear();
+  var d=new Date(y,mo-1,da,hh,mi,0);
+  if(d.getTime()-now.getTime() < -7*86400000){ d=new Date(y+1,mo-1,da,hh,mi,0); }
+  return d;
+}
+function apptParsePreview(){
+  var t=el('apptText').value||''; if(!t.trim()){ alert('本文を貼り付けてください'); return; }
+  var mp=parseAppt(t);
+  var emailM=t.match(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/);
+  var envM=(mp['備考']||'').match(/商談環境[：: ]*\s*([SABC])/);
+  var atd=parseAptAt(mp['商談日時']||'');
+  var d={
+    name: mp['会社名']||'', website: mp['会社HP']||'', tel:(mp['電話番号']||'').replace(/[^0-9]/g,''),
+    address: mp['住所']||'', apt_person: mp['担当者名']||'', apt_role: mp['役職']||'', apt_dept: mp['所属部署名']||'',
+    apt_getter: mp['アポ獲得者']||'', apt_got_at: mp['アポ獲得日']||'',
+    apt_test_closing: mp['テストクロージング']||'', apt_reason: mp['アポOKいただけた理由']||'', apt_memo: mp['備考']||'',
+    apt_env: envM?envM[1]:'', apt_email: emailM?emailM[0]:'', apt_at: atd?atd.toISOString():null, apt_raw: t
+  };
+  _apptParsed=d;
+  if(!d.name){ el('apptPrev').innerHTML='<div style="color:#c53030;margin-top:10px;">会社名が読み取れませんでした。フォーマットをご確認ください。</div>'; return; }
+  var atLabel = atd ? ((atd.getMonth()+1)+'/'+atd.getDate()+' '+('0'+atd.getHours()).slice(-2)+':'+('0'+atd.getMinutes()).slice(-2)) : '（未取得）';
+  var rows=[['会社名',d.name],['商談日時',atLabel],['送信先メール',d.apt_email||'（本文に無し）'],['担当者',d.apt_person+(d.apt_role?'（'+d.apt_role+'）':'')],['電話',d.tel],['住所',d.address],['アポ獲得者',d.apt_getter],['商談環境',d.apt_env||'—']];
+  el('apptPrev').innerHTML='<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px;">'
+    + '<div style="font-size:13px;font-weight:600;margin-bottom:6px;">解析結果</div>'
+    + '<table style="width:100%;font-size:12.5px;border-collapse:collapse;">'
+    + rows.map(function(r){return '<tr><td style="padding:3px 8px;color:#718096;white-space:nowrap;vertical-align:top;">'+esc(r[0])+'</td><td style="padding:3px 8px;">'+esc(r[1]||'—')+'</td></tr>';}).join('')
+    + '</table>'
+    + '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;">'
+    + '<button class="btn" onclick="closeApptImport()">キャンセル</button>'
+    + '<button class="btn btn-primary" onclick="apptDoImport()">この内容で登録</button></div>'
+    + '<p style="font-size:11px;color:var(--muted);margin:8px 0 0;">既存リードに会社名/電話が一致すればそのリードにアポ情報を追記します。無ければ新規リードを作成します。</p></div>';
+}
+function apptDoImport(){
+  if(!_apptParsed||!_apptParsed.name) return;
+  var d=_apptParsed;
+  var aptFields={ apt_at:d.apt_at, apt_getter:d.apt_getter||null, apt_got_at:d.apt_got_at||null, apt_person:d.apt_person||null,
+    apt_role:d.apt_role||null, apt_dept:d.apt_dept||null, apt_email:d.apt_email||null, apt_test_closing:d.apt_test_closing||null,
+    apt_reason:d.apt_reason||null, apt_env:d.apt_env||null, apt_memo:d.apt_memo||null, apt_raw:d.apt_raw||null,
+    apt_meet_sent:false, apt_meet_sent_at:null, updated_at:new Date().toISOString() };
+  if(d.apt_at){ aptFields.meeting_date=d.apt_at.slice(0,10); if(!aptFields.meeting_kind) aptFields.meeting_kind='オンライン'; }
+  // 既存照合：会社名 完全一致 → 電話一致
+  var finder=_sb.from('eigyo_leads').select('reg_no,name,tel,status,pref,city,address,website').eq('name', d.name);
+  finder.then(function(r){
+    var hit=(r.data&&r.data.length)?r.data[0]:null;
+    if(!hit && d.tel){
+      _sb.from('eigyo_leads').select('reg_no,name,status,pref,city,address,website').eq('tel', d.tel).then(function(r2){
+        applyImport((r2.data&&r2.data.length)?r2.data[0]:null, d, aptFields);
+      });
+    } else { applyImport(hit, d, aptFields); }
+  });
+}
+function applyImport(hit, d, aptFields){
+  if(hit){
+    // 既存の空欄だけ補完（住所・HP）＋アポ情報を追記。ステータスは未接触なら商談予定へ
+    var patch=Object.assign({}, aptFields);
+    if(!hit.address && d.address) patch.address=d.address;
+    if(!hit.website && d.website) patch.website=d.website;
+    if(hit.status==='未接触'||!hit.status) patch.status='商談予定';
+    _sb.from('eigyo_leads').update(patch).eq('reg_no', hit.reg_no).then(function(u){
+      if(u.error){ alert('登録に失敗しました：'+u.error.message); return; }
+      closeApptImport(); load(); refreshApptChip(); openDrawer(hit.reg_no);
+    });
+  } else {
+    var regNo='M-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
+    var rec=Object.assign({ reg_no:regNo, name:d.name, tel:d.tel||null, address:d.address||null, website:d.website||null,
+      entity_type:null, status:'商談予定', is_manual:true, source:'アポ取込', source_date:today(), created_at:new Date().toISOString() }, aptFields);
+    _sb.from('eigyo_leads').insert(rec).then(function(ins){
+      if(ins.error){ alert('新規登録に失敗しました：'+ins.error.message); return; }
+      closeApptImport(); load(); refreshApptChip(); openDrawer(regNo);
+    });
+  }
+}
+
+
 var MASTER_MAP = [
   {k:'name',            label:'名称',        v:function(l){return l.name;}},
   {k:'reg_date',        label:'登録日',      v:function(l){return l.reg_date;}},
