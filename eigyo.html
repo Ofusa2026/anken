@@ -210,7 +210,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.13</div>
+      <div class="ver">ver.20260824.15</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -1387,14 +1387,42 @@ function showRemindModal(list, key){
       + '<button class="btn btn-primary" onclick="remindOpen(\''+esc(x.reg_no)+'\')">開く</button>'
       + '</div>';
   });
+  h+='<div style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px;">'
+    + '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;">商談中などで後で確認したいとき（この時刻にまた出します）：</div>'
+    + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
+    + '<button class="btn" onclick="remindSnooze(30)">⏰ 30分後</button>'
+    + '<button class="btn" onclick="remindSnooze(60)">⏰ 1時間後</button>'
+    + '<span style="color:var(--muted);font-size:12px;">または</span>'
+    + '<input type="time" id="remindTime" style="padding:4px 6px;border:1px solid var(--line);border-radius:6px;">'
+    + '<button class="btn" onclick="remindSnoozeAt()">この時刻に再通知</button>'
+    + '</div></div>';
   h+='<div style="display:flex;justify-content:space-between;gap:10px;margin-top:16px;">'
     + '<button class="btn" onclick="remindDone(\''+esc(key)+'\')">今日はもう表示しない</button>'
     + '<button class="btn btn-primary" onclick="closeRemindModal()">閉じる</button></div>';
   box.innerHTML=h; box.style.display='block';
 }
 function closeRemindModal(){ var b=el('remindBox'); if(b) b.style.display='none'; var o=el('remindOv'); if(o) o.remove(); }
-function remindDone(key){ try{ localStorage.setItem(key,'done'); }catch(e){} closeRemindModal(); }
+function remindDone(key){ try{ localStorage.setItem(key,'done'); }catch(e){} if(_remindTimer){ clearTimeout(_remindTimer); _remindTimer=null; } closeRemindModal(); }
 function remindOpen(regNo){ closeRemindModal(); openDrawer(regNo); }
+// --- スヌーズ（再通知） ---
+var _remindTimer=null;
+function scheduleRemind(ms){ if(_remindTimer) clearTimeout(_remindTimer); _remindTimer=setTimeout(function(){ _remindTimer=null; checkTomorrowReminder(); }, ms); }
+function remindSnooze(min){ scheduleRemind(min*60000); closeRemindModal(); remindToast(min+'分後に再通知します'); }
+function remindSnoozeAt(){
+  var v=el('remindTime')&&el('remindTime').value; if(!v){ alert('再通知する時刻を入力してください'); return; }
+  var pp=v.split(':'), now=new Date();
+  var target=new Date(now.getFullYear(),now.getMonth(),now.getDate(),+pp[0],+pp[1],0);
+  if(target.getTime()<=now.getTime()){ alert('現在より後の時刻を指定してください'); return; }
+  scheduleRemind(target.getTime()-now.getTime());
+  closeRemindModal(); remindToast(v+' に再通知します');
+}
+function remindToast(msg){
+  var t=document.createElement('div');
+  t.textContent='🔔 '+msg;
+  t.style.cssText='position:fixed;z-index:80;left:50%;bottom:24px;transform:translateX(-50%);background:#2d3748;color:#fff;padding:10px 18px;border-radius:20px;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.25);';
+  document.body.appendChild(t);
+  setTimeout(function(){ t.style.transition='opacity .4s'; t.style.opacity='0'; setTimeout(function(){ t.remove(); },400); }, 2600);
+}
 
 var apptOnly = false;
 function toggleApptOnly(){ apptOnly = !apptOnly; page=0; var c=el('apptChip'); if(c) c.style.background = apptOnly?'#c53030':'#fff5f5', c.style.color = apptOnly?'#fff':'#c53030'; load(); }
@@ -1509,7 +1537,7 @@ function parseApptAny(t){
     apt_person:mp['担当者名']||'', apt_role:mp['役職']||'', apt_dept:mp['所属部署名']||'',
     apt_getter:mp['アポ獲得者']||'', apt_got_at:mp['アポ獲得日']||'',
     apt_test_closing:mp['テストクロージング']||'', apt_reason:mp['アポOKいただけた理由']||'', apt_memo:mp['備考']||'',
-    apt_env:envM?envM[1]:'', apt_email:pickClientEmail(t,website), apt_at:a?a.toISOString():null, apt_raw:t };
+    apt_env:envM?envM[1]:'', apt_email:pickClientEmail(t,website), apt_at:a?a.toISOString():null, apt_raw:t, _phones:ph.all||[], _suspects:ph.suspects||[] };
 }
 // ディグロス形式（■ラベル：値）
 function parseApptB(t){
@@ -1525,7 +1553,7 @@ function parseApptB(t){
     apt_person:person, apt_role:'', apt_dept:gc('部署名'),
     apt_getter:'ディグロス', apt_got_at:'',
     apt_test_closing:'', apt_reason:reason, apt_memo:memo,
-    apt_env:'', apt_email:pickClientEmail(t,website), apt_at:a?a.toISOString():null, apt_raw:t };
+    apt_env:'', apt_email:pickClientEmail(t,website), apt_at:a?a.toISOString():null, apt_raw:t, _phones:ph.all||[], _suspects:ph.suspects||[] };
 }
 function apptParsePreview(){
   var t=el('apptText').value||''; if(!t.trim()){ alert('本文を貼り付けてください'); return; }
@@ -1543,14 +1571,51 @@ function apptParsePreview(){
     + '<table style="width:100%;font-size:12.5px;border-collapse:collapse;">'
     + rows.map(function(r){return '<tr><td style="padding:3px 8px;color:#718096;white-space:nowrap;vertical-align:top;">'+esc(r[0])+'</td><td style="padding:3px 8px;">'+esc(r[1]||'—')+'</td></tr>';}).join('')
     + '</table>'
+    + apptPhoneWarnHtml(d)
     + '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;">'
     + '<button class="btn" onclick="closeApptImport()">キャンセル</button>'
     + '<button class="btn btn-primary" onclick="apptDoImport()">この内容で登録</button></div>'
     + '<p style="font-size:11px;color:var(--muted);margin:8px 0 0;">既存リードに会社名/電話が一致すればそのリードにアポ情報を追記します。無ければ新規リードを作成します。</p></div></div>';
 }
+function apptPhoneWarnHtml(d){
+  var sus=(d._phones||[]).filter(function(p){return p.suspect;});
+  if(!sus.length) return '';
+  var h='<div style="background:#fffbeb;border:1px solid #f6c453;border-radius:8px;padding:10px 12px;margin-top:10px;">'
+    + '<div style="font-weight:600;font-size:12.5px;color:#8a6d3b;margin-bottom:6px;">⚠️ 電話番号を確認してください（自動判定で不確かなものがあります）</div>';
+  (d._phones||[]).forEach(function(p,i){
+    if(!p.suspect) return;
+    var fixLabel = p.suggest ? '先頭に0を補って使う（'+esc(p.suggest)+'）' : 'このまま使う';
+    h+='<div style="font-size:12px;margin-bottom:8px;">'
+      + '<div style="margin-bottom:3px;">読み取った番号：<b>'+esc(p.raw)+'</b>（'+esc(''+p.digits.length)+'桁）</div>';
+    if(p.suggest){
+      h+='<label style="display:block;cursor:pointer;"><input type="radio" name="ph_'+i+'" value="fix" checked> '+esc(fixLabel)+'</label>';
+      h+='<label style="display:block;cursor:pointer;"><input type="radio" name="ph_'+i+'" value="raw"> そのまま使う（'+esc(p.digits)+'）</label>';
+    } else {
+      h+='<label style="display:block;cursor:pointer;"><input type="radio" name="ph_'+i+'" value="raw" checked> そのまま使う（'+esc(p.digits)+'）</label>';
+    }
+    h+='<label style="display:block;cursor:pointer;"><input type="radio" name="ph_'+i+'" value="skip"> 電話は取り込まない</label>';
+    h+='</div>';
+  });
+  return h+'</div>';
+}
+// プレビューの選択を反映して d.tel / d.tel_display を確定
+function resolvePhones(d){
+  var list=[];
+  (d._phones||[]).forEach(function(p,i){
+    if(!p.suspect){ list.push(p.raw); return; }
+    var sel=document.querySelector('input[name="ph_'+i+'"]:checked');
+    var v=sel?sel.value:(p.suggest?'fix':'raw');
+    if(v==='skip') return;
+    if(v==='fix' && p.suggest) list.push(p.suggest);
+    else list.push(p.digits);
+  });
+  d.tel_display = list.join(' / ');
+  d.tel = list.length ? list[0].replace(/[^0-9]/g,'') : '';
+}
 function apptDoImport(){
   if(!_apptParsed||!_apptParsed.name) return;
   var d=_apptParsed;
+  resolvePhones(d);
   var aptFields={ apt_at:d.apt_at, apt_getter:d.apt_getter||null, apt_got_at:d.apt_got_at||null, apt_person:d.apt_person||null,
     apt_role:d.apt_role||null, apt_dept:d.apt_dept||null, apt_email:d.apt_email||null, apt_test_closing:d.apt_test_closing||null,
     apt_reason:d.apt_reason||null, apt_env:d.apt_env||null, apt_memo:d.apt_memo||null, apt_raw:d.apt_raw||null,
@@ -1561,7 +1626,7 @@ function apptDoImport(){
   finder.then(function(r){
     var hit=(r.data&&r.data.length)?r.data[0]:null;
     if(!hit && d.tel){
-      _sb.from('eigyo_leads').select('reg_no,name,status,pref,city,address,website,contacts').eq('tel', d.tel).then(function(r2){
+      _sb.from('eigyo_leads').select('reg_no,name,tel,status,pref,city,address,website,contacts').eq('tel', d.tel).then(function(r2){
         applyImport((r2.data&&r2.data.length)?r2.data[0]:null, d, aptFields);
       });
     } else { applyImport(hit, d, aptFields); }
@@ -1578,20 +1643,27 @@ function parsePhones(block){
   var found=[];
   block.split(/\r?\n/).forEach(function(ln){
     var prio=/優先/.test(ln);
-    (ln.match(/0\d[\d\-()\s]{7,}\d/g)||[]).forEach(function(x){
+    (ln.match(/\d[\d\-()\s]{6,}\d/g)||[]).forEach(function(x){
       var digits=x.replace(/[^0-9]/g,'');
-      if(digits.length>=10 && digits.length<=11) found.push({raw:x.replace(/\s+/g,'').trim(), digits:digits, prio:prio});
+      if(digits.length<8 || digits.length>12) return;   // 明らかに電話でない
+      var valid=(digits.length>=10 && digits.length<=11 && digits.charAt(0)==='0');
+      var suspect=false, suggest='';
+      if(!valid){
+        if(digits.length===9 && digits.charAt(0)!=='0'){ suspect=true; suggest='0'+digits; }        // 先頭0欠け
+        else if(digits.length===10 && digits.charAt(0)!=='0'){ suspect=true; suggest='0'+digits; }   // 携帯等の0欠け
+        else { suspect=true; }                                                                        // 桁数変・その他
+      }
+      found.push({digits:digits, raw:x.replace(/\s+/g,'').trim(), prio:prio, suspect:suspect, suggest:suggest});
     });
   });
-  if(!found.length){
-    (block.match(/0\d[\d\-()\s]{7,}\d/g)||[]).forEach(function(x){
-      var digits=x.replace(/[^0-9]/g,'');
-      if(digits.length>=10 && digits.length<=11) found.push({raw:x.replace(/\s+/g,'').trim(), digits:digits, prio:false});
-    });
-  }
   found.sort(function(a,b){ return (b.prio?1:0)-(a.prio?1:0); });
   var uniq=[], seen={}; found.forEach(function(f){ if(!seen[f.digits]){ seen[f.digits]=1; uniq.push(f); } });
-  return { primary: uniq.length?uniq[0].digits:'', display: uniq.map(function(f){return f.raw;}).join(' / '), all:uniq };
+  return {
+    primary: uniq.length?(uniq[0].suspect&&uniq[0].suggest?uniq[0].suggest:uniq[0].digits):'',
+    display: uniq.map(function(f){return f.raw;}).join(' / '),
+    all: uniq,
+    suspects: uniq.filter(function(f){return f.suspect;})
+  };
 }
 // 既に取り込み済みのリードで、アポの担当者情報を「先方の担当者1」に反映
 function fillContactFromAppt(){
@@ -1616,6 +1688,16 @@ function applyImport(hit, d, aptFields){
     var patch=Object.assign({}, aptFields);
     if(!hit.address && d.address) patch.address=d.address;
     if(!hit.website && d.website) patch.website=d.website;
+    // 会社電話：空なら入れる／既存と違う番号は2つ並記
+    if(d.tel_display){
+      if(!hit.tel){ patch.tel=d.tel_display; }
+      else {
+        var exd=(hit.tel.match(/\d{9,11}/g)||[]);
+        var news=d.tel_display.split(' / ');
+        var add=news.filter(function(s){ return exd.indexOf(s.replace(/[^0-9]/g,''))<0; });
+        if(add.length) patch.tel=hit.tel+' / '+add.join(' / ');
+      }
+    }
     if(hit.status==='未接触'||!hit.status) patch.status='商談予定';
     if(!hit.contacts || !hit.contacts.length){ var c=apptContact(d); if(c) patch.contacts=[c]; }  // 担当者が未登録なら自動セット
     _sb.from('eigyo_leads').update(patch).eq('reg_no', hit.reg_no).then(function(u){
@@ -1625,7 +1707,7 @@ function applyImport(hit, d, aptFields){
   } else {
     var regNo='M-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
     var c2=apptContact(d);
-    var rec=Object.assign({ reg_no:regNo, name:d.name, tel:d.tel||null, address:d.address||null, website:d.website||null,
+    var rec=Object.assign({ reg_no:regNo, name:d.name, tel:(d.tel_display||d.tel)||null, address:d.address||null, website:d.website||null,
       entity_type:null, status:'商談予定', is_manual:true, source:'アポ取込', source_date:today(),
       contacts:c2?[c2]:[], created_at:new Date().toISOString() }, aptFields);
     _sb.from('eigyo_leads').insert(rec).then(function(ins){
