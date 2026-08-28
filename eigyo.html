@@ -210,7 +210,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.15</div>
+      <div class="ver">ver.20260824.19</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -709,6 +709,8 @@ function onLoggedIn(session){
   loadStaff();
   load();
   checkTomorrowReminder();
+  checkFollowupReminder();
+  checkThanksReminder();
 }
 
 /* ---------------- 初期化 ---------------- */
@@ -1067,6 +1069,14 @@ function renderDrawer(){
         : '<button class="btn btn-primary" onclick="markMeetSent(true)">✅ Meet送信済みにする</button>')
   +     ((x.apt_person||x.apt_email||x.apt_role) ? '<button class="btn" onclick="fillContactFromAppt()">👤 担当者欄に反映</button>' : '')
   +   '</div>'
+  +   '<label class="span2" style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#4a5568;margin-top:2px;cursor:pointer;"><input type="checkbox" id="eAptResched" '+(x.apt_reschedule?'checked':'')+' onchange="apptSetReschedule(curLead.reg_no,this.checked)"> リスケ中（日程調整中：決まるまでリマインドを停止）</label>'
+  +   '<label class="span2" style="margin:8px 0 -2px;font-weight:700;color:#2b6cb0;">📄 御礼メール（商談後・資料PDF添付）</label>'
+  +   '<div class="span2" style="display:flex;gap:8px;flex-wrap:wrap;">'
+  +     '<button class="btn" onclick="copyThanksMsg()">📄 御礼文をコピー</button>'
+  +     (x.thanks_sent
+        ? '<button class="btn" onclick="markThanksSent(false)" style="background:#f0fff4;border-color:#9ae6b4;color:#276749;">✓ 御礼送信済み（クリックで取消）</button>'
+        : '<button class="btn btn-primary" onclick="markThanksSent(true)">✅ 御礼メール送信済みにする</button>')
+  +   '</div>'
   +   ((x.apt_getter||x.apt_reason||x.apt_memo||x.apt_env||x.apt_got_at||x.apt_person)
       ? '<div class="span2" style="font-size:11.5px;color:#4a5568;background:#f7fafc;border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-top:4px;white-space:pre-wrap;">'
         + (x.apt_person?'<b>担当:</b> '+esc(x.apt_person)+(x.apt_role?'（'+esc(x.apt_role)+'）':'')+'\n':'')
@@ -1084,6 +1094,7 @@ function renderDrawer(){
   +     '<input type="date" id="eNextDate" value="'+esc(x.next_action_date||'')+'" style="flex:1;">'
   +   '</div>'
   +   '<label class="full" style="margin-bottom:-4px;">メモ（社内用）</label><textarea id="eMemo" class="full" placeholder="社内メモ（自由記入）" style="min-height:110px;">'+esc(x.memo||'')+'</textarea>'
+  +   '<label class="full" style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#4a5568;margin-top:6px;cursor:pointer;"><input type="checkbox" id="eNoMail" '+(x.no_mail?'checked':'')+'> ✉️ メール配信不要（メルマガ等の一斉配信から除外する）</label>'
   + '</div>'
   + '<div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="saveLead()">保存</button></div>'
   + '</div>'  /* end 営業管理sec */
@@ -1299,9 +1310,11 @@ function saveLead(){
     next_action_date:  el('eNextDate').value || null,
     doc_method:        el('eDocMethod').value || null,
     memo:              el('eMemo').value.trim() || null,
+    no_mail:           !!(el('eNoMail')&&el('eNoMail').checked),
     apt_at:            (el('eAptAt')&&el('eAptAt').value) ? new Date(el('eAptAt').value).toISOString() : null,
     apt_email:         (el('eAptEmail')&&el('eAptEmail').value.trim()) || null,
     apt_meet_url:      extractMeetUrl((el('eAptMeet')&&el('eAptMeet').value)||'') || null,
+    apt_reschedule:    !!(el('eAptResched')&&el('eAptResched').checked),
     hr_start_date:     el('eHrStartDate').value || null,
     hr_drive_url:      el('eHrDriveUrl').value.trim() || null,
     hr_monthly_apps:   el('eHrMonthly').value!==''? parseInt(el('eHrMonthly').value,10) : null,
@@ -1355,37 +1368,40 @@ function issueHearingFormUrl(){
 /* ============ アポ管理（Meetリンク送り忘れ対策） ============ */
 // 前日リマインド：翌日アポ×Meet未送信をポップアップで強制表示
 function checkTomorrowReminder(){
-  var now=new Date();
-  var t0=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1,0,0,0);
-  var t1=new Date(now.getFullYear(),now.getMonth(),now.getDate()+2,0,0,0);
-  var key='apptRemind:'+t0.getFullYear()+('0'+(t0.getMonth()+1)).slice(-2)+('0'+t0.getDate()).slice(-2);
-  try{ if(localStorage.getItem(key)==='done') return; }catch(e){}
   _sb.from('eigyo_leads').select('reg_no,name,apt_at,apt_email,apt_meet_url')
-    .gte('apt_at', t0.toISOString()).lt('apt_at', t1.toISOString()).eq('apt_meet_sent', false)
+    .not('apt_at','is',null).eq('apt_meet_sent', false).eq('apt_reschedule', false)
     .order('apt_at',{ascending:true}).then(function(r){
-      if(r.error || !r.data || !r.data.length) return;
-      showRemindModal(r.data, key);
+      if(r.error || !r.data || !r.data.length){ closeRemindModal(); return; }
+      showRemindModal(r.data);
   });
 }
-function showRemindModal(list, key){
+function showRemindModal(list){
   var box=el('remindBox');
   if(!box){
     box=document.createElement('div'); box.id='remindBox';
-    box.style.cssText='display:none;position:fixed;z-index:70;top:50%;left:50%;transform:translate(-50%,-50%);width:min(560px,94vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 40px rgba(0,0,0,.25);border-top:6px solid #c53030;';
+    box.style.cssText='display:none;position:fixed;z-index:70;top:50%;left:50%;transform:translate(-50%,-50%);width:min(580px,94vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 40px rgba(0,0,0,.25);border-top:6px solid #c53030;';
     document.body.appendChild(box);
     var ov=document.createElement('div'); ov.id='remindOv'; ov.className='overlay on'; ov.style.zIndex='69'; document.body.appendChild(ov);
   }
   var wd=['日','月','火','水','木','金','土'];
-  var h='<h2 style="margin:0 0 4px;font-size:19px;color:#c53030;">🔔 明日のアポ：Meet未送信 '+list.length+'件</h2>'
-    + '<p style="margin:0 0 14px;font-size:12.5px;color:var(--muted);">明日商談予定なのに、まだMeetリンクを送っていない先です。今日中に送付してください。</p>';
+  var now=new Date(), td=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
+  var h='<h2 style="margin:0 0 4px;font-size:19px;color:#c53030;">🔔 Meetリンク未送信 '+list.length+'件</h2>'
+    + '<p style="margin:0 0 14px;font-size:12.5px;color:var(--muted);">アポ取込済みで、まだMeetリンクを送っていない先です。原則1日以内に共有してください。<br>日程調整中（リスケ）の先は右の「リスケ中」にチェックすると、このリマインドから外れます。</p>';
   list.forEach(function(x){
     var d=new Date(x.apt_at), p=function(n){return('0'+n).slice(-2);};
     var t=(d.getMonth()+1)+'/'+d.getDate()+'('+wd[d.getDay()]+') '+p(d.getHours())+':'+p(d.getMinutes());
+    var ad=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime();
+    var badge='';
+    if(ad<td) badge='<span style="background:#c53030;color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;">期限超過</span>';
+    else if(ad===td) badge='<span style="background:#c53030;color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;">本日</span>';
+    else if(ad===td+86400000) badge='<span style="background:#dd6b20;color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;">明日</span>';
     h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #feb2b2;background:#fff5f5;border-radius:8px;padding:10px 12px;margin-bottom:8px;">'
-      + '<div><div style="font-weight:600;font-size:14px;">'+esc(x.name||'')+'</div>'
+      + '<div><div style="font-weight:600;font-size:14px;">'+esc(x.name||'')+' '+badge+'</div>'
       + '<div style="font-size:12px;color:#c53030;">🕒 '+esc(t)+(x.apt_meet_url?'　<span style="color:#718096;">Meet URL入力済</span>':'　<span style="color:#c53030;">Meet URL未入力</span>')+'</div></div>'
+      + '<div style="display:flex;align-items:center;gap:8px;white-space:nowrap;">'
+      + '<label style="font-size:11px;color:#718096;cursor:pointer;"><input type="checkbox" onchange="apptSetReschedule(\''+esc(x.reg_no)+'\',this.checked)"> リスケ中</label>'
       + '<button class="btn btn-primary" onclick="remindOpen(\''+esc(x.reg_no)+'\')">開く</button>'
-      + '</div>';
+      + '</div></div>';
   });
   h+='<div style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px;">'
     + '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;">商談中などで後で確認したいとき（この時刻にまた出します）：</div>'
@@ -1396,14 +1412,67 @@ function showRemindModal(list, key){
     + '<input type="time" id="remindTime" style="padding:4px 6px;border:1px solid var(--line);border-radius:6px;">'
     + '<button class="btn" onclick="remindSnoozeAt()">この時刻に再通知</button>'
     + '</div></div>';
-  h+='<div style="display:flex;justify-content:space-between;gap:10px;margin-top:16px;">'
-    + '<button class="btn" onclick="remindDone(\''+esc(key)+'\')">今日はもう表示しない</button>'
-    + '<button class="btn btn-primary" onclick="closeRemindModal()">閉じる</button></div>';
+  h+='<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">'
+    + '<button class="btn btn-primary" onclick="closeRemindModal()">閉じる</button></div>'
+    + '<p style="font-size:11px;color:var(--muted);margin:8px 0 0;text-align:right;">※送信するまで、開くたびに表示されます</p>';
   box.innerHTML=h; box.style.display='block';
 }
 function closeRemindModal(){ var b=el('remindBox'); if(b) b.style.display='none'; var o=el('remindOv'); if(o) o.remove(); }
-function remindDone(key){ try{ localStorage.setItem(key,'done'); }catch(e){} if(_remindTimer){ clearTimeout(_remindTimer); _remindTimer=null; } closeRemindModal(); }
+function apptSetReschedule(regNo, checked){
+  _sb.from('eigyo_leads').update({apt_reschedule:checked, updated_at:new Date().toISOString()}).eq('reg_no',regNo).then(function(r){
+    if(r.error){ alert('更新に失敗しました：'+r.error.message); return; }
+    if(curLead && curLead.reg_no===regNo) curLead.apt_reschedule=checked;
+    load(); refreshApptChip(); checkTomorrowReminder();
+  });
+}
 function remindOpen(regNo){ closeRemindModal(); openDrawer(regNo); }
+
+/* ===== 商談後フォローリマインド（商談済み→依頼待ちで最終対応からX日経過） ===== */
+function followupDays(){ try{ var v=parseInt(localStorage.getItem('followupDays'),10); if(v>0) return v; }catch(e){} return 30; }
+function setFollowupDays(v){ v=parseInt(v,10)||30; if(v<1)v=1; try{ localStorage.setItem('followupDays',v); }catch(e){} return v; }
+function checkFollowupReminder(){
+  var days=followupDays();
+  _sb.from('eigyo_leads').select('reg_no,name,updated_at').eq('status','商談済み→依頼待ち').then(function(r){
+    var leads=(r.data)||[]; if(!leads.length){ closeFollowupModal(); return; }
+    var regs=leads.map(function(l){return l.reg_no;});
+    _sb.from('eigyo_notes').select('reg_no,note_date').in('reg_no',regs).then(function(nr){
+      var lastNote={};
+      (nr.data||[]).forEach(function(n){ if(!lastNote[n.reg_no] || n.note_date>lastNote[n.reg_no]) lastNote[n.reg_no]=n.note_date; });
+      var now=Date.now(), overdue=[];
+      leads.forEach(function(l){
+        var last=lastNote[l.reg_no]||(l.updated_at?l.updated_at.slice(0,10):null);
+        var dd = last ? Math.floor((now-new Date(last.length<=10?last+'T00:00:00':last).getTime())/86400000) : 9999;
+        if(dd>=days) overdue.push({name:l.name,reg_no:l.reg_no,last:lastNote[l.reg_no]||null,dd:dd});
+      });
+      overdue.sort(function(a,b){return b.dd-a.dd;});
+      if(overdue.length) showFollowupModal(overdue,days); else closeFollowupModal();
+    });
+  });
+}
+function showFollowupModal(list,days){
+  var box=el('followBox');
+  if(!box){
+    box=document.createElement('div'); box.id='followBox';
+    box.style.cssText='display:none;position:fixed;z-index:72;top:50%;left:50%;transform:translate(-50%,-50%);width:min(580px,94vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 40px rgba(0,0,0,.25);border-top:6px solid #dd6b20;';
+    document.body.appendChild(box);
+    var ov=document.createElement('div'); ov.id='followOv'; ov.className='overlay on'; ov.style.zIndex='71'; document.body.appendChild(ov);
+  }
+  var h='<h2 style="margin:0 0 4px;font-size:19px;color:#dd6b20;">📮 フォロー要 '+list.length+'件</h2>'
+    + '<p style="margin:0 0 10px;font-size:12.5px;color:var(--muted);">商談済み（依頼待ち）で、最終対応から '+days+' 日以上フォローがない先です。メール・電話などのアクションを。<br>対応したら、その会社の「対応履歴」を1件追加すればこのリストから外れます。</p>'
+    + '<div style="font-size:12px;margin-bottom:10px;">経過日数のしきい値：<input type="number" id="followDaysInput" value="'+days+'" min="1" style="width:60px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;"> 日 <button class="btn btn-sm" onclick="followApplyDays()">再判定</button></div>';
+  list.forEach(function(x){
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #fbd38d;background:#fffaf0;border-radius:8px;padding:10px 12px;margin-bottom:8px;">'
+      + '<div><div style="font-weight:600;font-size:14px;">'+esc(x.name||'')+'</div>'
+      + '<div style="font-size:12px;color:#dd6b20;">'+(x.last?'最終対応 '+esc(x.last)+'（'+x.dd+'日前）':'対応履歴なし')+'</div></div>'
+      + '<button class="btn btn-primary" onclick="followOpen(\''+esc(x.reg_no)+'\')">開く</button>'
+      + '</div>';
+  });
+  h+='<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;"><button class="btn btn-primary" onclick="closeFollowupModal()">閉じる</button></div>';
+  box.innerHTML=h; box.style.display='block';
+}
+function closeFollowupModal(){ var b=el('followBox'); if(b) b.style.display='none'; var o=el('followOv'); if(o) o.remove(); }
+function followApplyDays(){ var v=el('followDaysInput')&&el('followDaysInput').value; setFollowupDays(v); checkFollowupReminder(); }
+function followOpen(regNo){ closeFollowupModal(); openDrawer(regNo); }
 // --- スヌーズ（再通知） ---
 var _remindTimer=null;
 function scheduleRemind(ms){ if(_remindTimer) clearTimeout(_remindTimer); _remindTimer=setTimeout(function(){ _remindTimer=null; checkTomorrowReminder(); }, ms); }
@@ -1432,11 +1501,12 @@ function apptCell(x){
   var d=new Date(x.apt_at), p=function(n){return('0'+n).slice(-2);};
   var s=(d.getMonth()+1)+'/'+d.getDate()+' '+p(d.getHours())+':'+p(d.getMinutes());
   if(x.apt_meet_sent){ return esc(s)+'<div><span class="apt-chip apt-sent">✓Meet送信済</span></div>'; }
+  if(x.apt_reschedule){ return esc(s)+'<div><span class="apt-chip" style="background:#edf2f7;color:#4a5568;border:1px solid #cbd5e0;">⏸リスケ中</span></div>'; }
   var soon=(d.getTime()-Date.now())<2*86400000;
   return esc(s)+'<div><span class="apt-chip apt-pending'+(soon?' apt-soon':'')+'">🔴Meet未送信</span></div>';
 }
 function refreshApptChip(){
-  _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).not('apt_at','is',null).eq('apt_meet_sent',false).then(function(r){
+  _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).not('apt_at','is',null).eq('apt_meet_sent',false).eq('apt_reschedule',false).then(function(r){
     var n=r.count||0, c=el('apptChip'); if(!c) return;
     el('apptChipN').textContent=n; c.style.display = n>0 ? '' : (apptOnly?'':'none');
   });
@@ -1479,6 +1549,65 @@ function markMeetSent(flag){
     openDrawer(curLead.reg_no); load(); refreshApptChip();
   });
 }
+/* ===== 御礼メール（商談後＝apt_at経過×御礼未送信）===== */
+function markThanksSent(flag){
+  if(!curLead) return;
+  var patch = flag ? {thanks_sent:true, thanks_sent_at:new Date().toISOString()} : {thanks_sent:false, thanks_sent_at:null};
+  _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
+    if(r.error){ showMsg('dMsg','更新に失敗しました：'+r.error.message,'err'); return; }
+    curLead.thanks_sent=flag; showMsg('dMsg', flag?'御礼メール送信済みにしました':'未送信に戻しました','ok');
+    openDrawer(curLead.reg_no); load(); checkThanksReminder();
+  });
+}
+function copyThanksMsg(){
+  if(!curLead) return;
+  var person=(curLead.apt_person||'').replace(/\/.*$/,'').replace(/様$/,'')||'ご担当者';
+  var body='件名：先日はお時間をいただきありがとうございました（大房行政書士法人）\n\n'
+    + esc0(curLead.name||'')+'\n'+person+'様\n\n'
+    + 'お世話になっております。大房行政書士法人でございます。\n'
+    + '先日はお忙しい中、商談のお時間をいただき誠にありがとうございました。\n\n'
+    + '商談でご説明いたしました資料を添付いたします。ご確認ください。\n'
+    + 'ご不明な点やご相談などございましたら、お気軽にご連絡ください。\n\n'
+    + '今後ともどうぞよろしくお願いいたします。\n\n'
+    + '大房行政書士法人';
+  navigator.clipboard.writeText(body).then(function(){ showMsg('dMsg','御礼文をコピーしました。資料PDFの添付を忘れずに送付してください','ok'); },
+    function(){ alert(body); });
+}
+function checkThanksReminder(){
+  _sb.from('eigyo_leads').select('reg_no,name,apt_at,apt_email')
+    .not('apt_at','is',null).lt('apt_at', new Date().toISOString())
+    .eq('thanks_sent', false).eq('apt_reschedule', false)
+    .order('apt_at',{ascending:true}).then(function(r){
+      if(r.error || !r.data || !r.data.length){ closeThanksModal(); return; }
+      showThanksModal(r.data);
+  });
+}
+function showThanksModal(list){
+  var box=el('thanksBox');
+  if(!box){
+    box=document.createElement('div'); box.id='thanksBox';
+    box.style.cssText='display:none;position:fixed;z-index:74;top:50%;left:50%;transform:translate(-50%,-50%);width:min(580px,94vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 40px rgba(0,0,0,.25);border-top:6px solid #2b6cb0;';
+    document.body.appendChild(box);
+    var ov=document.createElement('div'); ov.id='thanksOv'; ov.className='overlay on'; ov.style.zIndex='73'; document.body.appendChild(ov);
+  }
+  var wd=['日','月','火','水','木','金','土'];
+  var h='<h2 style="margin:0 0 4px;font-size:19px;color:#2b6cb0;">📄 御礼メール未送信 '+list.length+'件</h2>'
+    + '<p style="margin:0 0 14px;font-size:12.5px;color:var(--muted);">商談が終わった（アポ日時を過ぎた）のに、資料PDF付きの御礼メールをまだ送っていない先です。<br>送ったら各社の「✅ 御礼メール送信済みにする」を押してください。</p>';
+  list.forEach(function(x){
+    var d=new Date(x.apt_at), p=function(n){return('0'+n).slice(-2);};
+    var t=(d.getMonth()+1)+'/'+d.getDate()+'('+wd[d.getDay()]+')';
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #bee3f8;background:#ebf8ff;border-radius:8px;padding:10px 12px;margin-bottom:8px;">'
+      + '<div><div style="font-weight:600;font-size:14px;">'+esc(x.name||'')+'</div>'
+      + '<div style="font-size:12px;color:#2b6cb0;">商談日 '+esc(t)+'</div></div>'
+      + '<button class="btn btn-primary" onclick="thanksOpen(\''+esc(x.reg_no)+'\')">開く</button>'
+      + '</div>';
+  });
+  h+='<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;"><button class="btn btn-primary" onclick="closeThanksModal()">閉じる</button></div>'
+    + '<p style="font-size:11px;color:var(--muted);margin:8px 0 0;text-align:right;">※送信するまで、開くたびに表示されます</p>';
+  box.innerHTML=h; box.style.display='block';
+}
+function closeThanksModal(){ var b=el('thanksBox'); if(b) b.style.display='none'; var o=el('thanksOv'); if(o) o.remove(); }
+function thanksOpen(regNo){ closeThanksModal(); openDrawer(regNo); }
 // --- 取込モーダル ---
 function openApptImport(){
   var box=el('apptBox');
@@ -3168,9 +3297,10 @@ function mailRefreshRecipients(){
   var sts=mailSelectedStatuses();
   if(!sts.length){ _mailCandStatus=[]; mailRenderRecipients(); return; }
   el('mailRecipInfo').innerHTML='<span class="sub">集計中…</span>';
-  _sb.from('eigyo_leads').select('reg_no,name,contacts').in('status',sts).then(function(r){
+  _sb.from('eigyo_leads').select('reg_no,name,contacts,no_mail').in('status',sts).then(function(r){
     var rows=(r.data)||[],recips=[];
     rows.forEach(function(x){
+      if(x.no_mail) return;   // メール配信不要は除外
       var emails=mailLeadEmails(x);
       if(emails.length) recips.push({reg_no:x.reg_no,name:x.name,emails:emails});
     });
@@ -3199,7 +3329,8 @@ function mailRenderRecipients(){
   var tot=cur.reduce(function(a,b){return a+b.emails.length;},0);
   var head='<div id="mailRecipCount" style="font-size:13px;"><b>'+cur.length+'</b> 社（<b>'+tot+'</b> 通）が本配信の対象です。'
     +(all.length>cur.length?' <span class="sub">（'+(all.length-cur.length)+'社を除外中）</span>':'')+'</div>'
-    +'<div class="sub" style="font-size:11px;margin:2px 0 4px;">チェックを外した会社には送信されません。</div>';
+    +'<div style="display:flex;gap:8px;margin:4px 0;"><button class="btn btn-sm" onclick="mailSelectAll(true)">全選択</button><button class="btn btn-sm" onclick="mailSelectAll(false)">全解除</button></div>'
+    +'<div class="sub" style="font-size:11px;margin:2px 0 4px;">チェックを外した会社には送信されません。「メール配信不要」の会社は最初から除外されています。</div>';
   var rows=all.map(function(p){
     var ex=!!_mailExcluded[p.reg_no];
     return '<label style="display:flex;align-items:flex-start;gap:6px;padding:2px 0;font-size:12px;'+(ex?'opacity:.45;':'')+'cursor:pointer;">'
@@ -3217,6 +3348,11 @@ function mailToggleRecip(reg,checked){
   if(c) c.innerHTML='<b>'+cur.length+'</b> 社（<b>'+tot+'</b> 通）が本配信の対象です。'
     +(all.length>cur.length?' <span class="sub">（'+(all.length-cur.length)+'社を除外中）</span>':'');
 }
+function mailSelectAll(sel){
+  _mailExcluded={};
+  if(!sel){ mailAllCandidates().forEach(function(p){ _mailExcluded[p.reg_no]=true; }); }
+  mailRenderRecipients();
+}
 
 /* 会社検索（半角⇄全角あいまい）→ 個別追加 */
 var _mailSearchHits=[];
@@ -3227,11 +3363,15 @@ function mailSearchLeads(){
   box.style.display='block'; box.innerHTML='<span class="sub">検索中…</span>';
   var orParts=searchOrParts(kw, ['reg_no','name']);
   if(!orParts.length){ box.innerHTML='<span class="sub">検索語が無効です。</span>'; return; }
-  _sb.from('eigyo_leads').select('reg_no,name,status,contacts').or(orParts.join(',')).limit(15).then(function(r){
+  _sb.from('eigyo_leads').select('reg_no,name,status,contacts,no_mail').or(orParts.join(',')).limit(15).then(function(r){
     var rows=(r.data)||[];
-    _mailSearchHits=rows.map(function(x){ return {reg_no:x.reg_no,name:x.name,status:x.status,emails:mailLeadEmails(x)}; });
+    _mailSearchHits=rows.map(function(x){ return {reg_no:x.reg_no,name:x.name,status:x.status,emails:mailLeadEmails(x),no_mail:!!x.no_mail}; });
     if(!_mailSearchHits.length){ box.innerHTML='<span class="sub">該当なし。別の言葉で検索してください。</span>'; return; }
     box.innerHTML=_mailSearchHits.map(function(p,i){
+      if(p.no_mail){
+        return '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px;color:var(--muted);">'
+          +'<span style="width:52px;"></span><span>'+esc(p.name)+'（'+esc(p.status||'')+'）<span style="font-size:10px;color:#c53030;">配信不要のため追加不可</span></span></div>';
+      }
       if(!p.emails.length){
         return '<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px;color:var(--muted);">'
           +'<span style="width:52px;"></span><span>'+esc(p.name)+'（'+esc(p.status||'')+'）<span style="font-size:10px;">メール未登録</span></span></div>';
