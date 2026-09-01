@@ -5200,7 +5200,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260901.08';
+var OFUSA_VERSION = 'ver.20260901.09';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -111831,16 +111831,27 @@ var FIELD_URL_MAP = {
 var FIELD_BASE_URL = 'https://ofusa2026.github.io/anken/';
 
 // 企業向け分野別案内URLを生成してコピー
-function copyFieldGuideUrl(caseId, applicantField) {
+// 企業案内URL：トークンを発行してURLをコピー（case_idは公開しない・90日有効）
+async function copyFieldGuideUrl(caseId, applicantField) {
   var bunya = _bsBunyaDetect(applicantField);
   var file = FIELD_URL_MAP[bunya];
   if (!file) {
     showToast('⚠️ この分野の案内ページがまだありません（分野：' + (bunya||applicantField||'不明') + '）');
     return;
   }
-  var url = FIELD_BASE_URL + file + '?case_id=' + encodeURIComponent(caseId);
-  copyToClipboard(url);
-  showToast('🔗 企業向け案内URLをコピーしました（' + bunya + '）');
+  showToast('🔗 企業案内URL を発行中…');
+  try {
+    // 既存トークンを失効させて新規発行
+    await _sb.from('field_tokens').update({revoked: true}).eq('case_id', caseId).eq('revoked', false);
+    var res = await _sb.from('field_tokens').insert({case_id: caseId}).select('token').single();
+    if (res.error) throw res.error;
+    var token = res.data.token;
+    var url = FIELD_BASE_URL + file + '?token=' + encodeURIComponent(token);
+    copyToClipboard(url);
+    showToast('🔗 企業向け案内URLをコピーしました（' + bunya + '）※90日間有効');
+  } catch(e) {
+    showToast('⚠️ URLの発行に失敗しました: ' + (e.message || String(e)));
+  }
 }
 var SEIYAKU_DOC_CSS = ".bsdoc .doc{background:#fff;width:794px;min-height:1123px;margin:0 auto;padding:15mm 14mm;box-shadow:0 4px 20px rgba(0,0,0,.3);font-family:'MS Mincho','Yu Mincho','Hiragino Mincho ProN',serif;font-size:10.5pt;line-height:1.35;color:#000;box-sizing:border-box;position:relative;overflow:hidden;}.bsdoc .doc *{font-family:'MS Mincho','Yu Mincho','Hiragino Mincho ProN',serif;}.bsdoc .page-num-label{position:absolute;top:6px;right:10px;font-size:8px;color:#aaa;}";
 var SEIYAKU_PRINT_CSS = "@page{size:A4 portrait;margin:12mm 10mm;}body{margin:0;background:#fff;}.doc{background:#fff;width:100%;min-height:0;margin:0;padding:0;font-family:'MS Mincho','Yu Mincho','Hiragino Mincho ProN',serif;font-size:10.5pt;line-height:1.4;color:#000;box-sizing:border-box;position:relative;}.doc *{font-family:'MS Mincho','Yu Mincho','Hiragino Mincho ProN',serif;}.page-num-label{display:none;}";

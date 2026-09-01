@@ -317,52 +317,105 @@ input[type="file"]{display:none;}
 </div>
 <script>
 
-// Supabaseから案件情報・誓約書URLを取得 v2
-async function loadSeiyakuFolderUrl(caseId) {
-  if (!caseId) return;
+// トークンで案件情報を取得 v2（case_idは使わない・トークン方式）
+async function loadCaseByToken(token) {
+  if (!token) return;
   try {
     const res = await fetch(
-      'https://ehwlgbwpycglmopiqyty.supabase.co/rest/v1/cases?id=eq.' + encodeURIComponent(caseId) + '&select=seiyaku_folder_url,seiyaku_pdf_url,applicant,company',
-      { headers: { 'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVod2xnYndweWNnbG1vcGlxeXR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE2OTU4NjM3NzQsImV4cCI6MjAxMTQzOTc3NH0.qMRT_oe_5rMFCL8GjhvxNHQENSt_MWkuAi5S93VGYOI', 'Accept': 'application/json' } }
+      'https://ehwlgbwpycglmopiqyty.supabase.co/rest/v1/rpc/get_case_by_token',
+      {
+        method: 'POST',
+        headers: {
+          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVod2xnYndweWNnbG1vcGlxeXR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE2OTU4NjM3NzQsImV4cCI6MjAxMTQzOTc3NH0.qMRT_oe_5rMFCL8GjhvxNHQENSt_MWkuAi5S93VGYOI',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({p_token: token})
+      }
     );
     const data = await res.json();
-    if (data && data[0]) {
-      const row = data[0];
-      if (row.company) document.getElementById('companyName').textContent = row.company;
-      if (row.applicant) {
-        const meta = document.querySelector('.case-meta');
-        if (meta) {
-          const el = document.createElement('div');
-          el.className = 'case-meta-item';
-          el.innerHTML = '申請人：<span>' + row.applicant + '</span>';
-          meta.appendChild(el);
-        }
-      }
-      if (row.seiyaku_folder_url || row.seiyaku_pdf_url) {
-        document.getElementById('seiyakuDownloadArea').style.display = 'block';
-        document.getElementById('seiyakuNotReadyArea').style.display = 'none';
-        if (row.seiyaku_pdf_url) {
-          const m = row.seiyaku_pdf_url.match(/[A-Za-z0-9_-]{25,}/);
-          const dlUrl = m ? 'https://drive.google.com/uc?export=download&id=' + m[0] : row.seiyaku_pdf_url;
-          document.getElementById('seiyakuPdfLink').href = dlUrl;
-        } else {
-          document.getElementById('seiyakuPdfLink').style.display = 'none';
-        }
-        if (row.seiyaku_folder_url) {
-          document.getElementById('seiyakuFolderLink').href = row.seiyaku_folder_url;
-        } else {
-          document.getElementById('seiyakuFolderLink').style.display = 'none';
-        }
+    if (!data || data.status === 'error') {
+      // トークン無効・期限切れ
+      document.getElementById('seiyakuNotReadyArea').style.display = 'none';
+      document.getElementById('seiyakuDownloadArea').style.display = 'none';
+      const expired = document.getElementById('tokenExpiredArea');
+      if (expired) expired.style.display = 'block';
+      return;
+    }
+    // 会社名・申請人を表示
+    if (data.company) document.getElementById('companyName').textContent = data.company;
+    if (data.applicant) {
+      const meta = document.querySelector('.case-meta');
+      if (meta) {
+        const el = document.createElement('div');
+        el.className = 'case-meta-item';
+        el.innerHTML = '申請人：<span>' + data.applicant + '</span>';
+        meta.appendChild(el);
       }
     }
+    // 誓約書ダウンロードボタンを表示（常に表示・その場でPDF生成）
+    document.getElementById('seiyakuNotReadyArea').style.display = 'none';
+    document.getElementById('seiyakuDownloadArea').style.display = 'block';
+    // 誓約書生成用にデータを保存
+    window._caseData = data;
+    // ダウンロードボタンにイベントを設定
+    const dlBtn = document.getElementById('seiyakuPdfLink');
+    if (dlBtn) {
+      dlBtn.href = '#';
+      dlBtn.onclick = function(e) {
+        e.preventDefault();
+        generateAndDownloadSeiyaku(data);
+      };
+      dlBtn.querySelector ? null : null;
+    }
+    // フォルダリンクは非表示（トークン方式では不要）
+    const folderLink = document.getElementById('seiyakuFolderLink');
+    if (folderLink) folderLink.style.display = 'none';
   } catch(e) {
-    console.warn('Supabase error:', e);
+    console.warn('トークン取得エラー:', e);
   }
 }
-const params = new URLSearchParams(location.search);
-const _caseId = params.get('case_id') || '';
-document.getElementById('caseId').textContent = _caseId || '—';
-if (_caseId) loadSeiyakuFolderUrl(_caseId);
+
+// 誓約書をその場でPDF生成してDL
+function generateAndDownloadSeiyaku(data) {
+  const name = (data.applicant || '申請人');
+  const company = (data.company || '');
+  const field = (data.applicantField || data.residenceStatus || '');
+  const date = new Date().toLocaleDateString('ja-JP', {year:'numeric',month:'long',day:'numeric'});
+
+  const html = `<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8">
+<style>
+@page{size:A4;margin:20mm;}
+body{font-family:'MS Mincho','Yu Mincho',serif;font-size:10.5pt;line-height:1.8;color:#000;}
+h2{text-align:center;font-size:13pt;margin-bottom:24px;}
+.item{margin-bottom:12px;}
+.label{font-weight:bold;}
+.sign{margin-top:60px;text-align:right;}
+</style></head><body>
+<h2>特定技能外国人受入れに関する誓約書</h2>
+<div class="item">私（当社）は、在留資格「特定技能」に基づき、下記の外国人を受け入れるにあたり、出入国管理及び難民認定法その他の関係法令を遵守し、適正な雇用管理を行うことを誓約します。</div>
+<div class="item"><span class="label">所属機関名：</span>${company}</div>
+<div class="item"><span class="label">申請人氏名：</span>${name}</div>
+<div class="item"><span class="label">在留資格：</span>特定技能1号（${field}）</div>
+<div class="item"><span class="label">作成日：</span>${date}</div>
+<div class="sign">
+<p>所属機関名：${company}</p>
+<p>代表者氏名：&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;㊞</p>
+</div>
+</body></html>`;
+
+  const blob = new Blob([html], {type: 'text/html'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `誓約書_${name}_${company}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
+  // TODO: SaySayの本番テンプレートに差し替える
+}const params = new URLSearchParams(location.search);
+const _token = params.get('token') || '';
+document.getElementById('caseId').textContent = _token ? '（案件あり）' : '—';
+if (_token) loadCaseByToken(_token);
 let selectedFiles = [];
 function goStep2() {
   document.getElementById('sectionStep1').style.display='none';
