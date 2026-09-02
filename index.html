@@ -5218,7 +5218,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260902.18';
+var OFUSA_VERSION = 'ver.20260902.20';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -8010,6 +8010,12 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20260902.20', date:'2026-09-02', notify:true, items:[
+    '📎 <b>建設案件の押印リンクに委任状を自動結合</b>しました。建設案件で押印リンクを作ると、1-5/1-6を切り出したPDFの末尾に、会社情報入りの委任状（Saysay）が自動で付きます。会社情報がcompaniesに無い等で委任状が空になる場合は結合しません。'
+  ]},
+  { version:'ver.20260902.19', date:'2026-09-02', notify:true, items:[
+    '📝 <b>案件メモの「＋今日追記」を先頭挿入に変更</b>しました。今日の日付行がメモ欄の一番上に入り、ステータス変更履歴（新しいものが上）と並びが揃って見やすくなります。'
+  ]},
   { version:'ver.20260902.18', date:'2026-09-02', notify:true, items:[
     '📌 <b>企業注意事項を会社詳細の上部にピン表示</b>しました。基本情報タブの一番上（先方メール欄の上）に常に表示され、入力があるとオレンジで強調されます。',
     '👑 <b>雇用条件セットに「マスタ」と「★お気に入り」を追加</b>しました。📋の左の👑（マスタ）・★（お気に入り）をタップするだけで切替でき、マスタ→★お気に入り→その他 の順に並びます（どちらも複数指定可。並べ替えのみで案件の紐付けは保持）。',
@@ -71624,6 +71630,78 @@ function _isKensetsuCase(cas){
   var _pm = (personData[cas.id]||{})._kensetsuManual || '';
   return _pm === 'yes';
 }
+// ver.20260902.20: 建設案件のときだけ、Saysayの委任状(ininjou.html)を同一オリジンiframeでPDF化してbase64で返す。建設でない/失敗時はnull（＝委任状を付けない）。GAS不要。
+async function _oshiinIninPdfIfKensetsu(caseId){
+  try{
+    var c = ((typeof _caseCache!=='undefined'&&_caseCache)?_caseCache[caseId]:null)
+          || ((typeof cData!=='undefined'?cData:[]).find(function(x){return x.id===caseId;}))
+          || {};
+    if(typeof _isKensetsuCase!=='function' || !_isKensetsuCase(c)) return null;
+    await _ensureH2CjsPDF();
+    var iframe=document.createElement('iframe');
+    iframe.style.cssText='position:fixed;left:-9999px;top:0;width:900px;height:1400px;border:0;visibility:hidden;';
+    document.body.appendChild(iframe);
+    try{
+      await new Promise(function(res,rej){
+        var to=setTimeout(function(){ rej(new Error('委任状ページの読み込みタイムアウト')); }, 20000);
+        iframe.onload=function(){ clearTimeout(to); res(); };
+        iframe.onerror=function(){ clearTimeout(to); rej(new Error('委任状ページを開けません')); };
+        iframe.src='https://ofusa2026.github.io/docs/ininjou.html';
+      });
+      var win=iframe.contentWindow, doc=iframe.contentDocument;
+      // 会社情報を流し込む
+      win.postMessage({type:'SELECT_CASE', info:{caseId:caseId, companyName:(c.company||''), companyId:(c.companyId||c.company_id||null)}}, '*');
+      // f_company が埋まる＝描画完了の目安。最大12秒待つ
+      await new Promise(function(res){
+        var t0=Date.now();
+        (function poll(){
+          var f=doc.getElementById('f_company');
+          if(f && f.value) return setTimeout(res, 800); // 反映後の再描画ぶん少し待つ
+          if(Date.now()-t0>12000) return res();
+          setTimeout(poll, 300);
+        })();
+      });
+      // 会社情報が空（companiesに無い等）のときは委任状が空欄になるので付けない
+      var _fc=doc.getElementById('f_company');
+      if(!_fc || !String(_fc.value||'').trim()) throw new Error('委任状の会社情報が空のため結合しません');
+      var pages=doc.querySelectorAll('.doc');
+      if(!pages.length) throw new Error('委任状のプレビューが見つかりません');
+      var jsPDFCtor=(win.jspdf&&win.jspdf.jsPDF)||(window.jspdf&&window.jspdf.jsPDF)||window.jsPDF;
+      var h2c=win.html2canvas||window.html2canvas;
+      if(!jsPDFCtor||!h2c) throw new Error('PDFライブラリ未ロード');
+      var pdf=new jsPDFCtor({unit:'mm', format:'a4', orientation:'portrait'});
+      for(var i=0;i<pages.length;i++){
+        var canvas=await h2c(pages[i], {scale:2, useCORS:true, backgroundColor:'#ffffff'});
+        var img=canvas.toDataURL('image/jpeg', 0.92);
+        var ph=canvas.height*210/canvas.width; // A4幅基準
+        if(i>0) pdf.addPage();
+        pdf.addImage(img, 'JPEG', 0, 0, 210, Math.min(ph, 297));
+      }
+      var dataUri=pdf.output('datauristring');
+      var base64=String(dataUri).split(',')[1];
+      return { base64: base64, pageCount: pages.length };
+    } finally { try{ document.body.removeChild(iframe); }catch(e){} }
+  }catch(e){ console.warn('inin pdf err', e); return null; }
+}
+// html2canvas / jsPDF の遅延ロード（既にあれば何もしない。ロード失敗時も固まらず resolve）
+function _ensureH2CjsPDF(){
+  return new Promise(function(resolve){
+    function step(){
+      if(!(window.jspdf||window.jsPDF)){
+        var s=document.createElement('script');
+        s.src='https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+        s.onload=step; s.onerror=function(){ resolve(); }; document.head.appendChild(s); return;
+      }
+      if(!window.html2canvas){
+        var s2=document.createElement('script');
+        s2.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+        s2.onload=step; s2.onerror=function(){ resolve(); }; document.head.appendChild(s2); return;
+      }
+      resolve();
+    }
+    step();
+  });
+}
 function _addConstructionDocs(docList, cas){
   if(!Array.isArray(docList)) return docList;
   if(_isKensetsuCase(cas) && docList.indexOf('技能者ID') === -1){
@@ -109449,6 +109527,17 @@ async function _extractOshiinPagesUrl(srRow, docs, caseId, signReqId){
   var idxs = []; for(var k=0;k<cutBefore-1;k++) idxs.push(k);
   var pages = await out.copyPages(src, idxs);
   pages.forEach(function(pg){ out.addPage(pg); });
+  // ver.20260902.20: 建設案件だけ、Saysayの委任状をPDF化して末尾に結合（失敗時はスキップ＝押印PDFはそのまま出す）
+  try{
+    var _inin = await _oshiinIninPdfIfKensetsu(caseId);
+    if(_inin && _inin.base64){
+      var _iBin=atob(_inin.base64), _iBytes=new Uint8Array(_iBin.length);
+      for(var _k=0;_k<_iBin.length;_k++) _iBytes[_k]=_iBin.charCodeAt(_k);
+      var _iDoc=await PDFLib.PDFDocument.load(_iBytes);
+      var _iPages=await out.copyPages(_iDoc, _iDoc.getPageIndices());
+      _iPages.forEach(function(p){ out.addPage(p); });
+    }
+  }catch(e){ console.warn('委任状結合スキップ', e); }
   var outB64 = await out.saveAsBase64();
   // Storageへ保存して公開URLを取得
   var stoPath = 'oshiin/' + caseId + '/oshiin_1-5_1-6_' + Date.now() + '.pdf';
