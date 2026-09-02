@@ -210,7 +210,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.19</div>
+      <div class="ver">ver.20260824.26</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -711,6 +711,7 @@ function onLoggedIn(session){
   checkTomorrowReminder();
   checkFollowupReminder();
   checkThanksReminder();
+  checkRescheduleReminder();
 }
 
 /* ---------------- 初期化 ---------------- */
@@ -1071,12 +1072,23 @@ function renderDrawer(){
   +   '</div>'
   +   '<label class="span2" style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#4a5568;margin-top:2px;cursor:pointer;"><input type="checkbox" id="eAptResched" '+(x.apt_reschedule?'checked':'')+' onchange="apptSetReschedule(curLead.reg_no,this.checked)"> リスケ中（日程調整中：決まるまでリマインドを停止）</label>'
   +   '<label class="span2" style="margin:8px 0 -2px;font-weight:700;color:#2b6cb0;">📄 御礼メール（商談後・資料PDF添付）</label>'
+  +   '<label>差出人（担当者名）</label><select id="eThanksSender" class="span2"><option value="">（選択してください）</option>'+STAFF_SEED.map(function(s){return '<option'+(s===thanksSenderDefault()?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
   +   '<div class="span2" style="display:flex;gap:8px;flex-wrap:wrap;">'
   +     '<button class="btn" onclick="copyThanksMsg()">📄 御礼文をコピー</button>'
   +     (x.thanks_sent
         ? '<button class="btn" onclick="markThanksSent(false)" style="background:#f0fff4;border-color:#9ae6b4;color:#276749;">✓ 御礼送信済み（クリックで取消）</button>'
         : '<button class="btn btn-primary" onclick="markThanksSent(true)">✅ 御礼メール送信済みにする</button>')
   +   '</div>'
+  +   '<label class="span2" style="margin:8px 0 -2px;font-weight:700;color:#553c9a;">📝 商談議事録（Meetメモ）</label>'
+  +   '<label>議事録リンク</label><input type="text" id="eMinUrl" class="span2" placeholder="Meetの自動メモ（Googleドキュメント）のURL" value="'+esc(x.minutes_url||'')+'">'
+  +   '<label class="full" style="margin-bottom:-4px;">議事録の本文（貼り付け）</label><textarea id="eMinText" class="full" placeholder="Meetメモ／文字起こしの本文をここに貼り付けて「AIで要約」を押してください" style="min-height:90px;">'+esc(x.minutes_text||'')+'</textarea>'
+  +   '<div class="span2" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;">'
+  +     (x.minutes_url?'<button class="btn" onclick="window.open(el(\'eMinUrl\').value,\'_blank\')">🔗 議事録を開く</button>':'')
+  +     '<button class="btn btn-primary" id="minSumBtn" onclick="summarizeMinutes()">🤖 AIで要約</button>'
+  +   '</div>'
+  +   (x.minutes_summary
+      ? '<div class="span2" id="minSumBox" style="font-size:12px;color:#2d3748;background:#faf5ff;border:1px solid #d6bcfa;border-radius:8px;padding:10px 12px;margin-top:4px;white-space:pre-wrap;">'+esc(x.minutes_summary)+(x.minutes_at?'<div style="color:#a0aec0;font-size:10px;margin-top:6px;">要約作成：'+esc((''+x.minutes_at).slice(0,10))+'</div>':'')+'</div>'
+      : '<div class="span2" id="minSumBox"></div>')
   +   ((x.apt_getter||x.apt_reason||x.apt_memo||x.apt_env||x.apt_got_at||x.apt_person)
       ? '<div class="span2" style="font-size:11.5px;color:#4a5568;background:#f7fafc;border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-top:4px;white-space:pre-wrap;">'
         + (x.apt_person?'<b>担当:</b> '+esc(x.apt_person)+(x.apt_role?'（'+esc(x.apt_role)+'）':'')+'\n':'')
@@ -1311,10 +1323,13 @@ function saveLead(){
     doc_method:        el('eDocMethod').value || null,
     memo:              el('eMemo').value.trim() || null,
     no_mail:           !!(el('eNoMail')&&el('eNoMail').checked),
+    minutes_url:       (el('eMinUrl')&&el('eMinUrl').value.trim())||null,
+    minutes_text:      (el('eMinText')&&el('eMinText').value.trim())||null,
     apt_at:            (el('eAptAt')&&el('eAptAt').value) ? new Date(el('eAptAt').value).toISOString() : null,
     apt_email:         (el('eAptEmail')&&el('eAptEmail').value.trim()) || null,
     apt_meet_url:      extractMeetUrl((el('eAptMeet')&&el('eAptMeet').value)||'') || null,
     apt_reschedule:    !!(el('eAptResched')&&el('eAptResched').checked),
+    apt_reschedule_at: (el('eAptResched')&&el('eAptResched').checked) ? ((curLead&&curLead.apt_reschedule_at)?curLead.apt_reschedule_at:new Date().toISOString()) : null,
     hr_start_date:     el('eHrStartDate').value || null,
     hr_drive_url:      el('eHrDriveUrl').value.trim() || null,
     hr_monthly_apps:   el('eHrMonthly').value!==''? parseInt(el('eHrMonthly').value,10) : null,
@@ -1419,10 +1434,12 @@ function showRemindModal(list){
 }
 function closeRemindModal(){ var b=el('remindBox'); if(b) b.style.display='none'; var o=el('remindOv'); if(o) o.remove(); }
 function apptSetReschedule(regNo, checked){
-  _sb.from('eigyo_leads').update({apt_reschedule:checked, updated_at:new Date().toISOString()}).eq('reg_no',regNo).then(function(r){
+  var patch = checked ? {apt_reschedule:true, apt_reschedule_at:new Date().toISOString(), updated_at:new Date().toISOString()}
+                      : {apt_reschedule:false, apt_reschedule_at:null, updated_at:new Date().toISOString()};
+  _sb.from('eigyo_leads').update(patch).eq('reg_no',regNo).then(function(r){
     if(r.error){ alert('更新に失敗しました：'+r.error.message); return; }
-    if(curLead && curLead.reg_no===regNo) curLead.apt_reschedule=checked;
-    load(); refreshApptChip(); checkTomorrowReminder();
+    if(curLead && curLead.reg_no===regNo){ curLead.apt_reschedule=checked; curLead.apt_reschedule_at=patch.apt_reschedule_at; }
+    load(); refreshApptChip(); checkTomorrowReminder(); checkRescheduleReminder();
   });
 }
 function remindOpen(regNo){ closeRemindModal(); openDrawer(regNo); }
@@ -1518,13 +1535,17 @@ function copyApptMsg(){
   var when='', d=null;
   if(atv){ d=new Date(atv); var wd=['日','月','火','水','木','金','土'][d.getDay()]; var p=function(n){return('0'+n).slice(-2);}; when=(d.getMonth()+1)+'/'+d.getDate()+'('+wd+')'+p(d.getHours())+':'+p(d.getMinutes()); }
   var person=(curLead.apt_person||'').replace(/\/.*$/,'').replace(/様$/,'')||'ご担当者';
-  var body='件名：'+(when?when+' ':'')+'オンライン商談のご案内（大房行政書士法人）\n\n'
+  var sender=(el('eThanksSender')&&el('eThanksSender').value.trim())||'';
+  try{ if(sender) localStorage.setItem('thanksSender',sender); }catch(e){}
+  var s=sender||'〇〇';
+  var body='件名：'+(when?when+' ':'')+'～のお打ち合わせのご案内（大房行政書士法人）\n\n'
     + esc0(curLead.name||'')+'\n'+person+'様\n\n'
-    + 'お世話になっております。大房行政書士法人でございます。\n'
-    + (when?when+'〜':'')+'のオンライン商談につきまして、下記URLよりご参加ください。\n\n'
+    + 'お世話になります。大房行政書士法人の'+s+'と申します。\n'
+    + 'この度はお打ち合わせのお時間を頂きありがとうございます。\n\n'
+    + (when?when+'〜':'')+'のお打ち合わせにつきまして、下記URLよりご参加ください。\n'
     + '▼参加リンク（Google Meet）\n'+(url||'（Meet URLをここに）')+'\n\n'
-    + '当日は、行政書士法改正に伴う企業リスクや直近の入管監査に関する情報を共有させていただきます。\n'
-    + 'どうぞよろしくお願いいたします。';
+    + '当日は、どうぞよろしくお願いいたします。\n\n'
+    + s;
   if(!url){ if(!confirm('Meet URLが未入力です。URL欄が空のまま送信文をコピーしますか？')) return; }
   navigator.clipboard.writeText(body).then(function(){ showMsg('dMsg','送信文をコピーしました。メールに貼り付けてください','ok'); },
     function(){ alert(body); });
@@ -1559,17 +1580,23 @@ function markThanksSent(flag){
     openDrawer(curLead.reg_no); load(); checkThanksReminder();
   });
 }
+function thanksSenderDefault(){ try{ return localStorage.getItem('thanksSender')||''; }catch(e){ return ''; } }
 function copyThanksMsg(){
   if(!curLead) return;
   var person=(curLead.apt_person||'').replace(/\/.*$/,'').replace(/様$/,'')||'ご担当者';
-  var body='件名：先日はお時間をいただきありがとうございました（大房行政書士法人）\n\n'
+  var sender=(el('eThanksSender')&&el('eThanksSender').value.trim())||'';
+  try{ if(sender) localStorage.setItem('thanksSender',sender); }catch(e){}
+  var intro = sender ? ('お世話になっております。大房行政書士法人の'+sender+'でございます。')
+                     : 'お世話になっております。大房行政書士法人でございます。';
+  var sign = sender ? (sender+'\n大房行政書士法人') : '大房行政書士法人';
+  var body='件名：本日の御礼（大房行政書士法人）\n\n'
     + esc0(curLead.name||'')+'\n'+person+'様\n\n'
-    + 'お世話になっております。大房行政書士法人でございます。\n'
+    + intro+'\n'
     + '先日はお忙しい中、商談のお時間をいただき誠にありがとうございました。\n\n'
-    + '商談でご説明いたしました資料を添付いたします。ご確認ください。\n'
+    + 'お打ち合わせでご説明いたしました資料を添付いたします。\n'
     + 'ご不明な点やご相談などございましたら、お気軽にご連絡ください。\n\n'
     + '今後ともどうぞよろしくお願いいたします。\n\n'
-    + '大房行政書士法人';
+    + sign;
   navigator.clipboard.writeText(body).then(function(){ showMsg('dMsg','御礼文をコピーしました。資料PDFの添付を忘れずに送付してください','ok'); },
     function(){ alert(body); });
 }
@@ -1608,6 +1635,80 @@ function showThanksModal(list){
 }
 function closeThanksModal(){ var b=el('thanksBox'); if(b) b.style.display='none'; var o=el('thanksOv'); if(o) o.remove(); }
 function thanksOpen(regNo){ closeThanksModal(); openDrawer(regNo); }
+
+/* ===== リスケ中の再リマインド（リスケ設定から7日経過×まだ未送信） ===== */
+function checkRescheduleReminder(){
+  var cut=new Date(Date.now()-7*86400000).toISOString();
+  _sb.from('eigyo_leads').select('reg_no,name,apt_at,apt_reschedule_at')
+    .eq('apt_reschedule',true).eq('apt_meet_sent',false)
+    .not('apt_reschedule_at','is',null).lt('apt_reschedule_at', cut)
+    .order('apt_reschedule_at',{ascending:true}).then(function(r){
+      if(r.error || !r.data || !r.data.length){ closeReschedModal(); return; }
+      showReschedModal(r.data);
+  });
+}
+function showReschedModal(list){
+  var box=el('reschedBox');
+  if(!box){
+    box=document.createElement('div'); box.id='reschedBox';
+    box.style.cssText='display:none;position:fixed;z-index:76;top:50%;left:50%;transform:translate(-50%,-50%);width:min(580px,94vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 40px rgba(0,0,0,.25);border-top:6px solid #718096;';
+    document.body.appendChild(box);
+    var ov=document.createElement('div'); ov.id='reschedOv'; ov.className='overlay on'; ov.style.zIndex='75'; document.body.appendChild(ov);
+  }
+  var h='<h2 style="margin:0 0 4px;font-size:19px;color:#4a5568;">⏸ リスケ中のまま1週間経過 '+list.length+'件</h2>'
+    + '<p style="margin:0 0 14px;font-size:12.5px;color:var(--muted);">「リスケ中」にしてから1週間、日程が決まっていない先です。状況を確認してください。<br>まだ調整中なら「+1週間」、日程が決まったら「開く」でMeet日時を入れ直してください。</p>';
+  list.forEach(function(x){
+    var dd=Math.floor((Date.now()-new Date(x.apt_reschedule_at).getTime())/86400000);
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #cbd5e0;background:#f7fafc;border-radius:8px;padding:10px 12px;margin-bottom:8px;">'
+      + '<div><div style="font-weight:600;font-size:14px;">'+esc(x.name||'')+'</div>'
+      + '<div style="font-size:12px;color:#718096;">リスケ中 '+dd+'日経過</div></div>'
+      + '<div style="display:flex;gap:6px;white-space:nowrap;">'
+      + '<button class="btn" onclick="reschedSnooze(\''+esc(x.reg_no)+'\')">+1週間</button>'
+      + '<button class="btn btn-primary" onclick="reschedOpen(\''+esc(x.reg_no)+'\')">開く</button>'
+      + '</div></div>';
+  });
+  h+='<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;"><button class="btn btn-primary" onclick="closeReschedModal()">閉じる</button></div>'
+    + '<p style="font-size:11px;color:var(--muted);margin:8px 0 0;text-align:right;">※対応するまで、開くたびに表示されます</p>';
+  box.innerHTML=h; box.style.display='block';
+}
+function closeReschedModal(){ var b=el('reschedBox'); if(b) b.style.display='none'; var o=el('reschedOv'); if(o) o.remove(); }
+function reschedSnooze(regNo){
+  _sb.from('eigyo_leads').update({apt_reschedule_at:new Date().toISOString(), updated_at:new Date().toISOString()}).eq('reg_no',regNo).then(function(r){
+    if(r.error){ alert('更新に失敗しました：'+r.error.message); return; }
+    if(curLead && curLead.reg_no===regNo) curLead.apt_reschedule_at=new Date().toISOString();
+    checkRescheduleReminder();
+  });
+}
+function reschedOpen(regNo){ closeReschedModal(); openDrawer(regNo); }
+// 議事録AI要約（Supabase Edge Function経由でGemini）
+function summarizeMinutes(){
+  if(!curLead) return;
+  var text=(el('eMinText')&&el('eMinText').value.trim())||'';
+  var url=(el('eMinUrl')&&el('eMinUrl').value.trim())||'';
+  if(!text){ showMsg('dMsg','先に議事録の本文を貼り付けてください','err'); return; }
+  var btn=el('minSumBtn'); if(btn){ btn.textContent='🤖 要約中…'; btn.disabled=true; }
+  // まず本文・URLを保存
+  _sb.from('eigyo_leads').update({minutes_url:url||null, minutes_text:text, updated_at:new Date().toISOString()}).eq('reg_no',curLead.reg_no).then(function(){});
+  _sb.functions.invoke('summarize-minutes', { body:{ text:text } }).then(function(res){
+    if(btn){ btn.textContent='🤖 AIで要約'; btn.disabled=false; }
+    var data=res && res.data, err=res && res.error;
+    if(err || !data || data.error){
+      var msg=(data&&data.message)||(err&&err.message)||'要約に失敗しました';
+      showMsg('dMsg','要約エラー：'+msg,'err');
+      return;
+    }
+    var summary=data.summary||'';
+    _sb.from('eigyo_leads').update({minutes_summary:summary, minutes_at:new Date().toISOString(), updated_at:new Date().toISOString()}).eq('reg_no',curLead.reg_no).then(function(u){
+      if(u.error){ showMsg('dMsg','保存に失敗：'+u.error.message,'err'); return; }
+      curLead.minutes_summary=summary; curLead.minutes_text=text; curLead.minutes_url=url;
+      var box=el('minSumBox'); if(box){ box.style.cssText='font-size:12px;color:#2d3748;background:#faf5ff;border:1px solid #d6bcfa;border-radius:8px;padding:10px 12px;margin-top:4px;white-space:pre-wrap;'; box.textContent=summary; }
+      showMsg('dMsg','議事録を要約しました','ok');
+    });
+  }).catch(function(e){
+    if(btn){ btn.textContent='🤖 AIで要約'; btn.disabled=false; }
+    showMsg('dMsg','要約に失敗しました：'+e,'err');
+  });
+}
 // --- 取込モーダル ---
 function openApptImport(){
   var box=el('apptBox');
