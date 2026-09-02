@@ -3259,6 +3259,7 @@ details[open] > ._upDocSummary::before { content: '▼ '; }
       <button id="reviewTabMadoguchi" onclick="reviewTab='madoguchi';renderReview()" style="font-size:12px;font-weight:700;padding:6px 14px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">🏢 窓口 <span id="reviewMadoguchiB" style="background:#6366f1;color:white;border-radius:99px;padding:0 5px;font-size:10px;margin-left:3px;display:none;">0</span></button>
       <button id="reviewTabUploaded" onclick="reviewTab='uploaded';renderReview()" style="font-size:12px;font-weight:700;padding:6px 14px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">📎 アップロード書類 <span id="reviewUploadedBadge" style="background:#1a73e8;color:white;border-radius:99px;padding:0 5px;font-size:10px;margin-left:3px;display:none;">0</span></button>
       <button id="reviewTabFormResp" onclick="reviewTab='formResp';renderReview()" style="font-size:12px;font-weight:700;padding:6px 14px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">📋 フォーム回答 <span id="reviewFormRespBadge" style="background:#7c3aed;color:white;border-radius:99px;padding:0 5px;font-size:10px;margin-left:3px;display:none;">0</span></button>
+      <button id="reviewTabKyogikai" onclick="reviewTab='kyogikai';renderReview()" style="font-size:12px;font-weight:700;padding:6px 14px;border-radius:8px;border:1.5px solid var(--gray-200);background:white;color:var(--gray-400);cursor:pointer;">🏢 協議会提出 <span id="reviewKyogikaBadge" style="background:#0891b2;color:white;border-radius:99px;padding:0 5px;font-size:10px;margin-left:3px;display:none;">0</span></button>
     </div>
   </div>
   <!-- スクロール領域 -->
@@ -40721,6 +40722,11 @@ function renderReview() {
     renderReviewFormRespTab(el);
     return;
   }
+  // 協議会提出タブ
+  if(reviewTab==='kyogikai'){
+    renderReviewKyogikaiTab(el);
+    return;
+  }
   // If madoguchi tab
   if(reviewTab==='madoguchi'){
     renderReviewMadoguchiTab(el);
@@ -41520,6 +41526,137 @@ function _renderUploadCheckTab(){
     h+='</div>';
     el.innerHTML=h;
   }, function(){ el.innerHTML='<div style="text-align:center;padding:40px;color:#dc2626;">読み込みエラー</div>'; });
+}
+
+// ============================================================
+// 協議会提出タブ
+// ============================================================
+async function renderReviewKyogikaiTab(el) {
+  el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--gray-500);">読み込み中…</div>';
+
+  // 通知設定エリア
+  var lineGroupId = localStorage.getItem('ofusa_kyogikai_line_group') || '';
+  var lineToken = LINE_CHANNEL_TOKEN || '';
+
+  // field_submissionsをSupabaseから取得
+  var submissions = [];
+  try {
+    var res = await fetch('https://ehwlgbwpycglmopiqyty.supabase.co/rest/v1/field_submissions?order=submitted_at.desc&limit=50', {
+      headers: { 'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVod2xnYndweWNnbG1vcGlxeXR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNjU2MjgsImV4cCI6MjA4Nzk0MTYyOH0.bBWWSOEZsqQIlf2uMWmfXRL1Tn89y-WfL-7s2DX0JwI', 'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVod2xnYndweWNnbG1vcGlxeXR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNjU2MjgsImV4cCI6MjA4Nzk0MTYyOH0.bBWWSOEZsqQIlf2uMWmfXRL1Tn89y-WfL-7s2DX0JwI' }
+    });
+    submissions = await res.json();
+  } catch(e) { console.warn('field_submissions取得エラー:', e); }
+
+  // バッジ更新
+  var badge = document.getElementById('reviewKyogikaBadge');
+  if (badge) {
+    if (submissions.length > 0) { badge.style.display=''; badge.textContent=submissions.length; }
+    else badge.style.display='none';
+  }
+
+  var h = '';
+
+  // 通知設定エリア
+  h += '<div style="background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:10px;padding:14px 16px;margin-bottom:16px;">';
+  h += '<div style="font-size:12px;font-weight:700;color:#0369a1;margin-bottom:10px;">🔔 提出通知設定（LINEグループ）</div>';
+  h += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">';
+  h += '<select id="kyogikaiLineGroupSel" style="flex:1;min-width:160px;font-size:12px;padding:6px 8px;border:1.5px solid #bae6fd;border-radius:7px;">';
+  h += '<option value="">-- グループを選択 --</option>';
+
+  // 既存のLINEグループ一覧を使う
+  if (window._lineGroups && window._lineGroups.length) {
+    window._lineGroups.forEach(function(g) {
+      var sel = (g.group_id === lineGroupId) ? ' selected' : '';
+      h += '<option value="' + _esc(g.group_id) + '"' + sel + '>' + _esc(g.group_name||g.group_id) + '</option>';
+    });
+  } else {
+    if (lineGroupId) h += '<option value="' + _esc(lineGroupId) + '" selected>' + _esc(lineGroupId) + '</option>';
+  }
+
+  h += '</select>';
+  h += '<button onclick="_kyogikaiSaveLineGroup()" style="padding:6px 14px;background:#0891b2;color:white;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;">💾 保存</button>';
+  if (lineGroupId) {
+    h += '<button onclick="_kyogikaiTestLine()" style="padding:6px 14px;background:#0891b2;color:white;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;">🔔 テスト送信</button>';
+  }
+  h += '</div>';
+  if (lineGroupId) {
+    h += '<div style="font-size:11px;color:#0369a1;margin-top:6px;">✅ 通知先設定済み（企業が提出すると自動でLINE通知が届きます）</div>';
+  } else {
+    h += '<div style="font-size:11px;color:#9ca3af;margin-top:6px;">⚠️ グループを選択して保存すると、提出時に自動通知されます</div>';
+  }
+  h += '</div>';
+
+  // 提出一覧
+  if (!submissions || !submissions.length) {
+    h += '<div style="text-align:center;padding:40px;color:var(--gray-500);">協議会書類の提出はまだありません</div>';
+  } else {
+    submissions.forEach(function(s) {
+      var dt = s.submitted_at ? new Date(s.submitted_at).toLocaleString('ja-JP', {timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+      var files = (s.file_names || []).map(function(f) { return '<span style="font-size:10px;background:#e0f2fe;color:#0369a1;padding:2px 7px;border-radius:5px;margin-right:4px;">📄 '+_esc(f)+'</span>'; }).join('');
+      var caseBtn = '';
+      if (s.case_id) {
+        var c = (allCases||[]).find(function(x){return x.id===s.case_id;});
+        if (c) caseBtn = '<button onclick="openCaseDetail(''+_esc(s.case_id)+'')" style="font-size:11px;padding:4px 12px;background:#2563eb;color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">案件を開く</button>';
+      }
+      h += '<div style="background:white;border:1.5px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin-bottom:10px;">';
+      h += '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap;">';
+      h += '<div style="flex:1;">';
+      h += '<div style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:2px;">' + _esc(s.company||'') + '</div>';
+      h += '<div style="font-size:12px;color:#64748b;margin-bottom:6px;">' + _esc(s.applicant||'') + '｜' + _esc(s.field_name||'') + '｜' + dt + '</div>';
+      h += '<div>' + files + '</div>';
+      h += '</div>';
+      h += '<div>' + caseBtn + '</div>';
+      h += '</div>';
+      h += '</div>';
+    });
+  }
+
+  el.innerHTML = h;
+
+  // グループ一覧をロード（未ロードなら）
+  if (!window._lineGroups || !window._lineGroups.length) {
+    _loadLineGroupsForKyogikai();
+  }
+}
+
+function _kyogikaiSaveLineGroup() {
+  var sel = document.getElementById('kyogikaiLineGroupSel');
+  if (!sel) return;
+  var gid = sel.value;
+  localStorage.setItem('ofusa_kyogikai_line_group', gid);
+  showToast('✅ 通知先LINEグループを保存しました');
+  renderReview();
+}
+
+function _kyogikaiTestLine() {
+  var gid = localStorage.getItem('ofusa_kyogikai_line_group');
+  if (!gid) { showToast('⚠️ グループが未設定です'); return; }
+  if (!LINE_CHANNEL_TOKEN) { showToast('⚠️ LINEトークンが未設定です'); return; }
+  _kLineNotify('🔔 テスト送信\n協議会書類提出の通知はこのグループに届きます', gid, function(ok) {
+    showToast(ok ? '✅ テスト送信完了' : '⚠️ 送信失敗');
+  });
+}
+
+function _kLineNotify(msg, groupId, cb) {
+  if (!LINE_CHANNEL_TOKEN || !groupId) { if(cb)cb(false); return; }
+  jsonpPost(GAS_URL, 'sendLineMessage', {token:LINE_CHANNEL_TOKEN, to:groupId, message:msg}, function(res) {
+    if(cb) cb(res && res.status==='ok');
+  });
+}
+
+async function _loadLineGroupsForKyogikai() {
+  // 既存のLINEグループ一覧取得関数を流用
+  if (typeof loadLineGroups === 'function') {
+    await loadLineGroups();
+    var sel = document.getElementById('kyogikaiLineGroupSel');
+    if (!sel || !window._lineGroups) return;
+    var saved = localStorage.getItem('ofusa_kyogikai_line_group') || '';
+    var opts = '<option value="">-- グループを選択 --</option>';
+    window._lineGroups.forEach(function(g) {
+      opts += '<option value="'+_esc(g.group_id)+'"'+(g.group_id===saved?' selected':'')+'>'+_esc(g.group_name||g.group_id)+'</option>';
+    });
+    sel.innerHTML = opts;
+  }
 }
 
 function renderReviewMadoguchiTab(el) {
