@@ -112649,23 +112649,43 @@ var FIELD_BASE_URL = 'https://ofusa2026.github.io/anken/';
 
 // 企業向け分野別案内URLを生成してコピー
 // 企業案内URL：トークンを発行してURLをコピー（case_idは公開しない・90日有効）
-async function copyFieldGuideUrl(caseId, applicantField) {
+// 企業案内URL発行：受入経験あり/なしを選択してトークン発行
+function copyFieldGuideUrl(caseId, applicantField) {
   var bunya = _bsBunyaDetect(applicantField);
   var file = FIELD_URL_MAP[bunya];
   if (!file) {
     showToast('⚠️ この分野の案内ページがまだありません（分野：' + (bunya||applicantField||'不明') + '）');
     return;
   }
+  // 受入経験あり/なし選択モーダルを表示
+  var modal = document.createElement('div');
+  modal.id = 'fieldUrlModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  modal.innerHTML = '<div style="background:white;border-radius:16px;padding:24px;width:320px;box-shadow:0 20px 60px rgba(0,0,0,.3);">'
+    + '<div style="font-size:15px;font-weight:800;color:#0f2040;margin-bottom:6px;">🔗 企業案内URL発行</div>'
+    + '<div style="font-size:12px;color:#64748b;margin-bottom:20px;">分野：' + _esc(bunya) + '</div>'
+    + '<div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;">受入経験はありますか？</div>'
+    + '<div style="display:flex;flex-direction:column;gap:10px;">'
+    + '<button onclick="_issueFieldToken(''+caseId+'',''+file+'',''+bunya+'',false);document.getElementById('fieldUrlModal').remove();" style="padding:14px;background:#2563eb;color:white;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;text-align:left;">'
+    + '🆕 受入経験なし（新規）<br><span style="font-size:11px;font-weight:400;opacity:.85;">協議会加入手順＋書類提出案内を表示</span></button>'
+    + '<button onclick="_issueFieldToken(''+caseId+'',''+file+'',''+bunya+'',true);document.getElementById('fieldUrlModal').remove();" style="padding:14px;background:#0f766e;color:white;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;text-align:left;">'
+    + '✅ 受入経験あり<br><span style="font-size:11px;font-weight:400;opacity:.85;">書類提出のみ案内（協議会手順はスキップ）</span></button>'
+    + '<button onclick="document.getElementById('fieldUrlModal').remove();" style="padding:10px;background:#f1f5f9;color:#64748b;border:none;border-radius:8px;font-size:12px;cursor:pointer;">キャンセル</button>'
+    + '</div></div>';
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+}
+
+async function _issueFieldToken(caseId, file, bunya, hasExp) {
   showToast('🔗 企業案内URL を発行中…');
   try {
-    // 既存トークンを失効させて新規発行
     await _sb.from('field_tokens').update({revoked: true}).eq('case_id', caseId).eq('revoked', false);
-    var res = await _sb.from('field_tokens').insert({case_id: caseId}).select('token').single();
+    var res = await _sb.from('field_tokens').insert({case_id: caseId, has_experience: hasExp}).select('token').single();
     if (res.error) throw res.error;
     var token = res.data.token;
     var url = FIELD_BASE_URL + file + '?token=' + encodeURIComponent(token);
     copyToClipboard(url);
-    showToast('🔗 企業向け案内URLをコピーしました（' + bunya + '）※90日間有効');
+    showToast('🔗 企業向け案内URLをコピーしました（' + bunya + ' / ' + (hasExp?'受入経験あり':'受入経験なし') + '）※90日間有効');
   } catch(e) {
     showToast('⚠️ URLの発行に失敗しました: ' + (e.message || String(e)));
   }
