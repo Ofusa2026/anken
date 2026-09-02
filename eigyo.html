@@ -210,7 +210,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.26</div>
+      <div class="ver">ver.20260824.27</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -1070,7 +1070,8 @@ function renderDrawer(){
         : '<button class="btn btn-primary" onclick="markMeetSent(true)">✅ Meet送信済みにする</button>')
   +     ((x.apt_person||x.apt_email||x.apt_role) ? '<button class="btn" onclick="fillContactFromAppt()">👤 担当者欄に反映</button>' : '')
   +   '</div>'
-  +   '<label class="span2" style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#4a5568;margin-top:2px;cursor:pointer;"><input type="checkbox" id="eAptResched" '+(x.apt_reschedule?'checked':'')+' onchange="apptSetReschedule(curLead.reg_no,this.checked)"> リスケ中（日程調整中：決まるまでリマインドを停止）</label>'
+  +   '<label class="span2" style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#4a5568;margin-top:2px;cursor:pointer;"><input type="checkbox" id="eAptResched" '+(x.apt_reschedule?'checked':'')+' onchange="apptSetReschedule(curLead.reg_no,this.checked)"> リスケ中（日程調整中・連絡待ち：決まるまでリマインドを停止）</label>'
+  +   (x.apt_reschedule ? '<div class="span2" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;"><button class="btn" onclick="copyRemindMail(curLead.reg_no)">📧 日程催促文をコピー</button><button class="btn btn-primary" onclick="reschedFollowed(curLead.reg_no)">✅ フォロー実施（履歴記録）</button></div>' : '')
   +   '<label class="span2" style="margin:8px 0 -2px;font-weight:700;color:#2b6cb0;">📄 御礼メール（商談後・資料PDF添付）</label>'
   +   '<label>差出人（担当者名）</label><select id="eThanksSender" class="span2"><option value="">（選択してください）</option>'+STAFF_SEED.map(function(s){return '<option'+(s===thanksSenderDefault()?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
   +   '<div class="span2" style="display:flex;gap:8px;flex-wrap:wrap;">'
@@ -1637,34 +1638,43 @@ function closeThanksModal(){ var b=el('thanksBox'); if(b) b.style.display='none'
 function thanksOpen(regNo){ closeThanksModal(); openDrawer(regNo); }
 
 /* ===== リスケ中の再リマインド（リスケ設定から7日経過×まだ未送信） ===== */
+function reschedDays(){ try{ var v=parseInt(localStorage.getItem('reschedDays'),10); if(v>0) return v; }catch(e){} return 3; }
+function setReschedDays(v){ v=parseInt(v,10)||3; if(v<1)v=1; try{ localStorage.setItem('reschedDays',v); }catch(e){} return v; }
 function checkRescheduleReminder(){
-  var cut=new Date(Date.now()-7*86400000).toISOString();
-  _sb.from('eigyo_leads').select('reg_no,name,apt_at,apt_reschedule_at')
+  var days=reschedDays();
+  var cut=new Date(Date.now()-days*86400000).toISOString();
+  _sb.from('eigyo_leads').select('reg_no,name,apt_at,apt_reschedule_at,apt_person')
     .eq('apt_reschedule',true).eq('apt_meet_sent',false)
     .not('apt_reschedule_at','is',null).lt('apt_reschedule_at', cut)
     .order('apt_reschedule_at',{ascending:true}).then(function(r){
       if(r.error || !r.data || !r.data.length){ closeReschedModal(); return; }
-      showReschedModal(r.data);
+      showReschedModal(r.data, days);
   });
 }
-function showReschedModal(list){
+function showReschedModal(list, days){
   var box=el('reschedBox');
   if(!box){
     box=document.createElement('div'); box.id='reschedBox';
-    box.style.cssText='display:none;position:fixed;z-index:76;top:50%;left:50%;transform:translate(-50%,-50%);width:min(580px,94vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 40px rgba(0,0,0,.25);border-top:6px solid #718096;';
+    box.style.cssText='display:none;position:fixed;z-index:76;top:50%;left:50%;transform:translate(-50%,-50%);width:min(600px,94vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 40px rgba(0,0,0,.25);border-top:6px solid #718096;';
     document.body.appendChild(box);
     var ov=document.createElement('div'); ov.id='reschedOv'; ov.className='overlay on'; ov.style.zIndex='75'; document.body.appendChild(ov);
   }
-  var h='<h2 style="margin:0 0 4px;font-size:19px;color:#4a5568;">⏸ リスケ中のまま1週間経過 '+list.length+'件</h2>'
-    + '<p style="margin:0 0 14px;font-size:12.5px;color:var(--muted);">「リスケ中」にしてから1週間、日程が決まっていない先です。状況を確認してください。<br>まだ調整中なら「+1週間」、日程が決まったら「開く」でMeet日時を入れ直してください。</p>';
+  var h='<h2 style="margin:0 0 4px;font-size:19px;color:#4a5568;">⏸ リスケ／連絡待ち フォロー '+list.length+'件</h2>'
+    + '<p style="margin:0 0 10px;font-size:12.5px;color:var(--muted);">「リスケ中（日程調整中・連絡待ち）」にしてから '+days+' 日以上、進展がない先です。<br>催促文をコピーして追いかけ、送ったら「✅フォロー実施」を押してください（履歴に記録され、次の通知は '+days+' 日後に）。</p>'
+    + '<div style="font-size:12px;margin-bottom:10px;">再通知の間隔：<input type="number" id="reschedDaysInput" value="'+days+'" min="1" style="width:56px;padding:3px 6px;border:1px solid var(--line);border-radius:6px;"> 日 <button class="btn btn-sm" onclick="reschedApplyDays()">再判定</button></div>';
   list.forEach(function(x){
     var dd=Math.floor((Date.now()-new Date(x.apt_reschedule_at).getTime())/86400000);
-    h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #cbd5e0;background:#f7fafc;border-radius:8px;padding:10px 12px;margin-bottom:8px;">'
+    var pn=(x.apt_person||'').replace(/\/.*$/,'');
+    h+='<div style="border:1px solid #cbd5e0;background:#f7fafc;border-radius:8px;padding:10px 12px;margin-bottom:8px;">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">'
       + '<div><div style="font-weight:600;font-size:14px;">'+esc(x.name||'')+'</div>'
-      + '<div style="font-size:12px;color:#718096;">リスケ中 '+dd+'日経過</div></div>'
-      + '<div style="display:flex;gap:6px;white-space:nowrap;">'
-      + '<button class="btn" onclick="reschedSnooze(\''+esc(x.reg_no)+'\')">+1週間</button>'
+      + '<div style="font-size:12px;color:#718096;">前回フォローから '+dd+'日経過'+(pn?'　担当:'+esc(pn):'')+'</div></div>'
       + '<button class="btn btn-primary" onclick="reschedOpen(\''+esc(x.reg_no)+'\')">開く</button>'
+      + '</div>'
+      + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">'
+      + '<button class="btn btn-sm" onclick="copyRemindMail(\''+esc(x.reg_no)+'\')">📧 催促文をコピー</button>'
+      + '<button class="btn btn-sm btn-primary" onclick="reschedFollowed(\''+esc(x.reg_no)+'\')">✅ フォロー実施</button>'
+      + '<button class="btn btn-sm" onclick="reschedSnooze(\''+esc(x.reg_no)+'\')">+'+days+'日</button>'
       + '</div></div>';
   });
   h+='<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;"><button class="btn btn-primary" onclick="closeReschedModal()">閉じる</button></div>'
@@ -1672,11 +1682,45 @@ function showReschedModal(list){
   box.innerHTML=h; box.style.display='block';
 }
 function closeReschedModal(){ var b=el('reschedBox'); if(b) b.style.display='none'; var o=el('reschedOv'); if(o) o.remove(); }
+function reschedApplyDays(){ var v=el('reschedDaysInput')&&el('reschedDaysInput').value; setReschedDays(v); checkRescheduleReminder(); }
 function reschedSnooze(regNo){
   _sb.from('eigyo_leads').update({apt_reschedule_at:new Date().toISOString(), updated_at:new Date().toISOString()}).eq('reg_no',regNo).then(function(r){
     if(r.error){ alert('更新に失敗しました：'+r.error.message); return; }
     if(curLead && curLead.reg_no===regNo) curLead.apt_reschedule_at=new Date().toISOString();
     checkRescheduleReminder();
+  });
+}
+// 催促（日程フォロー）メール文を生成してコピー
+function buildRemindMail(lead){
+  var person=(lead.apt_person||'').replace(/\/.*$/,'').replace(/様$/,'')||'ご担当者';
+  var sender=''; try{ sender=localStorage.getItem('thanksSender')||''; }catch(e){}
+  var s=sender||'〇〇';
+  return '件名：お打ち合わせ日程のご確認（大房行政書士法人）\n\n'
+    + esc0(lead.name||'')+'\n'+person+'様\n\n'
+    + 'お世話になっております。大房行政書士法人の'+s+'でございます。\n'
+    + '先日はありがとうございました。その後、お打ち合わせの日程につきましてご都合はいかがでしょうか。\n'
+    + 'ご候補日をいくつかお知らせいただけましたら、こちらで調整いたします。\n'
+    + 'お忙しいところ恐れ入りますが、どうぞよろしくお願いいたします。\n\n'
+    + s;
+}
+function copyRemindMail(regNo){
+  _sb.from('eigyo_leads').select('name,apt_person').eq('reg_no',regNo).then(function(r){
+    var lead=(r.data&&r.data[0])||{};
+    var body=buildRemindMail(lead);
+    navigator.clipboard.writeText(body).then(function(){ alert('催促文をコピーしました。メールに貼り付けて送付してください。'); },
+      function(){ prompt('コピーできませんでした。手動でコピーしてください：', body); });
+  });
+}
+// フォロー実施：リスケ日時リセット＋対応履歴に自動記録
+function reschedFollowed(regNo){
+  var now=new Date().toISOString();
+  _sb.from('eigyo_leads').update({apt_reschedule_at:now, updated_at:now}).eq('reg_no',regNo).then(function(u){
+    if(u.error){ alert('更新に失敗しました：'+u.error.message); return; }
+    var me2=''; try{ me2=localStorage.getItem('thanksSender')||''; }catch(e){}
+    _sb.from('eigyo_notes').insert({reg_no:regNo, note_date:today(), kind:'フォロー', author:me2||null, body:'日程フォロー実施（連絡待ち）'}).then(function(){
+      if(curLead && curLead.reg_no===regNo){ curLead.apt_reschedule_at=now; loadNotes(regNo); }
+      checkRescheduleReminder();
+    });
   });
 }
 function reschedOpen(regNo){ closeReschedModal(); openDrawer(regNo); }
