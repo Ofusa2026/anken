@@ -2873,6 +2873,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <span id="_uploadChip" onclick="showUploadNotifyModal('person')" style="display:none;cursor:pointer;color:#1e40af;align-items:center;gap:5px;">📤 UP書類（人材） <span id="uploadNotifyBannerCount" style="background:#2563eb;color:white;font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px;">0</span></span>
     <span id="_notifyDivider2" style="display:none;width:1px;height:14px;background:#cbd5e1;"></span>
     <span id="_uploadCoChip" onclick="showUploadNotifyModal('company')" style="display:none;cursor:pointer;color:#854f0b;align-items:center;gap:5px;">🏢 UP書類（所属機関） <span id="uploadCoNotifyBannerCount" style="background:#ba7517;color:white;font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px;">0</span></span>
+    <span id="_notifyDivider3" style="display:none;width:1px;height:14px;background:#cbd5e1;"></span>
+    <span id="_replyChip" onclick="showCoDocAlertModal()" title="返信があった所属機関（クリックで所属機関アラートを開く）" style="display:none;cursor:pointer;color:#047857;align-items:center;gap:5px;">💬 返信あり <span id="replyNotifyCount" style="background:#059669;color:white;font-size:10px;font-weight:800;padding:1px 7px;border-radius:20px;">0</span></span>
     <span onclick="_dismissNotifyBanner()" title="今日は表示しない" style="margin-left:auto;color:#94a3b8;font-size:14px;cursor:pointer;padding:0 4px;font-weight:400;">×</span>
   </div>
   <!-- 旧バナー（sign/upload個別）は互換のため残すが強制非表示 -->
@@ -5220,7 +5222,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260903.25';
+var OFUSA_VERSION = 'ver.20260903.26';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -8014,6 +8016,9 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20260903.26', date:'2026-09-03', notify:true, items:[
+    '💬 <b>上部の通知バーに「💬 返信あり N社」チップを追加</b>しました。返信があった所属機関の数が出て、クリックすると所属機関アラートを開けます。あわせて<b>通知バー表示時に控えめに受信を取り込み（10分に1回まで）</b>、メールボックスを開かなくても返信を検知して自動でチップに反映します。'
+  ]},
   { version:'ver.20260903.25', date:'2026-09-03', notify:true, items:[
     '💬 <b>メールの返信を自動で検知</b>するようにしました。メールボックスを開く（取得する）と、紐づけ済みスレッドにこちらの送付日より後の相手からの返信があれば、その会社を自動で「💬 返信あり」にして<b>自動催促・一括催促の対象から外します</b>。誤判定時は「💬 返信あり」をクリックすれば戻せます（手動トグルと併用）。'
   ]},
@@ -44720,15 +44725,31 @@ function _coLastSentDate(coId){
   return best;
 }
 function _coRepliedOk(coId){ return !!(((typeof coDocCheck!=='undefined'?coDocCheck[coId]:null)||{})['replied::ok']); }
+// ver.20260903.26: 返信あり(replied::ok)の会社数
+function _coRepliedCount(){ var n=0; try{ Object.keys(coDocCheck||{}).forEach(function(cid){ if((coDocCheck[cid]||{})['replied::ok']) n++; }); }catch(e){} return n; }
 function _coToggleReplied(coId){
   if(!coDocCheck[coId]) coDocCheck[coId]={};
   if(coDocCheck[coId]['replied::ok']) delete coDocCheck[coId]['replied::ok'];
   else coDocCheck[coId]['replied::ok']=new Date().toISOString().slice(0,10);
   try{ persistCoDocCheck(); }catch(e){}
   try{ _renderCoDocAlertList(); }catch(e){}
+  try{ _updateUnifiedNotifyBanner(); }catch(e){} // ver.20260903.26
 }
 // ver.20260903.24: 案件一覧用のコンパクト版（📧紐づけ／送付Nd／💬返信あり を小さく）
 // ver.20260903.25: 取得済み受信メール(_mbMails)と紐づけスレッドを突合し、こちらの送付後に相手返信があれば返信あり(replied::ok)を自動セット。手動トグルと併存。
+// ver.20260903.26: 通知バー表示時に控えめに受信を取り込み→返信スキャン（10分に1回まで）
+function _coMaybeFetchReplies(){
+  try{
+    if(typeof GAS_MAILBOX_URL==='undefined' || typeof jsonpGet!=='function') return;
+    if(typeof DB_READY!=='undefined' && !DB_READY) return;
+    var now=Date.now();
+    if(window._coReplyFetchAt && (now-window._coReplyFetchAt) < 10*60*1000) return;
+    window._coReplyFetchAt=now;
+    jsonpGet(GAS_MAILBOX_URL+'?action=getInbox&q=&max=30', function(data){
+      try{ if(data && data.status==='ok' && data.mails){ window._mbMails=data.mails; _mbMails.sort(function(a,b){return (b.date||'').localeCompare(a.date||'');}); _coScanRepliesLocal(); _updateUnifiedNotifyBanner(); } }catch(e){}
+    });
+  }catch(e){}
+}
 function _coScanRepliesLocal(){
   try{
     if(!window._mbMails || !_mbMails.length) return;
@@ -44747,7 +44768,7 @@ function _coScanRepliesLocal(){
       });
       if(hit){ if(!coDocCheck[coId]) coDocCheck[coId]={}; coDocCheck[coId]['replied::ok']=new Date().toISOString().slice(0,10); changed=true; }
     });
-    if(changed){ try{ persistCoDocCheck(); }catch(e){} try{ _renderCoDocAlertList(); }catch(e){} }
+    if(changed){ try{ persistCoDocCheck(); }catch(e){} try{ _renderCoDocAlertList(); }catch(e){} try{ _updateUnifiedNotifyBanner(); }catch(e){} }
   }catch(e){}
 }
 function _coMailStatusChipMini(coId, threadId){
@@ -101954,7 +101975,14 @@ function _updateUnifiedNotifyBanner(){
     if(cChip) cChip.style.display = coN>0 ? 'inline-flex' : 'none';
     if(div) div.style.display = (signN>0 && upN>0) ? 'inline-block' : 'none';
     if(div2) div2.style.display = (upN>0 && coN>0) ? 'inline-block' : 'none';
-    wrap.style.display = (signN>0 || upN>0 || coN>0) ? 'flex' : 'none';
+    // ver.20260903.26: 返信ありチップ
+    var replyN = (typeof _coRepliedCount==='function')?_coRepliedCount():0;
+    var rChip=document.getElementById('_replyChip'), div3=document.getElementById('_notifyDivider3'), rCnt=document.getElementById('replyNotifyCount');
+    if(rCnt) rCnt.textContent=replyN;
+    if(rChip) rChip.style.display = replyN>0 ? 'inline-flex' : 'none';
+    if(div3) div3.style.display = ((signN>0||upN>0||coN>0) && replyN>0) ? 'inline-block' : 'none';
+    wrap.style.display = (signN>0 || upN>0 || coN>0 || replyN>0) ? 'flex' : 'none';
+    try{ _coMaybeFetchReplies(); }catch(e){} // ver.20260903.26: 控えめに受信取込→返信スキャン
   }catch(e){}
 }
 function _dismissNotifyBanner(){
