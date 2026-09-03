@@ -210,7 +210,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.31</div>
+      <div class="ver">ver.20260824.33</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -218,6 +218,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
       <button class="btn btn-primary" onclick="openMailModal()">✉️ メール配信</button>
       <button class="btn btn-primary" onclick="openApptImport()">📥 アポ取込</button>
       <button class="btn" id="apptChip" onclick="toggleApptOnly()" style="display:none;background:#fff5f5;border-color:#feb2b2;color:#c53030;">🔴 Meet未送信 <span id="apptChipN">0</span>件</button>
+      <button class="btn" id="thanksChip" onclick="toggleThanksOnly()" style="display:none;background:#ebf8ff;border-color:#bee3f8;color:#2b6cb0;">📄 御礼未送信 <span id="thanksChipN">0</span>件</button>
       <button class="btn" onclick="openQuoteList()">🗂 見積書履歴</button>
       <button class="btn" onclick="el('csvFile').click()">📥 CSV取込</button>
       <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="importCsv(this)">
@@ -845,6 +846,7 @@ function buildQuery(forCount){
   if(el('fIndustry').value) q = q.eq('industry', el('fIndustry').value);
   if(el('fSelf').value)     q = q.eq('self_support', el('fSelf').value);
   if(apptOnly){ q = q.not('apt_at','is',null).eq('apt_meet_sent', false); }
+  if(thanksOnly){ q = q.not('apt_at','is',null).lt('apt_at', new Date().toISOString()).eq('thanks_sent', false).eq('apt_reschedule', false); }
   q = applyExclusions(q);
 
   var sort = el('fSort').value;
@@ -1376,14 +1378,27 @@ function saveLead(silent){
   _sb.from('eigyo_leads').update(patch).eq('reg_no', lead.reg_no).then(function(r){
     if(r.error){ showMsg('dMsg','保存に失敗しました：'+r.error.message,'err'); return; }
     Object.keys(patch).forEach(function(k){ if(curLead) curLead[k]=patch[k]; });
-    if(silent){ showMsg('dMsg','✓ 自動保存しました','ok'); _autosaveDirty=false; }
+    if(silent){ autosaveToast(); _autosaveDirty=false; }
     else { showMsg('dMsg','保存しました','ok'); load(); }
   });
 }
 var _autosaveTimer=null, _autosaveDirty=false;
+function autosaveToast(msg, color){
+  var t=el('autosaveToast');
+  if(!t){ t=document.createElement('div'); t.id='autosaveToast';
+    t.style.cssText='position:fixed;z-index:90;right:18px;bottom:18px;background:#276749;color:#fff;padding:7px 14px;border-radius:16px;font-size:12px;font-weight:600;box-shadow:0 3px 12px rgba(0,0,0,.2);opacity:0;transition:opacity .25s;pointer-events:none;';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg || '✓ 自動保存しました';
+  t.style.background = color || '#276749';
+  t.style.opacity='1';
+  if(t._h) clearTimeout(t._h);
+  t._h=setTimeout(function(){ t.style.opacity='0'; }, 1600);
+}
 function scheduleAutosave(){
   if(!curLead) return;
   _autosaveDirty=true;
+  autosaveToast('保存中…','#718096');
   if(_autosaveTimer) clearTimeout(_autosaveTimer);
   _autosaveTimer=setTimeout(function(){ _autosaveTimer=null; if(curLead) saveLead(true); }, 1200);
 }
@@ -1544,7 +1559,13 @@ function remindToast(msg){
 }
 
 var apptOnly = false;
-function toggleApptOnly(){ apptOnly = !apptOnly; page=0; var c=el('apptChip'); if(c) c.style.background = apptOnly?'#c53030':'#fff5f5', c.style.color = apptOnly?'#fff':'#c53030'; load(); }
+var thanksOnly = false;
+function toggleApptOnly(){ apptOnly = !apptOnly; if(apptOnly) thanksOnly=false; page=0; syncChipStyles(); load(); }
+function toggleThanksOnly(){ thanksOnly = !thanksOnly; if(thanksOnly) apptOnly=false; page=0; syncChipStyles(); load(); }
+function syncChipStyles(){
+  var a=el('apptChip'); if(a){ a.style.background=apptOnly?'#c53030':'#fff5f5'; a.style.color=apptOnly?'#fff':'#c53030'; }
+  var t=el('thanksChip'); if(t){ t.style.background=thanksOnly?'#2b6cb0':'#ebf8ff'; t.style.color=thanksOnly?'#fff':'#2b6cb0'; }
+}
 function toLocalDT(iso){ try{ var d=new Date(iso); var p=function(n){return('0'+n).slice(-2);}; return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes()); }catch(e){ return ''; } }
 function apptCell(x){
   if(!x.apt_at){ return x.meeting_date ? esc(x.meeting_date)+(x.meeting_kind?'<div class="sub">'+esc(x.meeting_kind)+'</div>':'') : '—'; }
@@ -1559,6 +1580,10 @@ function refreshApptChip(){
   _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).not('apt_at','is',null).eq('apt_meet_sent',false).eq('apt_reschedule',false).then(function(r){
     var n=r.count||0, c=el('apptChip'); if(!c) return;
     el('apptChipN').textContent=n; c.style.display = n>0 ? '' : (apptOnly?'':'none');
+  });
+  _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).not('apt_at','is',null).lt('apt_at',new Date().toISOString()).eq('thanks_sent',false).eq('apt_reschedule',false).then(function(r){
+    var n=r.count||0, c=el('thanksChip'); if(!c) return;
+    el('thanksChipN').textContent=n; c.style.display = n>0 ? '' : (thanksOnly?'':'none');
   });
 }
 function copyApptMsg(){
@@ -1610,7 +1635,7 @@ function markThanksSent(flag){
   _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
     if(r.error){ showMsg('dMsg','更新に失敗しました：'+r.error.message,'err'); return; }
     curLead.thanks_sent=flag; showMsg('dMsg', flag?'御礼メール送信済みにしました':'未送信に戻しました','ok');
-    openDrawer(curLead.reg_no); load(); checkThanksReminder();
+    openDrawer(curLead.reg_no); load(); refreshApptChip(); checkThanksReminder();
   });
 }
 function thanksSenderDefault(){ try{ return localStorage.getItem('thanksSender')||''; }catch(e){ return ''; } }
