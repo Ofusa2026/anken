@@ -210,7 +210,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.29</div>
+      <div class="ver">ver.20260824.31</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -223,6 +223,8 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
       <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="importCsv(this)">
       <button class="btn" onclick="exportCsv()">⬇ 表示中をCSV</button>
       <button class="btn" onclick="load()">↻ 再読込</button>
+      <button class="btn" onclick="openHelp()">❓ 使い方</button>
+      <button class="btn" onclick="openCommonMaterials()">📎 共通資料</button>
       <a class="btn" href="./index.html">← 案シスへ</a>
     </div>
   </div>
@@ -1005,12 +1007,16 @@ function openDrawer(regNo){
     try { renderDrawer(); }
     catch(e){ el('dBody').innerHTML='<div class="empty">表示エラー：'+esc(e.message)+'<br><button class="btn btn-sm" onclick="closeDrawer()">閉じる</button></div>'; }
     loadNotes(regNo);
+    loadMaterials(regNo);
+    setTimeout(function(){ var b=el('dBody'); if(b && !b._autobound){ b._autobound=true; b.addEventListener('input',scheduleAutosave); b.addEventListener('change',scheduleAutosave); } }, 0);
   });
 }
 function closeDrawer(){
+  flushAutosave();
   el('ov').classList.remove('on');
   el('dw').classList.remove('on');
-  curLead = null;
+  var wasDirty=_autosaveDirty; curLead = null;
+  if(wasDirty){ setTimeout(load, 400); }
 }
 function renderDrawer(){
   var x = curLead;
@@ -1080,6 +1086,12 @@ function renderDrawer(){
   +     (x.thanks_sent
         ? '<button class="btn" onclick="markThanksSent(false)" style="background:#f0fff4;border-color:#9ae6b4;color:#276749;">✓ 御礼送信済み（クリックで取消）</button>'
         : '<button class="btn btn-primary" onclick="markThanksSent(true)">✅ 御礼メール送信済みにする</button>')
+  +   '</div>'
+  +   '<label class="span2" style="margin:8px 0 -2px;font-weight:700;color:#805ad5;">📎 添付資料（PDF）</label>'
+  +   '<div class="span2" id="matList" style="font-size:12px;">読み込み中…</div>'
+  +   '<div class="span2" id="matDrop" ondragover="event.preventDefault();this.style.background=\'#faf5ff\'" ondragleave="this.style.background=\'\'" ondrop="matDropLead(event)" style="border:1.5px dashed #b794f4;border-radius:8px;padding:12px;text-align:center;font-size:12px;color:#6b46c1;cursor:pointer;" onclick="el(\'matFileLead\').click()">'
+  +     'ここにPDFをドラッグ、またはクリックして選択（この会社用・複数可）'
+  +     '<input type="file" id="matFileLead" accept="application/pdf" multiple style="display:none" onchange="matPickLead(event)">'
   +   '</div>'
   +   '<label class="span2" style="margin:8px 0 -2px;font-weight:700;color:#553c9a;">📝 商談議事録（Meetメモ）</label>'
   +   '<label>議事録リンク</label><input type="text" id="eMinUrl" class="span2" placeholder="Meetの自動メモ（Googleドキュメント）のURL" value="'+esc(x.minutes_url||'')+'">'
@@ -1314,7 +1326,9 @@ function saveStatusNow(){
   });
 }
 
-function saveLead(){
+function saveLead(silent){
+  if(!curLead) return;
+  var lead = curLead;
   var patch = {
     status:            el('eStatus').value,
     staff:             el('eStaff').value || null,
@@ -1359,12 +1373,23 @@ function saveLead(){
     hr_olink_memo:     el('eHrOlinkMemo').value.trim() || null,
     hr_memo:           el('eHrMemo').value.trim() || null
   };
-  _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
+  _sb.from('eigyo_leads').update(patch).eq('reg_no', lead.reg_no).then(function(r){
     if(r.error){ showMsg('dMsg','保存に失敗しました：'+r.error.message,'err'); return; }
-    showMsg('dMsg','保存しました','ok');
-    Object.keys(patch).forEach(function(k){ curLead[k]=patch[k]; });
-    load();
+    Object.keys(patch).forEach(function(k){ if(curLead) curLead[k]=patch[k]; });
+    if(silent){ showMsg('dMsg','✓ 自動保存しました','ok'); _autosaveDirty=false; }
+    else { showMsg('dMsg','保存しました','ok'); load(); }
   });
+}
+var _autosaveTimer=null, _autosaveDirty=false;
+function scheduleAutosave(){
+  if(!curLead) return;
+  _autosaveDirty=true;
+  if(_autosaveTimer) clearTimeout(_autosaveTimer);
+  _autosaveTimer=setTimeout(function(){ _autosaveTimer=null; if(curLead) saveLead(true); }, 1200);
+}
+function flushAutosave(){
+  if(_autosaveTimer){ clearTimeout(_autosaveTimer); _autosaveTimer=null; }
+  if(_autosaveDirty && curLead){ saveLead(true); }
 }
 
 // ヒアリングフォームのURLを発行（案シスと同じ形式）
@@ -1760,6 +1785,68 @@ function summarizeMinutes(){
     showMsg('dMsg','要約に失敗しました：'+e,'err');
   });
 }
+// --- 使い方ヘルプ ---
+function openHelp(){
+  var box=el('helpBox');
+  if(!box){
+    box=document.createElement('div'); box.id='helpBox';
+    box.style.cssText='display:none;position:fixed;z-index:78;top:50%;left:50%;transform:translate(-50%,-50%);width:min(720px,95vw);max-height:90vh;overflow-y:auto;background:#fff;border-radius:12px;padding:24px 28px;box-shadow:0 8px 40px rgba(0,0,0,.25);';
+    document.body.appendChild(box);
+    var ov=document.createElement('div'); ov.id='helpOv'; ov.className='overlay'; ov.style.zIndex='77'; ov.onclick=closeHelp; document.body.appendChild(ov);
+  }
+  function sec(icon,title,items){
+    return '<div style="margin-bottom:16px;">'
+      + '<div style="font-weight:700;font-size:14px;color:var(--accent);margin-bottom:5px;">'+icon+' '+title+'</div>'
+      + '<ul style="margin:0;padding-left:18px;font-size:12.5px;line-height:1.7;color:#2d3748;">'
+      + items.map(function(t){return '<li>'+t+'</li>';}).join('') + '</ul></div>';
+  }
+  var h='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+    + '<h2 style="margin:0;font-size:20px;color:var(--accent);">❓ 営業リード管理 使い方ガイド</h2>'
+    + '<button class="btn" onclick="closeHelp()">閉じる</button></div>'
+    + '<p style="font-size:12px;color:var(--muted);margin:0 0 16px;">主要機能の使い方です。会社名をクリックすると詳細画面（ドロワー）が開きます。</p>';
+
+  h+=sec('📥','アポ取込（テレアポ報告の登録）',[
+    'ツールバー「<b>📥 アポ取込</b>」→ ChatWorkの【アポ獲得報告】本文を<b>そのまま貼り付け</b>→「解析する」。',
+    '会社名・担当者・電話・住所・商談日時・送信先メールなどを<b>自動で読み取り</b>ます（2社の報告形式に対応）。',
+    '緑の「解析が完了しました」が出たら内容を確認 →「この内容で登録」。既存リードがあれば紐付け、無ければ新規作成します。',
+    '電話が9桁など不確かな場合は、<b>0を補う確認</b>が出ます。'
+  ]);
+  h+=sec('🗓','Meetリンクの送付',[
+    '会社を開き「🗓 アポ管理」欄で、Googleカレンダーの<b>コピー内容を丸ごと貼る</b>と、Meetのビデオ通話リンクだけ自動抽出されます。',
+    '「<b>📧 送信文をコピー</b>」で、日時・URL入りの案内メール文が作れます（差出人は下の担当者プルダウンを選択）。',
+    '送ったら「<b>✅ Meet送信済みにする</b>」を押してください（未送信の催促から外れます）。'
+  ]);
+  h+=sec('📄','御礼メール（商談当日）',[
+    '「🗓 アポ管理」内の「📄 御礼メール」で<b>差出人（担当者名）</b>を選び「<b>📄 御礼文をコピー</b>」→ メールに貼り、<b>資料PDFを添付</b>して送付。',
+    '送ったら「<b>✅ 御礼メール送信済みにする</b>」を押します。'
+  ]);
+  h+=sec('📝','商談議事録のAI要約',[
+    'Meetの自動メモ（議事録）の<b>本文を貼り付け</b>→「🤖 AIで要約」で、要点・次の一手・懸念に自動要約されます。'
+  ]);
+  h+=sec('🔔','リマインド（ポップアップ）',[
+    '営シスを開くと、未対応があると自動でポップアップが出ます：',
+    '<b>🔴 Meet未送信</b>／<b>📄 御礼メール未送信</b>／<b>📮 フォロー要</b>（商談済30日）／<b>⏸ リスケ・連絡待ちフォロー</b>。',
+    '各ポップの「開く」で会社詳細へ。日数のしきい値は変更できます。',
+    'リスケ（連絡待ち）は「<b>📧 催促文をコピー</b>」で追いかけ、送ったら「<b>✅ フォロー実施</b>」（履歴に自動記録）。'
+  ]);
+  h+=sec('✉️','メール一斉配信（メルマガ）',[
+    'ツールバー「✉️ メール配信」→ 配信先ステータスを選択（例：商談済み→依頼待ち）。',
+    '会社ごとにチェックで選択、「<b>全選択/全解除</b>」も可能。まず<b>テスト送信</b>で確認してから本配信。',
+    '詳細画面の「<b>✉️ メール配信不要</b>」にチェックした会社は配信対象から除外されます。'
+  ]);
+  h+=sec('📋','ヒアリング・社内メモ',[
+    '会社詳細の「📋 登録支援機関ヒアリング」で商談で聞いた内容を記録（既存の申請費用・業務範囲なども）。',
+    '一覧の「社内メモ」列に表示され、右上のソートで「社内メモあり順」に並べ替えできます。',
+    '「対応履歴」は追加・削除できます（×削除）。'
+  ]);
+  h+=sec('🏢','登録支援機関マスタ登録',[
+    '会社詳細の「🏢 登録支援機関マスタに登録」で案シスへ登録。既に案シスにある場合は、<b>空欄だけ補完</b>し、重複項目は<b>上書きするか確認</b>します。'
+  ]);
+  h+='<p style="font-size:11px;color:var(--muted);border-top:1px solid var(--line);padding-top:10px;margin-top:8px;">最新版の反映は Ctrl+Shift+R（強制リロード）。不具合や追加要望は管理者へ。</p>';
+  box.innerHTML=h; box.style.display='block'; el('helpOv').classList.add('on');
+}
+function closeHelp(){ var b=el('helpBox'); if(b) b.style.display='none'; var o=el('helpOv'); if(o) o.classList.remove('on'); }
+
 // --- 取込モーダル ---
 function openApptImport(){
   var box=el('apptBox');
@@ -2176,6 +2263,83 @@ function saveProfile(){
     load();
   });
 }
+
+/* ===== 添付資料（PDF：共通＋会社別） ===== */
+var MAT_BUCKET='eigyo-materials';
+function _matSafeName(n){ return String(n).replace(/[^\w.\-]/g,'_').slice(-80); }
+function matUpload(files, scope, regNo){
+  if(!files || !files.length) return;
+  var arr=[].slice.call(files).filter(function(f){ return /pdf$/i.test(f.name)||f.type==='application/pdf'; });
+  if(!arr.length){ alert('PDFファイルを選んでください'); return; }
+  var done=0;
+  arr.forEach(function(f){
+    var path=(scope==='common'?'common/':'lead/'+regNo+'/')+Date.now()+'_'+Math.random().toString(36).slice(2,6)+'_'+_matSafeName(f.name);
+    _sb.storage.from(MAT_BUCKET).upload(path, f, {upsert:false, contentType:'application/pdf'}).then(function(up){
+      if(up.error){ alert('アップロード失敗（'+f.name+'）：'+up.error.message); done++; return; }
+      var pub=_sb.storage.from(MAT_BUCKET).getPublicUrl(path);
+      var url=(pub&&pub.data&&pub.data.publicUrl)||null;
+      _sb.from('eigyo_materials').insert({scope:scope, reg_no:(scope==='common'?null:regNo), name:f.name, path:path, url:url, size:f.size}).then(function(){
+        done++; if(done===arr.length){ if(scope==='common'){ renderCommonMats(); } if(curLead) loadMaterials(curLead.reg_no); }
+      });
+    });
+  });
+}
+function matDropLead(e){ e.preventDefault(); var d=el('matDrop'); if(d) d.style.background=''; if(curLead) matUpload(e.dataTransfer.files,'lead',curLead.reg_no); }
+function matPickLead(e){ if(curLead) matUpload(e.target.files,'lead',curLead.reg_no); e.target.value=''; }
+function matDelete(id, path, scope){
+  if(!confirm('この資料を削除しますか？')) return;
+  _sb.storage.from(MAT_BUCKET).remove([path]).then(function(){
+    _sb.from('eigyo_materials').delete().eq('id',id).then(function(){
+      if(scope==='common') renderCommonMats(); if(curLead) loadMaterials(curLead.reg_no);
+    });
+  });
+}
+function _matItem(m, deletable){
+  return '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:6px;padding:5px 8px;margin-bottom:4px;">'
+    + '<span style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 '+esc(m.name)+(m.scope==='common'?' <span style="font-size:10px;color:#805ad5;">[共通]</span>':'')+'</span>'
+    + '<span style="white-space:nowrap;">'
+    + (m.url?'<a class="btn btn-sm" href="'+esc(m.url)+'" target="_blank" download>開く</a>':'')
+    + (deletable?' <button class="btn btn-sm" style="color:#c53030;" onclick="matDelete('+m.id+',\''+esc(m.path)+'\',\''+esc(m.scope)+'\')">削除</button>':'')
+    + '</span></div>';
+}
+function loadMaterials(regNo){
+  var box=el('matList'); if(!box) return;
+  _sb.from('eigyo_materials').select('*').or('scope.eq.common,reg_no.eq.'+regNo).order('scope',{ascending:true}).order('created_at',{ascending:true}).then(function(r){
+    if(r.error){ box.innerHTML='<span class="sub">読み込みエラー</span>'; return; }
+    var d=r.data||[]; var common=d.filter(function(m){return m.scope==='common';}); var mine=d.filter(function(m){return m.scope==='lead';});
+    var h='';
+    h+='<div style="font-size:11px;color:#805ad5;margin-bottom:3px;">共通資料（全社共通）</div>';
+    h+= common.length? common.map(function(m){return _matItem(m,false);}).join('') : '<div class="sub" style="font-size:11px;margin-bottom:4px;">（未登録：上部「📎 共通資料」から追加）</div>';
+    h+='<div style="font-size:11px;color:#6b46c1;margin:6px 0 3px;">この会社の資料</div>';
+    h+= mine.length? mine.map(function(m){return _matItem(m,true);}).join('') : '<div class="sub" style="font-size:11px;">（下の枠にドラッグ／クリックで追加）</div>';
+    box.innerHTML=h;
+  });
+}
+// 共通資料モーダル
+function openCommonMaterials(){
+  var box=el('cmatBox');
+  if(!box){
+    box=document.createElement('div'); box.id='cmatBox';
+    box.style.cssText='display:none;position:fixed;z-index:78;top:50%;left:50%;transform:translate(-50%,-50%);width:min(560px,94vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 40px rgba(0,0,0,.2);';
+    document.body.appendChild(box);
+    var ov=document.createElement('div'); ov.id='cmatOv'; ov.className='overlay'; ov.style.zIndex='77'; ov.onclick=closeCommonMaterials; document.body.appendChild(ov);
+  }
+  box.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><h2 style="margin:0;font-size:18px;color:var(--accent);">📎 共通資料（全社共通で添付）</h2><button class="btn" onclick="closeCommonMaterials()">閉じる</button></div>'
+    + '<p style="font-size:12px;color:var(--muted);margin:0 0 10px;">ここに登録したPDFは、全ての会社の詳細画面に「共通資料」として表示され、送信時に開いて添付できます。</p>'
+    + '<div id="cmatList" style="margin-bottom:10px;">読み込み中…</div>'
+    + '<div id="cmatDrop" ondragover="event.preventDefault();this.style.background=\'#faf5ff\'" ondragleave="this.style.background=\'\'" ondrop="matDropCommon(event)" style="border:1.5px dashed #b794f4;border-radius:8px;padding:14px;text-align:center;font-size:12px;color:#6b46c1;cursor:pointer;" onclick="el(\'matFileCommon\').click()">ここにPDFをドラッグ、またはクリックして選択（複数可）<input type="file" id="matFileCommon" accept="application/pdf" multiple style="display:none" onchange="matPickCommon(event)"></div>';
+  box.style.display='block'; el('cmatOv').classList.add('on'); renderCommonMats();
+}
+function closeCommonMaterials(){ var b=el('cmatBox'); if(b) b.style.display='none'; var o=el('cmatOv'); if(o) o.classList.remove('on'); }
+function renderCommonMats(){
+  var box=el('cmatList'); if(!box) return;
+  _sb.from('eigyo_materials').select('*').eq('scope','common').order('created_at',{ascending:true}).then(function(r){
+    var d=(r.data)||[];
+    box.innerHTML = d.length? d.map(function(m){return _matItem(m,true);}).join('') : '<span class="sub" style="font-size:12px;">まだ共通資料がありません。</span>';
+  });
+}
+function matDropCommon(e){ e.preventDefault(); var d=el('cmatDrop'); if(d) d.style.background=''; matUpload(e.dataTransfer.files,'common',null); }
+function matPickCommon(e){ matUpload(e.target.files,'common',null); e.target.value=''; }
 
 function loadNotes(regNo){
   _sb.from('eigyo_notes').select('*').eq('reg_no', regNo)
