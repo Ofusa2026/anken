@@ -5220,7 +5220,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260903.24';
+var OFUSA_VERSION = 'ver.20260903.25';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -8014,6 +8014,9 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20260903.25', date:'2026-09-03', notify:true, items:[
+    '💬 <b>メールの返信を自動で検知</b>するようにしました。メールボックスを開く（取得する）と、紐づけ済みスレッドにこちらの送付日より後の相手からの返信があれば、その会社を自動で「💬 返信あり」にして<b>自動催促・一括催促の対象から外します</b>。誤判定時は「💬 返信あり」をクリックすれば戻せます（手動トグルと併用）。'
+  ]},
   { version:'ver.20260903.24', date:'2026-09-03', notify:true, items:[
     '📧 <b>案件一覧の「企業/支援機関」欄に、企業メールの状態を小さく表示</b>するようにしました。メール紐づけ済みの会社は「📧」と「送付からの営業日数（例: 3d）」、返信ありなら「💬」が出ます（詳しい操作・返信ありの切替は所属機関アラートのカードで）。'
   ]},
@@ -44725,6 +44728,28 @@ function _coToggleReplied(coId){
   try{ _renderCoDocAlertList(); }catch(e){}
 }
 // ver.20260903.24: 案件一覧用のコンパクト版（📧紐づけ／送付Nd／💬返信あり を小さく）
+// ver.20260903.25: 取得済み受信メール(_mbMails)と紐づけスレッドを突合し、こちらの送付後に相手返信があれば返信あり(replied::ok)を自動セット。手動トグルと併存。
+function _coScanRepliesLocal(){
+  try{
+    if(!window._mbMails || !_mbMails.length) return;
+    if(typeof cData==='undefined' || !cData) return;
+    var changed=false;
+    cData.forEach(function(c){
+      if(!c || !c.mailThreadId) return;
+      var coId=c.companyId||c.company_id; if(!coId) return;
+      if(_coRepliedOk(coId)) return;
+      var last=_coLastSentDate(coId);
+      var hit=_mbMails.some(function(m){
+        if(!m || m.threadId!==c.mailThreadId) return false;
+        if(typeof _isOwnMailAddr==='function' && _isOwnMailAddr(m.from)) return false;
+        var md=(m.date||'').slice(0,10);
+        return md && (!last || md>=last);
+      });
+      if(hit){ if(!coDocCheck[coId]) coDocCheck[coId]={}; coDocCheck[coId]['replied::ok']=new Date().toISOString().slice(0,10); changed=true; }
+    });
+    if(changed){ try{ persistCoDocCheck(); }catch(e){} try{ _renderCoDocAlertList(); }catch(e){} }
+  }catch(e){}
+}
 function _coMailStatusChipMini(coId, threadId){
   if(!coId) return '';
   var parts=[];
@@ -90171,7 +90196,7 @@ function loadMailbox(){
     if(data && data.status === 'ok'){
       _mbMails = data.mails || [];
       // ver.20260706.20: スレッドの最新メール日時の降順に並べ替え（返信が来たスレッドを最上部に）
-      _mbMails.sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); });
+      _mbMails.sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); }); try{ _coScanRepliesLocal(); }catch(e){} // ver.20260903.25
       renderMailList();
     } else {
       if(list) list.innerHTML = '<div style="text-align:center;padding:40px;color:#dc2626;"><div style="font-size:24px;margin-bottom:8px;">⚠️</div>メール取得失敗<br><span style="font-size:11px;">GAS接続を確認してください</span></div>';
@@ -90187,7 +90212,7 @@ function searchMailbox(){
   jsonpGet(GAS_MAILBOX_URL + '?action=getInbox&q=' + encodeURIComponent(q) + '&max=20', function(data){
     if(data && data.status === 'ok'){
       _mbMails = data.mails || [];
-      _mbMails.sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); });
+      _mbMails.sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); }); try{ _coScanRepliesLocal(); }catch(e){} // ver.20260903.25
       renderMailList();
     } else {
       if(list) list.innerHTML = '<div style="text-align:center;padding:40px;color:#dc2626;">検索失敗</div>';
