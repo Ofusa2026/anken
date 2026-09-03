@@ -5220,7 +5220,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260903.22';
+var OFUSA_VERSION = 'ver.20260903.23';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -8014,6 +8014,9 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20260903.23', date:'2026-09-03', notify:true, items:[
+    '🛠 <b>所属機関の書類チェックで、担当確認（👤）を外しても緑（確認済み）に戻る不具合を修正</b>しました。原因は「チェックを外すと false が保存され、それを済みと誤判定していた」ことで、①外したらキーを削除する②空/falseは保存しない③読み取り時に "false" を未チェック扱いに正規化、の3層で再発を防止。既存の誤って緑になっていたデータ（会社652件・人材353件）も整理済みで、リロードすれば正しい表示になります。'
+  ]},
   { version:'ver.20260903.22', date:'2026-09-03', notify:true, items:[
     '📧 <b>所属機関アラートに「送付からの経過」「返信あり」表示を追加</b>しました。紐づけ済みカードに「📧 送付から N営業日」と「💬 返信あり?」ボタンが出ます。返信が来たら「💬 返信あり?」を押すと「返信あり」になり、<b>自動催促・一括催促の対象から自動で外れます</b>（もう一度押すと戻せます）。'
   ]},
@@ -24263,7 +24266,7 @@ function loadKanriCoDocsMissing(forceReload){
         var rows = r.data || [];
         rows.forEach(function(row){
           if(!newCo[row.co_id]) newCo[row.co_id] = {};
-          newCo[row.co_id][row.doc_key] = row.value;
+          newCo[row.co_id][row.doc_key] = _normCoDocVal(row.value);
         });
         if(rows.length === _size){
           _page++;
@@ -77218,6 +77221,8 @@ function _flattenCoDocCheck(obj){
   }
   return out;
 }
+// ver.20260903.23: co_doc_checkの"false"文字列を未チェック扱いに正規化
+function _normCoDocVal(v){ return v === 'false' ? false : v; }
 function persistCoDocCheck(){
   try{localStorage.setItem('ofusa_coDocCheck',JSON.stringify(coDocCheck));}catch(e){}
   if(DB_READY) {
@@ -77226,16 +77231,17 @@ function persistCoDocCheck(){
     var upserts = [], deletes = [];
     var nowIso = new Date().toISOString();
     var who = (typeof currentUser !== 'undefined' && currentUser) ? String(currentUser) : null;
+    var _isEmptyVal = function(v){ return v===false || v==='false' || v==='' || v==null; }; // ver.20260903.23: 空/falseは書かず削除
     for(var ck in cur){
-      if(cur[ck] !== prev[ck]){
-        var sep = ck.indexOf('\u0001');
-        upserts.push({
-          co_id: ck.slice(0, sep),
-          doc_key: ck.slice(sep+1),
-          value: String(cur[ck]),
-          updated_at: nowIso,
-          updated_by: who
-        });
+      var sep = ck.indexOf('\u0001');
+      var _cid = ck.slice(0, sep), _dk = ck.slice(sep+1);
+      var _v = cur[ck];
+      if(_isEmptyVal(_v)){
+        if((ck in prev) && !_isEmptyVal(prev[ck])) deletes.push({ co_id:_cid, doc_key:_dk });
+        continue;
+      }
+      if(String(_v) !== String(prev[ck])){
+        upserts.push({ co_id:_cid, doc_key:_dk, value:String(_v), updated_at:nowIso, updated_by:who });
       }
     }
     for(var pk in prev){
@@ -81502,7 +81508,7 @@ var _KOKKO_TO_NYUKAN_DOC_MAP = {
 
 function toggleCoDocCheck(coId, fullKey) {
   if (!coDocCheck[coId]) coDocCheck[coId] = {};
-  coDocCheck[coId][fullKey] = !coDocCheck[coId][fullKey];
+  if (coDocCheck[coId][fullKey]) { delete coDocCheck[coId][fullKey]; } else { coDocCheck[coId][fullKey] = true; } // ver.20260903.23: OFFはキー削除（"false"書き込み防止）
   // ver.20260623: 国交省書類の「取得済み(staff::)」を付けたら、入管側の対応書類も取得済みにする（片方向・付ける時のみ）
   try {
     if (fullKey.indexOf('staff::') === 0 && coDocCheck[coId][fullKey] === true) {
@@ -81544,7 +81550,7 @@ function setCoDocDate2(coId, docName, val) {
 function toggleCoDocSkip(coId, docName) {
   if (!coDocCheck[coId]) coDocCheck[coId] = {};
   var key = 'skip::' + docName;
-  coDocCheck[coId][key] = !coDocCheck[coId][key];
+  if (coDocCheck[coId][key]) { delete coDocCheck[coId][key]; } else { coDocCheck[coId][key] = true; } // ver.20260903.23: OFFはキー削除（"false"書き込み防止）
   persistCoDocCheck();
   // 必要書類不足画面が開いていればキャッシュを再計算→1カードだけ部分再描画（全件再取得しない）
   var kanriPanel = document.getElementById('kanriCoDocsScreen');
@@ -101310,7 +101316,7 @@ function loadAllFromSupabase() {
       var newCo = {};
       rows.forEach(function(row){
         if(!newCo[row.co_id]) newCo[row.co_id] = {};
-        newCo[row.co_id][row.doc_key] = row.value;
+        newCo[row.co_id][row.doc_key] = _normCoDocVal(row.value);
       });
       coDocCheck = newCo;
       window._lastSyncedCoDocCheck = _flattenCoDocCheck(coDocCheck);
@@ -102869,8 +102875,8 @@ function handleRealtimeChange(table, payload) {
     } else if (newRow) {
       var coidU = newRow.co_id, kCU = newRow.doc_key, vCU = newRow.value;
       if (!coDocCheck[coidU]) coDocCheck[coidU] = {};
-      coDocCheck[coidU][kCU] = vCU;
-      window._lastSyncedCoDocCheck[coidU + '\u0001' + kCU] = vCU;
+      coDocCheck[coidU][kCU] = _normCoDocVal(vCU);
+      window._lastSyncedCoDocCheck[coidU + '\u0001' + kCU] = _normCoDocVal(vCU);
     }
     try{localStorage.setItem('ofusa_coDocCheck',JSON.stringify(coDocCheck));}catch(e){}
     debouncedRealtimeRefresh();

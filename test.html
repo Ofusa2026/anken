@@ -14127,7 +14127,7 @@ function loadKanriCoDocsMissing(forceReload){
         var rows = r.data || [];
         rows.forEach(function(row){
           if(!newCo[row.co_id]) newCo[row.co_id] = {};
-          newCo[row.co_id][row.doc_key] = row.value;
+          newCo[row.co_id][row.doc_key] = _normCoDocVal(row.value);
         });
         if(rows.length === _size){
           _page++;
@@ -50405,6 +50405,7 @@ function _flattenCoDocCheck(obj){
   }
   return out;
 }
+function _normCoDocVal(v){ return v === 'false' ? false : v; } // ver.20260903.23
 function persistCoDocCheck(){
   try{localStorage.setItem('ofusa_coDocCheck',JSON.stringify(coDocCheck));}catch(e){}
   if(DB_READY) {
@@ -50413,16 +50414,17 @@ function persistCoDocCheck(){
     var upserts = [], deletes = [];
     var nowIso = new Date().toISOString();
     var who = (typeof currentUser !== 'undefined' && currentUser) ? String(currentUser) : null;
+    var _isEmptyVal = function(v){ return v===false || v==='false' || v==='' || v==null; }; // ver.20260903.23: 空/falseは書かず削除
     for(var ck in cur){
-      if(cur[ck] !== prev[ck]){
-        var sep = ck.indexOf('\u0001');
-        upserts.push({
-          co_id: ck.slice(0, sep),
-          doc_key: ck.slice(sep+1),
-          value: String(cur[ck]),
-          updated_at: nowIso,
-          updated_by: who
-        });
+      var sep = ck.indexOf('\u0001');
+      var _cid = ck.slice(0, sep), _dk = ck.slice(sep+1);
+      var _v = cur[ck];
+      if(_isEmptyVal(_v)){
+        if((ck in prev) && !_isEmptyVal(prev[ck])) deletes.push({ co_id:_cid, doc_key:_dk });
+        continue;
+      }
+      if(String(_v) !== String(prev[ck])){
+        upserts.push({ co_id:_cid, doc_key:_dk, value:String(_v), updated_at:nowIso, updated_by:who });
       }
     }
     for(var pk in prev){
@@ -52139,7 +52141,7 @@ function saveCoDocMemo(coId, val) {
 
 function toggleCoDocCheck(coId, fullKey) {
   if (!coDocCheck[coId]) coDocCheck[coId] = {};
-  coDocCheck[coId][fullKey] = !coDocCheck[coId][fullKey];
+  if (coDocCheck[coId][fullKey]) { delete coDocCheck[coId][fullKey]; } else { coDocCheck[coId][fullKey] = true; } // ver.20260903.23: OFFはキー削除
   persistCoDocCheck();
   // 必要書類不足画面が開いていればキャッシュを再計算→1カードだけ部分再描画（全件再取得しない）
   var kanriPanel = document.getElementById('kanriCoDocsScreen');
@@ -52169,7 +52171,7 @@ function setCoDocDate2(coId, docName, val) {
 function toggleCoDocSkip(coId, docName) {
   if (!coDocCheck[coId]) coDocCheck[coId] = {};
   var key = 'skip::' + docName;
-  coDocCheck[coId][key] = !coDocCheck[coId][key];
+  if (coDocCheck[coId][key]) { delete coDocCheck[coId][key]; } else { coDocCheck[coId][key] = true; } // ver.20260903.23: OFFはキー削除
   persistCoDocCheck();
   // 必要書類不足画面が開いていればキャッシュを再計算→1カードだけ部分再描画（全件再取得しない）
   var kanriPanel = document.getElementById('kanriCoDocsScreen');
@@ -64859,7 +64861,7 @@ function loadAllFromSupabase() {
           var rows = r.data || [];
           rows.forEach(function(row){
             if(!newCo[row.co_id]) newCo[row.co_id] = {};
-            newCo[row.co_id][row.doc_key] = row.value;
+            newCo[row.co_id][row.doc_key] = _normCoDocVal(row.value);
           });
           totalLoaded += rows.length;
           if(rows.length === _size){
@@ -65797,8 +65799,8 @@ function handleRealtimeChange(table, payload) {
     } else if (newRow) {
       var coidU = newRow.co_id, kCU = newRow.doc_key, vCU = newRow.value;
       if (!coDocCheck[coidU]) coDocCheck[coidU] = {};
-      coDocCheck[coidU][kCU] = vCU;
-      window._lastSyncedCoDocCheck[coidU + '\u0001' + kCU] = vCU;
+      coDocCheck[coidU][kCU] = _normCoDocVal(vCU);
+      window._lastSyncedCoDocCheck[coidU + '\u0001' + kCU] = _normCoDocVal(vCU);
     }
     try{localStorage.setItem('ofusa_coDocCheck',JSON.stringify(coDocCheck));}catch(e){}
     debouncedRealtimeRefresh();
