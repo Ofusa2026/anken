@@ -5220,7 +5220,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20260903.21';
+var OFUSA_VERSION = 'ver.20260903.22';
 
 // ==================== ver.20260812.14: 全体最適ユーティリティ ====================
 // 【1】案件件数キャッシュ — cData変更のたびに cData.filter を走らせるのをやめる
@@ -8014,6 +8014,10 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20260903.22', date:'2026-09-03', notify:true, items:[
+    '📧 <b>所属機関アラートに「送付からの経過」「返信あり」表示を追加</b>しました。紐づけ済みカードに「📧 送付から N営業日」と「💬 返信あり?」ボタンが出ます。返信が来たら「💬 返信あり?」を押すと「返信あり」になり、<b>自動催促・一括催促の対象から自動で外れます</b>（もう一度押すと戻せます）。'
+  ]},
+
   { version:'ver.20260903.21', date:'2026-09-03', notify:true, items:[
     '📧 <b>入管書類の一括催促で、フォーム未回答もある会社は自動で「入管書類＋フォーム」の統合文面で送る</b>ようにしました（別々に2通ではなく1通に）。送信前プレビューで内容を確認できます。'
   ]},
@@ -44700,10 +44704,37 @@ function _coMailBadge(c){
   return '<span style="font-size:10px;font-weight:500;color:#854F0B;background:#FAEEDA;border:0.5px solid #FAC775;border-radius:6px;padding:1px 7px;margin-left:6px;">未紐づけ</span>';
 }
 // ver.20260903.10: 紐づけ済みなら「📧 スレッド件名 … 詳細›」のクリック行（クリックでメール詳細＝スレッドを開く）
+// ver.20260903.22: 送付からの経過日数＋返信あり（手動トグル）
+function _coLastSentDate(coId){
+  var m=(typeof coDocCheck!=='undefined'?coDocCheck[coId]:null)||{}; var best='';
+  Object.keys(m).forEach(function(k){ if(k.indexOf('req::')===0 || k.indexOf('waitmail::')===0){ var v=String(m[k]||'').slice(0,10); if(v && v>best) best=v; } });
+  return best;
+}
+function _coRepliedOk(coId){ return !!(((typeof coDocCheck!=='undefined'?coDocCheck[coId]:null)||{})['replied::ok']); }
+function _coToggleReplied(coId){
+  if(!coDocCheck[coId]) coDocCheck[coId]={};
+  if(coDocCheck[coId]['replied::ok']) delete coDocCheck[coId]['replied::ok'];
+  else coDocCheck[coId]['replied::ok']=new Date().toISOString().slice(0,10);
+  try{ persistCoDocCheck(); }catch(e){}
+  try{ _renderCoDocAlertList(); }catch(e){}
+}
+function _coMailStatusChip(coId){
+  if(!coId) return '';
+  var out='';
+  if(_coRepliedOk(coId)){
+    out+='<span onclick="event.stopPropagation();_coToggleReplied(\''+coId+'\')" title="クリックで返信なしに戻す" style="font-size:10px;font-weight:800;color:#047857;background:#d1fae5;border-radius:99px;padding:1px 8px;cursor:pointer;">💬 返信あり</span>';
+  } else {
+    var last=_coLastSentDate(coId);
+    if(last){ var d=(typeof _bizDaysSinceDate==='function')?_bizDaysSinceDate(last):0; out+='<span style="font-size:10px;font-weight:700;color:'+(d>=5?'#c2410c':'#92400e')+';background:'+(d>=5?'#ffedd5':'#fef3c7')+';border-radius:99px;padding:1px 8px;">📧 送付から '+d+'営業日</span>'; }
+    out+='<span onclick="event.stopPropagation();_coToggleReplied(\''+coId+'\')" title="返信が来たらクリック（自動催促の対象外になります）" style="font-size:10px;color:#64748b;background:#f8fafc;border:1px solid #e2e8f0;border-radius:99px;padding:1px 8px;cursor:pointer;">💬 返信あり?</span>';
+  }
+  return '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:3px;">'+out+'</div>';
+}
 function _coMailSubjectLine(c){
-  if(!(c && c.mailThreadId)) return '';
+  if(!(c && c.mailThreadId)) return _coMailStatusChip(c?(c.companyId||c.company_id||''):'');
+  var coId=c.companyId||c.company_id||'';
   var subj = esc((c.mailThreadSubject||'（件名なし）').toString());
-  return '<div onclick="event.stopPropagation();_coLogOpenThread(\''+esc(String(c.mailThreadId))+'\')" title="メール詳細（スレッド）を開く" style="font-size:10.5px;color:#185FA5;margin-top:3px;cursor:pointer;display:flex;align-items:center;gap:4px;max-width:340px;"><span style="flex-shrink:0;">📧</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+subj+'</span><span style="flex-shrink:0;color:#94a3b8;font-weight:700;">詳細 ›</span></div>';
+  return '<div onclick="event.stopPropagation();_coLogOpenThread(\''+esc(String(c.mailThreadId))+'\')" title="メール詳細（スレッド）を開く" style="font-size:10.5px;color:#185FA5;margin-top:3px;cursor:pointer;display:flex;align-items:center;gap:4px;max-width:340px;"><span style="flex-shrink:0;">📧</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+subj+'</span><span style="flex-shrink:0;color:#94a3b8;font-weight:700;">詳細 ›</span></div>'+_coMailStatusChip(coId);
 }
 // ver.20260902.24: カード内「案内範囲の帯」
 function _coScopeBar(c){
@@ -79152,7 +79183,7 @@ function coDocToggleAutoOk(coId){
 function coDocAutoOkAll7d(){
   var all=_getCoDocAlerts();
   var target={};
-  all.forEach(function(a){ if((a.bizDiff!=null?a.bizDiff:0)>=5 && !_coDocAutoOk(a.co.id)) target[a.co.id]=a.co.name||a.co.id; });
+  all.forEach(function(a){ if((a.bizDiff!=null?a.bizDiff:0)>=5 && !_coDocAutoOk(a.co.id) && !_coRepliedOk(a.co.id)) target[a.co.id]=a.co.name||a.co.id; });
   var ids=Object.keys(target);
   if(!ids.length){ showToast('7日以上経過でOFFの会社はありません（すべてON済みか対象なし）'); return; }
   if(!confirm(ids.length+'社を自動催促OKにします（絞り込みに関係なく、7日以上経過のアラートがある会社すべて）。よろしいですか？\n\n'+ids.map(function(id){return '・'+target[id];}).join('\n'))) return;
@@ -79641,7 +79672,7 @@ function coDocMailBulk(){
   all.forEach(function(a){
     if((a.bizDiff!=null?a.bizDiff:0) < 5) return;
     if(a.reqDate === today) return; // 今日すでに依頼済みは除外（当日重複ガード）
-    if(!_coDocAutoOk(a.co.id)) return; // 自動催促OKの会社のみ（人材版と同じ）
+    if(!_coDocAutoOk(a.co.id) || _coRepliedOk(a.co.id)) return; // ver.20260903.22: 返信ありは対象外
     (byCo[a.co.id]=byCo[a.co.id]||{co:a.co, items:[]}).items.push(a);
   });
   var targets=[], noMail=[];
@@ -79896,7 +79927,7 @@ function coWaitMailBulk(mode){
   _coWaitBulkTargets(mode, function(all, noCo, noDate){
     var targets=[], noMail=[], sentToday=[];
     all.forEach(function(g){
-      if(!_coDocAutoOk(g.co.id)) return;
+      if(!_coDocAutoOk(g.co.id) || _coRepliedOk(g.co.id)) return; // ver.20260903.22: 返信ありは対象外
       if(((coDocCheck[g.co.id]||{})['waitmail::'+mode]||'')===today){ sentToday.push(g.co.name||''); return; } // 当日重複ガード
       if(_coDocMailAddr(g.co)) targets.push(g); else noMail.push(g.co.name||g.co.id);
     });
