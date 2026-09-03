@@ -210,7 +210,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.27</div>
+      <div class="ver">ver.20260824.29</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -595,6 +595,7 @@ var HR_MADOGUCHI = ['','登録支援機関','直接','送り出し機関','そ�
 var HR_KYOGIKAI = ['','登録支援機関','所属機関','大房行政書士法人','その他'];
 var HR_EXCLUSIVE = ['','専売（弊社のみ）','複数社に依頼','未確認'];
 var HR_SPOT = ['','スポット','定期依頼','トライアル次第','未確認'];
+var HR_SCOPE = ['','ワンストップ対応','確認＋申請のみ','その他（下欄に入力）'];
 // KPIカードに出すステータス
 var KPI_STATUSES = ['未接触','接触済み','商談予定','商談済み→依頼待ち','見込みなし','契約中','対象外','テレアポ失注'];
 var KINDS    = ['架電','メール','オンライン商談','訪問','郵送','その他'];
@@ -1126,6 +1127,9 @@ function renderDrawer(){
   +   '<label>取扱分野</label><textarea id="eHrFields" placeholder="例：建設、介護、外食 など" style="min-height:40px;">'+esc(x.hr_fields||'')+'</textarea>'
   +   '<label>専売/複数社</label><select id="eHrExclusive">'+HR_EXCLUSIVE.map(function(m){return '<option'+((m===(x.hr_exclusive||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
   +   '<label>現在の依頼先</label><textarea id="eHrGyosei" placeholder="今どこの行政書士に依頼しているか、その割合・分野" style="min-height:48px;">'+esc(x.hr_current_gyosei||'')+'</textarea>'
+  +   '<label>既存の申請費用</label><input type="text" id="eHrExistingFee" value="'+esc(x.hr_existing_fee||'')+'" placeholder="既存の行政書士の申請費用（例：1件○○円）">'
+  +   '<label>既存の業務範囲</label><select id="eHrScope">'+HR_SCOPE.map(function(m){return '<option'+((m===(x.hr_scope||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
+  +   '<label>業務範囲（その他）</label><input type="text" id="eHrScopeOther" value="'+esc(x.hr_scope_other||'')+'" placeholder="「その他」の場合はこちらに直接入力">'
   +   '<label>見込み</label><select id="eHrSpot">'+HR_SPOT.map(function(m){return '<option'+((m===(x.hr_spot||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
   +   '<label>獲得見込み</label><div style="display:flex;gap:6px;"><input type="number" id="eHrPotential" value="'+esc(x.hr_potential_apps!=null?x.hr_potential_apps:'')+'" placeholder="月◯件" style="flex:0 0 110px;"><input type="text" id="eHrPotentialField" value="'+esc(x.hr_potential_field||'')+'" placeholder="分野（例：特定技能）" style="flex:1;"></div>'
   +   '<label>獲得条件</label><textarea id="eHrCondition" placeholder="どうなったら残りの申請件数を弊社に任せてもらえそうか" style="min-height:48px;">'+esc(x.hr_condition||'')+'</textarea>'
@@ -1339,6 +1343,9 @@ function saveLead(){
     hr_fields:         el('eHrFields').value.trim() || null,
     hr_exclusive:      el('eHrExclusive').value || null,
     hr_current_gyosei: el('eHrGyosei').value.trim() || null,
+    hr_existing_fee:   (el('eHrExistingFee')&&el('eHrExistingFee').value.trim())||null,
+    hr_scope:          (el('eHrScope')&&el('eHrScope').value)||null,
+    hr_scope_other:    (el('eHrScopeOther')&&el('eHrScopeOther').value.trim())||null,
     hr_spot:           el('eHrSpot').value || null,
     hr_potential_apps: el('eHrPotential').value!==''? parseInt(el('eHrPotential').value,10) : null,
     hr_potential_field: el('eHrPotentialField').value.trim() || null,
@@ -1584,17 +1591,17 @@ function markThanksSent(flag){
 function thanksSenderDefault(){ try{ return localStorage.getItem('thanksSender')||''; }catch(e){ return ''; } }
 function copyThanksMsg(){
   if(!curLead) return;
-  var person=(curLead.apt_person||'').replace(/\/.*$/,'').replace(/様$/,'')||'ご担当者';
+  var person=(curLead.apt_person||'').replace(/\/.*$/,'').replace(/[（(].*?[）)]/,'').replace(/様$/,'').trim()||'ご担当者';
   var sender=(el('eThanksSender')&&el('eThanksSender').value.trim())||'';
   try{ if(sender) localStorage.setItem('thanksSender',sender); }catch(e){}
   var intro = sender ? ('お世話になっております。大房行政書士法人の'+sender+'でございます。')
                      : 'お世話になっております。大房行政書士法人でございます。';
-  var sign = sender ? (sender+'\n大房行政書士法人') : '大房行政書士法人';
+  var sign = sender || '大房行政書士法人';
   var body='件名：本日の御礼（大房行政書士法人）\n\n'
     + esc0(curLead.name||'')+'\n'+person+'様\n\n'
     + intro+'\n'
-    + '先日はお忙しい中、商談のお時間をいただき誠にありがとうございました。\n\n'
-    + 'お打ち合わせでご説明いたしました資料を添付いたします。\n'
+    + '本日はお忙しい中、お打ち合わせのお時間をいただき誠にありがとうございました。\n\n'
+    + '本日使用した資料を添付いたします。\n'
     + 'ご不明な点やご相談などございましたら、お気軽にご連絡ください。\n\n'
     + '今後ともどうぞよろしくお願いいたします。\n\n'
     + sign;
