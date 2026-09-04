@@ -210,7 +210,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.40</div>
+      <div class="ver">ver.20260824.41</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -1662,9 +1662,15 @@ function markMeetSent(flag){
 function markThanksSent(flag){
   if(!curLead) return;
   var patch = flag ? {thanks_sent:true, thanks_sent_at:new Date().toISOString()} : {thanks_sent:false, thanks_sent_at:null};
+  // 送信済みにしたら、契約中・対象外以外はステータスを「商談済み→依頼待ち」に自動更新
+  var statusMsg='';
+  if(flag && curLead.status!=='契約中' && curLead.status!=='対象外' && curLead.status!=='商談済み→依頼待ち'){
+    patch.status='商談済み→依頼待ち'; statusMsg='／ステータスを商談済み→依頼待ちに変更';
+  }
   _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
     if(r.error){ showMsg('dMsg','更新に失敗しました：'+r.error.message,'err'); return; }
-    curLead.thanks_sent=flag; showMsg('dMsg', flag?'御礼メール送信済みにしました':'未送信に戻しました','ok');
+    curLead.thanks_sent=flag; if(patch.status) curLead.status=patch.status;
+    showMsg('dMsg', (flag?'御礼メール送信済みにしました':'未送信に戻しました')+statusMsg,'ok');
     openDrawer(curLead.reg_no); load(); refreshApptChip(); checkThanksReminder();
   });
 }
