@@ -210,7 +210,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.33</div>
+      <div class="ver">ver.20260824.37</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -226,6 +226,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
       <button class="btn" onclick="load()">↻ 再読込</button>
       <button class="btn" onclick="openHelp()">❓ 使い方</button>
       <button class="btn" onclick="openCommonMaterials()">📎 共通資料</button>
+      <button class="btn" onclick="openShareList()">📤 共有リスト</button>
       <a class="btn" href="./index.html">← 案シスへ</a>
     </div>
   </div>
@@ -711,6 +712,7 @@ function onLoggedIn(session){
   el('mainView').style.display='block';
   initUi();
   loadStaff();
+  loadCommonMatsCache();
   load();
   checkTomorrowReminder();
   checkFollowupReminder();
@@ -1124,6 +1126,18 @@ function renderDrawer(){
   +   '<label class="full" style="margin-bottom:-4px;">メモ（社内用）</label><textarea id="eMemo" class="full" placeholder="社内メモ（自由記入）" style="min-height:110px;">'+esc(x.memo||'')+'</textarea>'
   +   '<label class="full" style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#4a5568;margin-top:6px;cursor:pointer;"><input type="checkbox" id="eNoMail" '+(x.no_mail?'checked':'')+'> ✉️ メール配信不要（メルマガ等の一斉配信から除外する）</label>'
   + '</div>'
+  + '<h3 style="margin:14px 0 6px;font-size:14px;color:var(--accent);">📋 商談ヒアリング（登録支援機関情報に反映されます）</h3>'
+  + '<div class="form" style="grid-template-columns:130px 1fr;">'
+  +   '<label>月間件数</label><input type="number" id="eHrMonthly" value="'+esc(x.hr_monthly_apps!=null?x.hr_monthly_apps:'')+'" placeholder="件/月">'
+  +   '<label>年間件数</label><input type="number" id="eHrYearly" value="'+esc(x.hr_yearly_apps!=null?x.hr_yearly_apps:'')+'" placeholder="件/年">'
+  +   '<label>取扱在留資格</label><textarea id="eHrVisa" placeholder="例：特定技能1号、技人国、技能実習 など" style="min-height:40px;">'+esc(x.hr_visa||'')+'</textarea>'
+  +   '<label>取扱分野</label><textarea id="eHrFields" placeholder="例：建設、介護、外食 など" style="min-height:40px;">'+esc(x.hr_fields||'')+'</textarea>'
+  +   '<label>専売/複数社</label><select id="eHrExclusive">'+HR_EXCLUSIVE.map(function(m){return '<option'+((m===(x.hr_exclusive||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
+  +   '<label>現在の依頼先</label><textarea id="eHrGyosei" placeholder="今どこの行政書士に依頼しているか、その割合・分野" style="min-height:48px;">'+esc(x.hr_current_gyosei||'')+'</textarea>'
+  +   '<label>既存の申請費用</label><input type="text" id="eHrExistingFee" value="'+esc(x.hr_existing_fee||'')+'" placeholder="既存の行政書士の申請費用（例：1件○○円）">'
+  +   '<label>既存の業務範囲</label><select id="eHrScope">'+HR_SCOPE.map(function(m){return '<option'+((m===(x.hr_scope||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
+  +   '<label>業務範囲（その他）</label><input type="text" id="eHrScopeOther" value="'+esc(x.hr_scope_other||'')+'" placeholder="「その他」の場合はこちらに直接入力">'
+  + '</div>'
   + '<div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="saveLead()">保存</button></div>'
   + '</div>'  /* end 営業管理sec */
   + '</div>'  /* end dpane1(前半)：この後、担当者以降もタブ1なので後で再オープン */
@@ -1135,15 +1149,15 @@ function renderDrawer(){
   + '<div class="form" style="grid-template-columns:130px 1fr;">'
   +   '<label>予定開始日</label><input type="date" id="eHrStartDate" value="'+esc(x.hr_start_date||'')+'">'
   +   '<label>ドライブURL</label><input type="text" id="eHrDriveUrl" class="span2" value="'+esc(x.hr_drive_url||'')+'" placeholder="https://drive.google.com/drive/folders/...">'
-  +   '<label>月間件数</label><input type="number" id="eHrMonthly" value="'+esc(x.hr_monthly_apps!=null?x.hr_monthly_apps:'')+'" placeholder="件/月">'
-  +   '<label>年間件数</label><input type="number" id="eHrYearly" value="'+esc(x.hr_yearly_apps!=null?x.hr_yearly_apps:'')+'" placeholder="件/年">'
-  +   '<label>取扱在留資格</label><textarea id="eHrVisa" placeholder="例：特定技能1号、技人国、技能実習 など" style="min-height:40px;">'+esc(x.hr_visa||'')+'</textarea>'
-  +   '<label>取扱分野</label><textarea id="eHrFields" placeholder="例：建設、介護、外食 など" style="min-height:40px;">'+esc(x.hr_fields||'')+'</textarea>'
-  +   '<label>専売/複数社</label><select id="eHrExclusive">'+HR_EXCLUSIVE.map(function(m){return '<option'+((m===(x.hr_exclusive||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
-  +   '<label>現在の依頼先</label><textarea id="eHrGyosei" placeholder="今どこの行政書士に依頼しているか、その割合・分野" style="min-height:48px;">'+esc(x.hr_current_gyosei||'')+'</textarea>'
-  +   '<label>既存の申請費用</label><input type="text" id="eHrExistingFee" value="'+esc(x.hr_existing_fee||'')+'" placeholder="既存の行政書士の申請費用（例：1件○○円）">'
-  +   '<label>既存の業務範囲</label><select id="eHrScope">'+HR_SCOPE.map(function(m){return '<option'+((m===(x.hr_scope||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
-  +   '<label>業務範囲（その他）</label><input type="text" id="eHrScopeOther" value="'+esc(x.hr_scope_other||'')+'" placeholder="「その他」の場合はこちらに直接入力">'
+  +   '<label class="span2" style="font-size:12px;color:#805ad5;margin-top:4px;">↓ 下記は「営業管理/対応履歴」タブの商談ヒアリングから反映されます（編集はそちらで）</label>'
+  +   '<label>月間件数</label><div class="ro" id="roHrMonthly" style="padding:6px 4px;color:#2d3748;">—</div>'
+  +   '<label>年間件数</label><div class="ro" id="roHrYearly" style="padding:6px 4px;color:#2d3748;">—</div>'
+  +   '<label>取扱在留資格</label><div class="ro" id="roHrVisa" style="padding:6px 4px;color:#2d3748;white-space:pre-wrap;">—</div>'
+  +   '<label>取扱分野</label><div class="ro" id="roHrFields" style="padding:6px 4px;color:#2d3748;white-space:pre-wrap;">—</div>'
+  +   '<label>専売/複数社</label><div class="ro" id="roHrExclusive" style="padding:6px 4px;color:#2d3748;">—</div>'
+  +   '<label>現在の依頼先</label><div class="ro" id="roHrGyosei" style="padding:6px 4px;color:#2d3748;white-space:pre-wrap;">—</div>'
+  +   '<label>既存の申請費用</label><div class="ro" id="roHrExistingFee" style="padding:6px 4px;color:#2d3748;">—</div>'
+  +   '<label>既存の業務範囲</label><div class="ro" id="roHrScope" style="padding:6px 4px;color:#2d3748;">—</div>'
   +   '<label>見込み</label><select id="eHrSpot">'+HR_SPOT.map(function(m){return '<option'+((m===(x.hr_spot||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
   +   '<label>獲得見込み</label><div style="display:flex;gap:6px;"><input type="number" id="eHrPotential" value="'+esc(x.hr_potential_apps!=null?x.hr_potential_apps:'')+'" placeholder="月◯件" style="flex:0 0 110px;"><input type="text" id="eHrPotentialField" value="'+esc(x.hr_potential_field||'')+'" placeholder="分野（例：特定技能）" style="flex:1;"></div>'
   +   '<label>獲得条件</label><textarea id="eHrCondition" placeholder="どうなったら残りの申請件数を弊社に任せてもらえそうか" style="min-height:48px;">'+esc(x.hr_condition||'')+'</textarea>'
@@ -1247,6 +1261,22 @@ function switchDrawerTab(n){
     var b=el('dtab'+t); if(b) b.className = 'dtab'+(t===n?' dtab-on':'');
   });
   if(n===3) loadHandover();
+  if(n===2) syncHearingReflection();
+}
+// 営業管理タブのヒアリング入力を、登録支援機関情報タブの反映表示に写す
+function syncHearingReflection(){
+  function set(ro, v){ var e=el(ro); if(e) e.textContent=(v==null||v==='')?'—':v; }
+  function val(id){ var e=el(id); return e?e.value:''; }
+  set('roHrMonthly', val('eHrMonthly'));
+  set('roHrYearly', val('eHrYearly'));
+  set('roHrVisa', val('eHrVisa'));
+  set('roHrFields', val('eHrFields'));
+  set('roHrExclusive', val('eHrExclusive'));
+  set('roHrGyosei', val('eHrGyosei'));
+  set('roHrExistingFee', val('eHrExistingFee'));
+  var scope=val('eHrScope'), other=val('eHrScopeOther');
+  var scopeTxt = scope + ((scope.indexOf('その他')>=0 && other)?('：'+other):'');
+  set('roHrScope', scopeTxt);
 }
 function loadHandover(){
   var box=el('handoverBody'); if(!box) return;
@@ -1647,13 +1677,20 @@ function copyThanksMsg(){
   var intro = sender ? ('お世話になっております。大房行政書士法人の'+sender+'でございます。')
                      : 'お世話になっております。大房行政書士法人でございます。';
   var sign = sender || '大房行政書士法人';
+  var links='';
+  var picks=document.querySelectorAll('.matpick:checked');
+  if(picks && picks.length){
+    var arr=[]; for(var i=0;i<picks.length;i++){ var u=picks[i].getAttribute('data-url'); var n=picks[i].getAttribute('data-name'); if(u) arr.push('・'+n+'：'+u); }
+    if(arr.length) links='\n▼共有資料\n'+arr.join('\n')+'\n';
+  }
   var body='件名：本日の御礼（大房行政書士法人）\n\n'
     + esc0(curLead.name||'')+'\n'+person+'様\n\n'
     + intro+'\n'
     + '本日はお忙しい中、お打ち合わせのお時間をいただき誠にありがとうございました。\n\n'
     + '本日使用した資料を添付いたします。\n'
-    + 'ご不明な点やご相談などございましたら、お気軽にご連絡ください。\n\n'
-    + '今後ともどうぞよろしくお願いいたします。\n\n'
+    + 'ご不明な点やご相談などございましたら、お気軽にご連絡ください。\n'
+    + links
+    + '\n今後ともどうぞよろしくお願いいたします。\n\n'
     + sign;
   navigator.clipboard.writeText(body).then(function(){ showMsg('dMsg','御礼文をコピーしました。資料PDFの添付を忘れずに送付してください','ok'); },
     function(){ alert(body); });
@@ -1782,34 +1819,101 @@ function reschedFollowed(regNo){
 }
 function reschedOpen(regNo){ closeReschedModal(); openDrawer(regNo); }
 // 議事録AI要約（Supabase Edge Function経由でGemini）
+function _minShow(html, kind){
+  var box=el('minSumBox'); if(!box) return;
+  var col = kind==='err' ? 'color:#c53030;background:#fff5f5;border:1px solid #feb2b2;'
+          : kind==='wait'? 'color:#4a5568;background:#f7fafc;border:1px solid var(--line);'
+          : 'color:#2d3748;background:#faf5ff;border:1px solid #d6bcfa;';
+  box.style.cssText='font-size:12px;border-radius:8px;padding:10px 12px;margin-top:4px;white-space:pre-wrap;'+col;
+  box.innerHTML=html;
+}
 function summarizeMinutes(){
   if(!curLead) return;
   var text=(el('eMinText')&&el('eMinText').value.trim())||'';
   var url=(el('eMinUrl')&&el('eMinUrl').value.trim())||'';
-  if(!text){ showMsg('dMsg','先に議事録の本文を貼り付けてください','err'); return; }
+  if(!text){ _minShow('先に議事録の本文を貼り付けてください。','err'); return; }
   var btn=el('minSumBtn'); if(btn){ btn.textContent='🤖 要約中…'; btn.disabled=true; }
-  // まず本文・URLを保存
-  _sb.from('eigyo_leads').update({minutes_url:url||null, minutes_text:text, updated_at:new Date().toISOString()}).eq('reg_no',curLead.reg_no).then(function(){});
+  _minShow('🤖 AIが要約しています…（10〜20秒ほど）','wait');
+  var lead=curLead;
+  _sb.from('eigyo_leads').update({minutes_url:url||null, minutes_text:text, updated_at:new Date().toISOString()}).eq('reg_no',lead.reg_no).then(function(){});
+  function fail(msg){ if(btn){ btn.textContent='🤖 AIで要約'; btn.disabled=false; } _minShow('要約できませんでした：'+esc(msg||'不明なエラー')+'\n\n※AI要約には管理者によるGeminiキー登録が必要な場合があります。','err'); }
   _sb.functions.invoke('summarize-minutes', { body:{ text:text } }).then(function(res){
-    if(btn){ btn.textContent='🤖 AIで要約'; btn.disabled=false; }
-    var data=res && res.data, err=res && res.error;
-    if(err || !data || data.error){
-      var msg=(data&&data.message)||(err&&err.message)||'要約に失敗しました';
-      showMsg('dMsg','要約エラー：'+msg,'err');
+    var data=res&&res.data, err=res&&res.error;
+    if(err){
+      if(err.context && typeof err.context.json==='function'){ err.context.json().then(function(j){ fail((j&&j.message)||err.message); }).catch(function(){ fail(err.message); }); }
+      else fail(err.message||'関数エラー');
       return;
     }
+    if(!data || data.error){ fail((data&&data.message)||'要約エラー'); return; }
     var summary=data.summary||'';
-    _sb.from('eigyo_leads').update({minutes_summary:summary, minutes_at:new Date().toISOString(), updated_at:new Date().toISOString()}).eq('reg_no',curLead.reg_no).then(function(u){
-      if(u.error){ showMsg('dMsg','保存に失敗：'+u.error.message,'err'); return; }
-      curLead.minutes_summary=summary; curLead.minutes_text=text; curLead.minutes_url=url;
-      var box=el('minSumBox'); if(box){ box.style.cssText='font-size:12px;color:#2d3748;background:#faf5ff;border:1px solid #d6bcfa;border-radius:8px;padding:10px 12px;margin-top:4px;white-space:pre-wrap;'; box.textContent=summary; }
-      showMsg('dMsg','議事録を要約しました','ok');
-    });
-  }).catch(function(e){
     if(btn){ btn.textContent='🤖 AIで要約'; btn.disabled=false; }
-    showMsg('dMsg','要約に失敗しました：'+e,'err');
-  });
+    _sb.from('eigyo_leads').update({minutes_summary:summary, minutes_at:new Date().toISOString(), updated_at:new Date().toISOString()}).eq('reg_no',lead.reg_no).then(function(u){
+      if(u.error){ _minShow('保存に失敗：'+esc(u.error.message),'err'); return; }
+      if(curLead){ curLead.minutes_summary=summary; curLead.minutes_text=text; curLead.minutes_url=url; }
+      _minShow(esc(summary)+'<div style="color:#a0aec0;font-size:10px;margin-top:6px;">要約作成：'+esc(today())+'</div>');
+    });
+  }).catch(function(e){ fail(String(e)); });
 }
+// --- テレアポ会社共有用リスト出力（ステータス選択→企業名・所在地CSV） ---
+function openShareList(){
+  var box=el('shareBox');
+  if(!box){
+    box=document.createElement('div'); box.id='shareBox';
+    box.style.cssText='display:none;position:fixed;z-index:78;top:50%;left:50%;transform:translate(-50%,-50%);width:min(520px,94vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 40px rgba(0,0,0,.2);';
+    document.body.appendChild(box);
+    var ov=document.createElement('div'); ov.id='shareOv'; ov.className='overlay'; ov.style.zIndex='77'; ov.onclick=closeShareList; document.body.appendChild(ov);
+  }
+  var checks=STATUSES.map(function(s){
+    var def=(s==='接触済み'||s==='商談予定'||s==='商談済み→依頼待ち')?' checked':'';
+    return '<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:2px 0;"><input type="checkbox" class="sharest" value="'+esc(s)+'"'+def+'> '+esc(s)+'</label>';
+  }).join('');
+  box.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><h2 style="margin:0;font-size:18px;color:var(--accent);">📤 共有リスト出力（企業名・所在地）</h2><button class="btn" onclick="closeShareList()">閉じる</button></div>'
+    + '<p style="font-size:12px;color:var(--muted);margin:0 0 10px;">テレアポ会社などに共有する用。抽出するステータスを選んで、企業名と所在地だけのCSVを出力します。</p>'
+    + '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:6px;">'
+    + '<div style="display:flex;gap:8px;margin-bottom:6px;"><button class="btn btn-sm" onclick="shareSelAll(true)">全選択</button><button class="btn btn-sm" onclick="shareSelAll(false)">全解除</button></div>'
+    + checks + '</div>'
+    + '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#4a5568;margin:4px 0 10px;cursor:pointer;"><input type="checkbox" id="shareTel"> 電話番号も含める</label>'
+    + '<div id="shareMsg" style="font-size:12px;color:var(--muted);margin-bottom:8px;"></div>'
+    + '<div style="text-align:right;"><button class="btn btn-primary" onclick="downloadShareCsv()">⬇ CSVダウンロード</button></div>';
+  box.style.display='block'; el('shareOv').classList.add('on');
+}
+function closeShareList(){ var b=el('shareBox'); if(b) b.style.display='none'; var o=el('shareOv'); if(o) o.classList.remove('on'); }
+function shareSelAll(v){ var cs=document.querySelectorAll('.sharest'); for(var i=0;i<cs.length;i++) cs[i].checked=v; }
+function downloadShareCsv(){
+  var sel=[]; var cs=document.querySelectorAll('.sharest:checked'); for(var i=0;i<cs.length;i++) sel.push(cs[i].value);
+  if(!sel.length){ el('shareMsg').textContent='ステータスを1つ以上選んでください。'; return; }
+  var withTel=el('shareTel')&&el('shareTel').checked;
+  el('shareMsg').textContent='抽出中…';
+  var cols='reg_no,name,pref,address,tel';
+  var rows=[]; var page=0, size=1000;
+  function fetchPage(){
+    _sb.from('eigyo_leads').select(cols).in('status',sel).order('pref',{ascending:true}).order('name',{ascending:true}).range(page*size,(page+1)*size-1).then(function(r){
+      if(r.error){ el('shareMsg').textContent='抽出エラー：'+r.error.message; return; }
+      var d=r.data||[]; rows=rows.concat(d);
+      if(d.length===size && page<20){ page++; fetchPage(); }
+      else buildCsv();
+    });
+  }
+  function buildCsv(){
+    if(!rows.length){ el('shareMsg').textContent='該当する企業がありませんでした。'; return; }
+    function esc2(v){ v=(v==null?'':String(v)); return '"'+v.replace(/"/g,'""')+'"'; }
+    var header = withTel ? ['企業名','所在地','電話番号'] : ['企業名','所在地'];
+    var lines=[header.map(esc2).join(',')];
+    rows.forEach(function(x){
+      var loc=((x.pref||'')+ (x.address||''));
+      var row = withTel ? [x.name||'', loc, x.tel||''] : [x.name||'', loc];
+      lines.push(row.map(esc2).join(','));
+    });
+    var csv='\ufeff'+lines.join('\r\n');  // BOM付きでExcel文字化け防止
+    var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    var a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download='共有リスト_'+today().replace(/-/g,'')+'.csv'; document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },100);
+    el('shareMsg').textContent=rows.length+'社を出力しました。';
+  }
+  fetchPage();
+}
+
 // --- 使い方ヘルプ ---
 function openHelp(){
   var box=el('helpBox');
@@ -2313,19 +2417,26 @@ function matDropLead(e){ e.preventDefault(); var d=el('matDrop'); if(d) d.style.
 function matPickLead(e){ if(curLead) matUpload(e.target.files,'lead',curLead.reg_no); e.target.value=''; }
 function matDelete(id, path, scope){
   if(!confirm('この資料を削除しますか？')) return;
-  _sb.storage.from(MAT_BUCKET).remove([path]).then(function(){
+  function afterDel(){
     _sb.from('eigyo_materials').delete().eq('id',id).then(function(){
-      if(scope==='common') renderCommonMats(); if(curLead) loadMaterials(curLead.reg_no);
+      if(scope==='common'){ renderCommonMats(); loadCommonMatsCache(); }
+      if(curLead) loadMaterials(curLead.reg_no);
     });
-  });
+  }
+  if(path){ _sb.storage.from(MAT_BUCKET).remove([path]).then(afterDel); }
+  else { afterDel(); }
 }
 function _matItem(m, deletable){
   return '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:6px;padding:5px 8px;margin-bottom:4px;">'
-    + '<span style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 '+esc(m.name)+(m.scope==='common'?' <span style="font-size:10px;color:#805ad5;">[共通]</span>':'')+'</span>'
+    + '<span style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(m.path?'📄':'🔗')+' '+esc(m.name)+(m.scope==='common'?' <span style="font-size:10px;color:#805ad5;">[共通]</span>':'')+'</span>'
     + '<span style="white-space:nowrap;">'
-    + (m.url?'<a class="btn btn-sm" href="'+esc(m.url)+'" target="_blank" download>開く</a>':'')
-    + (deletable?' <button class="btn btn-sm" style="color:#c53030;" onclick="matDelete('+m.id+',\''+esc(m.path)+'\',\''+esc(m.scope)+'\')">削除</button>':'')
+    + (m.url?'<a class="btn btn-sm" href="'+esc(m.url)+'" target="_blank"'+(m.path?' download':'')+'>開く</a>':'')
+    + (deletable?' <button class="btn btn-sm" style="color:#c53030;" onclick="matDelete('+m.id+','+(m.path?('\''+esc(m.path)+'\''):'null')+',\''+esc(m.scope)+'\')">削除</button>':'')
     + '</span></div>';
+}
+var _commonMats=[];
+function loadCommonMatsCache(){
+  _sb.from('eigyo_materials').select('id,name,url,category').eq('scope','common').order('category',{ascending:true}).order('created_at',{ascending:true}).then(function(r){ _commonMats=(r.data)||[]; });
 }
 function loadMaterials(regNo){
   var box=el('matList'); if(!box) return;
@@ -2333,9 +2444,22 @@ function loadMaterials(regNo){
     if(r.error){ box.innerHTML='<span class="sub">読み込みエラー</span>'; return; }
     var d=r.data||[]; var common=d.filter(function(m){return m.scope==='common';}); var mine=d.filter(function(m){return m.scope==='lead';});
     var h='';
-    h+='<div style="font-size:11px;color:#805ad5;margin-bottom:3px;">共通資料（全社共通）</div>';
-    h+= common.length? common.map(function(m){return _matItem(m,false);}).join('') : '<div class="sub" style="font-size:11px;margin-bottom:4px;">（未登録：上部「📎 共通資料」から追加）</div>';
-    h+='<div style="font-size:11px;color:#6b46c1;margin:6px 0 3px;">この会社の資料</div>';
+    h+='<div style="font-size:11px;color:#805ad5;margin-bottom:3px;">御礼文に入れる資料（チェックしたリンクが御礼文に入ります）</div>';
+    if(common.length){
+      var groups={}; common.forEach(function(m){ var c=m.category||'共通資料'; (groups[c]=groups[c]||[]).push(m); });
+      h+='<div style="border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-bottom:6px;">';
+      Object.keys(groups).forEach(function(c){
+        h+='<div style="font-size:11px;font-weight:700;color:#6b46c1;margin:2px 0;">'+esc(c)+'</div>';
+        h+=groups[c].map(function(m){
+          var checked=(c==='共通資料')?' checked':'';
+          return '<label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;padding:1px 0;"><input type="checkbox" class="matpick" value="'+m.id+'" data-name="'+esc(m.name)+'" data-url="'+esc(m.url||'')+'"'+checked+'> '+esc(m.name)+(m.url?' <a href="'+esc(m.url)+'" target="_blank" style="font-size:10px;">開く</a>':'')+'</label>';
+        }).join('');
+      });
+      h+='</div>';
+    } else {
+      h+='<div class="sub" style="font-size:11px;margin-bottom:6px;">（未登録：上部「📎 共通資料」から追加）</div>';
+    }
+    h+='<div style="font-size:11px;color:#6b46c1;margin:6px 0 3px;">この会社の資料（PDF）</div>';
     h+= mine.length? mine.map(function(m){return _matItem(m,true);}).join('') : '<div class="sub" style="font-size:11px;">（下の枠にドラッグ／クリックで追加）</div>';
     box.innerHTML=h;
   });
@@ -2349,18 +2473,50 @@ function openCommonMaterials(){
     document.body.appendChild(box);
     var ov=document.createElement('div'); ov.id='cmatOv'; ov.className='overlay'; ov.style.zIndex='77'; ov.onclick=closeCommonMaterials; document.body.appendChild(ov);
   }
-  box.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><h2 style="margin:0;font-size:18px;color:var(--accent);">📎 共通資料（全社共通で添付）</h2><button class="btn" onclick="closeCommonMaterials()">閉じる</button></div>'
-    + '<p style="font-size:12px;color:var(--muted);margin:0 0 10px;">ここに登録したPDFは、全ての会社の詳細画面に「共通資料」として表示され、送信時に開いて添付できます。</p>'
-    + '<div id="cmatList" style="margin-bottom:10px;">読み込み中…</div>'
-    + '<div id="cmatDrop" ondragover="event.preventDefault();this.style.background=\'#faf5ff\'" ondragleave="this.style.background=\'\'" ondrop="matDropCommon(event)" style="border:1.5px dashed #b794f4;border-radius:8px;padding:14px;text-align:center;font-size:12px;color:#6b46c1;cursor:pointer;" onclick="el(\'matFileCommon\').click()">ここにPDFをドラッグ、またはクリックして選択（複数可）<input type="file" id="matFileCommon" accept="application/pdf" multiple style="display:none" onchange="matPickCommon(event)"></div>';
+  box.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><h2 style="margin:0;font-size:18px;color:var(--accent);">📎 資料ライブラリ（ドライブURL）</h2><button class="btn" onclick="closeCommonMaterials()">閉じる</button></div>'
+    + '<p style="font-size:12px;color:var(--muted);margin:0 0 10px;">Google DriveのURLをカテゴリ別に登録できます。各社の画面で<b>タイトルを見てチェック</b>し、御礼メール文にリンクを差し込めます。</p>'
+    + '<div id="cmatList" style="margin-bottom:12px;">読み込み中…</div>'
+    + '<div style="border-top:1px solid var(--line);padding-top:10px;">'
+    + '<div style="font-size:12px;font-weight:600;margin-bottom:6px;">資料を追加</div>'
+    + '<input type="text" id="cmatCat" list="cmatCatList" placeholder="カテゴリ（例：共通資料／監査セミナー後配布資料）" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin-bottom:6px;">'
+    + '<datalist id="cmatCatList"></datalist>'
+    + '<input type="text" id="cmatName" placeholder="資料名（例：会社紹介／料金表）" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin-bottom:6px;">'
+    + '<input type="text" id="cmatUrl" placeholder="Google DriveのURL（https://drive.google.com/…）" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin-bottom:8px;">'
+    + '<div style="text-align:right;"><button class="btn btn-primary" onclick="addCommonUrl()">＋ 追加</button></div>'
+    + '</div>';
   box.style.display='block'; el('cmatOv').classList.add('on'); renderCommonMats();
+}
+function addCommonUrl(){
+  var cat=(el('cmatCat')&&el('cmatCat').value.trim())||'共通資料';
+  var name=(el('cmatName')&&el('cmatName').value.trim())||'';
+  var url=(el('cmatUrl')&&el('cmatUrl').value.trim())||'';
+  if(!name){ alert('資料名を入力してください'); return; }
+  if(!/^https?:\/\//i.test(url)){ alert('URLは https:// から始まる形式で入力してください'); return; }
+  _sb.from('eigyo_materials').insert({scope:'common', reg_no:null, category:cat, name:name, url:url, path:null}).then(function(r){
+    if(r.error){ alert('追加に失敗しました：'+r.error.message); return; }
+    el('cmatName').value=''; el('cmatUrl').value='';
+    renderCommonMats(); loadCommonMatsCache(); if(curLead) loadMaterials(curLead.reg_no);
+  });
 }
 function closeCommonMaterials(){ var b=el('cmatBox'); if(b) b.style.display='none'; var o=el('cmatOv'); if(o) o.classList.remove('on'); }
 function renderCommonMats(){
   var box=el('cmatList'); if(!box) return;
-  _sb.from('eigyo_materials').select('*').eq('scope','common').order('created_at',{ascending:true}).then(function(r){
+  _sb.from('eigyo_materials').select('*').eq('scope','common').order('category',{ascending:true}).order('created_at',{ascending:true}).then(function(r){
     var d=(r.data)||[];
-    box.innerHTML = d.length? d.map(function(m){return _matItem(m,true);}).join('') : '<span class="sub" style="font-size:12px;">まだ共通資料がありません。</span>';
+    if(!d.length){ box.innerHTML='<span class="sub" style="font-size:12px;">まだ資料がありません。下で追加してください。</span>'; }
+    else {
+      var groups={}; d.forEach(function(m){ var c=m.category||'共通資料'; (groups[c]=groups[c]||[]).push(m); });
+      var html='';
+      Object.keys(groups).forEach(function(c){
+        html+='<div style="font-size:12px;font-weight:700;color:#805ad5;margin:6px 0 3px;">'+esc(c)+'</div>';
+        html+=groups[c].map(function(m){return _matItem(m,true);}).join('');
+      });
+      box.innerHTML=html;
+    }
+    // カテゴリのdatalist更新
+    var dl=el('cmatCatList');
+    if(dl){ var cats={}; d.forEach(function(m){ if(m.category) cats[m.category]=1; }); cats['共通資料']=1;
+      dl.innerHTML=Object.keys(cats).map(function(c){return '<option value="'+esc(c)+'">';}).join(''); }
   });
 }
 function matDropCommon(e){ e.preventDefault(); var d=el('cmatDrop'); if(d) d.style.background=''; matUpload(e.dataTransfer.files,'common',null); }
