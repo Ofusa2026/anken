@@ -211,7 +211,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.48</div>
+      <div class="ver">ver.20260824.49</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -719,6 +719,7 @@ function onLoggedIn(session){
   checkFollowupReminder();
   checkThanksReminder();
   checkRescheduleReminder();
+  checkTranscribeReminder();
 }
 
 /* ---------------- 初期化 ---------------- */
@@ -1097,7 +1098,16 @@ function renderDrawer(){
         ? '<button class="btn" onclick="markThanksSent(false)" style="background:#f0fff4;border-color:#9ae6b4;color:#276749;">✓ 御礼送信済み（クリックで取消）</button>'
         : '<button class="btn btn-primary" onclick="markThanksSent(true)">✅ 御礼メール送信済みにする</button>')
   +   '</div>'
-  +   '<label class="full" style="margin:8px 0 -2px;font-weight:700;color:#805ad5;">📎 御礼文に入れる資料</label>'
+  +   '<label class="full sec-title" style="font-size:14px;">📝 代行会社スプレッドへ転記</label>'
+  +   '<div class="full" style="display:flex;gap:8px;flex-wrap:wrap;">'
+  +     '<button class="btn" onclick="copyLeadMemo()">📋 社内メモをコピー</button>'
+  +     '<button class="btn" onclick="copyLeadNotes()">📋 対応履歴をコピー</button>'
+  +     '<button class="btn" onclick="copyHearing()">📋 ヒアリングをコピー</button>'
+  +     (x.transcribed
+        ? '<button class="btn" onclick="markTranscribed(false)" style="background:#f0fff4;border-color:#9ae6b4;color:#276749;">✓ 転記済み（クリックで取消）</button>'
+        : '<button class="btn btn-primary" onclick="markTranscribed(true)">✅ 転記済みにする</button>')
+  +   '</div>'
+  +   '<label class="span2 sec-title">📎 御礼文に入れる資料</label>'
   +   '<div class="full" id="matList" style="font-size:12px;">読み込み中…</div>'
   +   ((x.apt_getter||x.apt_reason||x.apt_memo||x.apt_env||x.apt_got_at||x.apt_person)
       ? '<div class="span2" style="font-size:11.5px;color:#4a5568;background:#f7fafc;border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-top:4px;white-space:pre-wrap;">'
@@ -1719,6 +1729,88 @@ function copyThanksMsg(){
   navigator.clipboard.writeText(body).then(function(){ showMsg('dMsg','御礼文をコピーしました。資料PDFの添付を忘れずに送付してください','ok'); },
     function(){ alert(body); });
 }
+
+/* ===== 代行会社スプレッドへの転記（コピー・リマインド・転記済み） ===== */
+function _copyTo(text, okmsg){
+  navigator.clipboard.writeText(text).then(function(){ showMsg('dMsg',okmsg||'コピーしました','ok'); }, function(){ prompt('コピーできませんでした。手動でコピーしてください：', text); });
+}
+function copyLeadMemo(){ if(!curLead) return; var t=(el('eMemo')&&el('eMemo').value)||curLead.memo||''; if(!t.trim()){ showMsg('dMsg','社内メモが空です','err'); return; } _copyTo(t,'社内メモをコピーしました'); }
+function copyLeadNotes(){
+  if(!curLead) return;
+  _sb.from('eigyo_notes').select('note_date,kind,author,body,status_to').eq('reg_no',curLead.reg_no).order('note_date',{ascending:false}).order('id',{ascending:false}).then(function(r){
+    var d=(r.data)||[]; if(!d.length){ showMsg('dMsg','対応履歴がありません','err'); return; }
+    var t=d.map(function(n){ return n.note_date+'　'+(n.kind||'')+(n.author?'　'+n.author:'')+(n.status_to?'　→'+n.status_to:'')+'\n'+(n.body||''); }).join('\n----\n');
+    _copyTo(t,'対応履歴をコピーしました');
+  });
+}
+function copyHearing(){
+  if(!curLead) return; var x=curLead;
+  function line(l,v){ return (v==null||v==='')?'':(l+'：'+v+'\n'); }
+  var team=[];
+  if(x.team_support!=null) team.push('支援'+x.team_support);
+  if(x.team_sales!=null) team.push('営業'+x.team_sales);
+  if(x.team_interpreter!=null) team.push('通訳'+x.team_interpreter);
+  if(x.team_clerk!=null) team.push('書類事務'+x.team_clerk);
+  var scope=(x.hr_scope||'')+((x.hr_scope&&x.hr_scope.indexOf('その他')>=0&&x.hr_scope_other)?('：'+x.hr_scope_other):'');
+  var t='【'+(x.name||'')+' 商談ヒアリング】\n'
+    + line('チーム人数', team.join('／'))
+    + line('月間件数', x.hr_monthly_apps)
+    + line('年間件数', x.hr_yearly_apps)
+    + line('取扱在留資格', x.hr_visa)
+    + line('取扱分野', x.hr_fields)
+    + line('国籍', x.hr_nationality)
+    + line('専売/複数社', x.hr_exclusive)
+    + line('現在の依頼先', x.hr_current_gyosei)
+    + line('既存の申請費用', x.hr_existing_fee)
+    + line('既存の業務範囲', scope)
+    + line('初期費用(円)', x.initial_fee)
+    + line('毎月の支援委託費(円)', x.monthly_fee);
+  _copyTo(t.trim(),'商談ヒアリングをコピーしました');
+}
+function markTranscribed(flag){
+  if(!curLead) return;
+  var patch = flag ? {transcribed:true, transcribed_at:new Date().toISOString()} : {transcribed:false, transcribed_at:null};
+  _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
+    if(r.error){ showMsg('dMsg','更新に失敗しました：'+r.error.message,'err'); return; }
+    curLead.transcribed=flag; showMsg('dMsg', flag?'転記済みにしました':'未転記に戻しました','ok');
+    openDrawer(curLead.reg_no); load(); refreshApptChip(); checkTranscribeReminder();
+  });
+}
+function checkTranscribeReminder(){
+  _sb.from('eigyo_leads').select('reg_no,name,apt_at')
+    .not('apt_at','is',null).lt('apt_at', new Date().toISOString())
+    .eq('transcribed', false).eq('apt_reschedule', false)
+    .order('apt_at',{ascending:true}).then(function(r){
+      if(r.error || !r.data || !r.data.length){ closeTranscribeModal(); return; }
+      showTranscribeModal(r.data);
+  });
+}
+function showTranscribeModal(list){
+  var box=el('transBox');
+  if(!box){
+    box=document.createElement('div'); box.id='transBox';
+    box.style.cssText='display:none;position:fixed;z-index:76;top:50%;left:50%;transform:translate(-50%,-50%);width:min(580px,94vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 40px rgba(0,0,0,.25);border-top:6px solid #d69e2e;';
+    document.body.appendChild(box);
+    var ov=document.createElement('div'); ov.id='transOv'; ov.className='overlay on'; ov.style.zIndex='75'; document.body.appendChild(ov);
+  }
+  var wd=['日','月','火','水','木','金','土'];
+  var h='<h2 style="margin:0 0 4px;font-size:19px;color:#b7791f;">📝 スプレッド転記 未 '+list.length+'件</h2>'
+    + '<p style="margin:0 0 14px;font-size:12.5px;color:var(--muted);">商談が終わったのに、営業代行会社のスプレッドへの転記がまだの先です。<br>「開く」→ 社内メモ／対応履歴／ヒアリングをコピーして転記 → 済んだら「✅ 転記済み」を押してください。</p>';
+  list.forEach(function(x){
+    var d=new Date(x.apt_at); var t=(d.getMonth()+1)+'/'+d.getDate()+'('+wd[d.getDay()]+')';
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #f6e05e;background:#fffff0;border-radius:8px;padding:10px 12px;margin-bottom:8px;">'
+      + '<div><div style="font-weight:600;font-size:14px;">'+esc(x.name||'')+'</div>'
+      + '<div style="font-size:12px;color:#b7791f;">商談日 '+esc(t)+'</div></div>'
+      + '<button class="btn btn-primary" onclick="transOpen(\''+esc(x.reg_no)+'\')">開く</button>'
+      + '</div>';
+  });
+  h+='<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;"><button class="btn btn-primary" onclick="closeTranscribeModal()">閉じる</button></div>'
+    + '<p style="font-size:11px;color:var(--muted);margin:8px 0 0;text-align:right;">※転記するまで、開くたびに表示されます</p>';
+  box.innerHTML=h; box.style.display='block';
+}
+function closeTranscribeModal(){ var b=el('transBox'); if(b) b.style.display='none'; var o=el('transOv'); if(o) o.remove(); }
+function transOpen(regNo){ closeTranscribeModal(); openDrawer(regNo); }
+
 function checkThanksReminder(){
   _sb.from('eigyo_leads').select('reg_no,name,apt_at,apt_email')
     .not('apt_at','is',null).lt('apt_at', new Date().toISOString())
