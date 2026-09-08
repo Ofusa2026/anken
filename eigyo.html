@@ -211,7 +211,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.51</div>
+      <div class="ver">ver.20260824.52</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -252,12 +252,16 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
 
   <div class="filters">
     <input type="text" id="fQ" placeholder="登録番号・名称・住所・代表者・電話で検索">
-    <select id="fStatus"><option value="">全ステータス</option></select>
+    <div style="position:relative;display:inline-block;">
+      <button type="button" class="btn btn-sm" id="fStatusBtn" onclick="toggleStatusPanel(event)" style="min-width:120px;text-align:left;">全ステータス ▾</button>
+      <div id="fStatusPanel" style="display:none;position:absolute;z-index:40;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px;box-shadow:0 4px 14px rgba(0,0,0,.15);max-height:300px;overflow:auto;min-width:190px;"></div>
+    </div>
     <select id="fStaff"><option value="">全担当者</option></select>
     <select id="fDocMethod"><option value="">書類作成方法（全て）</option></select>
     <select id="fEntity"><option value="">全区分</option></select>
     <select id="fIndustry"><option value="">全業種</option></select>
     <select id="fSelf"><option value="">主体：全て</option></select>
+    <select id="fAcq"><option value="">全獲得経路</option></select>
     <select id="fSort">
       <option value="new">登録日が新しい順</option>
       <option value="name">名称順</option>
@@ -265,6 +269,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
       <option value="insured">被保険者数が多い順</option>
       <option value="supporter">支援者数が多い順</option>
       <option value="memo">社内メモあり順</option>
+      <option value="acq">獲得経路順</option>
     </select>
     <button class="btn btn-sm" onclick="resetFilters()">クリア</button>
   </div>
@@ -282,13 +287,14 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
         <th style="width:56px;">上場</th>
         <th style="width:110px;">電話</th>
         <th style="width:92px;">ステータス</th>
+        <th style="width:100px;">獲得経路</th>
         <th style="width:92px;">担当</th>
         <th style="width:112px;">初回接触</th>
         <th style="width:112px;">商談予定</th>
         <th style="width:180px;">社内メモ</th>
         <th style="width:120px;">ネクストアクション</th>
       </tr></thead>
-      <tbody id="rows"><tr><td colspan="15" class="loading">読み込み中...</td></tr></tbody>
+      <tbody id="rows"><tr><td colspan="16" class="loading">読み込み中...</td></tr></tbody>
     </table>
   </div>
 
@@ -727,8 +733,13 @@ function onLoggedIn(session){
 function initUi(){
   var dm = el('fDocMethod');
   DOC_METHODS.forEach(function(m){ if(m) dm.insertAdjacentHTML('beforeend','<option>'+esc(m)+'</option>'); });
-  var s = el('fStatus');
-  STATUSES.forEach(function(x){ s.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
+  var s = el('fStatusPanel');
+  if(s){ s.innerHTML = STATUSES.filter(function(x){return x;}).map(function(x){
+    return '<label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:2px 0;cursor:pointer;white-space:nowrap;"><input type="checkbox" class="fstatchk" value="'+esc(x)+'" onchange="onStatusFilterChange()"> '+esc(x)+'</label>';
+  }).join('')
+  + '<div style="border-top:1px solid var(--line);margin-top:6px;padding-top:6px;text-align:right;"><button class="btn btn-sm" onclick="clearStatusFilter()">全解除</button></div>'; }
+  var acq = el('fAcq');
+  if(acq) ACQ_SOURCES.forEach(function(x){ if(x) acq.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
   var en = el('fEntity');
   ENTITIES.forEach(function(x){ en.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
   var ind = el('fIndustry');
@@ -736,7 +747,7 @@ function initUi(){
   var sf = el('fSelf');
   SELF_SUPPORTS.forEach(function(x){ sf.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
   buildPrefButtons();
-  ['fQ','fStatus','fStaff','fDocMethod','fEntity','fIndustry','fSelf','fSort'].forEach(function(id){
+  ['fQ','fStaff','fDocMethod','fEntity','fIndustry','fSelf','fAcq','fSort'].forEach(function(id){
     var e = el(id);
     var ev = (e.type==='text') ? 'input' : 'change';
     var t;
@@ -811,8 +822,34 @@ function loadPrefCounts(){
     });
   });
 }
+var selStatuses = [];
+function toggleStatusPanel(e){ if(e) e.stopPropagation(); var p=el('fStatusPanel'); if(!p) return; p.style.display = (p.style.display==='none'||!p.style.display)?'block':'none'; }
+function onStatusFilterChange(){
+  var cs=document.querySelectorAll('.fstatchk:checked'); selStatuses=[];
+  for(var i=0;i<cs.length;i++) selStatuses.push(cs[i].value);
+  updateStatusBtn(); page=0; load();
+}
+function updateStatusBtn(){
+  var b=el('fStatusBtn'); if(!b) return;
+  b.textContent = selStatuses.length ? ('ステータス '+selStatuses.length+'件 ▾') : '全ステータス ▾';
+  b.style.background = selStatuses.length ? '#ebf3ff' : '';
+}
+function clearStatusFilter(skipLoad){
+  selStatuses=[]; var cs=document.querySelectorAll('.fstatchk'); for(var i=0;i<cs.length;i++) cs[i].checked=false;
+  updateStatusBtn(); if(!skipLoad){ page=0; load(); }
+}
+function setStatusFilter(k){
+  var i=selStatuses.indexOf(k);
+  if(i>=0) selStatuses.splice(i,1); else selStatuses.push(k);
+  var cs=document.querySelectorAll('.fstatchk'); for(var j=0;j<cs.length;j++) cs[j].checked=(selStatuses.indexOf(cs[j].value)>=0);
+  updateStatusBtn(); page=0; load();
+}
+document.addEventListener('click', function(e){
+  var p=el('fStatusPanel'), b=el('fStatusBtn');
+  if(p && p.style.display==='block' && !p.contains(e.target) && e.target!==b){ p.style.display='none'; }
+});
 function resetFilters(){
-  el('fQ').value=''; selPrefs=[]; el('fStatus').value=''; el('fStaff').value=''; el('fDocMethod').value=''; el('fEntity').value='';
+  el('fQ').value=''; selPrefs=[]; clearStatusFilter(true); el('fStaff').value=''; el('fDocMethod').value=''; el('fEntity').value=''; if(el('fAcq')) el('fAcq').value='';
   el('fIndustry').value=''; el('fSelf').value='';
   el('fSort').value='new';
   page=0; syncPrefButtons(); loadPrefCounts(); load();
@@ -844,12 +881,13 @@ function buildQuery(forCount){
     if(orParts.length){ q = q.or(orParts.join(',')); }
   }
   q = applyPrefFilter(q);
-  if(el('fStatus').value) q = q.eq('status', el('fStatus').value);
+  if(selStatuses && selStatuses.length) q = q.in('status', selStatuses);
   if(el('fStaff').value)  q = q.eq('staff', el('fStaff').value);
   if(el('fDocMethod').value) q = q.eq('doc_method', el('fDocMethod').value);
   if(el('fEntity').value) q = q.eq('entity_type', el('fEntity').value);
   if(el('fIndustry').value) q = q.eq('industry', el('fIndustry').value);
   if(el('fSelf').value)     q = q.eq('self_support', el('fSelf').value);
+  if(el('fAcq') && el('fAcq').value) q = q.eq('acquisition_source', el('fAcq').value);
   if(apptOnly){ q = q.not('apt_at','is',null).eq('apt_meet_sent', false); }
   if(thanksOnly){ q = q.not('apt_at','is',null).lt('apt_at', new Date().toISOString()).eq('thanks_sent', false).eq('apt_reschedule', false); }
   q = applyExclusions(q);
@@ -860,15 +898,16 @@ function buildQuery(forCount){
   else if(sort==='insured')   q = q.order('insured_count',{ascending:false,nullsFirst:false}).order('name',{ascending:true});
   else if(sort==='supporter') q = q.order('supporter_count',{ascending:false,nullsFirst:false}).order('name',{ascending:true});
   else if(sort==='memo')      q = q.order('memo',{ascending:true,nullsFirst:false}).order('reg_date',{ascending:false,nullsFirst:false});
+  else if(sort==='acq')       q = q.order('acquisition_source',{ascending:true,nullsFirst:false}).order('name',{ascending:true});
   else                        q = q.order('reg_date',{ascending:false,nullsFirst:false});
   return q;
 }
 
 function load(){
-  el('rows').innerHTML = '<tr><td colspan="15" class="loading">読み込み中...</td></tr>';
+  el('rows').innerHTML = '<tr><td colspan="16" class="loading">読み込み中...</td></tr>';
   buildQuery(true).range(page*PAGE, page*PAGE+PAGE-1).then(function(r){
     if(r.error){
-      el('rows').innerHTML = '<tr><td colspan="15" class="empty">読み込みエラー：'+esc(r.error.message)+'</td></tr>';
+      el('rows').innerHTML = '<tr><td colspan="16" class="empty">読み込みエラー：'+esc(r.error.message)+'</td></tr>';
       return;
     }
     curRows = r.data || [];
@@ -881,7 +920,7 @@ function load(){
 
 function render(){
   if(!curRows.length){
-    el('rows').innerHTML = '<tr><td colspan="15" class="empty">該当するリードがありません。<br><span class="sub">まだ取り込んでいない場合は、右上の「📥 CSV取込」から eigyo_leads.csv を読み込んでください。</span></td></tr>';
+    el('rows').innerHTML = '<tr><td colspan="16" class="empty">該当するリードがありません。<br><span class="sub">まだ取り込んでいない場合は、右上の「📥 CSV取込」から eigyo_leads.csv を読み込んでください。</span></td></tr>';
     el('cntTxt').textContent = '0 件';
     el('pageTxt').textContent = '-';
     return;
@@ -914,6 +953,7 @@ function render(){
       + '<td>'+listed+'</td>'
       + '<td class="sub">'+esc(x.tel||'')+'</td>'
       + '<td><span class="badge b-'+esc(x.status)+'">'+esc(x.status)+'</span></td>'
+      + '<td class="sub">'+(x.acquisition_source?esc(x.acquisition_source):'—')+'</td>'
       + '<td class="sub">'+esc(x.staff||'')+'</td>'
       + '<td class="sub">'+(x.first_contact_date ? esc(x.first_contact_date)+(x.first_contact_kind?'<div class="sub">'+esc(x.first_contact_kind)+'</div>':'') : '—')+'</td>'
       + '<td class="sub">'+apptCell(x)+'</td>'
@@ -996,8 +1036,7 @@ function loadKpis(){
   Array.prototype.forEach.call(box.children, function(c){
     c.onclick = function(){
       var k = c.getAttribute('data-k');
-      el('fStatus').value = (el('fStatus').value===k ? '' : k);
-      page=0; load();
+      setStatusFilter(k);
     };
   });
 }
