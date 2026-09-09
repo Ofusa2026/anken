@@ -170,6 +170,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
 .drawer .form.form-compact > textarea.full{min-height:110px;max-height:220px;resize:vertical;}
 .drawer .form input, .drawer .form select, .drawer .form textarea{font-size:13px;padding:5px 8px;}
 .drawer .sec{padding:12px 14px;}
+.drawer .sec-title{font-size:16px;font-weight:700;color:var(--accent);margin:16px 0 8px;padding-bottom:5px;border-bottom:2px solid #e2e8f0;display:block;}
 .drawer .sec h3{font-size:13px;margin-bottom:8px;}
 .form label{color:var(--muted);font-size:12px;}
 .form input,.form select,.form textarea{
@@ -210,7 +211,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業リード管理</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260824.33</div>
+      <div class="ver">ver.20260824.52</div>
     </div>
     <div class="toolbar">
       <button class="btn btn-primary" onclick="openNew()">＋ 新規登録</button>
@@ -226,6 +227,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
       <button class="btn" onclick="load()">↻ 再読込</button>
       <button class="btn" onclick="openHelp()">❓ 使い方</button>
       <button class="btn" onclick="openCommonMaterials()">📎 共通資料</button>
+      <button class="btn" onclick="openShareList()">📤 共有リスト</button>
       <a class="btn" href="./index.html">← 案シスへ</a>
     </div>
   </div>
@@ -250,12 +252,16 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
 
   <div class="filters">
     <input type="text" id="fQ" placeholder="登録番号・名称・住所・代表者・電話で検索">
-    <select id="fStatus"><option value="">全ステータス</option></select>
+    <div style="position:relative;display:inline-block;">
+      <button type="button" class="btn btn-sm" id="fStatusBtn" onclick="toggleStatusPanel(event)" style="min-width:120px;text-align:left;">全ステータス ▾</button>
+      <div id="fStatusPanel" style="display:none;position:absolute;z-index:40;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px;box-shadow:0 4px 14px rgba(0,0,0,.15);max-height:300px;overflow:auto;min-width:190px;"></div>
+    </div>
     <select id="fStaff"><option value="">全担当者</option></select>
     <select id="fDocMethod"><option value="">書類作成方法（全て）</option></select>
     <select id="fEntity"><option value="">全区分</option></select>
     <select id="fIndustry"><option value="">全業種</option></select>
     <select id="fSelf"><option value="">主体：全て</option></select>
+    <select id="fAcq"><option value="">全獲得経路</option></select>
     <select id="fSort">
       <option value="new">登録日が新しい順</option>
       <option value="name">名称順</option>
@@ -263,6 +269,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
       <option value="insured">被保険者数が多い順</option>
       <option value="supporter">支援者数が多い順</option>
       <option value="memo">社内メモあり順</option>
+      <option value="acq">獲得経路順</option>
     </select>
     <button class="btn btn-sm" onclick="resetFilters()">クリア</button>
   </div>
@@ -280,13 +287,14 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
         <th style="width:56px;">上場</th>
         <th style="width:110px;">電話</th>
         <th style="width:92px;">ステータス</th>
+        <th style="width:100px;">獲得経路</th>
         <th style="width:92px;">担当</th>
         <th style="width:112px;">初回接触</th>
         <th style="width:112px;">商談予定</th>
         <th style="width:180px;">社内メモ</th>
         <th style="width:120px;">ネクストアクション</th>
       </tr></thead>
-      <tbody id="rows"><tr><td colspan="15" class="loading">読み込み中...</td></tr></tbody>
+      <tbody id="rows"><tr><td colspan="16" class="loading">読み込み中...</td></tr></tbody>
     </table>
   </div>
 
@@ -599,6 +607,7 @@ var HR_KYOGIKAI = ['','登録支援機関','所属機関','大房行政書士法
 var HR_EXCLUSIVE = ['','専売（弊社のみ）','複数社に依頼','未確認'];
 var HR_SPOT = ['','スポット','定期依頼','トライアル次第','未確認'];
 var HR_SCOPE = ['','ワンストップ対応','確認＋申請のみ','その他（下欄に入力）'];
+var ACQ_SOURCES = ['','自社テレアポ','ディグロス','Sales pass','コミュニティ','大房関係','セミナー','HP・電話問い合わせ'];
 // KPIカードに出すステータス
 var KPI_STATUSES = ['未接触','接触済み','商談予定','商談済み→依頼待ち','見込みなし','契約中','対象外','テレアポ失注'];
 var KINDS    = ['架電','メール','オンライン商談','訪問','郵送','その他'];
@@ -711,19 +720,26 @@ function onLoggedIn(session){
   el('mainView').style.display='block';
   initUi();
   loadStaff();
+  loadCommonMatsCache();
   load();
   checkTomorrowReminder();
   checkFollowupReminder();
   checkThanksReminder();
   checkRescheduleReminder();
+  checkTranscribeReminder();
 }
 
 /* ---------------- 初期化 ---------------- */
 function initUi(){
   var dm = el('fDocMethod');
   DOC_METHODS.forEach(function(m){ if(m) dm.insertAdjacentHTML('beforeend','<option>'+esc(m)+'</option>'); });
-  var s = el('fStatus');
-  STATUSES.forEach(function(x){ s.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
+  var s = el('fStatusPanel');
+  if(s){ s.innerHTML = STATUSES.filter(function(x){return x;}).map(function(x){
+    return '<label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:2px 0;cursor:pointer;white-space:nowrap;"><input type="checkbox" class="fstatchk" value="'+esc(x)+'" onchange="onStatusFilterChange()"> '+esc(x)+'</label>';
+  }).join('')
+  + '<div style="border-top:1px solid var(--line);margin-top:6px;padding-top:6px;text-align:right;"><button class="btn btn-sm" onclick="clearStatusFilter()">全解除</button></div>'; }
+  var acq = el('fAcq');
+  if(acq) ACQ_SOURCES.forEach(function(x){ if(x) acq.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
   var en = el('fEntity');
   ENTITIES.forEach(function(x){ en.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
   var ind = el('fIndustry');
@@ -731,7 +747,7 @@ function initUi(){
   var sf = el('fSelf');
   SELF_SUPPORTS.forEach(function(x){ sf.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
   buildPrefButtons();
-  ['fQ','fStatus','fStaff','fDocMethod','fEntity','fIndustry','fSelf','fSort'].forEach(function(id){
+  ['fQ','fStaff','fDocMethod','fEntity','fIndustry','fSelf','fAcq','fSort'].forEach(function(id){
     var e = el(id);
     var ev = (e.type==='text') ? 'input' : 'change';
     var t;
@@ -806,8 +822,34 @@ function loadPrefCounts(){
     });
   });
 }
+var selStatuses = [];
+function toggleStatusPanel(e){ if(e) e.stopPropagation(); var p=el('fStatusPanel'); if(!p) return; p.style.display = (p.style.display==='none'||!p.style.display)?'block':'none'; }
+function onStatusFilterChange(){
+  var cs=document.querySelectorAll('.fstatchk:checked'); selStatuses=[];
+  for(var i=0;i<cs.length;i++) selStatuses.push(cs[i].value);
+  updateStatusBtn(); page=0; load();
+}
+function updateStatusBtn(){
+  var b=el('fStatusBtn'); if(!b) return;
+  b.textContent = selStatuses.length ? ('ステータス '+selStatuses.length+'件 ▾') : '全ステータス ▾';
+  b.style.background = selStatuses.length ? '#ebf3ff' : '';
+}
+function clearStatusFilter(skipLoad){
+  selStatuses=[]; var cs=document.querySelectorAll('.fstatchk'); for(var i=0;i<cs.length;i++) cs[i].checked=false;
+  updateStatusBtn(); if(!skipLoad){ page=0; load(); }
+}
+function setStatusFilter(k){
+  var i=selStatuses.indexOf(k);
+  if(i>=0) selStatuses.splice(i,1); else selStatuses.push(k);
+  var cs=document.querySelectorAll('.fstatchk'); for(var j=0;j<cs.length;j++) cs[j].checked=(selStatuses.indexOf(cs[j].value)>=0);
+  updateStatusBtn(); page=0; load();
+}
+document.addEventListener('click', function(e){
+  var p=el('fStatusPanel'), b=el('fStatusBtn');
+  if(p && p.style.display==='block' && !p.contains(e.target) && e.target!==b){ p.style.display='none'; }
+});
 function resetFilters(){
-  el('fQ').value=''; selPrefs=[]; el('fStatus').value=''; el('fStaff').value=''; el('fDocMethod').value=''; el('fEntity').value='';
+  el('fQ').value=''; selPrefs=[]; clearStatusFilter(true); el('fStaff').value=''; el('fDocMethod').value=''; el('fEntity').value=''; if(el('fAcq')) el('fAcq').value='';
   el('fIndustry').value=''; el('fSelf').value='';
   el('fSort').value='new';
   page=0; syncPrefButtons(); loadPrefCounts(); load();
@@ -839,12 +881,13 @@ function buildQuery(forCount){
     if(orParts.length){ q = q.or(orParts.join(',')); }
   }
   q = applyPrefFilter(q);
-  if(el('fStatus').value) q = q.eq('status', el('fStatus').value);
+  if(selStatuses && selStatuses.length) q = q.in('status', selStatuses);
   if(el('fStaff').value)  q = q.eq('staff', el('fStaff').value);
   if(el('fDocMethod').value) q = q.eq('doc_method', el('fDocMethod').value);
   if(el('fEntity').value) q = q.eq('entity_type', el('fEntity').value);
   if(el('fIndustry').value) q = q.eq('industry', el('fIndustry').value);
   if(el('fSelf').value)     q = q.eq('self_support', el('fSelf').value);
+  if(el('fAcq') && el('fAcq').value) q = q.eq('acquisition_source', el('fAcq').value);
   if(apptOnly){ q = q.not('apt_at','is',null).eq('apt_meet_sent', false); }
   if(thanksOnly){ q = q.not('apt_at','is',null).lt('apt_at', new Date().toISOString()).eq('thanks_sent', false).eq('apt_reschedule', false); }
   q = applyExclusions(q);
@@ -855,15 +898,16 @@ function buildQuery(forCount){
   else if(sort==='insured')   q = q.order('insured_count',{ascending:false,nullsFirst:false}).order('name',{ascending:true});
   else if(sort==='supporter') q = q.order('supporter_count',{ascending:false,nullsFirst:false}).order('name',{ascending:true});
   else if(sort==='memo')      q = q.order('memo',{ascending:true,nullsFirst:false}).order('reg_date',{ascending:false,nullsFirst:false});
+  else if(sort==='acq')       q = q.order('acquisition_source',{ascending:true,nullsFirst:false}).order('name',{ascending:true});
   else                        q = q.order('reg_date',{ascending:false,nullsFirst:false});
   return q;
 }
 
 function load(){
-  el('rows').innerHTML = '<tr><td colspan="15" class="loading">読み込み中...</td></tr>';
+  el('rows').innerHTML = '<tr><td colspan="16" class="loading">読み込み中...</td></tr>';
   buildQuery(true).range(page*PAGE, page*PAGE+PAGE-1).then(function(r){
     if(r.error){
-      el('rows').innerHTML = '<tr><td colspan="15" class="empty">読み込みエラー：'+esc(r.error.message)+'</td></tr>';
+      el('rows').innerHTML = '<tr><td colspan="16" class="empty">読み込みエラー：'+esc(r.error.message)+'</td></tr>';
       return;
     }
     curRows = r.data || [];
@@ -876,7 +920,7 @@ function load(){
 
 function render(){
   if(!curRows.length){
-    el('rows').innerHTML = '<tr><td colspan="15" class="empty">該当するリードがありません。<br><span class="sub">まだ取り込んでいない場合は、右上の「📥 CSV取込」から eigyo_leads.csv を読み込んでください。</span></td></tr>';
+    el('rows').innerHTML = '<tr><td colspan="16" class="empty">該当するリードがありません。<br><span class="sub">まだ取り込んでいない場合は、右上の「📥 CSV取込」から eigyo_leads.csv を読み込んでください。</span></td></tr>';
     el('cntTxt').textContent = '0 件';
     el('pageTxt').textContent = '-';
     return;
@@ -909,6 +953,7 @@ function render(){
       + '<td>'+listed+'</td>'
       + '<td class="sub">'+esc(x.tel||'')+'</td>'
       + '<td><span class="badge b-'+esc(x.status)+'">'+esc(x.status)+'</span></td>'
+      + '<td class="sub">'+(x.acquisition_source?esc(x.acquisition_source):'—')+'</td>'
       + '<td class="sub">'+esc(x.staff||'')+'</td>'
       + '<td class="sub">'+(x.first_contact_date ? esc(x.first_contact_date)+(x.first_contact_kind?'<div class="sub">'+esc(x.first_contact_kind)+'</div>':'') : '—')+'</td>'
       + '<td class="sub">'+apptCell(x)+'</td>'
@@ -991,8 +1036,7 @@ function loadKpis(){
   Array.prototype.forEach.call(box.children, function(c){
     c.onclick = function(){
       var k = c.getAttribute('data-k');
-      el('fStatus').value = (el('fStatus').value===k ? '' : k);
-      page=0; load();
+      setStatusFilter(k);
     };
   });
 }
@@ -1052,7 +1096,7 @@ function renderDrawer(){
   +   '<button id="dtab3" class="dtab" onclick="switchDrawerTab(3)">書類部引き継ぎ</button>'
   + '</div>'
   + '<div id="dpane1">'
-  + '<div class="sec"><h3>営業管理</h3><div class="form form-compact">'
+  + '<div class="sec"><h3 class="sec-title" style="margin-top:0;">営業管理</h3><div class="form form-compact">'
   +   '<label>ステータス</label><select id="eStatus" onchange="saveStatusNow()">'+STATUSES.map(function(s){return '<option'+(s===x.status?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
   +   '<label>担当者</label><select id="eStaff"><option value="">（未設定）</option>'
   +     staffOptions.map(function(s){return '<option'+(s===x.staff?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
@@ -1068,10 +1112,14 @@ function renderDrawer(){
   +     '<select id="eMeetKind" style="flex:0 0 130px;"><option value="">（形式）</option>'
   +       MEETING_KINDS.map(function(t){return '<option'+(t===x.meeting_kind?' selected':'')+'>'+esc(t)+'</option>';}).join('')
   +     '</select></div>'
-  +   '<label class="full" style="margin:6px 0 -2px;font-weight:700;color:var(--accent);">🗓 アポ管理（Meet）</label>'
+  +   '<label class="full sec-title">🗓 アポ管理（Meet）</label>'
   +   '<label>アポ日時</label><input type="datetime-local" id="eAptAt" class="span2" value="'+esc(x.apt_at?toLocalDT(x.apt_at):'')+'">'
   +   '<label>送信先メール</label><input type="text" id="eAptEmail" class="span2" placeholder="相手のメールアドレス" value="'+esc(x.apt_email||'')+'">'
   +   '<label>Meet URL</label><input type="text" id="eAptMeet" class="span2" placeholder="カレンダーのコピー内容を丸ごと貼ってOK（ビデオ通話リンクだけ自動抽出）" onblur="this.value=extractMeetUrl(this.value)" value="'+esc(x.apt_meet_url||'')+'">'
+  +   '<label>打ち合わせメモ</label><div class="span2" style="display:flex;gap:6px;">'
+  +     '<input type="text" id="eMinUrl" style="flex:1;" placeholder="Meetの自動生成メモ（Googleドキュメント）のURL" value="'+esc(x.minutes_url||'')+'">'
+  +     (x.minutes_url?'<button class="btn" onclick="var u=el(\'eMinUrl\').value.trim();if(u)window.open(u,\'_blank\')">🔗 開く</button>':'')
+  +   '</div>'
   +   '<div class="span2" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;">'
   +     '<button class="btn" onclick="copyApptMsg()">📧 送信文をコピー</button>'
   +     (x.apt_meet_sent
@@ -1079,7 +1127,8 @@ function renderDrawer(){
         : '<button class="btn btn-primary" onclick="markMeetSent(true)">✅ Meet送信済みにする</button>')
   +     ((x.apt_person||x.apt_email||x.apt_role) ? '<button class="btn" onclick="fillContactFromAppt()">👤 担当者欄に反映</button>' : '')
   +   '</div>'
-  +   '<label class="span2" style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#4a5568;margin-top:2px;cursor:pointer;"><input type="checkbox" id="eAptResched" '+(x.apt_reschedule?'checked':'')+' onchange="apptSetReschedule(curLead.reg_no,this.checked)"> リスケ中（日程調整中・連絡待ち：決まるまでリマインドを停止）</label>'
+  +   '<label class="span2" style="display:inline-flex;align-items:center;justify-content:flex-start;gap:6px;width:auto;font-size:12.5px;color:#4a5568;margin-top:2px;cursor:pointer;"><input type="checkbox" id="eAptResched" '+(x.apt_reschedule?'checked':'')+' onchange="apptSetReschedule(curLead.reg_no,this.checked)" style="flex:none;margin:0;padding:0;width:15px;height:15px;"> リスケ中（日程調整中・連絡待ち：決まるまでリマインドを停止）</label>'
+  +   '<label class="span2" style="display:inline-flex;align-items:center;justify-content:flex-start;gap:6px;width:auto;font-size:12.5px;color:#4a5568;margin-top:4px;cursor:pointer;"><input type="checkbox" id="eNoMail" '+(x.no_mail?'checked':'')+' style="flex:none;margin:0;padding:0;width:15px;height:15px;"> ✉️ メール配信不要（メルマガ等の一斉配信から除外する）</label>'
   +   (x.apt_reschedule ? '<div class="span2" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;"><button class="btn" onclick="copyRemindMail(curLead.reg_no)">📧 日程催促文をコピー</button><button class="btn btn-primary" onclick="reschedFollowed(curLead.reg_no)">✅ フォロー実施（履歴記録）</button></div>' : '')
   +   '<label class="span2" style="margin:8px 0 -2px;font-weight:700;color:#2b6cb0;">📄 御礼メール（商談後・資料PDF添付）</label>'
   +   '<label>差出人（担当者名）</label><select id="eThanksSender" class="span2"><option value="">（選択してください）</option>'+STAFF_SEED.map(function(s){return '<option'+(s===thanksSenderDefault()?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
@@ -1089,22 +1138,17 @@ function renderDrawer(){
         ? '<button class="btn" onclick="markThanksSent(false)" style="background:#f0fff4;border-color:#9ae6b4;color:#276749;">✓ 御礼送信済み（クリックで取消）</button>'
         : '<button class="btn btn-primary" onclick="markThanksSent(true)">✅ 御礼メール送信済みにする</button>')
   +   '</div>'
-  +   '<label class="span2" style="margin:8px 0 -2px;font-weight:700;color:#805ad5;">📎 添付資料（PDF）</label>'
-  +   '<div class="span2" id="matList" style="font-size:12px;">読み込み中…</div>'
-  +   '<div class="span2" id="matDrop" ondragover="event.preventDefault();this.style.background=\'#faf5ff\'" ondragleave="this.style.background=\'\'" ondrop="matDropLead(event)" style="border:1.5px dashed #b794f4;border-radius:8px;padding:12px;text-align:center;font-size:12px;color:#6b46c1;cursor:pointer;" onclick="el(\'matFileLead\').click()">'
-  +     'ここにPDFをドラッグ、またはクリックして選択（この会社用・複数可）'
-  +     '<input type="file" id="matFileLead" accept="application/pdf" multiple style="display:none" onchange="matPickLead(event)">'
+  +   '<label class="full sec-title" style="font-size:14px;">📝 代行会社スプレッドへ転記</label>'
+  +   '<div class="full" style="display:flex;gap:8px;flex-wrap:wrap;">'
+  +     '<button class="btn" onclick="copyLeadMemo()">📋 社内メモをコピー</button>'
+  +     '<button class="btn" onclick="copyLeadNotes()">📋 対応履歴をコピー</button>'
+  +     '<button class="btn" onclick="copyHearing()">📋 ヒアリングをコピー</button>'
+  +     (x.transcribed
+        ? '<button class="btn" onclick="markTranscribed(false)" style="background:#f0fff4;border-color:#9ae6b4;color:#276749;">✓ 転記済み（クリックで取消）</button>'
+        : '<button class="btn btn-primary" onclick="markTranscribed(true)">✅ 転記済みにする</button>')
   +   '</div>'
-  +   '<label class="span2" style="margin:8px 0 -2px;font-weight:700;color:#553c9a;">📝 商談議事録（Meetメモ）</label>'
-  +   '<label>議事録リンク</label><input type="text" id="eMinUrl" class="span2" placeholder="Meetの自動メモ（Googleドキュメント）のURL" value="'+esc(x.minutes_url||'')+'">'
-  +   '<label class="full" style="margin-bottom:-4px;">議事録の本文（貼り付け）</label><textarea id="eMinText" class="full" placeholder="Meetメモ／文字起こしの本文をここに貼り付けて「AIで要約」を押してください" style="min-height:90px;">'+esc(x.minutes_text||'')+'</textarea>'
-  +   '<div class="span2" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;">'
-  +     (x.minutes_url?'<button class="btn" onclick="window.open(el(\'eMinUrl\').value,\'_blank\')">🔗 議事録を開く</button>':'')
-  +     '<button class="btn btn-primary" id="minSumBtn" onclick="summarizeMinutes()">🤖 AIで要約</button>'
-  +   '</div>'
-  +   (x.minutes_summary
-      ? '<div class="span2" id="minSumBox" style="font-size:12px;color:#2d3748;background:#faf5ff;border:1px solid #d6bcfa;border-radius:8px;padding:10px 12px;margin-top:4px;white-space:pre-wrap;">'+esc(x.minutes_summary)+(x.minutes_at?'<div style="color:#a0aec0;font-size:10px;margin-top:6px;">要約作成：'+esc((''+x.minutes_at).slice(0,10))+'</div>':'')+'</div>'
-      : '<div class="span2" id="minSumBox"></div>')
+  +   '<label class="span2 sec-title">📎 御礼文に入れる資料</label>'
+  +   '<div class="full" id="matList" style="font-size:12px;">読み込み中…</div>'
   +   ((x.apt_getter||x.apt_reason||x.apt_memo||x.apt_env||x.apt_got_at||x.apt_person)
       ? '<div class="span2" style="font-size:11.5px;color:#4a5568;background:#f7fafc;border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-top:4px;white-space:pre-wrap;">'
         + (x.apt_person?'<b>担当:</b> '+esc(x.apt_person)+(x.apt_role?'（'+esc(x.apt_role)+'）':'')+'\n':'')
@@ -1121,8 +1165,32 @@ function renderDrawer(){
   +     '</select>'
   +     '<input type="date" id="eNextDate" value="'+esc(x.next_action_date||'')+'" style="flex:1;">'
   +   '</div>'
-  +   '<label class="full" style="margin-bottom:-4px;">メモ（社内用）</label><textarea id="eMemo" class="full" placeholder="社内メモ（自由記入）" style="min-height:110px;">'+esc(x.memo||'')+'</textarea>'
-  +   '<label class="full" style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:#4a5568;margin-top:6px;cursor:pointer;"><input type="checkbox" id="eNoMail" '+(x.no_mail?'checked':'')+'> ✉️ メール配信不要（メルマガ等の一斉配信から除外する）</label>'
+  + '</div>'
+  + '<h3 class="sec-title">📋 商談ヒアリング（登録支援機関情報に反映されます）</h3>'
+  + '<div class="form" style="grid-template-columns:130px 1fr;">'
+  +   '<label>チーム人数</label><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;">'
+  +     '<label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;">支援担当者 <input type="number" id="eTeamSupport" value="'+esc(x.team_support!=null?x.team_support:'')+'" placeholder="名" style="flex:1;width:100%;"></label>'
+  +     '<label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;">営業 <input type="number" id="eTeamSales" value="'+esc(x.team_sales!=null?x.team_sales:'')+'" placeholder="名" style="flex:1;width:100%;"></label>'
+  +     '<label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;">通訳 <input type="number" id="eTeamInterpreter" value="'+esc(x.team_interpreter!=null?x.team_interpreter:'')+'" placeholder="名" style="flex:1;width:100%;"></label>'
+  +     '<label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;">書類・事務 <input type="number" id="eTeamClerk" value="'+esc(x.team_clerk!=null?x.team_clerk:'')+'" placeholder="名" style="flex:1;width:100%;"></label>'
+  +   '</div>'
+  +   '<label>月間件数</label><input type="number" id="eHrMonthly" value="'+esc(x.hr_monthly_apps!=null?x.hr_monthly_apps:'')+'" placeholder="件/月">'
+  +   '<label>年間件数</label><input type="number" id="eHrYearly" value="'+esc(x.hr_yearly_apps!=null?x.hr_yearly_apps:'')+'" placeholder="件/年">'
+  +   '<label>取扱在留資格</label><textarea id="eHrVisa" placeholder="例：特定技能1号、技人国、技能実習 など" style="min-height:40px;">'+esc(x.hr_visa||'')+'</textarea>'
+  +   '<label>取扱分野</label><textarea id="eHrFields" placeholder="例：建設、介護、外食 など" style="min-height:40px;">'+esc(x.hr_fields||'')+'</textarea>'
+  +   '<label>国籍</label><textarea id="eHrNationality" placeholder="例：ベトナム、インドネシア、ミャンマー など" style="min-height:40px;">'+esc(x.hr_nationality||'')+'</textarea>'
+  +   '<label>専売/複数社</label><select id="eHrExclusive">'+HR_EXCLUSIVE.map(function(m){return '<option'+((m===(x.hr_exclusive||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
+  +   '<label>現在の依頼先</label><textarea id="eHrGyosei" placeholder="今どこの行政書士に依頼しているか、その割合・分野" style="min-height:48px;">'+esc(x.hr_current_gyosei||'')+'</textarea>'
+  +   '<label>既存の申請費用</label><input type="text" id="eHrExistingFee" value="'+esc(x.hr_existing_fee||'')+'" placeholder="既存の行政書士の申請費用（例：1件○○円）">'
+  +   '<label>既存の業務範囲</label><select id="eHrScope">'+HR_SCOPE.map(function(m){return '<option'+((m===(x.hr_scope||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
+  +   '<label>業務範囲（その他）</label><input type="text" id="eHrScopeOther" value="'+esc(x.hr_scope_other||'')+'" placeholder="「その他」の場合はこちらに直接入力">'
+  + '</div>'
+  + '<label style="display:block;margin:12px 0 3px;font-size:12px;color:var(--muted);">メモ（社内用）</label>'
+  + '<textarea id="eMemo" placeholder="社内メモ（自由記入）" style="width:100%;box-sizing:border-box;min-height:110px;font-size:13px;padding:5px 8px;border:1px solid var(--line);border-radius:6px;">'+esc(x.memo||'')+'</textarea>'
+  + '<div class="form" style="grid-template-columns:150px 1fr;margin-top:10px;">'
+  +   '<label>初期費用（円）</label><input type="number" id="eInitialFee" value="'+esc(x.initial_fee!=null?x.initial_fee:'')+'" placeholder="例：50000">'
+  +   '<label>毎月の支援委託費（円）</label><input type="number" id="eMonthlyFee" value="'+esc(x.monthly_fee!=null?x.monthly_fee:'')+'" placeholder="例：30000">'
+  +   '<label>獲得経路</label><select id="eAcqSource">'+ACQ_SOURCES.map(function(m){return '<option'+((m===(x.acquisition_source||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
   + '</div>'
   + '<div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="saveLead()">保存</button></div>'
   + '</div>'  /* end 営業管理sec */
@@ -1135,15 +1203,17 @@ function renderDrawer(){
   + '<div class="form" style="grid-template-columns:130px 1fr;">'
   +   '<label>予定開始日</label><input type="date" id="eHrStartDate" value="'+esc(x.hr_start_date||'')+'">'
   +   '<label>ドライブURL</label><input type="text" id="eHrDriveUrl" class="span2" value="'+esc(x.hr_drive_url||'')+'" placeholder="https://drive.google.com/drive/folders/...">'
-  +   '<label>月間件数</label><input type="number" id="eHrMonthly" value="'+esc(x.hr_monthly_apps!=null?x.hr_monthly_apps:'')+'" placeholder="件/月">'
-  +   '<label>年間件数</label><input type="number" id="eHrYearly" value="'+esc(x.hr_yearly_apps!=null?x.hr_yearly_apps:'')+'" placeholder="件/年">'
-  +   '<label>取扱在留資格</label><textarea id="eHrVisa" placeholder="例：特定技能1号、技人国、技能実習 など" style="min-height:40px;">'+esc(x.hr_visa||'')+'</textarea>'
-  +   '<label>取扱分野</label><textarea id="eHrFields" placeholder="例：建設、介護、外食 など" style="min-height:40px;">'+esc(x.hr_fields||'')+'</textarea>'
-  +   '<label>専売/複数社</label><select id="eHrExclusive">'+HR_EXCLUSIVE.map(function(m){return '<option'+((m===(x.hr_exclusive||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
-  +   '<label>現在の依頼先</label><textarea id="eHrGyosei" placeholder="今どこの行政書士に依頼しているか、その割合・分野" style="min-height:48px;">'+esc(x.hr_current_gyosei||'')+'</textarea>'
-  +   '<label>既存の申請費用</label><input type="text" id="eHrExistingFee" value="'+esc(x.hr_existing_fee||'')+'" placeholder="既存の行政書士の申請費用（例：1件○○円）">'
-  +   '<label>既存の業務範囲</label><select id="eHrScope">'+HR_SCOPE.map(function(m){return '<option'+((m===(x.hr_scope||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
-  +   '<label>業務範囲（その他）</label><input type="text" id="eHrScopeOther" value="'+esc(x.hr_scope_other||'')+'" placeholder="「その他」の場合はこちらに直接入力">'
+  +   '<label style="grid-column:1 / -1;font-size:12px;color:#805ad5;margin-top:4px;">↓ 下記は「営業管理/対応履歴」タブの商談ヒアリングから反映されます（編集はそちらで）</label>'
+  +   '<label>チーム人数</label><div class="ro" id="roTeam" style="padding:6px 4px;color:#2d3748;">—</div>'
+  +   '<label>月間件数</label><div class="ro" id="roHrMonthly" style="padding:6px 4px;color:#2d3748;">—</div>'
+  +   '<label>年間件数</label><div class="ro" id="roHrYearly" style="padding:6px 4px;color:#2d3748;">—</div>'
+  +   '<label>取扱在留資格</label><div class="ro" id="roHrVisa" style="padding:6px 4px;color:#2d3748;white-space:pre-wrap;">—</div>'
+  +   '<label>取扱分野</label><div class="ro" id="roHrFields" style="padding:6px 4px;color:#2d3748;white-space:pre-wrap;">—</div>'
+  +   '<label>国籍</label><div class="ro" id="roHrNationality" style="padding:6px 4px;color:#2d3748;white-space:pre-wrap;">—</div>'
+  +   '<label>専売/複数社</label><div class="ro" id="roHrExclusive" style="padding:6px 4px;color:#2d3748;">—</div>'
+  +   '<label>現在の依頼先</label><div class="ro" id="roHrGyosei" style="padding:6px 4px;color:#2d3748;white-space:pre-wrap;">—</div>'
+  +   '<label>既存の申請費用</label><div class="ro" id="roHrExistingFee" style="padding:6px 4px;color:#2d3748;">—</div>'
+  +   '<label>既存の業務範囲</label><div class="ro" id="roHrScope" style="padding:6px 4px;color:#2d3748;">—</div>'
   +   '<label>見込み</label><select id="eHrSpot">'+HR_SPOT.map(function(m){return '<option'+((m===(x.hr_spot||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
   +   '<label>獲得見込み</label><div style="display:flex;gap:6px;"><input type="number" id="eHrPotential" value="'+esc(x.hr_potential_apps!=null?x.hr_potential_apps:'')+'" placeholder="月◯件" style="flex:0 0 110px;"><input type="text" id="eHrPotentialField" value="'+esc(x.hr_potential_field||'')+'" placeholder="分野（例：特定技能）" style="flex:1;"></div>'
   +   '<label>獲得条件</label><textarea id="eHrCondition" placeholder="どうなったら残りの申請件数を弊社に任せてもらえそうか" style="min-height:48px;">'+esc(x.hr_condition||'')+'</textarea>'
@@ -1247,6 +1317,29 @@ function switchDrawerTab(n){
     var b=el('dtab'+t); if(b) b.className = 'dtab'+(t===n?' dtab-on':'');
   });
   if(n===3) loadHandover();
+  if(n===2) syncHearingReflection();
+}
+// 営業管理タブのヒアリング入力を、登録支援機関情報タブの反映表示に写す
+function syncHearingReflection(){
+  function set(ro, v){ var e=el(ro); if(e) e.textContent=(v==null||v==='')?'—':v; }
+  function val(id){ var e=el(id); return e?e.value:''; }
+  set('roHrMonthly', val('eHrMonthly'));
+  var tp=[];
+  if(val('eTeamSupport')!=='') tp.push('支援'+val('eTeamSupport'));
+  if(val('eTeamSales')!=='') tp.push('営業'+val('eTeamSales'));
+  if(val('eTeamInterpreter')!=='') tp.push('通訳'+val('eTeamInterpreter'));
+  if(val('eTeamClerk')!=='') tp.push('書類事務'+val('eTeamClerk'));
+  set('roTeam', tp.join('／'));
+  set('roHrYearly', val('eHrYearly'));
+  set('roHrVisa', val('eHrVisa'));
+  set('roHrFields', val('eHrFields'));
+  set('roHrNationality', val('eHrNationality'));
+  set('roHrExclusive', val('eHrExclusive'));
+  set('roHrGyosei', val('eHrGyosei'));
+  set('roHrExistingFee', val('eHrExistingFee'));
+  var scope=val('eHrScope'), other=val('eHrScopeOther');
+  var scopeTxt = scope + ((scope.indexOf('その他')>=0 && other)?('：'+other):'');
+  set('roHrScope', scopeTxt);
 }
 function loadHandover(){
   var box=el('handoverBody'); if(!box) return;
@@ -1344,11 +1437,10 @@ function saveLead(silent){
     doc_method:        el('eDocMethod').value || null,
     memo:              el('eMemo').value.trim() || null,
     no_mail:           !!(el('eNoMail')&&el('eNoMail').checked),
-    minutes_url:       (el('eMinUrl')&&el('eMinUrl').value.trim())||null,
-    minutes_text:      (el('eMinText')&&el('eMinText').value.trim())||null,
     apt_at:            (el('eAptAt')&&el('eAptAt').value) ? new Date(el('eAptAt').value).toISOString() : null,
     apt_email:         (el('eAptEmail')&&el('eAptEmail').value.trim()) || null,
     apt_meet_url:      extractMeetUrl((el('eAptMeet')&&el('eAptMeet').value)||'') || null,
+    minutes_url:       (el('eMinUrl')&&el('eMinUrl').value.trim())||null,
     apt_reschedule:    !!(el('eAptResched')&&el('eAptResched').checked),
     apt_reschedule_at: (el('eAptResched')&&el('eAptResched').checked) ? ((curLead&&curLead.apt_reschedule_at)?curLead.apt_reschedule_at:new Date().toISOString()) : null,
     hr_start_date:     el('eHrStartDate').value || null,
@@ -1357,6 +1449,14 @@ function saveLead(silent){
     hr_yearly_apps:    el('eHrYearly').value!==''? parseInt(el('eHrYearly').value,10) : null,
     hr_visa:           el('eHrVisa').value.trim() || null,
     hr_fields:         el('eHrFields').value.trim() || null,
+    hr_nationality:    (el('eHrNationality')&&el('eHrNationality').value.trim())||null,
+    team_support:      (el('eTeamSupport')&&el('eTeamSupport').value!=='')?parseInt(el('eTeamSupport').value,10):null,
+    team_sales:        (el('eTeamSales')&&el('eTeamSales').value!=='')?parseInt(el('eTeamSales').value,10):null,
+    team_interpreter:  (el('eTeamInterpreter')&&el('eTeamInterpreter').value!=='')?parseInt(el('eTeamInterpreter').value,10):null,
+    team_clerk:        (el('eTeamClerk')&&el('eTeamClerk').value!=='')?parseInt(el('eTeamClerk').value,10):null,
+    initial_fee:       (el('eInitialFee')&&el('eInitialFee').value!=='')?parseInt(el('eInitialFee').value,10):null,
+    monthly_fee:       (el('eMonthlyFee')&&el('eMonthlyFee').value!=='')?parseInt(el('eMonthlyFee').value,10):null,
+    acquisition_source:(el('eAcqSource')&&el('eAcqSource').value)||null,
     hr_exclusive:      el('eHrExclusive').value || null,
     hr_current_gyosei: el('eHrGyosei').value.trim() || null,
     hr_existing_fee:   (el('eHrExistingFee')&&el('eHrExistingFee').value.trim())||null,
@@ -1632,9 +1732,15 @@ function markMeetSent(flag){
 function markThanksSent(flag){
   if(!curLead) return;
   var patch = flag ? {thanks_sent:true, thanks_sent_at:new Date().toISOString()} : {thanks_sent:false, thanks_sent_at:null};
+  // 送信済みにしたら、契約中・対象外以外はステータスを「商談済み→依頼待ち」に自動更新
+  var statusMsg='';
+  if(flag && curLead.status!=='契約中' && curLead.status!=='対象外' && curLead.status!=='商談済み→依頼待ち'){
+    patch.status='商談済み→依頼待ち'; statusMsg='／ステータスを商談済み→依頼待ちに変更';
+  }
   _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
     if(r.error){ showMsg('dMsg','更新に失敗しました：'+r.error.message,'err'); return; }
-    curLead.thanks_sent=flag; showMsg('dMsg', flag?'御礼メール送信済みにしました':'未送信に戻しました','ok');
+    curLead.thanks_sent=flag; if(patch.status) curLead.status=patch.status;
+    showMsg('dMsg', (flag?'御礼メール送信済みにしました':'未送信に戻しました')+statusMsg,'ok');
     openDrawer(curLead.reg_no); load(); refreshApptChip(); checkThanksReminder();
   });
 }
@@ -1647,17 +1753,106 @@ function copyThanksMsg(){
   var intro = sender ? ('お世話になっております。大房行政書士法人の'+sender+'でございます。')
                      : 'お世話になっております。大房行政書士法人でございます。';
   var sign = sender || '大房行政書士法人';
+  var links='';
+  var picks=document.querySelectorAll('.matpick:checked');
+  if(picks && picks.length){
+    var arr=[]; for(var i=0;i<picks.length;i++){ var u=picks[i].getAttribute('data-url'); var n=picks[i].getAttribute('data-name'); if(u) arr.push('・'+n+'：'+u); }
+    if(arr.length) links='\n▼共有資料\n\n'+arr.join('\n\n')+'\n';
+  }
   var body='件名：本日の御礼（大房行政書士法人）\n\n'
     + esc0(curLead.name||'')+'\n'+person+'様\n\n'
     + intro+'\n'
     + '本日はお忙しい中、お打ち合わせのお時間をいただき誠にありがとうございました。\n\n'
     + '本日使用した資料を添付いたします。\n'
-    + 'ご不明な点やご相談などございましたら、お気軽にご連絡ください。\n\n'
-    + '今後ともどうぞよろしくお願いいたします。\n\n'
+    + 'ご不明な点やご相談などございましたら、お気軽にご連絡ください。\n'
+    + links
+    + '\n今後ともどうぞよろしくお願いいたします。\n\n'
     + sign;
   navigator.clipboard.writeText(body).then(function(){ showMsg('dMsg','御礼文をコピーしました。資料PDFの添付を忘れずに送付してください','ok'); },
     function(){ alert(body); });
 }
+
+/* ===== 代行会社スプレッドへの転記（コピー・リマインド・転記済み） ===== */
+function _copyTo(text, okmsg){
+  navigator.clipboard.writeText(text).then(function(){ showMsg('dMsg',okmsg||'コピーしました','ok'); }, function(){ prompt('コピーできませんでした。手動でコピーしてください：', text); });
+}
+function copyLeadMemo(){ if(!curLead) return; var t=(el('eMemo')&&el('eMemo').value)||curLead.memo||''; if(!t.trim()){ showMsg('dMsg','社内メモが空です','err'); return; } _copyTo(t,'社内メモをコピーしました'); }
+function copyLeadNotes(){
+  if(!curLead) return;
+  _sb.from('eigyo_notes').select('note_date,kind,author,body,status_to').eq('reg_no',curLead.reg_no).order('note_date',{ascending:false}).order('id',{ascending:false}).then(function(r){
+    var d=(r.data)||[]; if(!d.length){ showMsg('dMsg','対応履歴がありません','err'); return; }
+    var t=d.map(function(n){ return n.note_date+'　'+(n.kind||'')+(n.author?'　'+n.author:'')+(n.status_to?'　→'+n.status_to:'')+'\n'+(n.body||''); }).join('\n----\n');
+    _copyTo(t,'対応履歴をコピーしました');
+  });
+}
+function copyHearing(){
+  if(!curLead) return; var x=curLead;
+  function line(l,v){ return (v==null||v==='')?'':(l+'：'+v+'\n'); }
+  var team=[];
+  if(x.team_support!=null) team.push('支援'+x.team_support);
+  if(x.team_sales!=null) team.push('営業'+x.team_sales);
+  if(x.team_interpreter!=null) team.push('通訳'+x.team_interpreter);
+  if(x.team_clerk!=null) team.push('書類事務'+x.team_clerk);
+  var scope=(x.hr_scope||'')+((x.hr_scope&&x.hr_scope.indexOf('その他')>=0&&x.hr_scope_other)?('：'+x.hr_scope_other):'');
+  var t='【'+(x.name||'')+' 商談ヒアリング】\n'
+    + line('チーム人数', team.join('／'))
+    + line('月間件数', x.hr_monthly_apps)
+    + line('年間件数', x.hr_yearly_apps)
+    + line('取扱在留資格', x.hr_visa)
+    + line('取扱分野', x.hr_fields)
+    + line('国籍', x.hr_nationality)
+    + line('専売/複数社', x.hr_exclusive)
+    + line('現在の依頼先', x.hr_current_gyosei)
+    + line('既存の申請費用', x.hr_existing_fee)
+    + line('既存の業務範囲', scope)
+    + line('初期費用(円)', x.initial_fee)
+    + line('毎月の支援委託費(円)', x.monthly_fee);
+  _copyTo(t.trim(),'商談ヒアリングをコピーしました');
+}
+function markTranscribed(flag){
+  if(!curLead) return;
+  var patch = flag ? {transcribed:true, transcribed_at:new Date().toISOString()} : {transcribed:false, transcribed_at:null};
+  _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
+    if(r.error){ showMsg('dMsg','更新に失敗しました：'+r.error.message,'err'); return; }
+    curLead.transcribed=flag; showMsg('dMsg', flag?'転記済みにしました':'未転記に戻しました','ok');
+    openDrawer(curLead.reg_no); load(); refreshApptChip(); checkTranscribeReminder();
+  });
+}
+function checkTranscribeReminder(){
+  _sb.from('eigyo_leads').select('reg_no,name,apt_at')
+    .not('apt_at','is',null).lt('apt_at', new Date().toISOString())
+    .eq('transcribed', false).eq('apt_reschedule', false)
+    .order('apt_at',{ascending:true}).then(function(r){
+      if(r.error || !r.data || !r.data.length){ closeTranscribeModal(); return; }
+      showTranscribeModal(r.data);
+  });
+}
+function showTranscribeModal(list){
+  var box=el('transBox');
+  if(!box){
+    box=document.createElement('div'); box.id='transBox';
+    box.style.cssText='display:none;position:fixed;z-index:76;top:50%;left:50%;transform:translate(-50%,-50%);width:min(580px,94vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 40px rgba(0,0,0,.25);border-top:6px solid #d69e2e;';
+    document.body.appendChild(box);
+    var ov=document.createElement('div'); ov.id='transOv'; ov.className='overlay on'; ov.style.zIndex='75'; document.body.appendChild(ov);
+  }
+  var wd=['日','月','火','水','木','金','土'];
+  var h='<h2 style="margin:0 0 4px;font-size:19px;color:#b7791f;">📝 スプレッド転記 未 '+list.length+'件</h2>'
+    + '<p style="margin:0 0 14px;font-size:12.5px;color:var(--muted);">商談が終わったのに、営業代行会社のスプレッドへの転記がまだの先です。<br>「開く」→ 社内メモ／対応履歴／ヒアリングをコピーして転記 → 済んだら「✅ 転記済み」を押してください。</p>';
+  list.forEach(function(x){
+    var d=new Date(x.apt_at); var t=(d.getMonth()+1)+'/'+d.getDate()+'('+wd[d.getDay()]+')';
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #f6e05e;background:#fffff0;border-radius:8px;padding:10px 12px;margin-bottom:8px;">'
+      + '<div><div style="font-weight:600;font-size:14px;">'+esc(x.name||'')+'</div>'
+      + '<div style="font-size:12px;color:#b7791f;">商談日 '+esc(t)+'</div></div>'
+      + '<button class="btn btn-primary" onclick="transOpen(\''+esc(x.reg_no)+'\')">開く</button>'
+      + '</div>';
+  });
+  h+='<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;"><button class="btn btn-primary" onclick="closeTranscribeModal()">閉じる</button></div>'
+    + '<p style="font-size:11px;color:var(--muted);margin:8px 0 0;text-align:right;">※転記するまで、開くたびに表示されます</p>';
+  box.innerHTML=h; box.style.display='block';
+}
+function closeTranscribeModal(){ var b=el('transBox'); if(b) b.style.display='none'; var o=el('transOv'); if(o) o.remove(); }
+function transOpen(regNo){ closeTranscribeModal(); openDrawer(regNo); }
+
 function checkThanksReminder(){
   _sb.from('eigyo_leads').select('reg_no,name,apt_at,apt_email')
     .not('apt_at','is',null).lt('apt_at', new Date().toISOString())
@@ -1781,35 +1976,66 @@ function reschedFollowed(regNo){
   });
 }
 function reschedOpen(regNo){ closeReschedModal(); openDrawer(regNo); }
-// 議事録AI要約（Supabase Edge Function経由でGemini）
-function summarizeMinutes(){
-  if(!curLead) return;
-  var text=(el('eMinText')&&el('eMinText').value.trim())||'';
-  var url=(el('eMinUrl')&&el('eMinUrl').value.trim())||'';
-  if(!text){ showMsg('dMsg','先に議事録の本文を貼り付けてください','err'); return; }
-  var btn=el('minSumBtn'); if(btn){ btn.textContent='🤖 要約中…'; btn.disabled=true; }
-  // まず本文・URLを保存
-  _sb.from('eigyo_leads').update({minutes_url:url||null, minutes_text:text, updated_at:new Date().toISOString()}).eq('reg_no',curLead.reg_no).then(function(){});
-  _sb.functions.invoke('summarize-minutes', { body:{ text:text } }).then(function(res){
-    if(btn){ btn.textContent='🤖 AIで要約'; btn.disabled=false; }
-    var data=res && res.data, err=res && res.error;
-    if(err || !data || data.error){
-      var msg=(data&&data.message)||(err&&err.message)||'要約に失敗しました';
-      showMsg('dMsg','要約エラー：'+msg,'err');
-      return;
-    }
-    var summary=data.summary||'';
-    _sb.from('eigyo_leads').update({minutes_summary:summary, minutes_at:new Date().toISOString(), updated_at:new Date().toISOString()}).eq('reg_no',curLead.reg_no).then(function(u){
-      if(u.error){ showMsg('dMsg','保存に失敗：'+u.error.message,'err'); return; }
-      curLead.minutes_summary=summary; curLead.minutes_text=text; curLead.minutes_url=url;
-      var box=el('minSumBox'); if(box){ box.style.cssText='font-size:12px;color:#2d3748;background:#faf5ff;border:1px solid #d6bcfa;border-radius:8px;padding:10px 12px;margin-top:4px;white-space:pre-wrap;'; box.textContent=summary; }
-      showMsg('dMsg','議事録を要約しました','ok');
-    });
-  }).catch(function(e){
-    if(btn){ btn.textContent='🤖 AIで要約'; btn.disabled=false; }
-    showMsg('dMsg','要約に失敗しました：'+e,'err');
-  });
+// --- テレアポ会社共有用リスト出力（ステータス選択→企業名・所在地CSV） ---
+function openShareList(){
+  var box=el('shareBox');
+  if(!box){
+    box=document.createElement('div'); box.id='shareBox';
+    box.style.cssText='display:none;position:fixed;z-index:78;top:50%;left:50%;transform:translate(-50%,-50%);width:min(520px,94vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 40px rgba(0,0,0,.2);';
+    document.body.appendChild(box);
+    var ov=document.createElement('div'); ov.id='shareOv'; ov.className='overlay'; ov.style.zIndex='77'; ov.onclick=closeShareList; document.body.appendChild(ov);
+  }
+  var checks=STATUSES.map(function(s){
+    var def=(s==='接触済み'||s==='商談予定'||s==='商談済み→依頼待ち')?' checked':'';
+    return '<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:2px 0;"><input type="checkbox" class="sharest" value="'+esc(s)+'"'+def+'> '+esc(s)+'</label>';
+  }).join('');
+  box.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><h2 style="margin:0;font-size:18px;color:var(--accent);">📤 共有リスト出力（企業名・所在地）</h2><button class="btn" onclick="closeShareList()">閉じる</button></div>'
+    + '<p style="font-size:12px;color:var(--muted);margin:0 0 10px;">テレアポ会社などに共有する用。抽出するステータスを選んで、企業名と所在地だけのCSVを出力します。</p>'
+    + '<div style="border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:6px;">'
+    + '<div style="display:flex;gap:8px;margin-bottom:6px;"><button class="btn btn-sm" onclick="shareSelAll(true)">全選択</button><button class="btn btn-sm" onclick="shareSelAll(false)">全解除</button></div>'
+    + checks + '</div>'
+    + '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#4a5568;margin:4px 0 10px;cursor:pointer;"><input type="checkbox" id="shareTel"> 電話番号も含める</label>'
+    + '<div id="shareMsg" style="font-size:12px;color:var(--muted);margin-bottom:8px;"></div>'
+    + '<div style="text-align:right;"><button class="btn btn-primary" onclick="downloadShareCsv()">⬇ CSVダウンロード</button></div>';
+  box.style.display='block'; el('shareOv').classList.add('on');
 }
+function closeShareList(){ var b=el('shareBox'); if(b) b.style.display='none'; var o=el('shareOv'); if(o) o.classList.remove('on'); }
+function shareSelAll(v){ var cs=document.querySelectorAll('.sharest'); for(var i=0;i<cs.length;i++) cs[i].checked=v; }
+function downloadShareCsv(){
+  var sel=[]; var cs=document.querySelectorAll('.sharest:checked'); for(var i=0;i<cs.length;i++) sel.push(cs[i].value);
+  if(!sel.length){ el('shareMsg').textContent='ステータスを1つ以上選んでください。'; return; }
+  var withTel=el('shareTel')&&el('shareTel').checked;
+  el('shareMsg').textContent='抽出中…';
+  var cols='reg_no,name,pref,address,tel';
+  var rows=[]; var page=0, size=1000;
+  function fetchPage(){
+    _sb.from('eigyo_leads').select(cols).in('status',sel).order('pref',{ascending:true}).order('name',{ascending:true}).range(page*size,(page+1)*size-1).then(function(r){
+      if(r.error){ el('shareMsg').textContent='抽出エラー：'+r.error.message; return; }
+      var d=r.data||[]; rows=rows.concat(d);
+      if(d.length===size && page<20){ page++; fetchPage(); }
+      else buildCsv();
+    });
+  }
+  function buildCsv(){
+    if(!rows.length){ el('shareMsg').textContent='該当する企業がありませんでした。'; return; }
+    function esc2(v){ v=(v==null?'':String(v)); return '"'+v.replace(/"/g,'""')+'"'; }
+    var header = withTel ? ['企業名','所在地','電話番号'] : ['企業名','所在地'];
+    var lines=[header.map(esc2).join(',')];
+    rows.forEach(function(x){
+      var loc=((x.pref||'')+ (x.address||''));
+      var row = withTel ? [x.name||'', loc, x.tel||''] : [x.name||'', loc];
+      lines.push(row.map(esc2).join(','));
+    });
+    var csv='\ufeff'+lines.join('\r\n');  // BOM付きでExcel文字化け防止
+    var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    var a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download='共有リスト_'+today().replace(/-/g,'')+'.csv'; document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },100);
+    el('shareMsg').textContent=rows.length+'社を出力しました。';
+  }
+  fetchPage();
+}
+
 // --- 使い方ヘルプ ---
 function openHelp(){
   var box=el('helpBox');
@@ -1844,9 +2070,6 @@ function openHelp(){
   h+=sec('📄','御礼メール（商談当日）',[
     '「🗓 アポ管理」内の「📄 御礼メール」で<b>差出人（担当者名）</b>を選び「<b>📄 御礼文をコピー</b>」→ メールに貼り、<b>資料PDFを添付</b>して送付。',
     '送ったら「<b>✅ 御礼メール送信済みにする</b>」を押します。'
-  ]);
-  h+=sec('📝','商談議事録のAI要約',[
-    'Meetの自動メモ（議事録）の<b>本文を貼り付け</b>→「🤖 AIで要約」で、要点・次の一手・懸念に自動要約されます。'
   ]);
   h+=sec('🔔','リマインド（ポップアップ）',[
     '営シスを開くと、未対応があると自動でポップアップが出ます：',
@@ -2313,19 +2536,26 @@ function matDropLead(e){ e.preventDefault(); var d=el('matDrop'); if(d) d.style.
 function matPickLead(e){ if(curLead) matUpload(e.target.files,'lead',curLead.reg_no); e.target.value=''; }
 function matDelete(id, path, scope){
   if(!confirm('この資料を削除しますか？')) return;
-  _sb.storage.from(MAT_BUCKET).remove([path]).then(function(){
+  function afterDel(){
     _sb.from('eigyo_materials').delete().eq('id',id).then(function(){
-      if(scope==='common') renderCommonMats(); if(curLead) loadMaterials(curLead.reg_no);
+      if(scope==='common'){ renderCommonMats(); loadCommonMatsCache(); }
+      if(curLead) loadMaterials(curLead.reg_no);
     });
-  });
+  }
+  if(path){ _sb.storage.from(MAT_BUCKET).remove([path]).then(afterDel); }
+  else { afterDel(); }
 }
 function _matItem(m, deletable){
   return '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:6px;padding:5px 8px;margin-bottom:4px;">'
-    + '<span style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 '+esc(m.name)+(m.scope==='common'?' <span style="font-size:10px;color:#805ad5;">[共通]</span>':'')+'</span>'
+    + '<span style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(m.path?'📄':'🔗')+' '+esc(m.name)+(m.scope==='common'?' <span style="font-size:10px;color:#805ad5;">[共通]</span>':'')+'</span>'
     + '<span style="white-space:nowrap;">'
-    + (m.url?'<a class="btn btn-sm" href="'+esc(m.url)+'" target="_blank" download>開く</a>':'')
-    + (deletable?' <button class="btn btn-sm" style="color:#c53030;" onclick="matDelete('+m.id+',\''+esc(m.path)+'\',\''+esc(m.scope)+'\')">削除</button>':'')
+    + (m.url?'<a class="btn btn-sm" href="'+esc(m.url)+'" target="_blank"'+(m.path?' download':'')+'>開く</a>':'')
+    + (deletable?' <button class="btn btn-sm" style="color:#c53030;" onclick="matDelete('+m.id+','+(m.path?('\''+esc(m.path)+'\''):'null')+',\''+esc(m.scope)+'\')">削除</button>':'')
     + '</span></div>';
+}
+var _commonMats=[];
+function loadCommonMatsCache(){
+  _sb.from('eigyo_materials').select('id,name,url,category').eq('scope','common').order('category',{ascending:true}).order('created_at',{ascending:true}).then(function(r){ _commonMats=(r.data)||[]; });
 }
 function loadMaterials(regNo){
   var box=el('matList'); if(!box) return;
@@ -2333,10 +2563,27 @@ function loadMaterials(regNo){
     if(r.error){ box.innerHTML='<span class="sub">読み込みエラー</span>'; return; }
     var d=r.data||[]; var common=d.filter(function(m){return m.scope==='common';}); var mine=d.filter(function(m){return m.scope==='lead';});
     var h='';
-    h+='<div style="font-size:11px;color:#805ad5;margin-bottom:3px;">共通資料（全社共通）</div>';
-    h+= common.length? common.map(function(m){return _matItem(m,false);}).join('') : '<div class="sub" style="font-size:11px;margin-bottom:4px;">（未登録：上部「📎 共通資料」から追加）</div>';
-    h+='<div style="font-size:11px;color:#6b46c1;margin:6px 0 3px;">この会社の資料</div>';
-    h+= mine.length? mine.map(function(m){return _matItem(m,true);}).join('') : '<div class="sub" style="font-size:11px;">（下の枠にドラッグ／クリックで追加）</div>';
+    h+='<div style="font-size:11px;color:#805ad5;margin-bottom:3px;">御礼文に入れる資料（チェックしたリンクが御礼文に入ります）</div>';
+    if(common.length){
+      var groups={}; common.forEach(function(m){ var c=m.category||'共通資料'; (groups[c]=groups[c]||[]).push(m); });
+      h+='<div style="border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-bottom:6px;text-align:left;">';
+      Object.keys(groups).forEach(function(c){
+        h+='<div style="font-size:11px;font-weight:700;color:#6b46c1;margin:2px 0;">'+esc(c)+'</div>';
+        h+='<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px;">';
+        h+=groups[c].map(function(m){
+          var checked=(c==='共通資料')?' checked':'';
+          return '<tr>'
+            + '<td style="width:22px;vertical-align:top;padding:2px 0;"><input type="checkbox" class="matpick" value="'+m.id+'" data-name="'+esc(m.name)+'" data-url="'+esc(m.url||'')+'"'+checked+' style="width:15px;height:15px;padding:0;margin:0;"></td>'
+            + '<td style="vertical-align:top;padding:2px 4px;word-break:break-word;">'+esc(m.name)+'</td>'
+            + '<td style="width:34px;vertical-align:top;padding:2px 0;text-align:right;">'+(m.url?'<a href="'+esc(m.url)+'" target="_blank" style="font-size:10px;">開く</a>':'')+'</td>'
+            + '</tr>';
+        }).join('');
+        h+='</table>';
+      });
+      h+='</div>';
+    } else {
+      h+='<div class="sub" style="font-size:11px;margin-bottom:6px;">（未登録：上部「📎 共通資料」から追加）</div>';
+    }
     box.innerHTML=h;
   });
 }
@@ -2349,18 +2596,50 @@ function openCommonMaterials(){
     document.body.appendChild(box);
     var ov=document.createElement('div'); ov.id='cmatOv'; ov.className='overlay'; ov.style.zIndex='77'; ov.onclick=closeCommonMaterials; document.body.appendChild(ov);
   }
-  box.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><h2 style="margin:0;font-size:18px;color:var(--accent);">📎 共通資料（全社共通で添付）</h2><button class="btn" onclick="closeCommonMaterials()">閉じる</button></div>'
-    + '<p style="font-size:12px;color:var(--muted);margin:0 0 10px;">ここに登録したPDFは、全ての会社の詳細画面に「共通資料」として表示され、送信時に開いて添付できます。</p>'
-    + '<div id="cmatList" style="margin-bottom:10px;">読み込み中…</div>'
-    + '<div id="cmatDrop" ondragover="event.preventDefault();this.style.background=\'#faf5ff\'" ondragleave="this.style.background=\'\'" ondrop="matDropCommon(event)" style="border:1.5px dashed #b794f4;border-radius:8px;padding:14px;text-align:center;font-size:12px;color:#6b46c1;cursor:pointer;" onclick="el(\'matFileCommon\').click()">ここにPDFをドラッグ、またはクリックして選択（複数可）<input type="file" id="matFileCommon" accept="application/pdf" multiple style="display:none" onchange="matPickCommon(event)"></div>';
+  box.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><h2 style="margin:0;font-size:18px;color:var(--accent);">📎 資料ライブラリ（ドライブURL）</h2><button class="btn" onclick="closeCommonMaterials()">閉じる</button></div>'
+    + '<p style="font-size:12px;color:var(--muted);margin:0 0 10px;">Google DriveのURLをカテゴリ別に登録できます。各社の画面で<b>タイトルを見てチェック</b>し、御礼メール文にリンクを差し込めます。</p>'
+    + '<div id="cmatList" style="margin-bottom:12px;">読み込み中…</div>'
+    + '<div style="border-top:1px solid var(--line);padding-top:10px;">'
+    + '<div style="font-size:12px;font-weight:600;margin-bottom:6px;">資料を追加</div>'
+    + '<input type="text" id="cmatCat" list="cmatCatList" placeholder="カテゴリ（例：共通資料／監査セミナー後配布資料）" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin-bottom:6px;">'
+    + '<datalist id="cmatCatList"></datalist>'
+    + '<input type="text" id="cmatName" placeholder="資料名（例：会社紹介／料金表）" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin-bottom:6px;">'
+    + '<input type="text" id="cmatUrl" placeholder="Google DriveのURL（https://drive.google.com/…）" style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin-bottom:8px;">'
+    + '<div style="text-align:right;"><button class="btn btn-primary" onclick="addCommonUrl()">＋ 追加</button></div>'
+    + '</div>';
   box.style.display='block'; el('cmatOv').classList.add('on'); renderCommonMats();
+}
+function addCommonUrl(){
+  var cat=(el('cmatCat')&&el('cmatCat').value.trim())||'共通資料';
+  var name=(el('cmatName')&&el('cmatName').value.trim())||'';
+  var url=(el('cmatUrl')&&el('cmatUrl').value.trim())||'';
+  if(!name){ alert('資料名を入力してください'); return; }
+  if(!/^https?:\/\//i.test(url)){ alert('URLは https:// から始まる形式で入力してください'); return; }
+  _sb.from('eigyo_materials').insert({scope:'common', reg_no:null, category:cat, name:name, url:url, path:null}).then(function(r){
+    if(r.error){ alert('追加に失敗しました：'+r.error.message); return; }
+    el('cmatName').value=''; el('cmatUrl').value='';
+    renderCommonMats(); loadCommonMatsCache(); if(curLead) loadMaterials(curLead.reg_no);
+  });
 }
 function closeCommonMaterials(){ var b=el('cmatBox'); if(b) b.style.display='none'; var o=el('cmatOv'); if(o) o.classList.remove('on'); }
 function renderCommonMats(){
   var box=el('cmatList'); if(!box) return;
-  _sb.from('eigyo_materials').select('*').eq('scope','common').order('created_at',{ascending:true}).then(function(r){
+  _sb.from('eigyo_materials').select('*').eq('scope','common').order('category',{ascending:true}).order('created_at',{ascending:true}).then(function(r){
     var d=(r.data)||[];
-    box.innerHTML = d.length? d.map(function(m){return _matItem(m,true);}).join('') : '<span class="sub" style="font-size:12px;">まだ共通資料がありません。</span>';
+    if(!d.length){ box.innerHTML='<span class="sub" style="font-size:12px;">まだ資料がありません。下で追加してください。</span>'; }
+    else {
+      var groups={}; d.forEach(function(m){ var c=m.category||'共通資料'; (groups[c]=groups[c]||[]).push(m); });
+      var html='';
+      Object.keys(groups).forEach(function(c){
+        html+='<div style="font-size:12px;font-weight:700;color:#805ad5;margin:6px 0 3px;">'+esc(c)+'</div>';
+        html+=groups[c].map(function(m){return _matItem(m,true);}).join('');
+      });
+      box.innerHTML=html;
+    }
+    // カテゴリのdatalist更新
+    var dl=el('cmatCatList');
+    if(dl){ var cats={}; d.forEach(function(m){ if(m.category) cats[m.category]=1; }); cats['共通資料']=1;
+      dl.innerHTML=Object.keys(cats).map(function(c){return '<option value="'+esc(c)+'">';}).join(''); }
   });
 }
 function matDropCommon(e){ e.preventDefault(); var d=el('cmatDrop'); if(d) d.style.background=''; matUpload(e.dataTransfer.files,'common',null); }
