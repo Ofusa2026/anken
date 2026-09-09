@@ -84,7 +84,7 @@ input:focus{border-color:var(--accent);background:white;}
 .ro-skip{display:block;margin:16px auto 0;background:none;border:none;color:#a09a90;font-size:12px;text-decoration:underline;cursor:pointer;padding:6px;}
 .sign-ok-bar{display:none;}
 @media (orientation:landscape){ .sign-ok-bar{display:flex;align-items:center;gap:8px;background:#e6f4ed;border:1px solid #b6e0c8;color:#1a7a4a;border-radius:8px;padding:8px 12px;font-size:13px;font-weight:700;margin-bottom:10px;} }
-/* ver.20260909.01: 内容確認の2択 */
+/* ver.20260909.02: 内容確認の2択 */
 .choice-wrap{display:flex;flex-direction:column;gap:12px;margin-top:4px;}
 .choice-btn{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:16px 18px;border:2px solid #ddd;border-radius:14px;background:#fff;text-align:left;cursor:pointer;transition:.15s;}
 .choice-btn:hover{border-color:#bbb;}
@@ -99,7 +99,7 @@ input:focus{border-color:var(--accent);background:white;}
 </head>
 <body>
 <div class="header">
-  <div class="header-logo">OFUSA 行政書士法人 <span style="opacity:.5;font-size:9px;">ver.20260909.01</span></div>
+  <div class="header-logo">OFUSA 行政書士法人 <span style="opacity:.5;font-size:9px;">ver.20260909.02</span></div>
   <div class="header-title">雇用理由書のご確認とご署名</div>
 </div>
 <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
@@ -153,7 +153,7 @@ input:focus{border-color:var(--accent);background:white;}
         <div id="pdfContainer"><div class="pdf-loading">📄 PDFを読み込み中...</div></div>
       </div>
     </div>
-    <!-- ver.20260909.01: 内容確認の2択（問題なし→署名 / 変更あり→記入） -->
+    <!-- ver.20260909.02: 内容確認の2択（問題なし→署名 / 変更あり→記入） -->
     <div class="section" id="reviewChoiceSection">
       <div class="section-label">内容のご確認</div>
       <div class="notice">書類を最後までご確認いただき、下のいずれかをお選びください。</div>
@@ -270,9 +270,7 @@ const SUPABASE_URL='https://ehwlgbwpycglmopiqyty.supabase.co';
 const SUPABASE_KEY='sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 
-// ===== GAS URL（DriveのPDF取得・保存用） =====
-// ※ GASをデプロイしたURLに変更してください
-const GAS_URL='https://script.google.com/macros/s/AKfycbzqddeEti71WWCR9CanUR5zFf1ikUywHs-ES2CyqTucmaRfYaevz4yBqNHJx-_LIf3JCQ/exec';
+// ===== PDF取得はSupabase（pdf_base64 / storage_urls）から直接。GASは使用しない =====
 
 // ===== 署名欄座標（pdf-lib：左下原点） =====
 // ver.20260619.05: SIG_COORDS削除（DBのsig_x/y/w/h/pageを使用するため不要）
@@ -284,7 +282,7 @@ let pdfDoc=null,currentPage=1,totalPages=0;
 let canvas,ctx,isDrawing=false,hasDrawn=false;
 
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-console.log('%c OFUSA riyusho_sign.html ver.20260909.01 ', 'background:#1a1a2e;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
+console.log('%c OFUSA riyusho_sign.html ver.20260909.02 ', 'background:#1a1a2e;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 
 // ===== 初期化 =====
 document.addEventListener('DOMContentLoaded',async()=>{
@@ -297,10 +295,10 @@ document.addEventListener('DOMContentLoaded',async()=>{
 async function loadSignRequest(token){
   try{
     const {data,error}=await sb.from('sign_requests')
-      .select('id,case_id,status,expires_at,doc_lang,doc_type,signer_type,drive_folder_id,sig_page,sig_x,sig_y,sig_w,sig_h,sig_positions')
+      .select('id,case_id,status,expires_at,doc_lang,doc_type,signer_type,drive_folder_id,pdf_base64,storage_urls,sig_page,sig_x,sig_y,sig_w,sig_h,sig_positions')
       .eq('token',token).single();
     if(error||!data){showError('リンクが見つかりません');return;}
-    // ver.20260909.01【安全ガード】このページは雇用理由書専用。特定技能（雇用条件書等）の署名リクエストは絶対に処理しない。
+    // ver.20260909.02【安全ガード】このページは雇用理由書専用。特定技能（雇用条件書等）の署名リクエストは絶対に処理しない。
     if(!((data.doc_type||'').includes('雇用理由書'))){
       showError('リンク種別が違います','この署名リンクは雇用理由書用ではありません。担当者にご確認ください。');
       return;
@@ -320,46 +318,53 @@ async function loadSignRequest(token){
       }
     } catch(ce){ console.warn('cases取得エラー:',ce); }
     var _dl=document.getElementById('docLang'); if(_dl)_dl.textContent=docLang;
-    await loadPdfFromDrive(data.case_id,driveFolderId);
+    await loadPdfNoGas(data);
     goStep(1);
   }catch(e){console.error(e);showError('読み込みエラー',e.message);}
 }
 
-// ===== DriveからPDF取得 =====
-// JSONP呼び出しユーティリティ
-function callGasJsonp(params){
-  return new Promise(function(resolve,reject){
-    var cb='_gasCallback'+Date.now();
-    var s=document.createElement('script');
-    var encoded=encodeURIComponent(JSON.stringify(params));
-    s.src=GAS_URL+'?jsonpPost='+encoded+'&callback='+cb;
-    var timer=setTimeout(function(){
-      delete window[cb];document.body.removeChild(s);
-      reject(new Error('タイムアウト'));
-    },30000);
-    window[cb]=function(data){
-      clearTimeout(timer);delete window[cb];
-      try{document.body.removeChild(s);}catch(e){}
-      resolve(data);
-    };
-    document.body.appendChild(s);
-  });
-}
-
-async function loadPdfFromDrive(caseId,folderId){
+// ===== PDF取得：GAS不使用（Supabaseの pdf_base64 / storage_urls から直接） =====
+function _b64ToBytes(b64){
+  if(!b64) return null;
+  var s=String(b64);
+  var comma=s.indexOf('base64,'); if(comma>=0) s=s.slice(comma+7);
+  s=s.replace(/\s/g,'');
   try{
-    if(!folderId)throw new Error('フォルダIDが未設定です');
-    const json=await callGasJsonp({action:'getEmploymentPdf',data:{folderId:folderId,caseId:caseId}});
-    if(json.error)throw new Error(json.error);
-    if(!json.base64)throw new Error('PDFが見つかりません');
-    const raw=atob(json.base64);
-    pdfBytes=new Uint8Array(raw.length);
-    for(let i=0;i<raw.length;i++)pdfBytes[i]=raw.charCodeAt(i);
-    await renderPdf(pdfBytes);
+    var raw=atob(s), a=new Uint8Array(raw.length);
+    for(var i=0;i<raw.length;i++)a[i]=raw.charCodeAt(i);
+    return a;
+  }catch(e){ console.warn('base64デコード失敗',e); return null; }
+}
+function _pickUrl(su){
+  if(!su) return null;
+  if(typeof su==='string') return su;
+  if(Array.isArray(su)){ for(var i=0;i<su.length;i++){var u=_pickUrl(su[i]); if(u)return u;} return null; }
+  if(typeof su==='object'){
+    if(su.url) return su.url;
+    for(var k in su){ var v=su[k]; if(typeof v==='string'&&/^https?:/.test(v)) return v; var u=_pickUrl(v); if(u)return u; }
+  }
+  return null;
+}
+async function loadPdfNoGas(data){
+  try{
+    // 1) DBに埋め込まれたPDF（最優先・GAS不要）
+    var bytes=_b64ToBytes(data.pdf_base64);
+    if(bytes){ pdfBytes=bytes; await renderPdf(pdfBytes); return; }
+    // 2) storage_urls のURLを直接fetch（GAS不要）
+    var url=_pickUrl(data.storage_urls);
+    if(url){
+      var r=await fetch(url);
+      if(!r.ok) throw new Error('PDF取得に失敗しました ('+r.status+')');
+      var buf=await r.arrayBuffer();
+      pdfBytes=new Uint8Array(buf);
+      await renderPdf(pdfBytes);
+      return;
+    }
+    throw new Error('PDFが設定されていません');
   }catch(e){
     console.warn('PDF取得エラー:',e.message);
     document.getElementById('pdfContainer').innerHTML=
-      '<div class="pdf-loading" style="color:#f97316;">⚠️ PDFを取得できませんでした<br><small>'+e.message+'</small></div>';
+      '<div class="pdf-loading" style="color:#f97316;">\u26a0\ufe0f PDFを表示できませんでした<br><small>'+e.message+'</small></div>';
   }
 }
 
@@ -519,7 +524,7 @@ async function submitSign(){
 
 
 // ===== ステップ管理 =====
-// ver.20260909.01: 内容確認の2択（問題なし→署名 / 変更あり→記入）
+// ver.20260909.02: 内容確認の2択（問題なし→署名 / 変更あり→記入）
 function chooseReview(kind){
   document.getElementById('choiceOk').classList.toggle('selected', kind==='ok');
   document.getElementById('choiceChange').classList.toggle('selected', kind==='change');
@@ -536,7 +541,7 @@ function chooseReview(kind){
     setTimeout(function(){chg.scrollIntoView({behavior:'smooth',block:'nearest'});},10);
   }
 }
-// ver.20260909.01: 変更依頼の送信 → status=change_requested
+// ver.20260909.02: 変更依頼の送信 → status=change_requested
 async function submitChange(){
   const note=document.getElementById('changeNote').value.trim();
   if(!note){alert('変更してほしい箇所をご記入ください');return;}
@@ -565,7 +570,7 @@ function goStep(n){
   if(m[n])document.getElementById(m[n]).classList.add('active');
   const pct={1:25,2:55,3:80,4:100,5:100};
   document.getElementById('progressFill').style.width=(pct[n]||0)+'%';
-  // ver.20260909.01: step2入場時はcanvas初期化しない（署名欄は「問題なし」選択時に表示・初期化）
+  // ver.20260909.02: step2入場時はcanvas初期化しない（署名欄は「問題なし」選択時に表示・初期化）
   window.scrollTo(0,0);
 }
 function showError(t,m){
