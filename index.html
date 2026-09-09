@@ -65209,6 +65209,20 @@ function _persistRequiredDocsCoLarge(){
   if(typeof DB_READY!=='undefined'&&DB_READY&&typeof _sb!=='undefined')
     _sb.from('settings').upsert({key:'required_docs_co_large',value:JSON.stringify(REQUIRED_DOCS_CO_LARGE)},{onConflict:'key'}).then(function(){});
 }
+// ===== 技人国（技術・人文知識・国際業務）企業（所属機関）書類 =====
+// ver.20260908: 法務省 技人国ページ準拠。カテゴリーで必要書類が異なる。
+//   カテゴリー1・2（大企業・源泉税額1,000万円以上）：カテゴリー証明のみで原則その他不要
+//   カテゴリー3・4（中小企業・個人事業主）：事業内容・決算・代表者申告書等が必要
+var _REQUIRED_DOCS_CO_GIJI_LARGE = [
+  '法定調書合計表の写し（給与所得の源泉徴収票等）'
+];
+var _REQUIRED_DOCS_CO_GIJI_NORMAL = [
+  '法定調書合計表の写し（給与所得の源泉徴収票等）',
+  '登記事項証明書（履歴事項全部証明書）（※発行より３カ月以内）',
+  '事業内容を明らかにする案内書（会社案内・沿革・取引先等）',
+  '直近年度の決算文書の写し（新規事業は事業計画書）',
+  '所属機関の代表者に関する申告書（参考様式）'
+];
 // 分野別追加書類（デフォルト）
 // ver.20260716.19: DBの現在値に一致させる（介護キーはDBに無し・建設は空・素形材はDB表記）
 var _REQUIRED_DOCS_CO_FIELD_DEFAULT = {
@@ -74577,7 +74591,7 @@ function _buildDocsParam(caseId, cas){
 }
 
 // ver.20260525.34: 会社書類用も visibleリスト抽出を関数化
-function _buildVisibleCompanyDocsList(coId, co){
+function _buildVisibleCompanyDocsList(coId, co, opts){
   if(!co && typeof companies!=='undefined'){
     co = (companies||[]).find(function(x){return x.id===coId;}) || {};
   }
@@ -74589,6 +74603,17 @@ function _buildVisibleCompanyDocsList(coId, co){
   var type = co.corpType || co.corp_type || co.companyType || '';
   var isKojin = (type === '個人事業主' || cat === '個人事業主' || co.isKojin);
   var isLarge  = (cat === '大企業（上場・1,000万円超）' || cat === '大（上場・独立行政法人等）' || cat === '大企業' || co.companyScale === 'large');
+
+  // ver.20260908: 技人国（技術・人文知識・国際業務）モード
+  //   案件の在留資格が技人国のとき、特定技能の企業書類ではなく技人国の企業書類を返す。
+  //   カテゴリー1・2（大企業）は法定調書のみ、カテゴリー3・4（中小・個人）はフルセット。
+  if(opts && opts.gijinkoku){
+    var gijiList = isLarge ? _REQUIRED_DOCS_CO_GIJI_LARGE : _REQUIRED_DOCS_CO_GIJI_NORMAL;
+    return (gijiList||[]).map(function(docName){
+      var done = !!(dc['skip::'+docName] || dc['staff::'+docName]);
+      return {l: docName, r: 1, t: 'giji', done: done};
+    });
+  }
 
   // 書類リスト構築（正しいグローバル変数を参照）
   var visible = [];
@@ -74631,10 +74656,10 @@ function _buildVisibleCompanyDocsList(coId, co){
 }
 
 // ver.20260525.34: 会社書類リストもDBキャッシュ
-function _cacheUploadCompanyDocs(coId, co){
+function _cacheUploadCompanyDocs(coId, co, opts){
   if(!coId) return;
   try {
-    var visible = _buildVisibleCompanyDocsList(coId, co);
+    var visible = _buildVisibleCompanyDocsList(coId, co, opts);
     if(!visible || !visible.length) return;
     if(!_sb || !_sb.from) {
       console.warn('_cacheUploadCompanyDocs: Supabase client not ready');
@@ -74739,8 +74764,8 @@ function _cacheUploadJaimDocs(coId){
 }
 
 // [DEPRECATED] 後方互換のため残す
-function _buildCompanyDocsParam(coId, co){
-  var visible = _buildVisibleCompanyDocsList(coId, co);
+function _buildCompanyDocsParam(coId, co, opts){
+  var visible = _buildVisibleCompanyDocsList(coId, co, opts);
   if(!visible.length) return '';
   try {
     var json = JSON.stringify(visible);
