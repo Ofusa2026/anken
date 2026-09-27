@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260927.21</div>
+      <div class="ver">ver.20260927.22</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -252,7 +252,9 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <button id="tabMaterials" class="mtab" onclick="openCommonMaterials()">📎 資料ライブラリ</button>
     <button id="tabMkt" class="mtab" onclick="switchMain('mkt')" style="display:none;">📣 マーケティング</button>
     <button id="tabSales" class="mtab" onclick="switchMain('sales')" style="display:none;">🧑‍💼 営業</button>
-    <button id="tabAttack" class="mtab" onclick="openAttack100()">🎯 アタックリスト</button>
+    <button id="tabAttack" class="mtab" onclick="openAttack('s')">🎯 アタックS</button>
+    <button id="tabAttackNb" class="mtab" onclick="openAttack('nb')">🎯 アタック中林</button>
+    <button id="tabAttackKm" class="mtab" onclick="openAttack('km')">🎯 アタック亀谷</button>
     <button id="tabSeminar" class="mtab" onclick="openSeminar()">🎓 セミナー</button>
     <button id="tabKpi2" class="mtab" onclick="openKpiTab()">📊 KPI</button>
     <button id="tabMtg" class="mtab" onclick="openMtgTab()">🗓 週次Mtg</button>
@@ -643,7 +645,24 @@ var ACQ_SOURCES = ['','自社テレアポ','ディグロス','Sales pass','コ�
 var LEAD_RANKS = ['','S','A','B','C','D','E','F'];
 // 支援者数から自動ランク（1001+:S / 501-1000:A / 301-500:B / 101-300:C / 50-100:D / 1-49:E / 空:なし）
 // 支援者数から営業ランクを自動反映（ランクが未評価のときだけ／手動選択は尊重）
-// 🎯 アタック100 チェックの即保存
+// 🎯 アタックリスト（S／中林／亀谷）
+var ATTACK_KINDS = [
+  {key:'s',  col:'attack100', at:'attack100_at', label:'アタックS',    tab:'tabAttack'},
+  {key:'nb', col:'attack_nb', at:'attack_nb_at', label:'アタック中林', tab:'tabAttackNb'},
+  {key:'km', col:'attack_km', at:'attack_km_at', label:'アタック亀谷', tab:'tabAttackKm'}
+];
+var _attackKind='s';
+function attackKind(k){ return ATTACK_KINDS.filter(function(x){return x.key===k;})[0]||ATTACK_KINDS[0]; }
+function toggleAttackKind(k,on){
+  if(!curLead) return; var K=attackKind(k), patch={};
+  patch[K.col]=!!on; patch[K.at]=on?new Date().toISOString():null;
+  _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
+    if(r.error){ autosaveToast('保存失敗：'+r.error.message,'#c53030'); return; }
+    curLead[K.col]=!!on; autosaveToast(on?('🎯 '+K.label+'に追加しました'):(K.label+'から外しました'));
+    if(el('attackPane') && el('attackPane').style.display!=='none' && _attackKind===k) loadAttackList();
+  });
+}
+// 🎯 アタック100 チェックの即保存（互換用）
 function toggleAttack100(on){
   if(!curLead) return;
   var patch = on ? {attack100:true, attack100_at:new Date().toISOString()} : {attack100:false, attack100_at:null};
@@ -1333,7 +1352,7 @@ function renderDrawer(){
   +   '</div>'
   +   '<label>想定支援者数</label><input type="number" id="eExpSupporter" value="'+(x.expected_supporter===null||x.expected_supporter===undefined?'':esc(x.expected_supporter))+'" placeholder="不明な場合の想定値">'
   +   '<label>営業ランク</label><select id="eLeadRank" onchange="this.removeAttribute(\'data-auto\')">'+LEAD_RANKS.map(function(r){return '<option'+((r===(x.lead_rank||''))?' selected':'')+'>'+esc(r||'（未評価）')+'</option>';}).join('')+'</select>'
-  +   '<label>アタックリスト</label><label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:#c05621;font-weight:600;"><input type="checkbox" id="eAttack100" '+(x.attack100?'checked':'')+' onchange="toggleAttack100(this.checked)" style="width:16px;height:16px;"> 🎯 アタックリストに追加</label>'
+  +   '<label>アタックリスト</label><div style="display:flex;gap:14px;flex-wrap:wrap;">'+ATTACK_KINDS.map(function(k){ return '<label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:#c05621;font-weight:600;"><input type="checkbox" id="eAttack_'+k.key+'" '+(x[k.col]?'checked':'')+' onchange="toggleAttackKind(\''+k.key+'\',this.checked)" style="width:16px;height:16px;"> 🎯 '+k.label+'</label>'; }).join('')+'</div>'
   +   '<label>担当者</label><select id="eStaff"><option value="">（未設定）</option>'
   +     staffOptions.map(function(s){return '<option'+(s===x.staff?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
   +   '<label>優先度</label><select id="ePrio">'+PRIOS.map(function(p){return '<option value="'+esc(p)+'"'+(p===(x.priority||'')?' selected':'')+'>'+(p||'（未設定）')+'</option>';}).join('')+'</select>'
@@ -3634,26 +3653,28 @@ function boxToPane(boxId, maxw){
   switchMain('tool');
 }
 function paneBack(){ switchMain('leads'); }
-// 🎯 アタック100：チェックした会社をリスト表示
-function openAttack100(){
+// 🎯 アタックリスト（S／中林／亀谷）：チェックした会社をリスト表示
+function openAttack100(){ openAttack('s'); }
+function openAttack(k){
+  _attackKind=k||'s'; var K=attackKind(_attackKind);
   var pane=el('attackPane'); if(!pane) return;
   pane.innerHTML='<div style="background:#fff;border-radius:10px;padding:20px 22px;box-shadow:0 2px 6px rgba(0,0,0,.04);">'
     + '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'
-    +   '<h2 style="margin:0;font-size:18px;color:var(--accent);">🎯 アタックリスト <span id="attackCount" class="sub" style="font-size:13px;"></span></h2>'
+    +   '<h2 style="margin:0;font-size:18px;color:var(--accent);">🎯 '+esc(K.label)+' <span id="attackCount" class="sub" style="font-size:13px;"></span></h2>'
     +   '<button class="btn btn-sm" onclick="exportAttackCsv()">⬇ CSV</button>'
     + '</div>'
     + '<div id="attackList">読み込み中…</div></div>';
   switchMain('attack'); loadAttackList();
 }
 function loadAttackList(){
-  var box=el('attackList'); if(!box) return;
+  var box=el('attackList'); if(!box) return; var K=attackKind(_attackKind);
   _sb.from('eigyo_leads').select('reg_no,name,pref,tel,status,lead_rank,acquisition_source,staff,supporter_count')
-    .eq('attack100',true).order('lead_rank',{ascending:true,nullsFirst:false}).order('name',{ascending:true})
+    .eq(K.col,true).order('lead_rank',{ascending:true,nullsFirst:false}).order('name',{ascending:true})
     .then(function(r){
       if(r.error){ box.innerHTML='<span class="sub">読み込みエラー：'+esc(r.error.message)+'</span>'; return; }
       var d=r.data||[];
       var cnt=el('attackCount'); if(cnt) cnt.textContent='（'+d.length+'社）';
-      if(!d.length){ box.innerHTML='<div class="sub" style="padding:10px 0;">まだアタック100に登録された会社がありません。<br>各社の詳細画面で「🎯 アタック100に追加」にチェックを入れてください。</div>'; return; }
+      if(!d.length){ box.innerHTML='<div class="sub" style="padding:10px 0;">まだ'+esc(K.label)+'に登録された会社がありません。<br>各社の詳細画面で「🎯 '+esc(K.label)+'」にチェックを入れてください。</div>'; return; }
       var rows=d.map(function(x){
         return '<tr style="cursor:pointer;" onclick="openDrawer(\''+esc(x.reg_no)+'\')">'
           + '<td style="padding:6px 8px;">'+esc(x.name||'')+'</td>'
@@ -3674,22 +3695,22 @@ function loadAttackList(){
     });
 }
 function removeAttack(reg){
-  _sb.from('eigyo_leads').update({attack100:false, attack100_at:null, updated_at:new Date().toISOString()}).eq('reg_no',reg).then(function(r){
-    if(!r.error){ autosaveToast('アタック100から外しました'); loadAttackList(); if(curLead&&curLead.reg_no===reg) curLead.attack100=false; }
+  var K=attackKind(_attackKind), patch={updated_at:new Date().toISOString()}; patch[K.col]=false; patch[K.at]=null;
+  _sb.from('eigyo_leads').update(patch).eq('reg_no',reg).then(function(r){
+    if(!r.error){ autosaveToast(K.label+'から外しました'); loadAttackList(); if(curLead&&curLead.reg_no===reg) curLead[K.col]=false; }
   });
 }
 function exportAttackCsv(){
-  _sb.from('eigyo_leads').select('reg_no,name,pref,address,tel,status,lead_rank,acquisition_source,staff').eq('attack100',true).order('lead_rank',{ascending:true,nullsFirst:false}).order('name',{ascending:true}).then(function(r){
-    var d=(r.data)||[]; if(!d.length){ alert('アタック100の会社がありません'); return; }
+  var K=attackKind(_attackKind);
+  _sb.from('eigyo_leads').select('reg_no,name,pref,address,tel,status,lead_rank,acquisition_source,staff').eq(K.col,true).order('lead_rank',{ascending:true,nullsFirst:false}).order('name',{ascending:true}).then(function(r){
+    var d=(r.data)||[]; if(!d.length){ alert(K.label+'の会社がありません'); return; }
     function q(v){ v=(v==null?'':String(v)); return '"'+v.replace(/"/g,'""')+'"'; }
     var lines=[['登録番号','会社名','都道府県','住所','電話','ステータス','ランク','獲得経路','担当'].map(q).join(',')];
     d.forEach(function(x){ lines.push([x.reg_no,x.name,x.pref,x.address,x.tel,x.status,x.lead_rank,x.acquisition_source,x.staff].map(q).join(',')); });
     var blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8;'});
-    var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='アタック100_'+today().replace(/-/g,'')+'.csv'; document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },100);
+    var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=K.label+'_'+today().replace(/-/g,'')+'.csv'; document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },100);
   });
 }
-
-
 /* ================= 📊 KPI（計画・実績・案シス連携） ================= */
 var KP = { plan:null, deals:[], counts:[], orgs:[], staff:'all', view:'month', editId:null };
 var KP_STAFF = ['中林　俊介','亀谷　潤'];
@@ -3972,8 +3993,8 @@ function mtLoad(){
     _sb.from('eigyo_deals').select('*').order('start_date',{ascending:true}),
     _sb.rpc('eigyo_deal_case_counts'),
     _sb.from('eigyo_weekly_mtg').select('*').in('week_start',[MT.week,prevW]),
-    _sb.from('eigyo_leads').select('reg_no,name,status,staff,lead_rank,supporter_count,expected_supporter,apt_at,meeting_date,next_action,next_action_date,attack100')
-      .or('status.in.("商談予定","商談済み→依頼待ち"),attack100.eq.true')
+    _sb.from('eigyo_leads').select('reg_no,name,status,staff,lead_rank,supporter_count,expected_supporter,apt_at,meeting_date,next_action,next_action_date,attack100,attack_nb,attack_km')
+      .or('status.in.("商談予定","商談済み→依頼待ち"),attack100.eq.true,attack_nb.eq.true,attack_km.eq.true')
   ]).then(function(rs){
     var err=rs.filter(function(r){return r.error;})[0];
     if(err){ el('mtRoot').innerHTML='<span class="sub">読み込みエラー：'+esc(err.error.message)+'</span>'; return; }
@@ -4082,12 +4103,12 @@ function mtRender(){
   var s4='<div style="'+card+'">'+head('4','来週の見込み','5分','来週契約できそうな会社にチェック')
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
     + big('来週の契約見込み', nxCnt+'社 ／ '+kpNum(nxSum)+'人', '週の目標 '+kpNum(MT.staff==='all'?wkT:wkT/KP_STAFF.length)+'人 → '+kpPct(nxSum,MT.staff==='all'?wkT:wkT/KP_STAFF.length))
-    + big('商談中・アタックリスト', lv.length+'社', '商談予定／商談済み→依頼待ち／アタックリスト')
+    + big('商談中・アタックリスト', lv.length+'社', '商談予定／商談済み→依頼待ち／アタックS・中林・亀谷')
     + '</div>'
     + (lv.length?'<div style="overflow-x:auto;max-height:420px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;position:sticky;top:0;background:#fff;"><th style="'+th+'">来週見込み</th><th style="'+th+'">企業名</th><th style="'+th+'">ステータス</th><th style="'+th+'">ランク</th><th style="'+th+'">担当</th><th style="'+th+'">支援者数</th><th style="'+th+'">想定支援者数（契約時）</th><th style="'+th+'">次のアクション</th></tr></thead><tbody>'
       + lv.map(function(l){ var on=!!nx[l.reg_no];
           return '<tr style="border-bottom:1px solid var(--line);'+(on?'background:#f0fff4;':'')+'"><td style="'+td+'text-align:center;"><input type="checkbox" '+(on?'checked':'')+' onchange="mtSet(\'next.'+esc(l.reg_no)+'\',this.checked);mtRender();" style="width:16px;height:16px;"></td>'
-            + '<td style="'+td+'"><a href="javascript:void(0)" onclick="openDrawer(\''+esc(l.reg_no)+'\')" style="color:var(--accent);font-weight:600;">'+esc(l.name)+'</a>'+(l.attack100?' <span style="font-size:11px;">🎯</span>':'')+'</td>'
+            + '<td style="'+td+'"><a href="javascript:void(0)" onclick="openDrawer(\''+esc(l.reg_no)+'\')" style="color:var(--accent);font-weight:600;">'+esc(l.name)+'</a>'+(l.attack100?' <span style="font-size:11px;">🎯S</span>':'')+(l.attack_nb?' <span style="font-size:11px;">🎯中林</span>':'')+(l.attack_km?' <span style="font-size:11px;">🎯亀谷</span>':'')+'</td>'
             + '<td style="'+td+'"><span class="badge b-'+esc(l.status)+'">'+esc(l.status)+'</span></td><td style="'+td+'">'+(l.lead_rank&&l.lead_rank!=='（未評価）'?'<b>'+esc(l.lead_rank)+'</b>':'—')+'</td>'
             + '<td style="'+td+'">'+esc(kpShort(l.staff||'')||'—')+'</td><td style="'+td+'">'+(l.supporter_count!=null?kpNum(l.supporter_count)+'人':'—')+'</td>'
             + '<td style="'+td+'"><input type="number" value="'+(l.expected_supporter!=null?l.expected_supporter:'')+'" style="width:80px;" onchange="mtExp(\''+esc(l.reg_no)+'\',this.value)"> 人</td>'
@@ -4212,7 +4233,7 @@ function switchMain(which){
   if(el('tabMtg')) el('tabMtg').className = 'mtab' + (which==='mtg'?' mtab-on':'');
   el('tabLeads').className = 'mtab' + (which==='leads'?' mtab-on':'');
   if(el('tabMaterials')) el('tabMaterials').className = 'mtab' + (which==='materials'?' mtab-on':'');
-  if(el('tabAttack')) el('tabAttack').className = 'mtab' + (which==='attack'?' mtab-on':'');
+  ATTACK_KINDS.forEach(function(k){ var t=el(k.tab); if(t) t.className='mtab'+((which==='attack'&&_attackKind===k.key)?' mtab-on':''); });
   el('tabMkt').className   = 'mtab' + (which==='mkt'  ?' mtab-on':'');
   el('tabSales').className = 'mtab' + (which==='sales'?' mtab-on':'');
   if(which==='mkt'||which==='sales') loadKpiAll();
