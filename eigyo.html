@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260928.04</div>
+      <div class="ver">ver.20260928.06</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -642,8 +642,10 @@ var HR_EXCLUSIVE = ['','専売（弊社のみ）','複数社に依頼','未確�
 var HR_SPOT = ['','スポット','定期依頼','トライアル次第','未確認'];
 var HR_SCOPE = ['','ワンストップ対応','確認＋申請のみ','その他（下欄に入力）'];
 var ACQ_SOURCES = ['','自社テレアポ','ディグロス','Sales pass','コミュニティ','大房関係','セミナー','HP・電話問い合わせ'];
-var LEAD_RANKS = ['','S','B','C','D','E','F'];
-// 支援者数から自動ランク（目安ボタンと同じ基準：1001+:S / 301-1000:B / 101-300:C / 51-100:D / 1-50:E / 空:なし）
+var LEAD_RANKS = ['','S','A','B','C','D','E','F'];
+// 旧ランク（Fなど）が入っている会社は、選択肢に一時的に残して値が消えないようにする
+function rankOpts(cur){ return (cur && cur!=='（未評価）' && LEAD_RANKS.indexOf(cur)<0) ? LEAD_RANKS.concat([cur]) : LEAD_RANKS; }
+// 支援者数から自動ランク（目安ボタンと同じ基準：1001+:S / 501-1000:A / 301-500:B / 101-300:C / 51-100:D / 1-50:E / 空:なし）
 // 支援者数から営業ランクを自動反映（ランクが未評価のときだけ／手動選択は尊重）
 // 🎯 アタックリスト（S／中林／亀谷）
 var ATTACK_KINDS = [
@@ -691,6 +693,7 @@ function autoRank(n){
   if(n===null||n===undefined||n===''||isNaN(n)) return '';
   n=parseInt(n,10);
   if(n>=1001) return 'S';
+  if(n>=501) return 'A';
   if(n>=301) return 'B';
   if(n>=101) return 'C';
   if(n>=51)  return 'D';
@@ -950,7 +953,7 @@ function setStatusFilter(k){
   updateStatusBtn(); page=0; load();
 }
 /* 営業ランク（複数選択） */
-var RANK_FILTER_OPTS = ['S','B','C','D','E','F','未評価'];
+var RANK_FILTER_OPTS = ['S','A','B','C','D','E','F','未評価'];
 var selRanks = [];
 function toggleRankPanel(e){ if(e) e.stopPropagation(); var p=el('fRankPanel'); if(!p) return; p.style.display = (p.style.display==='none'||!p.style.display)?'block':'none'; }
 function onRankFilterChange(){
@@ -1141,7 +1144,7 @@ function render(){
       +   (x.entity_type||x.industry||x.self_support?' ／ ':'')+esc(x.address||'')+(x.office_count>1?'（事務所'+x.office_count+'）':'')+'</div></td>'
       + '<td class="il">'+site+(x.tel?'<div class="sub" style="margin-top:2px;">'+esc(x.tel)+'</div>':'')+'</td>'
       + '<td>'+esc(x.pref||'')+'</td>'
-      + '<td class="il">'+ilSelect(x.reg_no,'lead_rank',LEAD_RANKS,x.lead_rank,'ランク')+'</td>'
+      + '<td class="il">'+ilSelect(x.reg_no,'lead_rank',rankOpts(x.lead_rank),x.lead_rank,'ランク')+'</td>'
       + '<td class="il">'+ilNum(x.reg_no,'insured_count',x.insured_count)+'</td>'
       + '<td class="il">'+ilSupporter(x.reg_no,x.supporter_count)+'</td>'
       + '<td class="il">'+ilNum(x.reg_no,'expected_supporter',x.expected_supporter)+'</td>'
@@ -1357,11 +1360,12 @@ function renderDrawer(){
   +     '<button type="button" class="btn btn-sm" onclick="setRankByRange(\'E\')">50名以下→E</button>'
   +     '<button type="button" class="btn btn-sm" onclick="setRankByRange(\'D\')">51〜100→D</button>'
   +     '<button type="button" class="btn btn-sm" onclick="setRankByRange(\'C\')">101〜300→C</button>'
-  +     '<button type="button" class="btn btn-sm" onclick="setRankByRange(\'B\')">301〜1000→B</button>'
+  +     '<button type="button" class="btn btn-sm" onclick="setRankByRange(\'B\')">301〜500→B</button>'
+  +     '<button type="button" class="btn btn-sm" onclick="setRankByRange(\'A\')">501〜1000→A</button>'
   +     '<button type="button" class="btn btn-sm" onclick="setRankByRange(\'S\')">1001以上→S</button>'
   +   '</div>'
   +   '<label>想定支援者数</label><input type="number" id="eExpSupporter" value="'+(x.expected_supporter===null||x.expected_supporter===undefined?'':esc(x.expected_supporter))+'" placeholder="不明な場合の想定値">'
-  +   '<label>営業ランク</label><select id="eLeadRank" onchange="this.removeAttribute(\'data-auto\')">'+LEAD_RANKS.map(function(r){return '<option'+((r===(x.lead_rank||''))?' selected':'')+'>'+esc(r||'（未評価）')+'</option>';}).join('')+'</select>'
+  +   '<label>営業ランク</label><select id="eLeadRank" onchange="this.removeAttribute(\'data-auto\')">'+rankOpts(x.lead_rank).map(function(r){return '<option'+((r===(x.lead_rank||''))?' selected':'')+'>'+esc(r||'（未評価）')+'</option>';}).join('')+'</select>'
   +   '<label>アタックリスト</label><div style="display:flex;gap:14px;flex-wrap:wrap;">'+ATTACK_KINDS.map(function(k){ return '<label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:#c05621;font-weight:600;"><input type="checkbox" id="eAttack_'+k.key+'" '+(x[k.col]?'checked':'')+' onchange="toggleAttackKind(\''+k.key+'\',this.checked)" style="width:16px;height:16px;"> 🎯 '+k.label+'</label>'; }).join('')+'</div>'
   +   '<label>担当者</label><select id="eStaff"><option value="">（未設定）</option>'
   +     staffOptions.map(function(s){return '<option'+(s===x.staff?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
