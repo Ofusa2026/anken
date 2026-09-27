@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260927.26</div>
+      <div class="ver">ver.20260928.02</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -1253,12 +1253,20 @@ function openDrawer(regNo){
     setTimeout(function(){ var b=el('dBody'); if(b && !b._autobound){ b._autobound=true; b.addEventListener('input',scheduleAutosave); b.addEventListener('change',scheduleAutosave); } }, 0);
   });
 }
+// 詳細画面を閉じたとき、表示中のタブ（アタックリスト・週次Mtg・KPI・セミナー）も最新にする
+function refreshOpenPane(){
+  function vis(id){ var e=el(id); return e && e.style.display!=='none'; }
+  if(vis('attackPane') && typeof loadAttackList==='function') loadAttackList();
+  if(vis('mtgPane') && typeof mtLoad==='function') mtLoad();
+  if(vis('kpiPane') && typeof kpLoad==='function') kpLoad();
+  if(vis('seminarPane') && typeof loadSeminarList==='function') loadSeminarList();
+}
 function closeDrawer(){
   flushAutosave();
   el('ov').classList.remove('on');
   el('dw').classList.remove('on');
   var wasDirty=_autosaveDirty||_drawerSaved; curLead = null; _drawerSaved=false;
-  if(wasDirty){ setTimeout(load, 400); }
+  if(wasDirty){ setTimeout(function(){ load(); refreshOpenPane(); }, 400); }
 }
 function renderDrawer(){
   var x = curLead;
@@ -3931,7 +3939,8 @@ function kpRender(){
     +   '<h2 style="margin:0;font-size:18px;color:var(--accent);">📊 KPI</h2><div>担当：'+staffBtns+'</div></div>'
     +   sum + premise + '</div>'
     + '<div style="'+card+'"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'
-    +   '<h3 style="margin:0;font-size:15px;">計画と実績</h3><div>'+viewBtns+'</div></div>'
+    +   '<h3 style="margin:0;font-size:15px;">計画と実績</h3><div><button class="btn btn-sm" style="'+(KP.showBasis?'background:#fefcbf;':'')+'" onclick="KP.showBasis=!KP.showBasis;kpRender();">📝 計画と実績（積算根拠）</button> '+viewBtns+'</div></div>'
+    +   (KP.showBasis?kpBasisHtml(C,P):'')
     +   (KP.view==='month'?monthTbl:weekTbl)
     +   '<div class="sub" style="font-size:11px;margin-top:6px;">支援人数の実績は、新規取引を登録した時点で反映されます（開始日が先の取引も含む）。依頼件数・売上の実績は、案件管理システムに実際に依頼が登録された分だけが入るため、取引開始直後は目標より少なく出ます。対想定：実績 ÷ 想定。100%以上は緑、70〜99%は黄、70%未満は赤。</div></div>'
     + '<div style="'+card+'"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'
@@ -3986,6 +3995,55 @@ function kpSavePlan(){
 }
 
 
+
+
+// 📝 計画と実績（積算根拠）の説明文。前提の値から自動で作る
+function kpBasisHtml(C,P){
+  var ps=kpD(P.plan_start), pe=kpD(C.rows[C.n-1].from), B=C.base, tri=B*(B+1)/2;
+  var raw=P.target_revenue/tri/C.rate, r1=C.rows[0];
+  var koM=(P.per100_ko_year/12);
+  var li=function(t){ return '<li style="margin:2px 0;">'+t+'</li>'; };
+  var sec=function(t,items){ return '<div style="margin-top:10px;"><b>■ '+t+'</b><ul style="margin:4px 0 0 18px;padding:0;">'+items.join('')+'</ul></div>'; };
+  return '<div style="background:#fffff0;border:1px solid #f6e05e;border-radius:8px;padding:12px 16px;margin-bottom:12px;font-size:13px;line-height:1.7;">'
+    + '<div style="font-weight:700;font-size:14px;">📝 計画と実績（積算根拠）</div>'
+    + sec('目標',[
+        li('<b>'+B+'か月間の売上合計 '+kpYen(P.target_revenue)+'</b>（1か月目＝'+ps.getFullYear()+'年'+(ps.getMonth()+1)+'月）'),
+        li('表は'+C.n+'か月分（'+ps.getFullYear()+'/'+(ps.getMonth()+1)+'〜'+pe.getFullYear()+'/'+(pe.getMonth()+1)+'）を表示。'+(C.n>B?B+'か月目で売上累計が目標に届き、'+(B+1)+'か月目以降は同じペースを続けた場合の数字。':''))
+      ])
+    + sec('単価と申請件数の目安',[
+        li('単価：認定・変更 '+kpNum(P.price_nh)+'円、更新 '+kpNum(P.price_ko)+'円'),
+        li('支援人数100人あたり：認定・変更 <b>月'+P.per100_nh+'件</b>、更新 <b>年'+P.per100_ko_year+'件</b>（月に直すと約'+koM.toFixed(1)+'件）'),
+        li('100人あたりの売上：'+P.per100_nh+'件×'+kpNum(P.price_nh)+'円 ＋ '+koM.toFixed(2)+'件×'+kpNum(P.price_ko)+'円 ＝ <b>月'+kpYen(C.rate*100)+'</b>（1人あたり月'+kpNum(C.rate)+'円）')
+      ])
+    + sec('毎月の新規支援人数（目標）の出し方',[
+        li('毎月同じ人数（X人）ずつ支援人数を増やすと、mか月目の累計はm×X人。'),
+        li(B+'か月の売上合計 ＝ X ×（1＋2＋…＋'+B+'＝'+tri+'）× '+kpNum(C.rate)+'円'),
+        li('X ＝ '+kpYen(P.target_revenue)+' ÷ '+tri+' ÷ '+kpNum(C.rate)+'円 ≒ '+raw.toFixed(1)+'人 → <b>毎月 '+kpNum(C.monthlyNew)+'人</b>（切り上げ）'),
+        li('週の目標は '+kpNum(C.monthlyNew)+'人×12か月÷52週 ≒ <b>'+kpNum(C.monthlyNew*12/52)+'人</b>')
+      ])
+    + sec('各列の計算',[
+        li('<b>新規支援人数</b>　目標：毎月'+kpNum(C.monthlyNew)+'人／実績：その月に取引を開始した支援者数（KPIの「新規取引」で登録した分）'),
+        li('<b>累計支援人数</b>　目標：'+kpNum(C.monthlyNew)+'人×月数（例：1か月目 '+kpNum(r1.cum)+'人）／実績：取引開始日がその月末までの支援者数の合計'),
+        li('<b>依頼件数（認定・変更 / 更新）</b>　目標：累計支援人数×'+P.per100_nh+'÷100 ／ 累計支援人数×'+P.per100_ko_year+'÷100÷12（例：1か月目 '+kpNum(r1.nh)+' / '+kpNum(r1.ko)+'件）'),
+        li('　想定：実際に取引を開始した支援者数と、取引開始から今日までの日数で見込んだ件数'),
+        li('　実績：取引開始日以降に案件管理システムに登録された認定・変更・更新の案件数'),
+        li('　対想定：実績÷想定（100%以上は緑、70〜99%は黄、70%未満は赤）'),
+        li('<b>月の売上</b>　目標：累計支援人数×'+kpNum(C.rate)+'円（例：1か月目 '+kpYen(r1.rev)+'）／実績：案件管理システムの売上（決定報告）＋KPIで修正・追加した金額'),
+        li('<b>売上累計</b>　1か月目からその月までの月の売上の合計')
+      ])
+    + sec('計算上の仮定',[
+        li('契約した月から申請が発生する。解約や支援人数の減少はないものとする'),
+        li('ゼロから始める前提で、今の取引先からの売上は含めていない'),
+        li('「実績」は取引ごとの取引開始日以降の分だけを数える（取引開始前の案件・売上は含めない）')
+      ])
+    + '<div style="margin-top:10px;"><b>■ メモ</b><textarea id="kpBasisMemo" rows="4" style="width:100%;margin-top:4px;font-size:13px;" placeholder="計画の背景や補足を自由に書けます（自動保存）" onchange="kpSaveMemo(this.value)">'+esc(P.memo||'')+'</textarea></div>'
+    + '</div>';
+}
+function kpSaveMemo(v){
+  _sb.from('eigyo_kpi_plan').update({memo:v||null, updated_at:new Date().toISOString()}).eq('id','main').then(function(r){
+    if(r.error){ alert('保存エラー：'+r.error.message); return; } KP.plan.memo=v; autosaveToast('メモを保存しました');
+  });
+}
 
 // 💴 取引ごとの実績金額の明細（案シス売上）と編集
 function kpSalesOpen(id){
