@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260927.08</div>
+      <div class="ver">ver.20260927.09</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -3112,6 +3112,38 @@ function qCalcTotals(){
   window._qTotals = { subtotal:Math.round(sub), tax:Math.round(tax), total:Math.round(sub+tax) };
 }
 
+// PDF/印刷時の自動保存（トースト表示・モーダルは閉じない・二重登録防止）
+function autoSaveQuote(){
+  qCalcTotals();
+  var rec = {
+    quote_no:        parseInt(el('qNo').value,10) || null,
+    reg_no:          window._qRegNo || null,
+    client_name:     el('qClient').value.trim() || null,
+    client_honorific:el('qHonor').value,
+    client_detail:   null,
+    subject:         el('qSubject').value.trim() || null,
+    issue_date:      el('qIssue').value || today(),
+    expiry_date:     el('qExpiry').value || null,
+    items:           qItems,
+    subtotal:        window._qTotals.subtotal,
+    tax:             window._qTotals.tax,
+    total:           window._qTotals.total,
+    tag:             el('qTag').value.trim() || null,
+    memo:            el('qMemoField').value.trim() || null,
+    remarks:         el('qRemarks').value.trim() || null,
+    push_to_anken:   el('qPush').checked,
+    created_by:      me || null
+  };
+  if(editingQuoteId){
+    _sb.from('eigyo_quotes').update(rec).eq('id', editingQuoteId).then(function(r){
+      if(!r.error) autosaveToast('✓ 見積書を保存しました');
+    });
+  } else {
+    _sb.from('eigyo_quotes').insert(rec).select('id').single().then(function(r){
+      if(!r.error && r.data){ editingQuoteId = r.data.id; autosaveToast('✓ 見積書を履歴に保存しました'); }
+    });
+  }
+}
 function saveQuote(){
   var client = el('qClient').value.trim();
   qCalcTotals();
@@ -3147,6 +3179,7 @@ function saveQuote(){
 /* 見積書PDF（別ウィンドウで印刷）— 実物の書式に準拠 */
 function printQuote(){
   qCalcTotals();
+  autoSaveQuote();  // PDF/印刷時に自動保存（履歴に残す）
   var g = window._qBreakdown, t = window._qTotals;
   var rows = qItems.map(function(it){
     var a=(it.unit_price||0)*(it.qty||0);
