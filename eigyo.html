@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260927.17</div>
+      <div class="ver">ver.20260927.21</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -255,6 +255,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <button id="tabAttack" class="mtab" onclick="openAttack100()">🎯 アタックリスト</button>
     <button id="tabSeminar" class="mtab" onclick="openSeminar()">🎓 セミナー</button>
     <button id="tabKpi2" class="mtab" onclick="openKpiTab()">📊 KPI</button>
+    <button id="tabMtg" class="mtab" onclick="openMtgTab()">🗓 週次Mtg</button>
   </div>
 
   <div id="leadsPane">
@@ -340,6 +341,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
   <div id="attackPane" style="display:none;"></div>
   <div id="seminarPane" style="display:none;"></div>
   <div id="kpiPane" style="display:none;"></div>
+  <div id="mtgPane" style="display:none;"></div>
 </div>
 
 <div class="overlay" id="ov" onclick="closeDrawer()"></div>
@@ -3692,7 +3694,7 @@ function exportAttackCsv(){
 var KP = { plan:null, deals:[], counts:[], orgs:[], staff:'all', view:'month', editId:null };
 var KP_STAFF = ['中林　俊介','亀谷　潤'];
 function kpShort(s){ return (s||'').split(/[\s　]/)[0]; }
-function kpYen(n){ n=Math.round(n||0); if(Math.abs(n)>=100000000){ var o=Math.floor(n/100000000), r=Math.round((n%100000000)/10000); return o+'億'+(r?r.toLocaleString()+'万':'')+'円'; } return Math.round(n/10000).toLocaleString()+'万円'; }
+function kpYen(n){ n=Math.round(n||0); if(Math.abs(n)>=100000000){ var o=Math.floor(n/100000000), r=Math.round((n%100000000)/10000); return o+'億'+(r?r.toLocaleString()+'万':'')+'円'; } var m=n/10000; return (Math.abs(m)<100 ? (Math.round(m*10)/10) : Math.round(m)).toLocaleString()+'万円'; }
 function kpNum(n){ return Math.round(n||0).toLocaleString(); }
 function kpD(s){ var p=s.split('-'); return new Date(+p[0], +p[1]-1, +p[2]); }
 function kpS(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -3707,14 +3709,16 @@ function kpPct(a,b){ if(!b) return '—'; var p=Math.round(a/b*100); var c=p>=10
 function kpPlanCalc(){
   var P=KP.plan; if(!P) return null;
   var ratePerPersonMonth = (P.per100_nh*P.price_nh + (P.per100_ko_year/12)*P.price_ko)/100; // 円/人/月
-  var monthlyNew = Math.ceil(P.target_revenue/(78*ratePerPersonMonth));
+  var N = parseInt(P.plan_months,10)||12;
+  var B = parseInt(P.target_months,10)||12; // 目標計算の基準（12か月で目標売上）
+  var monthlyNew = Math.ceil(P.target_revenue/((B*(B+1)/2)*ratePerPersonMonth));
   var rows=[], acc=0;
-  for(var m=1;m<=12;m++){
+  for(var m=1;m<=N;m++){
     var cum=monthlyNew*m, nh=cum*P.per100_nh/100, ko=cum*P.per100_ko_year/1200, rev=cum*ratePerPersonMonth; acc+=rev;
     var ms=kpAddM(P.plan_start,m-1), me_=kpAddD(kpAddM(P.plan_start,m),-1);
     rows.push({m:m, from:ms, to:me_, newP:monthlyNew, cum:cum, nh:nh, ko:ko, rev:rev, acc:acc});
   }
-  return { rate:ratePerPersonMonth, monthlyNew:monthlyNew, rows:rows };
+  return { rate:ratePerPersonMonth, monthlyNew:monthlyNew, rows:rows, n:N, base:B };
 }
 function kpDealsF(){ return KP.deals.filter(function(d){ return KP.staff==='all' || d.staff===KP.staff; }); }
 // 期間[a,b]の実績（依頼件数・金額）
@@ -3765,7 +3769,7 @@ function kpRender(){
   var P=KP.plan, C=kpPlanCalc(), box=el('kpRoot'); if(!box||!C) return;
   var card='background:#fff;border-radius:10px;padding:18px 20px;box-shadow:0 2px 6px rgba(0,0,0,.04);margin-bottom:14px;';
   var th='padding:6px 8px;white-space:nowrap;', td='padding:6px 8px;white-space:nowrap;';
-  var t=kpToday(), last=C.rows[11].to;
+  var t=kpToday(), last=C.rows[C.n-1].to;
 
   // サマリー（取引開始〜今日）
   var deals=kpDealsF(), supp=0, wnh=0, wko=0;
@@ -3781,7 +3785,7 @@ function kpRender(){
     + kc('実際の依頼（取引開始〜今日）', kpNum(act.nh+act.ko)+'件', '認定・変更 '+kpNum(act.nh)+' ／ 更新 '+kpNum(act.ko)+' ／ '+kpYen(act.rev))
     + kc('想定の依頼（契約済み分）', kpNum(exp.nh+exp.ko)+'件', '認定・変更 '+kpNum(exp.nh)+' ／ 更新 '+kpNum(exp.ko)+' ／ '+kpYen(exp.rev))
     + kc('想定に対する依頼の達成率', kpPct(act.nh+act.ko, exp.nh+exp.ko), '金額ベース '+kpPct(act.rev, exp.rev))
-    + kc('年間目標の進捗', kpPct(planAct.rev, P.target_revenue), kpYen(planAct.rev)+' ／ '+kpYen(P.target_revenue))
+    + kc('目標売上の進捗', kpPct(planAct.rev, P.target_revenue), kpYen(planAct.rev)+' ／ '+kpYen(P.target_revenue))
     + '</div>';
 
   var staffBtns=['all'].concat(KP_STAFF).map(function(s){
@@ -3791,14 +3795,15 @@ function kpRender(){
     var on=KP.view===v[0]; return '<button class="btn btn-sm" style="'+(on?'background:var(--accent);color:#fff;':'')+'" onclick="KP.view=\''+v[0]+'\';kpRender();">'+v[1]+'</button>';
   }).join(' ');
 
-  // 月別：計画 vs 実績
+  // 月別：計画 vs 実績（支援人数は登録した時点で表示。依頼・売上の実績は今日までの分）
+  var lastDeal=t; kpDealsF().forEach(function(d){ if(d.start_date>lastDeal) lastDeal=d.start_date; });
   var mRows=C.rows.map(function(r){
-    var fut=r.from>t, sN=kpSupp(r.from,r.to), sC=kpSupp('2000-01-01',r.to), a=kpActual(r.from,r.to), e=kpExpect(r.from,r.to), accA=kpActual(P.plan_start,r.to).rev;
+    var fut=r.from>t, futS=r.from>lastDeal, sN=kpSupp(r.from,r.to), sC=kpSupp('2000-01-01',r.to), a=kpActual(r.from,r.to), e=kpExpect(r.from,r.to), accA=kpActual(P.plan_start,r.to).rev;
     var d=kpD(r.from), lab=d.getFullYear()+'/'+(d.getMonth()+1);
     return '<tr style="border-bottom:1px solid var(--line);'+(fut?'color:#a0aec0;':'')+'">'
       + '<td style="'+td+'"><b>'+r.m+'か月目</b> <span class="sub">'+lab+'</span></td>'
-      + '<td style="'+td+'text-align:right;">'+kpNum(r.newP)+'</td><td style="'+td+'text-align:right;font-weight:600;">'+(fut?'':kpNum(sN))+'</td>'
-      + '<td style="'+td+'text-align:right;">'+kpNum(r.cum)+'</td><td style="'+td+'text-align:right;font-weight:600;">'+(fut?'':kpNum(sC))+'</td>'
+      + '<td style="'+td+'text-align:right;">'+kpNum(r.newP)+'</td><td style="'+td+'text-align:right;font-weight:600;color:var(--text);">'+(futS?'':kpNum(sN))+'</td>'
+      + '<td style="'+td+'text-align:right;">'+kpNum(r.cum)+'</td><td style="'+td+'text-align:right;font-weight:600;color:var(--text);">'+(futS?'':kpNum(sC))+'</td>'
       + '<td style="'+td+'text-align:right;">'+kpNum(r.nh)+' / '+kpNum(r.ko)+'</td>'
       + '<td style="'+td+'text-align:right;">'+(fut?'':kpNum(e.nh)+' / '+kpNum(e.ko))+'</td>'
       + '<td style="'+td+'text-align:right;font-weight:600;">'+(fut?'':kpNum(a.nh)+' / '+kpNum(a.ko))+'</td>'
@@ -3817,20 +3822,21 @@ function kpRender(){
   // 週別
   var wkTarget=C.monthlyNew*12/52, wStart=kpMon(P.plan_start);
   KP.deals.forEach(function(d){ if(d.start_date<P.plan_start){ var w=kpMon(d.start_date); if(w<wStart) wStart=w; } });
-  var wEnd=kpMon(t), wRows=[];
+  var wEnd=kpMon(lastDeal>t?lastDeal:t), wRows=[];
   for(var w=wStart; w<=wEnd; w=kpAddD(w,7)){
     var we=kpAddD(w,6), a2=kpActual(w,we), e2=kpExpect(w,we);
     var per=KP_STAFF.map(function(s){ var n=0; KP.deals.forEach(function(d){ if(d.staff===s&&d.start_date>=w&&d.start_date<=we) n+=d.supporters; }); return n; });
-    var tot=kpSupp(w,we), dw=kpD(w), de=kpD(we);
+    var tot=kpSupp(w,we), dw=kpD(w), de=kpD(we), wf=w>t;
     wRows.unshift('<tr style="border-bottom:1px solid var(--line);">'
       + '<td style="'+td+'">'+(dw.getMonth()+1)+'/'+dw.getDate()+'〜'+(de.getMonth()+1)+'/'+de.getDate()+'</td>'
       + '<td style="'+td+'text-align:right;">'+kpNum(wkTarget)+'</td>'
       + (KP.staff==='all'?per.map(function(n){return '<td style="'+td+'text-align:right;">'+(n?kpNum(n):'—')+'</td>';}).join(''):'')
       + '<td style="'+td+'text-align:right;font-weight:600;">'+kpNum(tot)+'</td><td style="'+td+'text-align:center;">'+kpPct(tot,wkTarget)+'</td>'
-      + '<td style="'+td+'text-align:right;">'+kpNum(e2.nh)+' / '+kpNum(e2.ko)+'</td>'
+      + (wf?'<td colspan="5" class="sub" style="'+td+'text-align:center;font-size:11px;">これからの週（依頼の実績はまだありません）</td></tr>'
+      : '<td style="'+td+'text-align:right;">'+kpNum(e2.nh)+' / '+kpNum(e2.ko)+'</td>'
       + '<td style="'+td+'text-align:right;font-weight:600;">'+kpNum(a2.nh)+' / '+kpNum(a2.ko)+'</td>'
       + '<td style="'+td+'text-align:center;">'+kpPct(a2.nh+a2.ko,e2.nh+e2.ko)+'</td>'
-      + '<td style="'+td+'text-align:right;">'+kpYen(e2.rev)+'</td><td style="'+td+'text-align:right;font-weight:600;">'+kpYen(a2.rev)+'</td></tr>');
+      + '<td style="'+td+'text-align:right;">'+kpYen(e2.rev)+'</td><td style="'+td+'text-align:right;font-weight:600;">'+kpYen(a2.rev)+'</td></tr>'));
   }
   var weekTbl='<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">'
     + '<thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;"><th style="'+th+'text-align:left;">週</th><th style="'+th+'">新規支援人数 目標</th>'
@@ -3861,10 +3867,11 @@ function kpRender(){
     + '<thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;text-align:left;"><th style="'+th+'">担当</th><th style="'+th+'">取引開始日</th><th style="'+th+'">企業名</th><th style="'+th+'">支援者数</th><th style="'+th+'">単価（認定・変更 / 更新）</th><th style="'+th+'">経過</th><th style="'+th+'">依頼 想定</th><th style="'+th+'">依頼 実績</th><th style="'+th+'">金額 実績</th><th style="'+th+'">対想定</th><th style="'+th+'"></th></tr></thead><tbody>'
     + (dRows||'<tr><td colspan="11" class="sub" style="padding:8px;">まだ新規取引が登録されていません。上の「＋新規取引を登録」から入力してください。</td></tr>')+'</tbody></table></div>';
 
-  var ps=kpD(P.plan_start), pe=kpD(C.rows[11].from);
+  var ps=kpD(P.plan_start), pe=kpD(C.rows[C.n-1].from);
   var premise='<details style="margin-top:6px;"><summary class="sub" style="cursor:pointer;font-size:12px;">計画の前提（クリックで表示・変更）</summary>'
     + '<ul class="sub" style="font-size:12px;margin:8px 0;line-height:1.7;">'
-    + '<li>目標：1年間（'+ps.getFullYear()+'/'+(ps.getMonth()+1)+'〜'+pe.getFullYear()+'/'+(pe.getMonth()+1)+'）の売上合計 '+kpYen(P.target_revenue)+'</li>'
+    + '<li>表示期間：'+C.n+'か月（'+ps.getFullYear()+'/'+(ps.getMonth()+1)+'〜'+pe.getFullYear()+'/'+(pe.getMonth()+1)+'）</li>'
+    + '<li>目標：'+C.base+'か月間の売上合計 '+kpYen(P.target_revenue)+'（毎月の新規支援人数の目標はこの基準で計算）</li>'
     + '<li>単価：認定・変更 '+kpNum(P.price_nh)+'円、更新 '+kpNum(P.price_ko)+'円</li>'
     + '<li>申請件数の目安（支援人数100人あたり）：認定・変更 月'+P.per100_nh+'件、更新 年'+P.per100_ko_year+'件（月約'+(P.per100_ko_year/12).toFixed(1)+'件）</li>'
     + '<li>100人あたりの売上：月'+kpYen(C.rate*100)+'（1人あたり月'+kpNum(C.rate)+'円）</li>'
@@ -3872,7 +3879,8 @@ function kpRender(){
     + '<li>「想定」＝取引開始済みの支援者数から上の目安で見込まれる依頼件数（今日まで）。「実績」＝取引開始日以降に案シスに登録された認定・変更・更新の案件数</li></ul>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;font-size:12px;">'
     + '<label>計画開始月<br><input type="month" id="kpPStart" value="'+P.plan_start.slice(0,7)+'"></label>'
-    + '<label>年間目標（円）<br><input type="number" id="kpPTarget" value="'+P.target_revenue+'" style="width:130px;"></label>'
+    + '<label>期間（か月）<br><input type="number" id="kpPMonths" value="'+C.n+'" min="1" max="36" style="width:70px;"></label>'
+    + '<label>売上目標（円・'+C.base+'か月分）<br><input type="number" id="kpPTarget" value="'+P.target_revenue+'" style="width:130px;"></label>'
     + '<label>認定・変更 単価<br><input type="number" id="kpPPnh" value="'+P.price_nh+'" style="width:90px;"></label>'
     + '<label>更新 単価<br><input type="number" id="kpPPko" value="'+P.price_ko+'" style="width:90px;"></label>'
     + '<label>100人あたり 認定・変更/月<br><input type="number" step="0.1" id="kpPNh" value="'+P.per100_nh+'" style="width:80px;"></label>'
@@ -3886,7 +3894,7 @@ function kpRender(){
     + '<div style="'+card+'"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'
     +   '<h3 style="margin:0;font-size:15px;">計画と実績</h3><div>'+viewBtns+'</div></div>'
     +   (KP.view==='month'?monthTbl:weekTbl)
-    +   '<div class="sub" style="font-size:11px;margin-top:6px;">対想定：実績 ÷ 想定。100%以上は緑、70〜99%は黄、70%未満は赤。</div></div>'
+    +   '<div class="sub" style="font-size:11px;margin-top:6px;">支援人数の実績は、新規取引を登録した時点で反映されます（開始日が先の取引も含む）。依頼件数・売上の実績は、案件管理システムに実際に依頼が登録された分だけが入るため、取引開始直後は目標より少なく出ます。対想定：実績 ÷ 想定。100%以上は緑、70〜99%は黄、70%未満は赤。</div></div>'
     + '<div style="'+card+'"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'
     +   '<h3 style="margin:0;font-size:15px;">新規取引と依頼状況</h3><button class="btn btn-sm" onclick="kpEdit(null)">＋新規取引を登録</button></div>'
     +   '<div id="kpForm"></div>' + dealTbl
@@ -3932,10 +3940,168 @@ function kpDel(id){
   _sb.from('eigyo_deals').delete().eq('id',id).then(function(r){ if(r.error){ alert('削除エラー：'+r.error.message); return; } autosaveToast('削除しました'); kpLoad(); });
 }
 function kpSavePlan(){
-  var row={ plan_start:el('kpPStart').value+'-01', target_revenue:parseInt(el('kpPTarget').value,10), price_nh:parseInt(el('kpPPnh').value,10),
+  var row={ plan_start:el('kpPStart').value+'-01', plan_months:parseInt(el('kpPMonths').value,10)||12, target_revenue:parseInt(el('kpPTarget').value,10), price_nh:parseInt(el('kpPPnh').value,10),
     price_ko:parseInt(el('kpPPko').value,10), per100_nh:parseFloat(el('kpPNh').value), per100_ko_year:parseFloat(el('kpPKo').value), updated_at:new Date().toISOString() };
   if(!el('kpPStart').value||!(row.target_revenue>0)||!(row.price_nh>0)||!(row.price_ko>0)||!(row.per100_nh>0)){ alert('前提の値を確認してください'); return; }
   _sb.from('eigyo_kpi_plan').update(row).eq('id','main').then(function(r){ if(r.error){ alert('保存エラー：'+r.error.message); return; } autosaveToast('前提を保存しました'); kpLoad(); });
+}
+
+
+/* ================= 🗓 週次Mtg（アジェンダ） ================= */
+var MT = { week:null, data:{}, prev:{}, leads:[], staff:'all' };
+function mtWeekDefault(){ var dw=new Date().getDay(); return (dw===0||dw===6) ? kpMon(kpToday()) : kpAddD(kpMon(kpToday()),-7); } // 平日は先週、土日はその週
+function mtLabel(w){ var a=kpD(w), b=kpD(kpAddD(w,6)); return (a.getMonth()+1)+'/'+a.getDate()+'（月）〜'+(b.getMonth()+1)+'/'+b.getDate()+'（日）'; }
+function mtDealStat(d){
+  var P=KP.plan, t=kpToday(), a={nh:0,ko:0,rev:0};
+  KP.counts.forEach(function(c){ if(c.deal_id!==d.id) return; if(c.app_type==='更新'){a.ko+=c.cnt;a.rev+=c.cnt*d.price_ko;} else {a.nh+=c.cnt;a.rev+=c.cnt*d.price_nh;} });
+  var days=d.start_date<=t?kpDays(d.start_date,t):0;
+  var enh=d.supporters*P.per100_nh/100*days/30.4375, eko=d.supporters*P.per100_ko_year/100*days/365.25;
+  return { days:days, a:a, enh:enh, eko:eko, warn: days>=30 && (a.nh+a.ko)<(enh+eko)*0.7 };
+}
+function openMtgTab(){
+  var pane=el('mtgPane'); if(!pane) return;
+  if(!MT.week) MT.week=mtWeekDefault();
+  pane.innerHTML='<div id="mtRoot"><div class="sub">読み込み中…</div></div>';
+  switchMain('mtg');
+  mtLoad();
+}
+function mtLoad(){
+  var prevW=kpAddD(MT.week,-7);
+  Promise.all([
+    _sb.from('eigyo_kpi_plan').select('*').eq('id','main').maybeSingle(),
+    _sb.from('eigyo_deals').select('*').order('start_date',{ascending:true}),
+    _sb.rpc('eigyo_deal_case_counts'),
+    _sb.from('eigyo_weekly_mtg').select('*').in('week_start',[MT.week,prevW]),
+    _sb.from('eigyo_leads').select('reg_no,name,status,staff,lead_rank,supporter_count,expected_supporter,apt_at,meeting_date,next_action,next_action_date,attack100')
+      .or('status.in.("商談予定","商談済み→依頼待ち"),attack100.eq.true')
+  ]).then(function(rs){
+    var err=rs.filter(function(r){return r.error;})[0];
+    if(err){ el('mtRoot').innerHTML='<span class="sub">読み込みエラー：'+esc(err.error.message)+'</span>'; return; }
+    KP.plan=rs[0].data; KP.deals=rs[1].data||[]; KP.counts=rs[2].data||[];
+    MT.data={}; MT.prev={};
+    (rs[3].data||[]).forEach(function(r){ if(r.week_start===MT.week) MT.data=r.data||{}; else MT.prev=r.data||{}; });
+    MT.leads=(rs[4].data||[]).filter(function(l){ return ['契約中','見込みなし','対象外'].indexOf(l.status)<0; });
+    mtRender();
+  });
+}
+function mtSave(){
+  _sb.from('eigyo_weekly_mtg').upsert({ week_start:MT.week, data:MT.data, updated_by:me||null, updated_at:new Date().toISOString() })
+    .then(function(r){ if(r.error) alert('保存エラー：'+r.error.message); else autosaveToast('保存しました'); });
+}
+function mtSet(path,val){ // path例: 'actions.中林　俊介'
+  var p=path.split('.'), o=MT.data;
+  for(var i=0;i<p.length-1;i++){ if(!o[p[i]]||typeof o[p[i]]!=='object') o[p[i]]={}; o=o[p[i]]; }
+  o[p[p.length-1]]=val; mtSave();
+}
+function mtExp(reg,v){
+  var n=v===''?null:parseInt(v,10);
+  _sb.from('eigyo_leads').update({expected_supporter:n, updated_at:new Date().toISOString()}).eq('reg_no',reg).then(function(r){
+    if(r.error){ alert('保存エラー：'+r.error.message); return; }
+    MT.leads.forEach(function(l){ if(l.reg_no===reg) l.expected_supporter=n; }); autosaveToast('想定支援者数を保存しました'); mtRender();
+  });
+}
+function mtRender(){
+  var box=el('mtRoot'), P=KP.plan; if(!box) return;
+  if(!P){ box.innerHTML='<span class="sub">KPIの計画データがありません</span>'; return; }
+  var C=kpPlanCalc(), t=kpToday(), ws=MT.week, we=kpAddD(ws,6);
+  var wkT=C.monthlyNew*12/52;
+  var card='background:#fff;border-radius:10px;padding:18px 20px;box-shadow:0 2px 6px rgba(0,0,0,.04);margin-bottom:14px;';
+  var th='padding:6px 8px;white-space:nowrap;text-align:left;', td='padding:6px 8px;vertical-align:top;';
+  var inSt=function(s){ return MT.staff==='all'||s===MT.staff; };
+  function head(no,title,min,hint){ return '<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;flex-wrap:wrap;"><span style="background:var(--accent);color:#fff;border-radius:50%;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;font-weight:700;">'+no+'</span><h3 style="margin:0;font-size:16px;">'+title+'</h3><span class="sub" style="font-size:12px;">'+min+'</span>'+(hint?'<span class="sub" style="font-size:12px;">— '+hint+'</span>':'')+'</div>'; }
+  function big(label,val,sub){ return '<div style="flex:1;min-width:150px;background:#f7fafc;border-radius:8px;padding:10px 12px;"><div class="sub" style="font-size:11px;">'+label+'</div><div style="font-size:22px;font-weight:700;color:var(--accent);">'+val+'</div>'+(sub?'<div class="sub" style="font-size:11px;">'+sub+'</div>':'')+'</div>'; }
+
+  var staffBtns=['all'].concat(KP_STAFF).map(function(s){ var on=MT.staff===s; return '<button class="btn btn-sm" style="'+(on?'background:var(--accent);color:#fff;':'')+'" onclick="MT.staff=\''+s+'\';mtRender();">'+(s==='all'?'全員':kpShort(s))+'</button>'; }).join(' ');
+  var header='<div style="'+card+'display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">'
+    + '<div><h2 style="margin:0;font-size:18px;color:var(--accent);">🗓 週次Mtg</h2><div class="sub" style="font-size:12px;">対象週：<b>'+mtLabel(ws)+'</b>（この週の結果をふり返り、翌週のアクションを決めます）</div></div>'
+    + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><button class="btn btn-sm" onclick="MT.week=kpAddD(MT.week,-7);mtLoad();">◀ 前の週</button><button class="btn btn-sm" onclick="MT.week=mtWeekDefault();mtLoad();">直近の週</button><button class="btn btn-sm" onclick="MT.week=kpAddD(MT.week,7);mtLoad();">次の週 ▶</button><span style="margin-left:10px;">'+staffBtns+'</span></div></div>';
+
+  // ⓪ 前回決めたこと
+  var pa=(MT.prev.actions)||{};
+  var s0='<div style="'+card+'">'+head('0','前回決めたことの確認','3分','先週のMtgで決めたアクションができたか')
+    + KP_STAFF.filter(inSt).map(function(s){ return '<div style="margin-bottom:8px;"><b>'+esc(kpShort(s))+'</b><div style="white-space:pre-wrap;background:#f7fafc;border-radius:6px;padding:8px 10px;font-size:13px;margin-top:4px;">'+(pa[s]?esc(pa[s]):'<span class="sub">（前回の記録なし）</span>')+'</div></div>'; }).join('')+'</div>';
+
+  // ① 先週の新規取引（開始日または登録日が対象週）
+  var wd=KP.deals.filter(function(d){ var cr=d.created_at?kpS(new Date(d.created_at)):''; return inSt(d.staff) && ((d.start_date>=ws&&d.start_date<=we)||(cr>=ws&&cr<=we)); });
+  var wTot=0, per={}; KP_STAFF.forEach(function(s){per[s]=0;});
+  wd.forEach(function(d){ wTot+=d.supporters; per[d.staff]=(per[d.staff]||0)+d.supporters; });
+  var tgt1=MT.staff==='all'?wkT:wkT/KP_STAFF.length;
+  var s1='<div style="'+card+'">'+head('1','対象週の新規取引','5分','決まった・始まった取引と支援人数')
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
+    + big('新規支援人数（対象週）', kpNum(wTot)+'人', '週の目標 '+kpNum(tgt1)+'人 → 達成率 '+kpPct(wTot,tgt1))
+    + (MT.staff==='all'?KP_STAFF.map(function(s){ return big(kpShort(s), kpNum(per[s])+'人', '目安 '+kpNum(wkT/KP_STAFF.length)+'人'); }).join(''):'')
+    + '</div>'
+    + (wd.length?'<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;"><th style="'+th+'">担当</th><th style="'+th+'">企業名</th><th style="'+th+'">支援者数</th><th style="'+th+'">単価（認定・変更 / 更新）</th><th style="'+th+'">取引開始日</th></tr></thead><tbody>'
+      + wd.map(function(d){ return '<tr style="border-bottom:1px solid var(--line);"><td style="'+td+'">'+esc(kpShort(d.staff))+'</td><td style="'+td+'"><b>'+esc(d.company)+'</b></td><td style="'+td+'">'+kpNum(d.supporters)+'人</td><td style="'+td+'">'+kpNum(d.price_nh)+' / '+kpNum(d.price_ko)+'</td><td style="'+td+'">'+esc(d.start_date)+'</td></tr>'; }).join('')+'</tbody></table>'
+      : '<div class="sub" style="font-size:13px;">この週の新規取引はありません（未登録のものがあれば、KPIタブで登録してください）。</div>')
+    + '</div>';
+
+  // ② 今月の進み具合
+  var cm=C.rows.filter(function(r){ return we>=r.from && we<=r.to; })[0] || C.rows.filter(function(r){ return t>=r.from && t<=r.to; })[0];
+  var s2='<div style="'+card+'">'+head('2','今月の進み具合','5分','月の目標に対して残り何人か');
+  if(cm){
+    var done=0; KP.deals.forEach(function(d){ if(inSt(d.staff)&&d.start_date>=cm.from&&d.start_date<=cm.to) done+=d.supporters; });
+    var mT=MT.staff==='all'?cm.newP:cm.newP/KP_STAFF.length, rest=Math.max(0,mT-done);
+    var from=t>cm.from?t:cm.from, remW=Math.max(1,Math.ceil(kpDays(from,cm.to)/7));
+    var dm=kpD(cm.from);
+    s2+='<div style="display:flex;gap:10px;flex-wrap:wrap;">'
+      + big(dm.getFullYear()+'年'+(dm.getMonth()+1)+'月の新規支援人数', kpNum(done)+'人', '月の目標 '+kpNum(mT)+'人 → '+kpPct(done,mT))
+      + big('残り', kpNum(rest)+'人', '月末まで約'+remW+'週')
+      + big('1週あたり必要なペース', kpNum(rest/remW)+'人/週', '通常の週目標 '+kpNum(MT.staff==='all'?wkT:wkT/KP_STAFF.length)+'人')
+      + '</div>';
+  } else s2+='<div class="sub">計画期間外です（KPIタブの「計画の前提」を確認してください）。</div>';
+  s2+='</div>';
+
+  // ③ 依頼が想定どおり来ているか
+  var dn=MT.data.deal_notes||{};
+  var dl=KP.deals.filter(function(d){return inSt(d.staff);}).map(function(d){ return {d:d, st:mtDealStat(d)}; })
+    .sort(function(a,b){ return (b.st.warn-a.st.warn) || ((a.st.a.nh+a.st.a.ko)/(a.st.enh+a.st.eko||1) - (b.st.a.nh+b.st.a.ko)/(b.st.enh+b.st.eko||1)); });
+  var nWarn=dl.filter(function(x){return x.st.warn;}).length;
+  var aW=kpActual(ws,we), eW=kpExpect(ws,we);
+  var s3='<div style="'+card+'">'+head('3','依頼が想定どおり来ているか','10分','⚠の取引は原因と対応を決めてメモ')
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
+    + big('対象週の依頼（実績）', kpNum(aW.nh+aW.ko)+'件', '認定・変更 '+kpNum(aW.nh)+' ／ 更新 '+kpNum(aW.ko)+' ／ '+kpYen(aW.rev))
+    + big('対象週の依頼（想定）', kpNum(eW.nh+eW.ko)+'件', '対想定 '+kpPct(aW.nh+aW.ko,eW.nh+eW.ko)+' ／ 金額 '+kpYen(eW.rev))
+    + big('依頼が少ない取引', nWarn+'社', '取引開始30日以上で想定の70%未満')
+    + '</div>'
+    + (dl.length?'<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;"><th style="'+th+'">担当</th><th style="'+th+'">企業名</th><th style="'+th+'">支援者数</th><th style="'+th+'">経過</th><th style="'+th+'">依頼 想定</th><th style="'+th+'">依頼 実績</th><th style="'+th+'">対想定</th><th style="'+th+'">原因・対応メモ（この週）</th></tr></thead><tbody>'
+      + dl.map(function(x){ var d=x.d, st=x.st;
+          return '<tr style="border-bottom:1px solid var(--line);'+(st.warn?'background:#fff5f5;':'')+'"><td style="'+td+'">'+esc(kpShort(d.staff))+'</td><td style="'+td+'"><b>'+esc(d.company)+'</b>'+(st.warn?' <span style="color:#c53030;font-size:11px;">⚠ 依頼が少ない</span>':'')+(d.support_org_id?'':' <span style="color:#c53030;font-size:11px;">⚠ 案シス未連携</span>')+'</td>'
+            + '<td style="'+td+'">'+kpNum(d.supporters)+'人</td><td style="'+td+'">'+st.days+'日</td>'
+            + '<td style="'+td+'">'+kpNum(st.enh)+' / '+kpNum(st.eko)+'</td><td style="'+td+'font-weight:600;">'+kpNum(st.a.nh)+' / '+kpNum(st.a.ko)+'</td>'
+            + '<td style="'+td+'">'+(st.days<14?'<span class="sub">様子見</span>':kpPct(st.a.nh+st.a.ko,st.enh+st.eko))+'</td>'
+            + '<td style="'+td+'"><input value="'+esc(dn[d.id]||'')+'" placeholder="例：他の行政書士と併用。窓口担当に依頼ルートを確認" style="width:100%;min-width:220px;font-size:12px;" onchange="mtSet(\'deal_notes.'+d.id+'\',this.value)"></td></tr>'; }).join('')+'</tbody></table>'
+      : '<div class="sub" style="font-size:13px;">まだ取引がありません。</div>')
+    + '<div class="sub" style="font-size:11px;margin-top:6px;">依頼 想定・実績は「認定・変更 / 更新」の件数（取引開始〜今日）。依頼が少ない順に並んでいます。</div></div>';
+
+  // ④ 来週の見込み（営業リストの商談中・アタックリスト）
+  var nx=MT.data.next||{};
+  var lv=MT.leads.filter(function(l){ return MT.staff==='all' || l.staff===MT.staff; })
+    .sort(function(a,b){ return (nx[b.reg_no]?1:0)-(nx[a.reg_no]?1:0) || String(a.status).localeCompare(String(b.status)) || String(a.name).localeCompare(String(b.name)); });
+  var nxSum=0, nxCnt=0; lv.forEach(function(l){ if(nx[l.reg_no]){ nxCnt++; nxSum+=(l.expected_supporter||l.supporter_count||0); } });
+  var s4='<div style="'+card+'">'+head('4','来週の見込み','5分','来週契約できそうな会社にチェック')
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
+    + big('来週の契約見込み', nxCnt+'社 ／ '+kpNum(nxSum)+'人', '週の目標 '+kpNum(MT.staff==='all'?wkT:wkT/KP_STAFF.length)+'人 → '+kpPct(nxSum,MT.staff==='all'?wkT:wkT/KP_STAFF.length))
+    + big('商談中・アタックリスト', lv.length+'社', '商談予定／商談済み→依頼待ち／アタックリスト')
+    + '</div>'
+    + (lv.length?'<div style="overflow-x:auto;max-height:420px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;position:sticky;top:0;background:#fff;"><th style="'+th+'">来週見込み</th><th style="'+th+'">企業名</th><th style="'+th+'">ステータス</th><th style="'+th+'">ランク</th><th style="'+th+'">担当</th><th style="'+th+'">支援者数</th><th style="'+th+'">想定支援者数（契約時）</th><th style="'+th+'">次のアクション</th></tr></thead><tbody>'
+      + lv.map(function(l){ var on=!!nx[l.reg_no];
+          return '<tr style="border-bottom:1px solid var(--line);'+(on?'background:#f0fff4;':'')+'"><td style="'+td+'text-align:center;"><input type="checkbox" '+(on?'checked':'')+' onchange="mtSet(\'next.'+esc(l.reg_no)+'\',this.checked);mtRender();" style="width:16px;height:16px;"></td>'
+            + '<td style="'+td+'"><a href="javascript:void(0)" onclick="openDrawer(\''+esc(l.reg_no)+'\')" style="color:var(--accent);font-weight:600;">'+esc(l.name)+'</a>'+(l.attack100?' <span style="font-size:11px;">🎯</span>':'')+'</td>'
+            + '<td style="'+td+'"><span class="badge b-'+esc(l.status)+'">'+esc(l.status)+'</span></td><td style="'+td+'">'+(l.lead_rank&&l.lead_rank!=='（未評価）'?'<b>'+esc(l.lead_rank)+'</b>':'—')+'</td>'
+            + '<td style="'+td+'">'+esc(kpShort(l.staff||'')||'—')+'</td><td style="'+td+'">'+(l.supporter_count!=null?kpNum(l.supporter_count)+'人':'—')+'</td>'
+            + '<td style="'+td+'"><input type="number" value="'+(l.expected_supporter!=null?l.expected_supporter:'')+'" style="width:80px;" onchange="mtExp(\''+esc(l.reg_no)+'\',this.value)"> 人</td>'
+            + '<td class="sub" style="'+td+'font-size:12px;">'+esc(l.next_action||'')+(l.next_action_date?' <span>（'+esc(l.next_action_date)+'）</span>':'')+'</td></tr>'; }).join('')+'</tbody></table></div>'
+      : '<div class="sub" style="font-size:13px;">商談中の会社がありません。</div>')
+    + '<div class="sub" style="font-size:11px;margin-top:6px;">見込み人数は「想定支援者数」を優先し、未入力なら「支援者数」で計算します。チェックはこの週のMtgに保存され、翌週の①で答え合わせできます。</div></div>';
+
+  // ⑤ 来週やること
+  var ac=MT.data.actions||{};
+  var s5='<div style="'+card+'">'+head('5','来週やること','5分','担当者ごとに決めて記録（次回の⓪に表示されます）')
+    + KP_STAFF.filter(inSt).map(function(s){ return '<div style="margin-bottom:10px;"><b>'+esc(kpShort(s))+'</b><textarea rows="4" style="width:100%;margin-top:4px;font-size:13px;" placeholder="例：〇〇社と契約締結（120人）／依頼が少ない△△社の窓口と面談／アタックリストから5社に架電" onchange="mtSet(\'actions.'+s+'\',this.value)">'+esc(ac[s]||'')+'</textarea></div>'; }).join('')
+    + '<div><b>全体メモ</b><textarea rows="3" style="width:100%;margin-top:4px;font-size:13px;" onchange="mtSet(\'memo\',this.value)">'+esc(MT.data.memo||'')+'</textarea></div></div>';
+
+  box.innerHTML=header+s0+s1+s2+s3+s4+s5;
 }
 
 /* ================= 🎓 セミナー ================= */
@@ -4042,6 +4208,8 @@ function switchMain(which){
   if(el('tabSeminar')) el('tabSeminar').className = 'mtab' + (which==='seminar'?' mtab-on':'');
   if(el('kpiPane')) el('kpiPane').style.display = which==='kpi2' ? '' : 'none';
   if(el('tabKpi2')) el('tabKpi2').className = 'mtab' + (which==='kpi2'?' mtab-on':'');
+  if(el('mtgPane')) el('mtgPane').style.display = which==='mtg' ? '' : 'none';
+  if(el('tabMtg')) el('tabMtg').className = 'mtab' + (which==='mtg'?' mtab-on':'');
   el('tabLeads').className = 'mtab' + (which==='leads'?' mtab-on':'');
   if(el('tabMaterials')) el('tabMaterials').className = 'mtab' + (which==='materials'?' mtab-on':'');
   if(el('tabAttack')) el('tabAttack').className = 'mtab' + (which==='attack'?' mtab-on':'');
