@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260927.22</div>
+      <div class="ver">ver.20260927.23</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -675,6 +675,10 @@ function toggleAttack100(on){
 function setRankByRange(rank){
   var r=el('eLeadRank'); if(!r) return;
   r.value=rank; r.removeAttribute('data-auto');
+  // 値を書き換えただけでは自動保存が動かないため、変更を通知して即保存
+  r.dispatchEvent(new Event('change',{bubbles:true}));
+  if(typeof _autosaveTimer!=='undefined' && _autosaveTimer){ clearTimeout(_autosaveTimer); _autosaveTimer=null; }
+  if(curLead){ saveLead(true); }
 }
 function applyAutoRankDrawer(){
   var s=el('eSupporter'), r=el('eLeadRank'); if(!s||!r) return;
@@ -1254,7 +1258,7 @@ function closeDrawer(){
   flushAutosave();
   el('ov').classList.remove('on');
   el('dw').classList.remove('on');
-  var wasDirty=_autosaveDirty; curLead = null;
+  var wasDirty=_autosaveDirty||_drawerSaved; curLead = null; _drawerSaved=false;
   if(wasDirty){ setTimeout(load, 400); }
 }
 function renderDrawer(){
@@ -1687,11 +1691,11 @@ function saveLead(silent){
   _sb.from('eigyo_leads').update(patch).eq('reg_no', lead.reg_no).then(function(r){
     if(r.error){ showMsg('dMsg','保存に失敗しました：'+r.error.message,'err'); return; }
     Object.keys(patch).forEach(function(k){ if(curLead) curLead[k]=patch[k]; });
-    if(silent){ autosaveToast(); _autosaveDirty=false; }
+    if(silent){ autosaveToast(); _autosaveDirty=false; _drawerSaved=true; }
     else { showMsg('dMsg','保存しました','ok'); load(); }
   });
 }
-var _autosaveTimer=null, _autosaveDirty=false;
+var _autosaveTimer=null, _autosaveDirty=false, _drawerSaved=false;
 function autosaveToast(msg, color){
   var t=el('autosaveToast');
   if(!t){ t=document.createElement('div'); t.id='autosaveToast';
