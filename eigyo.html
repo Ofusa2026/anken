@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260927.24</div>
+      <div class="ver">ver.20260927.25</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -4000,7 +4000,7 @@ function mtLoad(){
     _sb.rpc('eigyo_deal_case_counts'),
     _sb.from('eigyo_weekly_mtg').select('*').in('week_start',[MT.week,prevW]),
     _sb.from('eigyo_leads').select('reg_no,name,status,staff,lead_rank,supporter_count,expected_supporter,apt_at,meeting_date,next_action,next_action_date,attack100,attack_nb,attack_km')
-      .or('status.in.("商談予定","商談済み→依頼待ち"),attack100.eq.true,attack_nb.eq.true,attack_km.eq.true')
+      .or('attack100.eq.true,attack_nb.eq.true,attack_km.eq.true')
   ]).then(function(rs){
     var err=rs.filter(function(r){return r.error;})[0];
     if(err){ el('mtRoot').innerHTML='<span class="sub">読み込みエラー：'+esc(err.error.message)+'</span>'; return; }
@@ -4103,13 +4103,13 @@ function mtRender(){
 
   // ④ 来週の見込み（営業リストの商談中・アタックリスト）
   var nx=MT.data.next||{};
-  var lv=MT.leads.filter(function(l){ return MT.staff==='all' || l.staff===MT.staff; })
+  var lv=MT.leads.filter(function(l){ if(MT.staff==='all') return true; if(MT.staff===KP_STAFF[0]) return !!l.attack_nb; if(MT.staff===KP_STAFF[1]) return !!l.attack_km; return l.staff===MT.staff; })
     .sort(function(a,b){ return (nx[b.reg_no]?1:0)-(nx[a.reg_no]?1:0) || String(a.status).localeCompare(String(b.status)) || String(a.name).localeCompare(String(b.name)); });
   var nxSum=0, nxCnt=0; lv.forEach(function(l){ if(nx[l.reg_no]){ nxCnt++; nxSum+=(l.expected_supporter||l.supporter_count||0); } });
-  var s4='<div style="'+card+'">'+head('4','来週の見込み','5分','来週契約できそうな会社にチェック')
+  var s4='<div style="'+card+'">'+head('4','来週の見込み','5分','アタックリストの中から来週契約できそうな会社にチェック')
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
     + big('来週の契約見込み', nxCnt+'社 ／ '+kpNum(nxSum)+'人', '週の目標 '+kpNum(MT.staff==='all'?wkT:wkT/KP_STAFF.length)+'人 → '+kpPct(nxSum,MT.staff==='all'?wkT:wkT/KP_STAFF.length))
-    + big('商談中・アタックリスト', lv.length+'社', '商談予定／商談済み→依頼待ち／アタックS・中林・亀谷')
+    + big('アタックリスト', lv.length+'社', MT.staff==='all'?'アタックS・中林・亀谷':(MT.staff===KP_STAFF[0]?'アタック中林':'アタック亀谷'))
     + '</div>'
     + (lv.length?'<div style="overflow-x:auto;max-height:420px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;position:sticky;top:0;background:#fff;"><th style="'+th+'">来週見込み</th><th style="'+th+'">企業名</th><th style="'+th+'">ステータス</th><th style="'+th+'">ランク</th><th style="'+th+'">担当</th><th style="'+th+'">支援者数</th><th style="'+th+'">想定支援者数（契約時）</th><th style="'+th+'">次のアクション</th></tr></thead><tbody>'
       + lv.map(function(l){ var on=!!nx[l.reg_no];
@@ -4119,7 +4119,7 @@ function mtRender(){
             + '<td style="'+td+'">'+esc(kpShort(l.staff||'')||'—')+'</td><td style="'+td+'">'+(l.supporter_count!=null?kpNum(l.supporter_count)+'人':'—')+'</td>'
             + '<td style="'+td+'"><input type="number" value="'+(l.expected_supporter!=null?l.expected_supporter:'')+'" style="width:80px;" onchange="mtExp(\''+esc(l.reg_no)+'\',this.value)"> 人</td>'
             + '<td class="sub" style="'+td+'font-size:12px;">'+esc(l.next_action||'')+(l.next_action_date?' <span>（'+esc(l.next_action_date)+'）</span>':'')+'</td></tr>'; }).join('')+'</tbody></table></div>'
-      : '<div class="sub" style="font-size:13px;">商談中の会社がありません。</div>')
+      : '<div class="sub" style="font-size:13px;">アタックリストに会社がありません。</div>')
     + '<div class="sub" style="font-size:11px;margin-top:6px;">見込み人数は「想定支援者数」を優先し、未入力なら「支援者数」で計算します。チェックはこの週のMtgに保存され、翌週の①で答え合わせできます。</div></div>';
 
   // ⑤ 来週やること
