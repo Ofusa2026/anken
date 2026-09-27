@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260927.14</div>
+      <div class="ver">ver.20260927.15</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -272,6 +272,10 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div style="position:relative;display:inline-block;">
       <button type="button" class="btn btn-sm" id="fStatusBtn" onclick="toggleStatusPanel(event)" style="min-width:120px;text-align:left;">全ステータス ▾</button>
       <div id="fStatusPanel" style="display:none;position:absolute;z-index:40;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px;box-shadow:0 4px 14px rgba(0,0,0,.15);max-height:300px;overflow:auto;min-width:190px;"></div>
+    </div>
+    <div style="position:relative;display:inline-block;">
+      <button type="button" class="btn btn-sm" id="fRankBtn" onclick="toggleRankPanel(event)" style="min-width:100px;text-align:left;">全ランク ▾</button>
+      <div id="fRankPanel" style="display:none;position:absolute;z-index:40;background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px;box-shadow:0 4px 14px rgba(0,0,0,.15);max-height:300px;overflow:auto;min-width:140px;"></div>
     </div>
     <select id="fStaff"><option value="">全担当者</option></select>
     <select id="fDocMethod"><option value="">書類作成方法（全て）</option></select>
@@ -806,6 +810,11 @@ function initUi(){
     return '<label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:2px 0;cursor:pointer;white-space:nowrap;"><input type="checkbox" class="fstatchk" value="'+esc(x)+'" onchange="onStatusFilterChange()"> '+esc(x)+'</label>';
   }).join('')
   + '<div style="border-top:1px solid var(--line);margin-top:6px;padding-top:6px;text-align:right;"><button class="btn btn-sm" onclick="clearStatusFilter()">全解除</button></div>'; }
+  var rp = el('fRankPanel');
+  if(rp){ rp.innerHTML = RANK_FILTER_OPTS.map(function(x){
+    return '<label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:2px 0;cursor:pointer;white-space:nowrap;"><input type="checkbox" class="frankchk" value="'+esc(x)+'" onchange="onRankFilterChange()"> '+(x==='未評価'?'（未評価）':esc(x)+'ランク')+'</label>';
+  }).join('')
+  + '<div style="border-top:1px solid var(--line);margin-top:6px;padding-top:6px;text-align:right;"><button class="btn btn-sm" onclick="clearRankFilter()">全解除</button></div>'; }
   var acq = el('fAcq');
   if(acq) ACQ_SOURCES.forEach(function(x){ if(x) acq.insertAdjacentHTML('beforeend','<option>'+esc(x)+'</option>'); });
   var en = el('fEntity');
@@ -913,12 +922,44 @@ function setStatusFilter(k){
   var cs=document.querySelectorAll('.fstatchk'); for(var j=0;j<cs.length;j++) cs[j].checked=(selStatuses.indexOf(cs[j].value)>=0);
   updateStatusBtn(); page=0; load();
 }
+/* 営業ランク（複数選択） */
+var RANK_FILTER_OPTS = ['S','A','B','C','D','E','F','未評価'];
+var selRanks = [];
+function toggleRankPanel(e){ if(e) e.stopPropagation(); var p=el('fRankPanel'); if(!p) return; p.style.display = (p.style.display==='none'||!p.style.display)?'block':'none'; }
+function onRankFilterChange(){
+  var cs=document.querySelectorAll('.frankchk:checked'); selRanks=[];
+  for(var i=0;i<cs.length;i++) selRanks.push(cs[i].value);
+  updateRankBtn(); page=0; load();
+}
+function updateRankBtn(){
+  var b=el('fRankBtn'); if(!b) return;
+  b.textContent = selRanks.length ? ('ランク '+selRanks.map(function(r){return r==='未評価'?'未評価':r;}).join('・')+' ▾') : '全ランク ▾';
+  b.style.background = selRanks.length ? '#ebf3ff' : '';
+}
+function clearRankFilter(skipLoad){
+  selRanks=[]; var cs=document.querySelectorAll('.frankchk'); for(var i=0;i<cs.length;i++) cs[i].checked=false;
+  updateRankBtn(); if(!skipLoad){ page=0; load(); }
+}
+function applyRankFilter(q){
+  if(!selRanks || !selRanks.length) return q;
+  var letters = selRanks.filter(function(r){ return r!=='未評価'; });
+  if(selRanks.indexOf('未評価')>=0){
+    // 未評価 = 空欄(null/'') または「（未評価）」
+    var vals = ['""','"（未評価）"'].concat(letters.map(function(r){return '"'+r+'"';}));
+    return q.or('lead_rank.is.null,lead_rank.in.('+vals.join(',')+')');
+  }
+  return q.in('lead_rank', letters);
+}
+document.addEventListener('click', function(e){
+  var rp=el('fRankPanel'), rb=el('fRankBtn');
+  if(rp && rp.style.display==='block' && !rp.contains(e.target) && e.target!==rb){ rp.style.display='none'; }
+});
 document.addEventListener('click', function(e){
   var p=el('fStatusPanel'), b=el('fStatusBtn');
   if(p && p.style.display==='block' && !p.contains(e.target) && e.target!==b){ p.style.display='none'; }
 });
 function resetFilters(){
-  el('fQ').value=''; selPrefs=[]; clearStatusFilter(true); el('fStaff').value=''; el('fDocMethod').value=''; el('fEntity').value=''; if(el('fAcq')) el('fAcq').value='';
+  el('fQ').value=''; selPrefs=[]; clearStatusFilter(true); clearRankFilter(true); el('fStaff').value=''; el('fDocMethod').value=''; el('fEntity').value=''; if(el('fAcq')) el('fAcq').value='';
   el('fIndustry').value=''; el('fSelf').value='';
   el('fSort').value='new';
   page=0; syncPrefButtons(); loadPrefCounts(); load();
@@ -951,6 +992,7 @@ function buildQuery(forCount){
   }
   q = applyPrefFilter(q);
   if(selStatuses && selStatuses.length) q = q.in('status', selStatuses);
+  q = applyRankFilter(q);
   if(el('fStaff').value)  q = q.eq('staff', el('fStaff').value);
   if(el('fDocMethod').value) q = q.eq('doc_method', el('fDocMethod').value);
   if(el('fEntity').value) q = q.eq('entity_type', el('fEntity').value);
