@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260927.15</div>
+      <div class="ver">ver.20260927.16</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -253,6 +253,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <button id="tabMkt" class="mtab" onclick="switchMain('mkt')" style="display:none;">📣 マーケティング</button>
     <button id="tabSales" class="mtab" onclick="switchMain('sales')" style="display:none;">🧑‍💼 営業</button>
     <button id="tabAttack" class="mtab" onclick="openAttack100()">🎯 アタックリスト</button>
+    <button id="tabSeminar" class="mtab" onclick="openSeminar()">🎓 セミナー</button>
   </div>
 
   <div id="leadsPane">
@@ -336,6 +337,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
   <div id="matPane" style="display:none;"></div>
   <div id="toolPane" style="display:none;"></div>
   <div id="attackPane" style="display:none;"></div>
+  <div id="seminarPane" style="display:none;"></div>
 </div>
 
 <div class="overlay" id="ov" onclick="closeDrawer()"></div>
@@ -3682,6 +3684,99 @@ function exportAttackCsv(){
     var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='アタック100_'+today().replace(/-/g,'')+'.csv'; document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },100);
   });
 }
+
+/* ================= 🎓 セミナー ================= */
+var _seminars=[], _semSel='';
+function semLabel(s){ var d=new Date(s.held_on+'T00:00:00'); return s.place+'（'+(d.getMonth()+1)+'月'+d.getDate()+'日）'; }
+function openSeminar(){
+  var pane=el('seminarPane'); if(!pane) return;
+  pane.innerHTML='<div style="background:#fff;border-radius:10px;padding:20px 22px;box-shadow:0 2px 6px rgba(0,0,0,.04);">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;">'
+    +   '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+    +     '<h2 style="margin:0;font-size:18px;color:var(--accent);">🎓 セミナー</h2>'
+    +     '<select id="semSelect" onchange="_semSel=this.value;loadSeminarList();" style="min-width:200px;"><option value="">読み込み中…</option></select>'
+    +     '<a id="semSrc" class="sub" target="_blank" rel="noopener" style="font-size:12px;display:none;">📄 元の回答シート</a>'
+    +   '</div>'
+    +   '<button class="btn btn-sm" onclick="exportSeminarCsv()">⬇ CSV</button>'
+    + '</div>'
+    + '<div id="semSummary" class="sub" style="margin-bottom:10px;font-size:13px;"></div>'
+    + '<div id="semList">読み込み中…</div></div>';
+  switchMain('seminar');
+  _sb.from('eigyo_seminars').select('*').order('held_on',{ascending:false}).then(function(r){
+    if(r.error){ el('semList').innerHTML='<span class="sub">読み込みエラー：'+esc(r.error.message)+'</span>'; return; }
+    _seminars=r.data||[];
+    if(!_semSel && _seminars.length) _semSel=_seminars[0].id;
+    el('semSelect').innerHTML='<option value="all">すべてのセミナー</option>'+_seminars.map(function(s){
+      return '<option value="'+esc(s.id)+'"'+(s.id===_semSel?' selected':'')+'>'+esc(semLabel(s))+'</option>';
+    }).join('');
+    if(_semSel==='all') el('semSelect').value='all';
+    loadSeminarList();
+  });
+}
+var _semRows=[];
+function loadSeminarList(){
+  var box=el('semList'); if(!box) return;
+  box.innerHTML='読み込み中…';
+  var src=el('semSrc'), cur=_seminars.filter(function(s){return s.id===_semSel;})[0];
+  if(src){ if(cur&&cur.source_url){ src.href=cur.source_url; src.style.display=''; } else src.style.display='none'; }
+  var q=_sb.from('eigyo_seminar_participants').select('*').order('applied_at',{ascending:true});
+  if(_semSel && _semSel!=='all') q=q.eq('seminar_id',_semSel);
+  q.then(function(r){
+    if(r.error){ box.innerHTML='<span class="sub">読み込みエラー：'+esc(r.error.message)+'</span>'; return; }
+    var d=r.data||[];
+    var regs=d.map(function(x){return x.reg_no;}).filter(function(x){return x;});
+    var done=function(leads){
+      var lm={}; (leads||[]).forEach(function(l){ lm[l.reg_no]=l; });
+      d.forEach(function(x){ x._lead=x.reg_no?lm[x.reg_no]:null; });
+      _semRows=d; renderSeminarList();
+    };
+    if(!regs.length){ done([]); return; }
+    _sb.from('eigyo_leads').select('reg_no,name,status,lead_rank,staff').in('reg_no',regs).then(function(r2){ done(r2.data||[]); });
+  });
+}
+function semIsAbsent(a){ a=a||''; return /不参加|日程合わず/.test(a) || a==='-'; }
+function renderSeminarList(){
+  var box=el('semList'); if(!box) return;
+  var d=_semRows, semMap={}; _seminars.forEach(function(s){ semMap[s.id]=s; });
+  var cos={}, attend=0, linked=0;
+  d.forEach(function(x){ cos[x.company]=1; if(!semIsAbsent(x.attendance)) attend++; if(x._lead) linked++; });
+  el('semSummary').innerHTML='申込 <b>'+d.length+'</b>件 ／ 会社数 <b>'+Object.keys(cos).length+'</b>社 ／ 参加（予定含む） <b>'+attend+'</b>件 ／ 営業リスト紐付け <b>'+linked+'</b>件';
+  if(!d.length){ box.innerHTML='<div class="sub" style="padding:10px 0;">申込データがありません。</div>'; return; }
+  var all=(_semSel==='all');
+  var th='padding:6px 8px;', td='padding:6px 8px;vertical-align:top;';
+  var rows=d.map(function(x){
+    var L=x._lead, dt=x.applied_at?new Date(x.applied_at):null;
+    var ds=dt?((dt.getMonth()+1)+'/'+dt.getDate()):'';
+    var absent=semIsAbsent(x.attendance);
+    var co = L ? '<a href="javascript:void(0)" onclick="openDrawer(\''+esc(x.reg_no)+'\')" style="color:var(--accent);font-weight:600;">'+esc(x.company)+'</a>'
+               : esc(x.company)+' <span class="sub" style="font-size:11px;">（営業リスト未登録）</span>';
+    return '<tr style="border-bottom:1px solid var(--line);'+(absent?'opacity:.55;':'')+'">'
+      + (all?'<td style="'+td+'white-space:nowrap;">'+esc(semMap[x.seminar_id]?semLabel(semMap[x.seminar_id]):x.seminar_id)+'</td>':'')
+      + '<td class="sub" style="'+td+'white-space:nowrap;">'+esc(ds)+'</td>'
+      + '<td style="'+td+'">'+co+'</td>'
+      + '<td style="'+td+'">'+esc(x.attendees||'')+'</td>'
+      + '<td class="sub" style="'+td+'white-space:nowrap;">'+esc(x.scale||'—')+'</td>'
+      + '<td style="'+td+'white-space:nowrap;">'+esc(x.attendance||'')+'</td>'
+      + '<td style="'+td+'">'+(L?'<span class="badge b-'+esc(L.status)+'">'+esc(L.status)+'</span>':'—')+(L&&L.lead_rank&&L.lead_rank!=='（未評価）'?' <b>'+esc(L.lead_rank)+'</b>':'')+'</td>'
+      + '<td class="sub" style="'+td+'white-space:nowrap;">'+esc(x.tel||'')+'<br>'+esc(x.email||'')+'</td>'
+      + '<td class="sub" style="'+td+'font-size:12px;max-width:260px;">'+esc(x.memo||'')+'</td>'
+      + '</tr>';
+  }).join('');
+  box.innerHTML='<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">'
+    + '<thead><tr style="border-bottom:2px solid var(--line);text-align:left;color:var(--muted);font-size:12px;">'
+    + (all?'<th style="'+th+'">セミナー</th>':'')
+    + '<th style="'+th+'">申込日</th><th style="'+th+'">会社名</th><th style="'+th+'">出席者</th><th style="'+th+'">規模</th><th style="'+th+'">出欠</th><th style="'+th+'">営業ステータス</th><th style="'+th+'">連絡先</th><th style="'+th+'">メモ</th>'
+    + '</tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+function exportSeminarCsv(){
+  var d=_semRows||[]; if(!d.length){ alert('データがありません'); return; }
+  var semMap={}; _seminars.forEach(function(s){ semMap[s.id]=s; });
+  function q(v){ v=(v==null?'':String(v)); return '"'+v.replace(/"/g,'""')+'"'; }
+  var lines=[['セミナー','申込日時','会社名','出席者','規模','出欠','営業ステータス','登録番号','電話','メール','メモ'].map(q).join(',')];
+  d.forEach(function(x){ lines.push([semMap[x.seminar_id]?semLabel(semMap[x.seminar_id]):x.seminar_id, x.applied_at, x.company, x.attendees, x.scale, x.attendance, x._lead?x._lead.status:'', x.reg_no, x.tel, x.email, x.memo].map(q).join(',')); });
+  var blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8;'});
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='セミナー_'+(_semSel||'all')+'.csv'; document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },100);
+}
 function switchMain(which){
   KPI_PAGE = which;
   el('leadsPane').style.display = which==='leads' ? '' : 'none';
@@ -3690,6 +3785,8 @@ function switchMain(which){
   if(el('matPane')) el('matPane').style.display = which==='materials' ? '' : 'none';
   if(el('toolPane')) el('toolPane').style.display = which==='tool' ? '' : 'none';
   if(el('attackPane')) el('attackPane').style.display = which==='attack' ? '' : 'none';
+  if(el('seminarPane')) el('seminarPane').style.display = which==='seminar' ? '' : 'none';
+  if(el('tabSeminar')) el('tabSeminar').className = 'mtab' + (which==='seminar'?' mtab-on':'');
   el('tabLeads').className = 'mtab' + (which==='leads'?' mtab-on':'');
   if(el('tabMaterials')) el('tabMaterials').className = 'mtab' + (which==='materials'?' mtab-on':'');
   if(el('tabAttack')) el('tabAttack').className = 'mtab' + (which==='attack'?' mtab-on':'');
