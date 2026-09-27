@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260927.25</div>
+      <div class="ver">ver.20260927.26</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -3754,9 +3754,18 @@ function kpActual(a,b){
   var r={nh:0,ko:0,rev:0};
   KP.counts.forEach(function(c){
     var d=ids[c.deal_id]; if(!d) return; if(c.day<a||c.day>b) return;
-    if(c.app_type==='更新'){ r.ko+=c.cnt; r.rev+=c.cnt*d.price_ko; } else { r.nh+=c.cnt; r.rev+=c.cnt*d.price_nh; }
+    if(c.app_type==='更新') r.ko+=c.cnt; else r.nh+=c.cnt;
   });
+  kpDealsF().forEach(function(d){ r.rev+=kpDealRev(d,a,b); });
   return r;
+}
+// 取引の実績金額 = 案シスの売上（決定報告）＋手入力。KPI上で上書きした金額があればそちらを使う
+function kpSaleAmt(x){ return x.override_amount!=null ? x.override_amount : (x.subtotal||0); }
+function kpDealRev(d,a,b){
+  var n=0; a=a||'2000-01-01'; b=b||'2999-12-31';
+  (KP.sales||[]).forEach(function(x){ if(x.deal_id===d.id && x.decided_at>=a && x.decided_at<=b) n+=kpSaleAmt(x); });
+  (KP.adj||[]).forEach(function(x){ if(x.deal_id===d.id && x.day>=a && x.day<=b) n+=x.amount; });
+  return n;
 }
 // 期間[a,b]の想定（契約済み支援者数から見込まれる依頼件数・金額。今日まで）
 function kpExpect(a,b){
@@ -3783,11 +3792,13 @@ function kpLoad(){
     _sb.from('eigyo_kpi_plan').select('*').eq('id','main').maybeSingle(),
     _sb.from('eigyo_deals').select('*').order('start_date',{ascending:true}),
     _sb.rpc('eigyo_deal_case_counts'),
-    _sb.from('support_orgs').select('id,name,display_name').order('name',{ascending:true})
+    _sb.from('support_orgs').select('id,name,display_name').order('name',{ascending:true}),
+    _sb.rpc('eigyo_deal_sales'),
+    _sb.from('eigyo_deal_adjust').select('*').order('day',{ascending:true})
   ]).then(function(rs){
     var err=rs.filter(function(r){return r.error;})[0];
     if(err){ el('kpRoot').innerHTML='<span class="sub">読み込みエラー：'+esc(err.error.message)+'</span>'; return; }
-    KP.plan=rs[0].data; KP.deals=rs[1].data||[]; KP.counts=rs[2].data||[]; KP.orgs=rs[3].data||[];
+    KP.plan=rs[0].data; KP.deals=rs[1].data||[]; KP.counts=rs[2].data||[]; KP.orgs=rs[3].data||[]; KP.sales=rs[4].data||[]; KP.adj=rs[5].data||[];
     if(!KP.plan){ el('kpRoot').innerHTML='<span class="sub">計画データがありません</span>'; return; }
     kpRender();
   });
@@ -3874,7 +3885,8 @@ function kpRender(){
   // 新規取引一覧（取引ごとの依頼状況）
   var dRows=deals.slice().reverse().map(function(d){
     var a=kpActual(d.start_date,t), idsSave=null;
-    var a3={nh:0,ko:0,rev:0}; KP.counts.forEach(function(c){ if(c.deal_id!==d.id) return; if(c.app_type==='更新'){a3.ko+=c.cnt;a3.rev+=c.cnt*d.price_ko;} else {a3.nh+=c.cnt;a3.rev+=c.cnt*d.price_nh;} });
+    var a3={nh:0,ko:0,rev:kpDealRev(d)}; KP.counts.forEach(function(c){ if(c.deal_id!==d.id) return; if(c.app_type==='更新') a3.ko+=c.cnt; else a3.nh+=c.cnt; });
+    var nOv=(KP.sales||[]).filter(function(x){return x.deal_id===d.id&&x.override_amount!=null;}).length+(KP.adj||[]).filter(function(x){return x.deal_id===d.id;}).length;
     var days=d.start_date<=t?kpDays(d.start_date,t):0;
     var enh=d.supporters*P.per100_nh/100*days/30.4375, eko=d.supporters*P.per100_ko_year/100*days/365.25;
     var warn=days>=30 && (a3.nh+a3.ko) < (enh+eko)*0.7;
@@ -3886,12 +3898,12 @@ function kpRender(){
       + '<td style="'+td+'text-align:right;">'+days+'日</td>'
       + '<td style="'+td+'text-align:right;">'+kpNum(enh)+' / '+kpNum(eko)+'</td>'
       + '<td style="'+td+'text-align:right;font-weight:600;">'+kpNum(a3.nh)+' / '+kpNum(a3.ko)+'</td>'
-      + '<td style="'+td+'text-align:right;font-weight:600;">'+kpYen(a3.rev)+'</td>'
+      + '<td style="'+td+'text-align:right;"><b>'+kpYen(a3.rev)+'</b>'+(nOv?' <span title="KPI上で修正・追加あり" style="color:#b7791f;">✎</span>':'')+'<br><a href="javascript:void(0)" style="font-size:11px;color:var(--accent);" onclick="kpSalesOpen('+d.id+')">明細・編集</a></td>'
       + '<td style="'+td+'text-align:center;">'+(days<14?'<span class="sub">様子見</span>':kpPct(a3.nh+a3.ko,enh+eko))+(warn?' <span style="color:#c53030;font-size:11px;">⚠ 依頼が少ない</span>':'')+'</td>'
       + '<td style="'+td+'"><button class="btn btn-sm" onclick="kpEdit('+d.id+')">編集</button> <button class="btn btn-sm" style="color:#c53030;" onclick="kpDel('+d.id+')">削除</button></td></tr>';
   }).join('');
   var dealTbl='<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;">'
-    + '<thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;text-align:left;"><th style="'+th+'">担当</th><th style="'+th+'">取引開始日</th><th style="'+th+'">企業名</th><th style="'+th+'">支援者数</th><th style="'+th+'">単価（認定・変更 / 更新）</th><th style="'+th+'">経過</th><th style="'+th+'">依頼 想定</th><th style="'+th+'">依頼 実績</th><th style="'+th+'">金額 実績</th><th style="'+th+'">対想定</th><th style="'+th+'"></th></tr></thead><tbody>'
+    + '<thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;text-align:left;"><th style="'+th+'">担当</th><th style="'+th+'">取引開始日</th><th style="'+th+'">企業名</th><th style="'+th+'">支援者数</th><th style="'+th+'">単価（認定・変更 / 更新）</th><th style="'+th+'">経過</th><th style="'+th+'">依頼 想定</th><th style="'+th+'">依頼 実績</th><th style="'+th+'">金額 実績（案シス）</th><th style="'+th+'">対想定</th><th style="'+th+'"></th></tr></thead><tbody>'
     + (dRows||'<tr><td colspan="11" class="sub" style="padding:8px;">まだ新規取引が登録されていません。上の「＋新規取引を登録」から入力してください。</td></tr>')+'</tbody></table></div>';
 
   var ps=kpD(P.plan_start), pe=kpD(C.rows[C.n-1].from);
@@ -3903,7 +3915,7 @@ function kpRender(){
     + '<li>申請件数の目安（支援人数100人あたり）：認定・変更 月'+P.per100_nh+'件、更新 年'+P.per100_ko_year+'件（月約'+(P.per100_ko_year/12).toFixed(1)+'件）</li>'
     + '<li>100人あたりの売上：月'+kpYen(C.rate*100)+'（1人あたり月'+kpNum(C.rate)+'円）</li>'
     + '<li>毎月の新規支援人数を同じペース（'+kpNum(C.monthlyNew)+'人）で増やす。契約した月から申請が発生し、解約はないものとする</li>'
-    + '<li>「想定」＝取引開始済みの支援者数から上の目安で見込まれる依頼件数（今日まで）。「実績」＝取引開始日以降に案シスに登録された認定・変更・更新の案件数</li></ul>'
+    + '<li>「想定」＝取引開始済みの支援者数から上の目安で見込まれる依頼件数（今日まで）。「実績」＝取引開始日以降に案シスに登録された認定・変更・更新の案件数。金額の実績は案シスの売上（決定報告）の金額で、取引の「明細・編集」から修正・追加できます（案シスの売上データ自体は変わりません）</li></ul>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;font-size:12px;">'
     + '<label>計画開始月<br><input type="month" id="kpPStart" value="'+P.plan_start.slice(0,7)+'"></label>'
     + '<label>期間（か月）<br><input type="number" id="kpPMonths" value="'+C.n+'" min="1" max="36" style="width:70px;"></label>'
@@ -3924,7 +3936,7 @@ function kpRender(){
     +   '<div class="sub" style="font-size:11px;margin-top:6px;">支援人数の実績は、新規取引を登録した時点で反映されます（開始日が先の取引も含む）。依頼件数・売上の実績は、案件管理システムに実際に依頼が登録された分だけが入るため、取引開始直後は目標より少なく出ます。対想定：実績 ÷ 想定。100%以上は緑、70〜99%は黄、70%未満は赤。</div></div>'
     + '<div style="'+card+'"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'
     +   '<h3 style="margin:0;font-size:15px;">新規取引と依頼状況</h3><button class="btn btn-sm" onclick="kpEdit(null)">＋新規取引を登録</button></div>'
-    +   '<div id="kpForm"></div>' + dealTbl
+    +   '<div id="kpForm"></div><div id="kpSales"></div>' + dealTbl
     +   '<div class="sub" style="font-size:11px;margin-top:6px;">取引開始から30日以上たって依頼が想定の70%未満の取引は赤く表示します。「案シス未連携」は案シスの登録支援機関と紐付いていないため依頼件数が集計されません（編集で企業名を案シスの名称から選び直してください）。</div></div>';
 }
 function kpOrgByName(n){ n=(n||'').trim(); return KP.orgs.filter(function(o){ return o.name===n || o.display_name===n; })[0]; }
@@ -3974,13 +3986,66 @@ function kpSavePlan(){
 }
 
 
+
+// 💴 取引ごとの実績金額の明細（案シス売上）と編集
+function kpSalesOpen(id){
+  var d=KP.deals.filter(function(x){return x.id===id;})[0]; if(!d) return;
+  var rows=(KP.sales||[]).filter(function(x){return x.deal_id===id;}).sort(function(a,b){return a.decided_at<b.decided_at?-1:1;});
+  var adj=(KP.adj||[]).filter(function(x){return x.deal_id===id;});
+  var td='padding:5px 8px;font-size:13px;vertical-align:middle;';
+  var h='<div style="background:#fffaf0;border:1px solid #fbd38d;border-radius:8px;padding:12px 14px;margin-bottom:12px;">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><b>💴 '+esc(d.company)+' の実績金額（取引開始 '+esc(d.start_date)+' 以降）</b><button class="btn btn-sm" onclick="el(\'kpSales\').innerHTML=\'\'">閉じる</button></div>'
+    + '<table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid var(--line);color:var(--muted);font-size:12px;text-align:left;"><th style="'+td+'">決定日</th><th style="'+td+'">企業（案シス）</th><th style="'+td+'">案シスの金額</th><th style="'+td+'">KPIで使う金額</th><th style="'+td+'">メモ</th><th style="'+td+'"></th></tr></thead><tbody>'
+    + (rows.length?rows.map(function(x){
+        return '<tr style="border-bottom:1px solid var(--line);"><td style="'+td+'">'+esc(x.decided_at)+'</td><td style="'+td+'">'+esc(x.client_name||'')+'</td><td style="'+td+'">'+kpNum(x.subtotal)+'円</td>'
+          + '<td style="'+td+'"><input type="number" id="kpOv_'+esc(x.sales_id)+'" value="'+(x.override_amount!=null?x.override_amount:'')+'" placeholder="'+kpNum(x.subtotal)+'" style="width:100px;"> 円'+(x.override_amount!=null?' <span style="color:#b7791f;font-size:11px;">修正済み</span>':'')+'</td>'
+          + '<td style="'+td+'"><input id="kpOvM_'+esc(x.sales_id)+'" value="'+esc(x.override_memo||'')+'" placeholder="修正理由" style="width:160px;"></td>'
+          + '<td style="'+td+'white-space:nowrap;"><button class="btn btn-sm" onclick="kpOvSave(\''+esc(x.sales_id)+'\','+id+')">保存</button>'+(x.override_amount!=null?' <button class="btn btn-sm" onclick="kpOvClear(\''+esc(x.sales_id)+'\','+id+')">案シスの金額に戻す</button>':'')+'</td></tr>';
+      }).join(''):'<tr><td colspan="6" class="sub" style="'+td+'">案シスの売上（決定報告）はまだありません。</td></tr>')
+    + adj.map(function(x){
+        return '<tr style="border-bottom:1px solid var(--line);background:#f7fafc;"><td style="'+td+'">'+esc(x.day)+'</td><td style="'+td+'"><span class="sub">手入力</span></td><td style="'+td+'">—</td><td style="'+td+'">'+kpNum(x.amount)+' 円</td><td style="'+td+'">'+esc(x.memo||'')+'</td><td style="'+td+'"><button class="btn btn-sm" style="color:#c53030;" onclick="kpAdjDel('+x.id+','+id+')">削除</button></td></tr>';
+      }).join('')
+    + '</tbody></table>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;font-size:12px;"><b style="align-self:center;">＋案シスに無い売上を追加：</b>'
+    + '<label>日付<br><input type="date" id="kpAdjDay" value="'+kpToday()+'"></label>'
+    + '<label>金額（円）<br><input type="number" id="kpAdjAmt" style="width:110px;"></label>'
+    + '<label>メモ<br><input id="kpAdjMemo" style="width:200px;" placeholder="例：〇〇さん 認定1名"></label>'
+    + '<button class="btn btn-sm" onclick="kpAdjAdd('+id+')">追加</button></div>'
+    + '<div class="sub" style="font-size:11px;margin-top:6px;">「KPIで使う金額」を入れると、KPIの実績はその金額で集計されます（空欄なら案シスの金額）。案シスの売上データそのものは変更されません。</div></div>';
+  el('kpSales').innerHTML=h; el('kpSales').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function kpReloadSales(id){
+  Promise.all([_sb.rpc('eigyo_deal_sales'), _sb.from('eigyo_deal_adjust').select('*').order('day',{ascending:true})]).then(function(rs){
+    KP.sales=rs[0].data||[]; KP.adj=rs[1].data||[]; kpRender(); kpSalesOpen(id);
+  });
+}
+function kpOvSave(sid,id){
+  var v=el('kpOv_'+sid).value.trim(), m=el('kpOvM_'+sid).value.trim();
+  if(v===''){ kpOvClear(sid,id); return; }
+  _sb.from('eigyo_sales_override').upsert({sales_id:sid, amount:parseInt(v,10), memo:m||null, updated_by:me||null, updated_at:new Date().toISOString()})
+    .then(function(r){ if(r.error){ alert('保存エラー：'+r.error.message); return; } autosaveToast('金額を修正しました'); kpReloadSales(id); });
+}
+function kpOvClear(sid,id){
+  _sb.from('eigyo_sales_override').delete().eq('sales_id',sid).then(function(r){ if(r.error){ alert('エラー：'+r.error.message); return; } autosaveToast('案シスの金額に戻しました'); kpReloadSales(id); });
+}
+function kpAdjAdd(id){
+  var day=el('kpAdjDay').value, amt=parseInt(el('kpAdjAmt').value,10);
+  if(!day||!(amt||amt===0)){ alert('日付と金額を入力してください'); return; }
+  _sb.from('eigyo_deal_adjust').insert({deal_id:id, day:day, amount:amt, memo:el('kpAdjMemo').value.trim()||null, created_by:me||null})
+    .then(function(r){ if(r.error){ alert('保存エラー：'+r.error.message); return; } autosaveToast('売上を追加しました'); kpReloadSales(id); });
+}
+function kpAdjDel(aid,id){
+  if(!confirm('この手入力の売上を削除しますか？')) return;
+  _sb.from('eigyo_deal_adjust').delete().eq('id',aid).then(function(r){ if(r.error){ alert('エラー：'+r.error.message); return; } autosaveToast('削除しました'); kpReloadSales(id); });
+}
+
 /* ================= 🗓 週次Mtg（アジェンダ） ================= */
 var MT = { week:null, data:{}, prev:{}, leads:[], staff:'all' };
 function mtWeekDefault(){ var dw=new Date().getDay(); return (dw===0||dw===6) ? kpMon(kpToday()) : kpAddD(kpMon(kpToday()),-7); } // 平日は先週、土日はその週
 function mtLabel(w){ var a=kpD(w), b=kpD(kpAddD(w,6)); return (a.getMonth()+1)+'/'+a.getDate()+'（月）〜'+(b.getMonth()+1)+'/'+b.getDate()+'（日）'; }
 function mtDealStat(d){
   var P=KP.plan, t=kpToday(), a={nh:0,ko:0,rev:0};
-  KP.counts.forEach(function(c){ if(c.deal_id!==d.id) return; if(c.app_type==='更新'){a.ko+=c.cnt;a.rev+=c.cnt*d.price_ko;} else {a.nh+=c.cnt;a.rev+=c.cnt*d.price_nh;} });
+  KP.counts.forEach(function(c){ if(c.deal_id!==d.id) return; if(c.app_type==='更新') a.ko+=c.cnt; else a.nh+=c.cnt; }); a.rev=kpDealRev(d);
   var days=d.start_date<=t?kpDays(d.start_date,t):0;
   var enh=d.supporters*P.per100_nh/100*days/30.4375, eko=d.supporters*P.per100_ko_year/100*days/365.25;
   return { days:days, a:a, enh:enh, eko:eko, warn: days>=30 && (a.nh+a.ko)<(enh+eko)*0.7 };
@@ -4000,11 +4065,13 @@ function mtLoad(){
     _sb.rpc('eigyo_deal_case_counts'),
     _sb.from('eigyo_weekly_mtg').select('*').in('week_start',[MT.week,prevW]),
     _sb.from('eigyo_leads').select('reg_no,name,status,staff,lead_rank,supporter_count,expected_supporter,apt_at,meeting_date,next_action,next_action_date,attack100,attack_nb,attack_km')
-      .or('attack100.eq.true,attack_nb.eq.true,attack_km.eq.true')
+      .or('attack100.eq.true,attack_nb.eq.true,attack_km.eq.true'),
+    _sb.rpc('eigyo_deal_sales'),
+    _sb.from('eigyo_deal_adjust').select('*')
   ]).then(function(rs){
     var err=rs.filter(function(r){return r.error;})[0];
     if(err){ el('mtRoot').innerHTML='<span class="sub">読み込みエラー：'+esc(err.error.message)+'</span>'; return; }
-    KP.plan=rs[0].data; KP.deals=rs[1].data||[]; KP.counts=rs[2].data||[];
+    KP.plan=rs[0].data; KP.deals=rs[1].data||[]; KP.counts=rs[2].data||[]; KP.sales=rs[5].data||[]; KP.adj=rs[6].data||[];
     MT.data={}; MT.prev={};
     (rs[3].data||[]).forEach(function(r){ if(r.week_start===MT.week) MT.data=r.data||{}; else MT.prev=r.data||{}; });
     MT.leads=(rs[4].data||[]).filter(function(l){ return ['契約中','見込みなし','対象外'].indexOf(l.status)<0; });
