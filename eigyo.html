@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260928.10</div>
+      <div class="ver">ver.20260928.11</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -4186,6 +4186,7 @@ function mtExp(reg,v){
     MT.leads.forEach(function(l){ if(l.reg_no===reg) l.expected_supporter=n; }); autosaveToast('想定支援者数を保存しました'); mtRender();
   });
 }
+function mtSetAtk(k){ MT.atk=k; mtRender(); }
 function mtRender(){
   var box=el('mtRoot'), P=KP.plan; if(!box) return;
   if(!P){ box.innerHTML='<span class="sub">KPIの計画データがありません</span>'; return; }
@@ -4260,15 +4261,25 @@ function mtRender(){
       : '<div class="sub" style="font-size:13px;">まだ取引がありません。</div>')
     + '<div class="sub" style="font-size:11px;margin-top:6px;">依頼 想定・実績は「認定・変更 / 更新」の件数（取引開始〜今日）。依頼が少ない順に並んでいます。</div></div>';
 
-  // ④ 来週の見込み（営業リストの商談中・アタックリスト）
+  // ④ 来週の見込み（アタックリスト：区分S/中林/亀谷で切替）
   var nx=MT.data.next||{};
-  var lv=MT.leads.filter(function(l){ if(MT.staff==='all') return true; if(MT.staff===KP_STAFF[0]) return !!l.attack_nb; if(MT.staff===KP_STAFF[1]) return !!l.attack_km; return l.staff===MT.staff; })
+  var atk = MT.atk || 'all';
+  var lv=MT.leads.filter(function(l){
+      if(atk==='S')  return !!l.attack100;
+      if(atk==='nb') return !!l.attack_nb;
+      if(atk==='km') return !!l.attack_km;
+      return !!(l.attack100||l.attack_nb||l.attack_km); // all
+    })
     .sort(function(a,b){ return (nx[b.reg_no]?1:0)-(nx[a.reg_no]?1:0) || String(a.status).localeCompare(String(b.status)) || String(a.name).localeCompare(String(b.name)); });
   var nxSum=0, nxCnt=0; lv.forEach(function(l){ if(nx[l.reg_no]){ nxCnt++; nxSum+=(l.expected_supporter||l.supporter_count||0); } });
+  function atkBtn(k,label){ return '<button class="btn btn-sm" onclick="mtSetAtk(\''+k+'\')" style="'+(atk===k?'background:var(--accent);color:#fff;border-color:var(--accent);':'')+'">'+label+'</button>'; }
   var s4='<div style="'+card+'">'+head('4','来週の見込み','5分','アタックリストの中から来週契約できそうな会社にチェック')
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">'
+    +   atkBtn('all','全体')+atkBtn('S','アタックS')+atkBtn('nb','中林')+atkBtn('km','亀谷')
+    + '</div>'
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
     + big('来週の契約見込み', nxCnt+'社 ／ '+kpNum(nxSum)+'人', '週の目標 '+kpNum(MT.staff==='all'?wkT:wkT/KP_STAFF.length)+'人 → '+kpPct(nxSum,MT.staff==='all'?wkT:wkT/KP_STAFF.length))
-    + big('アタックリスト', lv.length+'社', MT.staff==='all'?'アタックS・中林・亀谷':(MT.staff===KP_STAFF[0]?'アタック中林':'アタック亀谷'))
+    + big('アタックリスト', lv.length+'社', atk==='all'?'アタックS・中林・亀谷':(atk==='S'?'アタックS':(atk==='nb'?'アタック中林':'アタック亀谷')))
     + '</div>'
     + (lv.length?'<div style="overflow-x:auto;max-height:420px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;position:sticky;top:0;background:#fff;"><th style="'+th+'">来週見込み</th><th style="'+th+'">企業名</th><th style="'+th+'">ステータス</th><th style="'+th+'">ランク</th><th style="'+th+'">担当</th><th style="'+th+'">支援者数</th><th style="'+th+'">次のアクション</th></tr></thead><tbody>'
       + lv.map(function(l){ var on=!!nx[l.reg_no];
