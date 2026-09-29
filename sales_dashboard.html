@@ -106,6 +106,11 @@ table.list tr:hover td { background:#f8fafc; }
 .chip.st-入金済 { background:var(--green-soft); color:var(--green); }
 .link { color:var(--accent); cursor:pointer; font-weight:600; }
 .empty { padding:40px; text-align:center; color:var(--sub); }
+.app-st { display:inline-block; font-size:10.5px; font-weight:700; border-radius:4px; padding:1px 6px; white-space:nowrap; text-decoration:none; background:#f1f5f9; color:var(--sub); }
+.app-st.done { background:var(--green-soft); color:var(--green); }
+.app-st.wait { background:var(--accent-soft); color:var(--accent); }
+.app-st.alert { background:var(--red-soft); color:var(--red); }
+.app-st.none { background:transparent; color:#cbd5e1; font-weight:400; }
 .warn-badge { display:inline-block; font-size:10px; background:var(--amber-soft); color:var(--amber); border-radius:4px; padding:1px 6px; font-weight:700; margin-left:6px; }
 
 /* ---- MODAL ---- */
@@ -158,7 +163,7 @@ table.list tr:hover td { background:#f8fafc; }
   <aside class="side">
     <div class="brand">
       <h1>売上管理システム</h1>
-      <span class="ver">ver.20260929.04</span>
+      <span class="ver">ver.20260929.08</span>
     </div>
     <nav class="nav">
       <div class="nav-item active" data-page="dash" onclick="showPage('dash')"><span class="ic">📊</span><span class="txt">ダッシュボード</span></div>
@@ -233,6 +238,7 @@ table.list tr:hover td { background:#f8fafc; }
               <th>請求先</th>
               <th>明細</th>
               <th>申請人</th>
+              <th>申請ステータス</th>
               <th class="num">税抜</th>
               <th class="num">消費税</th>
               <th class="num">請求額<br><span style="font-weight:400;font-size:10px">税込＋印紙</span></th>
@@ -276,6 +282,7 @@ table.list tr:hover td { background:#f8fafc; }
               <th>支援機関／受入企業</th>
               <th>請求先</th>
               <th>申請人</th>
+              <th>申請ステータス</th>
               <th>品名</th>
               <th class="num">申請費用</th>
               <th class="num">印紙</th>
@@ -475,6 +482,7 @@ let companies = [];
 let staffUsers = [];
 let supportOrgs = [];
 let pendings = [];     // pending_sales（許可後請求）
+let caseIdx = null;    // 申請人名(正規化) → cases[]（新しい順）。申請ステータス表示用
 let editingId = null;
 
 // Supabase Auth（index.htmlと同じアカウント）。RLSはauthenticatedのみ書込可のため必須
@@ -602,6 +610,42 @@ async function loadAll() {
   render();
   renderClients();
   renderPending();
+  if (!caseIdx) loadCaseStatuses();
+}
+
+/* ================= 申請ステータス（案件管理システムの cases.status） ================= */
+function normName(v) { return String(v == null ? '' : v).replace(/[\s　]/g, '').toUpperCase(); }
+async function loadCaseStatuses() {
+  const rows = await fetchAllRows('cases?select=id,applicant,company,app_type,status,created_at&order=created_at.desc');
+  const idx = {};
+  for (const c of rows) {
+    const k = normName(c.applicant);
+    if (!k) continue;
+    (idx[k] = idx[k] || []).push(c);
+  }
+  idx.__byId = Object.fromEntries(rows.map(c => [c.id, c]));
+  caseIdx = idx;
+  render();
+  renderPending();
+}
+// 申請人名で案件を探す。受入企業・請求先の名前が一致する案件を優先、なければ最新の案件
+function findCase(applicant, companyNames, caseId) {
+  if (!caseIdx) return undefined;
+  if (caseId && caseIdx.__byId[caseId]) return caseIdx.__byId[caseId];
+  const list = caseIdx[normName(applicant)];
+  if (!list || !list.length) return null;
+  const names = (companyNames || []).map(normalizeCompanyName).filter(Boolean);
+  return list.find(c => names.includes(normalizeCompanyName(c.company))) || list[0];
+}
+function appStatusHtml(cs) {
+  if (cs === undefined) return '<span class="app-st none">…</span>';
+  if (!cs) return '<span class="app-st none" title="案件管理システムに同名の申請人が見つかりません">案件なし</span>';
+  const st = cs.status || '未設定';
+  const cls = /完了|許可済|郵送交付|窓口受取/.test(st) ? 'done'
+    : /不許可|取下/.test(st) ? 'alert'
+    : /審査中|申請済|★申請|追完/.test(st) ? 'wait' : '';
+  const tip = [cs.company, cs.app_type, '案件を開く'].filter(Boolean).join(' ／ ');
+  return `<a class="app-st ${cls}" href="index.html?case=${encodeURIComponent(cs.id)}" target="_blank" rel="noopener" title="${esc(tip)}">${esc(st)}</a>`;
 }
 
 function fillDatalists() {
@@ -710,7 +754,8 @@ function filteredSales() {
     if (st && (s.invoice_status || '未発行') !== st) return false;
     if (q) {
       const hay = [s.client_name, s.company_name, s.client_dept, s.support_org, s.staff, s.memo,
-        ...(s.sale_items || []).flatMap(i => [i.item_name, i.applicant, i.detail])]
+        ...(s.sale_items || []).flatMap(i => [i.item_name, i.applicant, i.detail,
+          i.applicant ? ((findCase(i.applicant, [s.company_name, s.client_name]) || {}).status || '') : ''])]
         .join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
     }
@@ -724,17 +769,20 @@ function render() {
   body.innerHTML = list.map(s => {
     const c = calcSale(s.sale_items || [], s.kb_amount);
     const st = s.invoice_status || '未発行';
-    const lines = [], appLines = [];
+    const lines = [], appLines = [], stLines = [];
+    const coNames = [s.company_name, s.client_name];
     for (const i of (s.sale_items || [])) {
       const amt = (Number(i.unit_price) || 0) * (Number(i.qty) || 0);
       if (i.item_name || i.unit_price) {
         lines.push(`<div class="item-line"><span class="il-name">${esc(i.item_name)}</span><span class="il-amt">${yen(amt)}</span></div>`);
         appLines.push(`<div class="item-line"><span class="il-name">${esc(i.applicant || '-')}</span></div>`);
+        stLines.push(`<div class="item-line">${i.applicant ? appStatusHtml(findCase(i.applicant, coNames)) : '<span class="il-name">-</span>'}</div>`);
       }
       const stampAmt = (Number(i.stamp_price) || 0) * (Number(i.stamp_qty) || 0);
       if (stampAmt > 0) {
         lines.push(`<div class="item-line stamp"><span class="il-name">収入印紙${(Number(i.stamp_qty) || 0) > 1 ? ` ×${i.stamp_qty}` : ''}</span><span class="il-amt">${yen(stampAmt)}</span></div>`);
         appLines.push(`<div class="item-line stamp"><span class="il-name">${esc(i.applicant || '')}&nbsp;</span></div>`);
+        stLines.push(`<div class="item-line"><span class="il-name">&nbsp;</span></div>`);
       }
     }
     // KB列：明細行と行位置を揃えて1明細ごとに表示（旧データは合計を1行で）
@@ -761,6 +809,7 @@ function render() {
       <td><b>${esc(s.client_name)}</b>${s.dr_message_id ? '<span class="warn-badge" style="background:var(--accent-soft);color:var(--accent)" title="決定報告から取込">📋</span>' : ''}${s.client_dept ? `<div style="font-size:11px;color:var(--sub)">${esc(s.client_dept)}</div>` : ''}</td>
       <td class="items-summary">${summary || '-'}</td>
       <td class="items-summary" style="min-width:90px;max-width:140px">${appCol || '-'}</td>
+      <td class="items-summary" style="min-width:90px">${stLines.join('') || '-'}</td>
       <td class="num">${yen(c.subtotal)}</td>
       <td class="num">${yen(c.tax)}</td>
       <td class="num"><b>${yen(c.total)}</b></td>
@@ -1469,6 +1518,7 @@ function renderPending() {
       <td><div style="font-size:11px;color:var(--sub)">${esc(x.support_org || '')}</div>${esc(x.company_name || '')}</td>
       <td>${esc(x.client_name || '')}</td>
       <td>${esc(x.applicant || '')}</td>
+      <td>${x.applicant || x.case_id ? appStatusHtml(findCase(x.applicant, [x.company_name, x.client_name], x.case_id)) : '-'}</td>
       <td style="font-size:12px">${esc(x.item_name || '')}</td>
       <td class="num">${yen((x.unit_price || 0) * (x.qty || 1))}</td>
       <td class="num">${(x.stamp_price || 0) * (x.stamp_qty || 0) ? yen((x.stamp_price || 0) * (x.stamp_qty || 0)) : '-'}</td>
@@ -1477,7 +1527,7 @@ function renderPending() {
       <td style="font-size:12px">${esc(x.staff || '')}</td>
       <td style="white-space:nowrap;font-size:12px">${ops}</td>
     </tr>`;
-  }).join('') : '<tr><td colspan="12" style="padding:16px;color:var(--sub)">該当する許可後請求はありません</td></tr>';
+  }).join('') : '<tr><td colspan="13" style="padding:16px;color:var(--sub)">該当する許可後請求はありません</td></tr>';
 }
 async function setPendingStatus(id, status) {
   const r = await fetch(`${SB_URL}/rest/v1/pending_sales?id=eq.${encodeURIComponent(id)}`, {
