@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260928.12</div>
+      <div class="ver">ver.20260928.13</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -258,6 +258,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <button id="tabSeminar" class="mtab" onclick="openSeminar()">🎓 セミナー</button>
     <button id="tabKpi2" class="mtab" onclick="openKpiTab()">📊 KPI</button>
     <button id="tabMtg" class="mtab" onclick="openMtgTab()">🗓 週次Mtg</button>
+    <button id="tabKanban" class="mtab" onclick="openKanban()">🗂 タスク</button>
   </div>
 
   <div id="leadsPane">
@@ -343,6 +344,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
   <div id="attackPane" style="display:none;"></div>
   <div id="seminarPane" style="display:none;"></div>
   <div id="kpiPane" style="display:none;"></div>
+  <div id="kanbanPane" style="display:none;"></div>
   <div id="mtgPane" style="display:none;"></div>
 </div>
 
@@ -4392,6 +4394,108 @@ function exportSeminarCsv(){
   var blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8;'});
   var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='セミナー_'+(_semSel||'all')+'.csv'; document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },100);
 }
+/* ===== 🗂 タスク（Trello風カンバン：eigyo_kanban） ===== */
+var KANBAN_LANES=[{k:'todo',t:'ToDo',c:'#3182ce'},{k:'doing',t:'進行中',c:'#dd6b20'},{k:'done',t:'完了',c:'#38a169'}];
+var KANBAN_ASSIGNEES=['','中林','亀谷','共通'];
+var _kbFilter='all';   // all/中林/亀谷/共通
+var _kbData=[];
+function openKanban(){
+  var pane=el('kanbanPane'); if(!pane) return;
+  switchMain('kanban'); loadKanban();
+}
+function loadKanban(){
+  _sb.from('eigyo_kanban').select('*').order('lane',{ascending:true}).order('ord',{ascending:true}).then(function(r){
+    _kbData=(r.data)||[]; renderKanban();
+  });
+}
+function kbFilter(f){ _kbFilter=f; renderKanban(); }
+function renderKanban(){
+  var pane=el('kanbanPane'); if(!pane) return;
+  function fbtn(k,label){ return '<button class="btn btn-sm" onclick="kbFilter(\''+k+'\')" style="'+(_kbFilter===k?'background:var(--accent);color:#fff;border-color:var(--accent);':'')+'">'+label+'</button>'; }
+  var h='<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">'
+    + '<h2 style="margin:0;font-size:18px;color:var(--accent);">🗂 タスク</h2>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;">'+fbtn('all','全体')+fbtn('中林','中林')+fbtn('亀谷','亀谷')+fbtn('共通','共通')+'</div>'
+    + '</div>';
+  h+='<div style="display:flex;gap:12px;align-items:flex-start;overflow-x:auto;padding-bottom:8px;">';
+  KANBAN_LANES.forEach(function(L){
+    var cards=_kbData.filter(function(c){ return c.lane===L.k && (_kbFilter==='all' || (c.assignee||'共通')===_kbFilter); });
+    h+='<div class="kb-lane" data-lane="'+L.k+'" ondragover="kbOver(event)" ondrop="kbDrop(event,\''+L.k+'\')" style="flex:0 0 300px;min-width:280px;background:#f1f5f9;border-radius:10px;padding:10px;">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">'
+      +   '<div style="font-weight:700;font-size:14px;color:'+L.c+';">'+esc(L.t)+' <span class="sub" style="font-size:12px;">'+cards.length+'</span></div>'
+      + '</div>'
+      + '<div class="kb-cards" style="min-height:20px;display:flex;flex-direction:column;gap:8px;">';
+    cards.forEach(function(c){
+      var col = c.assignee==='中林'?'#3182ce':(c.assignee==='亀谷'?'#805ad5':'#718096');
+      h+='<div class="kb-card" draggable="true" ondragstart="kbDragStart(event,'+c.id+')" ondragend="kbDragEnd(event)" onclick="kbEdit('+c.id+')" style="background:#fff;border-radius:8px;padding:9px 11px;box-shadow:0 1px 3px rgba(0,0,0,.08);cursor:grab;border-left:3px solid '+col+';">'
+        + '<div style="font-size:13px;font-weight:600;white-space:pre-wrap;">'+esc(c.title)+'</div>'
+        + (c.memo?'<div class="sub" style="font-size:11px;margin-top:3px;white-space:pre-wrap;">'+esc(c.memo)+'</div>':'')
+        + (c.assignee?'<div style="margin-top:5px;"><span style="font-size:10px;font-weight:700;color:#fff;background:'+col+';padding:1px 7px;border-radius:10px;">'+esc(c.assignee)+'</span></div>':'')
+        + '</div>';
+    });
+    h+='</div>'
+      + '<div style="margin-top:8px;"><button class="btn btn-sm" style="width:100%;" onclick="kbAdd(\''+L.k+'\')">＋ カードを追加</button></div>'
+      + '</div>';
+  });
+  h+='</div>';
+  pane.innerHTML='<div style="background:#fff;border-radius:10px;padding:18px 20px;box-shadow:0 2px 6px rgba(0,0,0,.04);">'+h+'</div>';
+}
+var _kbDragId=null;
+function kbDragStart(e,id){ _kbDragId=id; e.dataTransfer.effectAllowed='move'; if(e.target.style) e.target.style.opacity='0.5'; }
+function kbDragEnd(e){ if(e.target.style) e.target.style.opacity=''; }
+function kbOver(e){ e.preventDefault(); e.dataTransfer.dropEffect='move'; }
+function kbDrop(e,lane){
+  e.preventDefault();
+  if(_kbDragId==null) return;
+  var id=_kbDragId; _kbDragId=null;
+  var card=_kbData.filter(function(c){return c.id===id;})[0]; if(!card) return;
+  if(card.lane===lane){ return; }
+  // 移動先レーンの末尾のordを計算
+  var maxOrd=0; _kbData.forEach(function(c){ if(c.lane===lane && c.ord>maxOrd) maxOrd=c.ord; });
+  card.lane=lane; card.ord=maxOrd+1; renderKanban();
+  _sb.from('eigyo_kanban').update({lane:lane, ord:maxOrd+1, updated_at:new Date().toISOString()}).eq('id',id).then(function(r){
+    if(r.error){ autosaveToast('保存失敗：'+r.error.message,'#c53030'); loadKanban(); }
+    else autosaveToast('✓ 移動しました');
+  });
+}
+function kbAdd(lane){
+  var title=prompt('カードのタイトル'); if(!title||!title.trim()) return;
+  var assignee = (_kbFilter==='中林'||_kbFilter==='亀谷'||_kbFilter==='共通')?_kbFilter:null;
+  var maxOrd=0; _kbData.forEach(function(c){ if(c.lane===lane && c.ord>maxOrd) maxOrd=c.ord; });
+  _sb.from('eigyo_kanban').insert({title:title.trim(), lane:lane, assignee:assignee, ord:maxOrd+1}).then(function(r){
+    if(r.error){ alert('追加失敗：'+r.error.message); return; } autosaveToast('✓ 追加しました'); loadKanban();
+  });
+}
+function kbEdit(id){
+  var c=_kbData.filter(function(x){return x.id===id;})[0]; if(!c) return;
+  var box=el('kbEditBox');
+  if(!box){
+    box=document.createElement('div'); box.id='kbEditBox';
+    box.style.cssText='display:none;position:fixed;z-index:80;top:50%;left:50%;transform:translate(-50%,-50%);width:min(420px,94vw);background:#fff;border-radius:12px;padding:20px 22px;box-shadow:0 8px 40px rgba(0,0,0,.25);';
+    document.body.appendChild(box);
+    var ov=document.createElement('div'); ov.id='kbEditOv'; ov.className='overlay'; ov.style.zIndex='79'; ov.onclick=kbCloseEdit; document.body.appendChild(ov);
+  }
+  box.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;"><h3 style="margin:0;font-size:16px;color:var(--accent);">カードを編集</h3><button class="btn btn-sm" onclick="kbCloseEdit()">閉じる</button></div>'
+    + '<label style="font-size:12px;color:var(--muted);">タイトル</label><input type="text" id="kbeTitle" value="'+esc(c.title)+'" style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line);border-radius:6px;margin-bottom:8px;">'
+    + '<label style="font-size:12px;color:var(--muted);">メモ</label><textarea id="kbeMemo" style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line);border-radius:6px;min-height:70px;margin-bottom:8px;">'+esc(c.memo||'')+'</textarea>'
+    + '<label style="font-size:12px;color:var(--muted);">担当</label><select id="kbeAssignee" style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line);border-radius:6px;margin-bottom:12px;">'+KANBAN_ASSIGNEES.map(function(a){return '<option'+((a===(c.assignee||''))?' selected':'')+'>'+esc(a||'（なし）')+'</option>';}).join('')+'</select>'
+    + '<div style="display:flex;justify-content:space-between;"><button class="btn" style="color:#c53030;" onclick="kbDelete('+id+')">削除</button><button class="btn btn-primary" onclick="kbSaveEdit('+id+')">保存</button></div>';
+  box.style.display='block'; el('kbEditOv').classList.add('on');
+}
+function kbCloseEdit(){ var b=el('kbEditBox'); if(b) b.style.display='none'; var o=el('kbEditOv'); if(o) o.classList.remove('on'); }
+function kbSaveEdit(id){
+  var t=el('kbeTitle').value.trim(); if(!t){ alert('タイトルを入力してください'); return; }
+  var a=el('kbeAssignee').value; if(a==='（なし）'||a==='') a=null;
+  _sb.from('eigyo_kanban').update({title:t, memo:el('kbeMemo').value.trim()||null, assignee:a, updated_at:new Date().toISOString()}).eq('id',id).then(function(r){
+    if(r.error){ alert('保存失敗：'+r.error.message); return; } kbCloseEdit(); autosaveToast('✓ 保存しました'); loadKanban();
+  });
+}
+function kbDelete(id){
+  if(!confirm('このカードを削除しますか？')) return;
+  _sb.from('eigyo_kanban').delete().eq('id',id).then(function(r){
+    if(r.error){ alert('削除失敗：'+r.error.message); return; } kbCloseEdit(); autosaveToast('削除しました'); loadKanban();
+  });
+}
+
 function switchMain(which){
   KPI_PAGE = which;
   el('leadsPane').style.display = which==='leads' ? '' : 'none';
@@ -4406,6 +4510,8 @@ function switchMain(which){
   if(el('tabKpi2')) el('tabKpi2').className = 'mtab' + (which==='kpi2'?' mtab-on':'');
   if(el('mtgPane')) el('mtgPane').style.display = which==='mtg' ? '' : 'none';
   if(el('tabMtg')) el('tabMtg').className = 'mtab' + (which==='mtg'?' mtab-on':'');
+  if(el('kanbanPane')) el('kanbanPane').style.display = which==='kanban' ? '' : 'none';
+  if(el('tabKanban')) el('tabKanban').className = 'mtab' + (which==='kanban'?' mtab-on':'');
   el('tabLeads').className = 'mtab' + (which==='leads'?' mtab-on':'');
   if(el('tabMaterials')) el('tabMaterials').className = 'mtab' + (which==='materials'?' mtab-on':'');
   ATTACK_KINDS.forEach(function(k){ var t=el(k.tab); if(t) t.className='mtab'+((which==='attack'&&_attackKind===k.key)?' mtab-on':''); });
