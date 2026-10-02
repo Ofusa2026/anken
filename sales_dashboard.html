@@ -111,6 +111,10 @@ table.list tr:hover td { background:#f8fafc; }
 .app-st.wait { background:var(--accent-soft); color:var(--accent); }
 .app-st.alert { background:var(--red-soft); color:var(--red); }
 .app-st.none { background:transparent; color:#cbd5e1; font-weight:400; }
+.mf-items td { background:#fafbfc; font-size:12px; }
+.mf-row { cursor:pointer; }
+.diff-pos { color:var(--green); font-weight:700; }
+.diff-neg { color:var(--red); font-weight:700; }
 .warn-badge { display:inline-block; font-size:10px; background:var(--amber-soft); color:var(--amber); border-radius:4px; padding:1px 6px; font-weight:700; margin-left:6px; }
 
 /* ---- MODAL ---- */
@@ -163,11 +167,12 @@ table.list tr:hover td { background:#f8fafc; }
   <aside class="side">
     <div class="brand">
       <h1>売上管理システム</h1>
-      <span class="ver">ver.20260929.08</span>
+      <span class="ver">ver.20261002.01</span>
     </div>
     <nav class="nav">
       <div class="nav-item active" data-page="dash" onclick="showPage('dash')"><span class="ic">📊</span><span class="txt">ダッシュボード</span></div>
-      <div class="nav-item" data-page="sales" onclick="showPage('sales')"><span class="ic">💴</span><span class="txt">売上管理</span></div>
+      <div class="nav-item" data-page="sales" onclick="showPage('sales')"><span class="ic">💴</span><span class="txt">売上管理(速報)</span></div>
+      <div class="nav-item" data-page="confirmed" onclick="showPage('confirmed')"><span class="ic">📑</span><span class="txt">売上管理(確定値)</span></div>
       <div class="nav-item" data-page="clients" onclick="showPage('clients')"><span class="ic">🏢</span><span class="txt">取引先一覧</span></div>
       <div class="nav-item" data-page="pending" onclick="showPage('pending')"><span class="ic">⏳</span><span class="txt">許可待ち <span id="pendingBadge" style="font-size:11px;opacity:.8"></span></span></div>
     </nav>
@@ -208,7 +213,7 @@ table.list tr:hover td { background:#f8fafc; }
     <!-- ===== 売上管理 ===== -->
     <section class="page" id="page-sales">
       <div class="pagebar">
-        <h2>売上管理</h2>
+        <h2>売上管理(速報)</h2>
         <span class="spacer"></span>
         <button class="btn" onclick="openDrImport()">📋 決定報告から取込</button>
         <button class="btn" onclick="openKbSettings()">KB設定</button>
@@ -250,6 +255,69 @@ table.list tr:hover td { background:#f8fafc; }
             <tbody id="salesBody"></tbody>
           </table>
           <div class="empty" id="emptyMsg" style="display:none">該当する売上がありません</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 売上管理(確定値)：マネフォ請求書の取込 ===== -->
+    <section class="page" id="page-confirmed">
+      <div class="pagebar">
+        <h2>売上管理(確定値)</h2>
+        <span class="spacer"></span>
+        <span style="font-size:11px;color:var(--sub)" id="mfLastImport"></span>
+        <label class="btn btn-primary" style="cursor:pointer">📥 マネフォ請求書CSVを取込<input type="file" accept=".csv" style="display:none" onchange="importMfCsv(this)"></label>
+      </div>
+      <div class="wrap">
+        <div style="font-size:11.5px;color:var(--sub);margin-bottom:12px">マネーフォワード請求書の「請求書一覧」CSVを取り込んだ確定値です（売上計上日の月で集計）。アイデム・KMTなど速報に入らない案件も含みます。同じ請求書番号は取込のたびに上書きされます。</div>
+        <div class="kpi-grid">
+          <div class="kpi"><div class="k-label">売上（税抜・印紙など除く）</div><div class="k-value" id="cfSales">-</div><div class="k-sub" id="cfDiff"></div></div>
+          <div class="kpi"><div class="k-label">請求合計（税込＋印紙など）</div><div class="k-value" id="cfTotal">-</div><div class="k-sub" id="cfTaxStamp"></div></div>
+          <div class="kpi"><div class="k-label">請求書</div><div class="k-value" id="cfCount">-</div><div class="k-sub" id="cfClients"></div></div>
+          <div class="kpi"><div class="k-label">未入金（入金済み以外）</div><div class="k-value" id="cfUnpaid">-</div><div class="k-sub" id="cfUnpaidCnt"></div></div>
+        </div>
+        <div class="chart-card">
+          <div class="c-title">月別売上（確定値・税抜・直近12ヶ月）</div>
+          <div class="bars" id="cfBars"></div>
+        </div>
+        <div class="filter-bar">
+          <select id="cfMonth" onchange="renderConfirmed()"></select>
+          <select id="cfPay" onchange="renderConfirmed()">
+            <option value="">入金：すべて</option>
+            <option value="入金済み">入金済み</option>
+            <option value="未入金以外">入金済み以外</option>
+          </select>
+          <input type="search" id="cfSearch" placeholder="取引先・請求書番号・品名で検索" oninput="renderConfirmed()">
+          <span class="count-info" id="cfCountInfo"></span>
+        </div>
+        <div class="table-card" style="margin-bottom:18px">
+          <table class="list">
+            <thead><tr>
+              <th>取引先</th>
+              <th class="num">請求書</th>
+              <th class="num">売上（税抜）</th>
+              <th class="num">印紙など</th>
+              <th class="num">請求合計</th>
+              <th class="num">未入金</th>
+            </tr></thead>
+            <tbody id="cfClientBody"></tbody>
+          </table>
+        </div>
+        <div class="table-card">
+          <table class="list">
+            <thead><tr>
+              <th>請求書番号</th>
+              <th>取引先</th>
+              <th>請求日</th>
+              <th>売上計上日</th>
+              <th class="num">売上（税抜）</th>
+              <th class="num">印紙など</th>
+              <th class="num">消費税</th>
+              <th class="num">請求合計</th>
+              <th>入金</th>
+              <th>担当</th>
+            </tr></thead>
+            <tbody id="cfBody"></tbody>
+          </table>
         </div>
       </div>
     </section>
@@ -482,7 +550,9 @@ let companies = [];
 let staffUsers = [];
 let supportOrgs = [];
 let pendings = [];     // pending_sales（許可後請求）
-let caseIdx = null;    // 申請人名(正規化) → cases[]（新しい順）。申請ステータス表示用
+let caseIdx = null;
+let mfInv = null;      // mf_invoices（売上管理(確定値)）。初めて開いたときに読み込む
+const mfItemCache = {}; // 請求書番号 → 明細    // 申請人名(正規化) → cases[]（新しい順）。申請ステータス表示用
 let editingId = null;
 
 // Supabase Auth（index.htmlと同じアカウント）。RLSはauthenticatedのみ書込可のため必須
@@ -558,6 +628,7 @@ function showPage(name) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === name));
   if (name === 'clients') renderClients();
   if (name === 'pending') renderPending();
+  if (name === 'confirmed') { if (!mfInv) loadConfirmed(); else renderConfirmed(); }
 }
 
 /* ================= 読み込み ================= */
@@ -611,6 +682,181 @@ async function loadAll() {
   renderClients();
   renderPending();
   if (!caseIdx) loadCaseStatuses();
+}
+
+/* ================= 売上管理(確定値)：マネフォ請求書CSV ================= */
+const MF_TAXABLE = r => /%/.test(r || '');   // 10% / 8% / 軽8% は売上。非課税・不課税・対象外は印紙など立替
+async function loadConfirmed() {
+  mfInv = await fetchAllRows('mf_invoices?select=*&order=sales_date.desc,invoice_no.desc');
+  const months = [...new Set(mfInv.map(r => (r.sales_date || '').slice(0, 7)).filter(Boolean))].sort().reverse();
+  const sel = document.getElementById('cfMonth');
+  const keep = sel.value;
+  sel.innerHTML = '<option value="">全期間</option>' + months.map(m => `<option value="${m}">${m.replace('-', '年')}月</option>`).join('');
+  sel.value = keep && months.includes(keep) ? keep : (months[0] || '');
+  const last = mfInv.reduce((a, r) => (r.imported_at > a ? r.imported_at : a), '');
+  document.getElementById('mfLastImport').textContent = last ? '最終取込：' + new Date(last).toLocaleString('ja-JP') : 'まだ取り込まれていません';
+  renderConfirmed();
+}
+function renderConfirmed() {
+  if (!mfInv) return;
+  const ym = document.getElementById('cfMonth').value;
+  const pay = document.getElementById('cfPay').value;
+  const q = (document.getElementById('cfSearch').value || '').trim().toLowerCase();
+  const inMonth = mfInv.filter(r => !ym || (r.sales_date || '').startsWith(ym));
+  const list = inMonth.filter(r => {
+    if (pay === '入金済み' && r.payment_status !== '入金済み') return false;
+    if (pay === '未入金以外' && r.payment_status === '入金済み') return false;
+    if (!q) return true;
+    const its = mfItemCache[r.invoice_no] || [];
+    return [r.client_name, r.invoice_no, r.subject, r.memo, ...its.map(i => i.item_name + ' ' + i.detail)].join(' ').toLowerCase().includes(q);
+  });
+  const sum = (a, k) => a.reduce((t, r) => t + Number(r[k] || 0), 0);
+  // KPI（月の全件で計算。入金・検索の絞り込みは一覧だけに効く）
+  const salesAmt = sum(inMonth, 'sales_amount');
+  document.getElementById('cfSales').textContent = yen(salesAmt);
+  document.getElementById('cfTotal').textContent = yen(sum(inMonth, 'total'));
+  document.getElementById('cfTaxStamp').textContent = `消費税 ${yen(sum(inMonth, 'tax'))}／印紙など ${yen(sum(inMonth, 'nontax_amount'))}`;
+  document.getElementById('cfCount').textContent = inMonth.length + '件';
+  document.getElementById('cfClients').textContent = new Set(inMonth.map(r => r.client_name)).size + '社';
+  const unpaid = inMonth.filter(r => r.payment_status !== '入金済み');
+  document.getElementById('cfUnpaid').textContent = yen(sum(unpaid, 'total'));
+  document.getElementById('cfUnpaidCnt').textContent = unpaid.length + '件';
+  // 速報との差（同じ月の速報＝決定日ベースの税抜小計）
+  const diffEl = document.getElementById('cfDiff');
+  if (ym) {
+    const quick = sales.filter(s => (s.decided_at || '').startsWith(ym)).reduce((t, s) => t + calcSale(s.sale_items || [], s.kb_amount).subtotal, 0);
+    const d = salesAmt - quick;
+    diffEl.innerHTML = `速報 ${yen(quick)}／差 <span class="${d >= 0 ? 'diff-pos' : 'diff-neg'}">${d >= 0 ? '+' : '−'}${yen(Math.abs(d))}</span>`;
+  } else diffEl.textContent = '';
+  // 月別バー（直近12ヶ月）
+  const months = [...new Set(mfInv.map(r => (r.sales_date || '').slice(0, 7)).filter(Boolean))].sort().slice(-12);
+  const sums = months.map(m => mfInv.filter(r => (r.sales_date || '').startsWith(m)).reduce((t, r) => t + Number(r.sales_amount || 0), 0));
+  const max = Math.max(1, ...sums);
+  document.getElementById('cfBars').innerHTML = months.map((m, i) => {
+    const h = Math.round(sums[i] / max * 80);
+    const val = sums[i] ? Math.round(sums[i] / 10000) + '万' : '';
+    return `<div class="bar-col ${m === ym ? 'cur' : ''}" onclick="document.getElementById('cfMonth').value='${m}';renderConfirmed()" title="${m}: ${yen(sums[i])}">
+      <span class="bar-val">${val}</span><div class="bar" style="height:${h}px"></div><span class="bar-label">${Number(m.slice(5))}月</span></div>`;
+  }).join('');
+  // 取引先別
+  const by = {};
+  list.forEach(r => {
+    const b = by[r.client_name] = by[r.client_name] || { n: 0, s: 0, st: 0, t: 0, u: 0 };
+    b.n++; b.s += Number(r.sales_amount || 0); b.st += Number(r.nontax_amount || 0); b.t += Number(r.total || 0);
+    if (r.payment_status !== '入金済み') b.u += Number(r.total || 0);
+  });
+  document.getElementById('cfClientBody').innerHTML = Object.entries(by).sort((a, b) => b[1].s - a[1].s).map(([c, b]) => `<tr>
+    <td>${esc(c)}</td><td class="num">${b.n}</td><td class="num">${yen(b.s)}</td><td class="num">${yen(b.st)}</td><td class="num">${yen(b.t)}</td>
+    <td class="num" style="${b.u ? 'color:var(--red);font-weight:700' : ''}">${b.u ? yen(b.u) : '-'}</td></tr>`).join('')
+    || '<tr><td colspan="6" style="padding:16px;color:var(--sub)">データがありません</td></tr>';
+  // 請求書一覧
+  document.getElementById('cfCountInfo').textContent = `${list.length}件`;
+  document.getElementById('cfBody').innerHTML = list.map(r => `<tr class="mf-row" onclick="toggleMfItems('${esc(r.invoice_no)}', this)">
+    <td>${esc(r.invoice_no)}</td><td>${esc(r.client_name)}</td><td>${esc(r.invoice_date || '')}</td><td>${esc(r.sales_date || '')}</td>
+    <td class="num">${yen(Number(r.sales_amount))}</td><td class="num">${Number(r.nontax_amount) ? yen(Number(r.nontax_amount)) : '-'}</td>
+    <td class="num">${yen(Number(r.tax))}</td><td class="num"><b>${yen(Number(r.total))}</b></td>
+    <td><span class="chip" style="cursor:default;${r.payment_status === '入金済み' ? 'background:var(--green-soft);color:var(--green)' : 'background:var(--amber-soft);color:var(--amber)'}">${esc(r.payment_status || '未設定')}</span></td>
+    <td style="font-size:12px">${esc(r.staff || '')}</td></tr>`).join('')
+    || '<tr><td colspan="10" style="padding:16px;color:var(--sub)">該当する請求書はありません</td></tr>';
+}
+async function toggleMfItems(no, tr) {
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains('mf-items')) { next.remove(); return; }
+  if (!mfItemCache[no]) mfItemCache[no] = await fetchAllRows(`mf_invoice_items?select=*&invoice_no=eq.${encodeURIComponent(no)}&order=line_no`);
+  const its = mfItemCache[no];
+  const row = document.createElement('tr');
+  row.className = 'mf-items';
+  row.innerHTML = `<td></td><td colspan="9">${its.map(i => `<div class="item-line"><span class="il-name">${esc(i.item_name)}${i.detail ? ' <span style="color:var(--sub)">' + esc(i.detail) + '</span>' : ''}</span>
+    <span class="il-amt">${yen(Number(i.unit_price))} × ${Number(i.qty)}${esc(i.unit || '')} ＝ ${yen(Number(i.amount))}（${esc(i.tax_rate)}）</span></div>`).join('') || '明細なし'}</td>`;
+  tr.after(row);
+}
+// CSV（クォート内の改行・カンマ対応）
+function parseCsvText(text) {
+  const rows = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; }
+      else cur += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(cur); cur = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(cur); rows.push(row); row = []; cur = '';
+    } else cur += c;
+  }
+  if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+  return rows.filter(r => r.length > 1 || (r[0] || '').trim() !== '');
+}
+function decodeCsvBuffer(buf) {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf).replace(/^\uFEFF/, ''); }
+  catch (e) { return new TextDecoder('shift_jis').decode(buf); }
+}
+async function importMfCsv(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  const rows = parseCsvText(decodeCsvBuffer(await file.arrayBuffer()));
+  const H = rows[0] || [];
+  const need = ['行形式', '取引先名称', '請求日', '請求書番号', '売上計上日', '小計', '消費税', '合計金額', '品名', '金額', '品目消費税率'];
+  const miss = need.filter(h => !H.includes(h));
+  if (miss.length) { alert('マネフォ請求書の請求書一覧CSVではないようです（足りない列：' + miss.join('、') + '）'); return; }
+  const ix = Object.fromEntries(H.map((h, i) => [h, i]));
+  const g = (r, h) => (r[ix[h]] || '').trim();
+  const num = v => { const n = parseFloat(String(v).replace(/,/g, '')); return isNaN(n) ? 0 : n; };
+  const dt = v => (v ? v.replace(/\//g, '-').slice(0, 10) : null);
+  const invs = [], items = [];
+  let curInv = null, line = 0;
+  for (const r of rows.slice(1)) {
+    const kind = g(r, '行形式');
+    if (kind === '請求書') {
+      const no = g(r, '請求書番号');
+      if (!no) { curInv = null; continue; }
+      curInv = {
+        invoice_no: no, client_name: g(r, '取引先名称'), subject: g(r, '件名'),
+        invoice_date: dt(g(r, '請求日')), due_date: dt(g(r, 'お支払期限')), sales_date: dt(g(r, '売上計上日')) || dt(g(r, '請求日')),
+        memo: g(r, 'メモ'), tag: g(r, 'タグ'), subtotal: num(g(r, '小計')), tax: num(g(r, '消費税')), total: num(g(r, '合計金額')),
+        sales_amount: 0, nontax_amount: 0, staff: g(r, '自社担当者氏名'),
+        payment_status: g(r, '入金ステータス'), mail_status: g(r, 'メール送信ステータス'), item_count: 0
+      };
+      if (/^サンプル/.test(curInv.client_name)) { curInv = null; continue; }   // マネフォの見本データは取り込まない
+      invs.push(curInv); line = 0;
+    } else if (kind === '品目' && curInv) {
+      const amt = num(g(r, '金額')), rate = g(r, '品目消費税率');
+      if (MF_TAXABLE(rate)) curInv.sales_amount += amt; else curInv.nontax_amount += amt;
+      curInv.item_count++;
+      items.push({ invoice_no: curInv.invoice_no, line_no: ++line, delivery_date: dt(g(r, '納品日')), item_name: g(r, '品名'),
+        unit_price: num(g(r, '単価')), qty: num(g(r, '数量')), unit: g(r, '単位'), detail: g(r, '詳細').replace(/[\s　]+$/, ''), amount: amt, tax_rate: rate });
+    }
+  }
+  if (!invs.length) { alert('取り込める請求書がありませんでした'); return; }
+  const have = new Set((mfInv || await fetchAllRows('mf_invoices?select=invoice_no')).map(r => r.invoice_no));
+  const nNew = invs.filter(r => !have.has(r.invoice_no)).length;
+  const ds = invs.map(r => r.sales_date).filter(Boolean).sort();
+  if (!confirm(`マネフォ請求書 ${invs.length}件を取り込みます（新規 ${nNew}件／更新 ${invs.length - nNew}件）。\n売上計上日：${ds[0]}〜${ds.at(-1)}\n売上（税抜）合計：${yen(invs.reduce((t, r) => t + r.sales_amount, 0))}`)) return;
+  toast('取込中…');
+  const now = new Date().toISOString();
+  invs.forEach(r => { r.imported_at = now; r.updated_at = now; });
+  const post = async (path, body, prefer) => {
+    const res = await fetch(`${SB_URL}/rest/v1/${path}`, { method: 'POST', headers: sbHeaders(prefer ? { Prefer: prefer } : {}), body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(path + ': ' + res.status + ' ' + (await res.text()).slice(0, 200));
+  };
+  try {
+    for (let i = 0; i < invs.length; i += 500)
+      await post('mf_invoices?on_conflict=invoice_no', invs.slice(i, i + 500), 'resolution=merge-duplicates,return=minimal');
+    const nos = invs.map(r => r.invoice_no);
+    for (let i = 0; i < nos.length; i += 150) {
+      const inList = nos.slice(i, i + 150).map(n => '"' + n.replace(/"/g, '') + '"').join(',');
+      const res = await fetch(`${SB_URL}/rest/v1/mf_invoice_items?invoice_no=in.(${encodeURIComponent(inList)})`, { method: 'DELETE', headers: sbHeaders() });
+      if (!res.ok) throw new Error('明細の削除: ' + res.status);
+    }
+    for (let i = 0; i < items.length; i += 1000) await post('mf_invoice_items', items.slice(i, i + 1000));
+  } catch (e) {
+    console.error(e); alert('取込に失敗しました：' + e.message); return;
+  }
+  Object.keys(mfItemCache).forEach(k => delete mfItemCache[k]);
+  toast(`✅ ${invs.length}件を取り込みました`);
+  await loadConfirmed();
 }
 
 /* ================= 申請ステータス（案件管理システムの cases.status） ================= */
