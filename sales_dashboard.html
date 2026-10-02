@@ -113,6 +113,10 @@ table.list tr:hover td { background:#f8fafc; }
 .app-st.none { background:transparent; color:#cbd5e1; font-weight:400; }
 .mf-items td { background:#fafbfc; font-size:12px; }
 .mf-row { cursor:pointer; }
+.mf-note { border:1px solid var(--line); border-radius:6px; padding:4px 7px; font-size:12px; width:100%; min-width:160px; background:var(--panel); }
+.mf-note.saved { border-color:var(--green); }
+.mf-sub { width:100%; border-collapse:collapse; margin:4px 0 6px; }
+.mf-sub td { padding:5px 8px; border-bottom:1px solid #eef2f7; font-size:12px; vertical-align:top; background:transparent; }
 .diff-pos { color:var(--green); font-weight:700; }
 .diff-neg { color:var(--red); font-weight:700; }
 .warn-badge { display:inline-block; font-size:10px; background:var(--amber-soft); color:var(--amber); border-radius:4px; padding:1px 6px; font-weight:700; margin-left:6px; }
@@ -167,7 +171,7 @@ table.list tr:hover td { background:#f8fafc; }
   <aside class="side">
     <div class="brand">
       <h1>売上管理システム</h1>
-      <span class="ver">ver.20261002.01</span>
+      <span class="ver">ver.20261002.03</span>
     </div>
     <nav class="nav">
       <div class="nav-item active" data-page="dash" onclick="showPage('dash')"><span class="ic">📊</span><span class="txt">ダッシュボード</span></div>
@@ -293,11 +297,13 @@ table.list tr:hover td { background:#f8fafc; }
           <table class="list">
             <thead><tr>
               <th>取引先</th>
-              <th class="num">請求書</th>
+              <th>請求書番号</th>
+              <th class="num">件数</th>
               <th class="num">売上（税抜）</th>
               <th class="num">印紙など</th>
               <th class="num">請求合計</th>
               <th class="num">未入金</th>
+              <th style="min-width:200px">コメント</th>
             </tr></thead>
             <tbody id="cfClientBody"></tbody>
           </table>
@@ -315,6 +321,7 @@ table.list tr:hover td { background:#f8fafc; }
               <th class="num">請求合計</th>
               <th>入金</th>
               <th>担当</th>
+              <th style="min-width:200px">コメント</th>
             </tr></thead>
             <tbody id="cfBody"></tbody>
           </table>
@@ -552,7 +559,9 @@ let supportOrgs = [];
 let pendings = [];     // pending_sales（許可後請求）
 let caseIdx = null;
 let mfInv = null;      // mf_invoices（売上管理(確定値)）。初めて開いたときに読み込む
-const mfItemCache = {}; // 請求書番号 → 明細    // 申請人名(正規化) → cases[]（新しい順）。申請ステータス表示用
+const mfItemCache = {}; // 請求書番号 → 明細
+let mfNotes = {};       // 請求書番号 → コメント（mf_invoice_notes）
+let cfGroups = [];      // 取引先別の行（クリックで明細を開く）    // 申請人名(正規化) → cases[]（新しい順）。申請ステータス表示用
 let editingId = null;
 
 // Supabase Auth（index.htmlと同じアカウント）。RLSはauthenticatedのみ書込可のため必須
@@ -687,7 +696,12 @@ async function loadAll() {
 /* ================= 売上管理(確定値)：マネフォ請求書CSV ================= */
 const MF_TAXABLE = r => /%/.test(r || '');   // 10% / 8% / 軽8% は売上。非課税・不課税・対象外は印紙など立替
 async function loadConfirmed() {
-  mfInv = await fetchAllRows('mf_invoices?select=*&order=sales_date.desc,invoice_no.desc');
+  const [dInv, dNotes] = await Promise.all([
+    fetchAllRows('mf_invoices?select=*&order=sales_date.desc,invoice_no.desc'),
+    fetchAllRows('mf_invoice_notes?select=invoice_no,note')
+  ]);
+  mfInv = dInv;
+  mfNotes = Object.fromEntries(dNotes.map(n => [n.invoice_no, n.note || '']));
   const months = [...new Set(mfInv.map(r => (r.sales_date || '').slice(0, 7)).filter(Boolean))].sort().reverse();
   const sel = document.getElementById('cfMonth');
   const keep = sel.value;
@@ -708,7 +722,7 @@ function renderConfirmed() {
     if (pay === '未入金以外' && r.payment_status === '入金済み') return false;
     if (!q) return true;
     const its = mfItemCache[r.invoice_no] || [];
-    return [r.client_name, r.invoice_no, r.subject, r.memo, ...its.map(i => i.item_name + ' ' + i.detail)].join(' ').toLowerCase().includes(q);
+    return [r.client_name, r.invoice_no, r.subject, r.memo, mfNotes[r.invoice_no] || '', ...its.map(i => i.item_name + ' ' + i.detail)].join(' ').toLowerCase().includes(q);
   });
   const sum = (a, k) => a.reduce((t, r) => t + Number(r[k] || 0), 0);
   // KPI（月の全件で計算。入金・検索の絞り込みは一覧だけに効く）
@@ -738,17 +752,25 @@ function renderConfirmed() {
     return `<div class="bar-col ${m === ym ? 'cur' : ''}" onclick="document.getElementById('cfMonth').value='${m}';renderConfirmed()" title="${m}: ${yen(sums[i])}">
       <span class="bar-val">${val}</span><div class="bar" style="height:${h}px"></div><span class="bar-label">${Number(m.slice(5))}月</span></div>`;
   }).join('');
-  // 取引先別
+  // 取引先別（行クリックで請求書と明細を開く）
   const by = {};
   list.forEach(r => {
-    const b = by[r.client_name] = by[r.client_name] || { n: 0, s: 0, st: 0, t: 0, u: 0 };
-    b.n++; b.s += Number(r.sales_amount || 0); b.st += Number(r.nontax_amount || 0); b.t += Number(r.total || 0);
+    const b = by[r.client_name] = by[r.client_name] || { client: r.client_name, invs: [], s: 0, st: 0, t: 0, u: 0 };
+    b.invs.push(r); b.s += Number(r.sales_amount || 0); b.st += Number(r.nontax_amount || 0); b.t += Number(r.total || 0);
     if (r.payment_status !== '入金済み') b.u += Number(r.total || 0);
   });
-  document.getElementById('cfClientBody').innerHTML = Object.entries(by).sort((a, b) => b[1].s - a[1].s).map(([c, b]) => `<tr>
-    <td>${esc(c)}</td><td class="num">${b.n}</td><td class="num">${yen(b.s)}</td><td class="num">${yen(b.st)}</td><td class="num">${yen(b.t)}</td>
-    <td class="num" style="${b.u ? 'color:var(--red);font-weight:700' : ''}">${b.u ? yen(b.u) : '-'}</td></tr>`).join('')
-    || '<tr><td colspan="6" style="padding:16px;color:var(--sub)">データがありません</td></tr>';
+  cfGroups = Object.values(by).sort((a, b) => b.s - a.s);
+  document.getElementById('cfClientBody').innerHTML = cfGroups.map((b, i) => {
+    const nos = b.invs.map(r => r.invoice_no);
+    const noteCell = b.invs.length === 1
+      ? mfNoteInput(nos[0])
+      : `<span style="font-size:11.5px;color:var(--sub)">${esc(b.invs.map(r => mfNotes[r.invoice_no]).filter(Boolean).join(' ／ ')) || '明細を開いて請求書ごとに入力'}</span>`;
+    return `<tr class="mf-row" onclick="toggleMfClient(${i}, this)">
+    <td>${esc(b.client)}</td><td style="font-size:12px">${esc(nos.join(', '))}</td><td class="num">${b.invs.length}</td>
+    <td class="num">${yen(b.s)}</td><td class="num">${yen(b.st)}</td><td class="num">${yen(b.t)}</td>
+    <td class="num" style="${b.u ? 'color:var(--red);font-weight:700' : ''}">${b.u ? yen(b.u) : '-'}</td>
+    <td onclick="event.stopPropagation()">${noteCell}</td></tr>`;
+  }).join('') || '<tr><td colspan="8" style="padding:16px;color:var(--sub)">データがありません</td></tr>';
   // 請求書一覧
   document.getElementById('cfCountInfo').textContent = `${list.length}件`;
   document.getElementById('cfBody').innerHTML = list.map(r => `<tr class="mf-row" onclick="toggleMfItems('${esc(r.invoice_no)}', this)">
@@ -756,8 +778,9 @@ function renderConfirmed() {
     <td class="num">${yen(Number(r.sales_amount))}</td><td class="num">${Number(r.nontax_amount) ? yen(Number(r.nontax_amount)) : '-'}</td>
     <td class="num">${yen(Number(r.tax))}</td><td class="num"><b>${yen(Number(r.total))}</b></td>
     <td><span class="chip" style="cursor:default;${r.payment_status === '入金済み' ? 'background:var(--green-soft);color:var(--green)' : 'background:var(--amber-soft);color:var(--amber)'}">${esc(r.payment_status || '未設定')}</span></td>
-    <td style="font-size:12px">${esc(r.staff || '')}</td></tr>`).join('')
-    || '<tr><td colspan="10" style="padding:16px;color:var(--sub)">該当する請求書はありません</td></tr>';
+    <td style="font-size:12px">${esc(r.staff || '')}</td>
+    <td onclick="event.stopPropagation()">${mfNoteInput(r.invoice_no)}</td></tr>`).join('')
+    || '<tr><td colspan="11" style="padding:16px;color:var(--sub)">該当する請求書はありません</td></tr>';
 }
 async function toggleMfItems(no, tr) {
   const next = tr.nextElementSibling;
@@ -766,8 +789,47 @@ async function toggleMfItems(no, tr) {
   const its = mfItemCache[no];
   const row = document.createElement('tr');
   row.className = 'mf-items';
-  row.innerHTML = `<td></td><td colspan="9">${its.map(i => `<div class="item-line"><span class="il-name">${esc(i.item_name)}${i.detail ? ' <span style="color:var(--sub)">' + esc(i.detail) + '</span>' : ''}</span>
+  row.innerHTML = `<td></td><td colspan="10">${its.map(i => `<div class="item-line"><span class="il-name">${esc(i.item_name)}${i.detail ? ' <span style="color:var(--sub)">' + esc(i.detail) + '</span>' : ''}</span>
     <span class="il-amt">${yen(Number(i.unit_price))} × ${Number(i.qty)}${esc(i.unit || '')} ＝ ${yen(Number(i.amount))}（${esc(i.tax_rate)}）</span></div>`).join('') || '明細なし'}</td>`;
+  tr.after(row);
+}
+function mfNoteInput(no) {
+  return `<input class="mf-note" value="${esc(mfNotes[no] || '')}" placeholder="コメント" data-no="${esc(no)}" onchange="saveMfNote(this)" onkeydown="if(event.key==='Enter'){this.blur()}">`;
+}
+async function saveMfNote(el) {
+  const no = el.dataset.no, note = el.value.trim();
+  let by = '';
+  try { const { data } = await _sb.auth.getSession(); by = (data && data.session && data.session.user.email) || ''; } catch (e) {}
+  const res = await fetch(`${SB_URL}/rest/v1/mf_invoice_notes?on_conflict=invoice_no`, {
+    method: 'POST', headers: sbHeaders({ Prefer: 'resolution=merge-duplicates,return=minimal' }),
+    body: JSON.stringify([{ invoice_no: no, note, updated_by: by, updated_at: new Date().toISOString() }])
+  });
+  if (!res.ok) { toast('⚠️ コメントを保存できませんでした'); return; }
+  mfNotes[no] = note;
+  document.querySelectorAll(`.mf-note[data-no="${CSS.escape(no)}"]`).forEach(x => { if (x !== el) x.value = note; });
+  el.classList.add('saved'); setTimeout(() => el.classList.remove('saved'), 1200);
+  toast('コメントを保存しました');
+}
+async function toggleMfClient(i, tr) {
+  const next = tr.nextElementSibling;
+  if (next && next.classList.contains('mf-items')) { next.remove(); return; }
+  const g = cfGroups[i];
+  if (!g) return;
+  const need = g.invs.map(r => r.invoice_no).filter(no => !mfItemCache[no]);
+  if (need.length) {
+    const inList = need.map(n => '"' + n.replace(/"/g, '') + '"').join(',');
+    const rows = await fetchAllRows(`mf_invoice_items?select=*&invoice_no=in.(${encodeURIComponent(inList)})&order=invoice_no,line_no`);
+    need.forEach(no => { mfItemCache[no] = []; });
+    rows.forEach(it => mfItemCache[it.invoice_no].push(it));
+  }
+  const row = document.createElement('tr');
+  row.className = 'mf-items';
+  row.innerHTML = `<td colspan="8"><table class="mf-sub">${g.invs.map(r => `<tr>
+      <td style="white-space:nowrap"><b>No.${esc(r.invoice_no)}</b><br><span style="color:var(--sub)">請求日 ${esc(r.invoice_date || '')}／期限 ${esc(r.due_date || '')}</span></td>
+      <td>${(mfItemCache[r.invoice_no] || []).map(it => `<div class="item-line"><span class="il-name">${esc(it.item_name)}${it.detail ? ' <span style="color:var(--sub)">' + esc(it.detail) + '</span>' : ''}</span>
+        <span class="il-amt">${yen(Number(it.unit_price))} × ${Number(it.qty)}${esc(it.unit || '')} ＝ ${yen(Number(it.amount))}（${esc(it.tax_rate)}）</span></div>`).join('') || '明細なし'}</td>
+      <td class="num" style="white-space:nowrap"><b>${yen(Number(r.total))}</b><br><span class="chip" style="cursor:default;${r.payment_status === '入金済み' ? 'background:var(--green-soft);color:var(--green)' : 'background:var(--amber-soft);color:var(--amber)'}">${esc(r.payment_status || '未設定')}</span></td>
+      <td style="min-width:200px" onclick="event.stopPropagation()">${mfNoteInput(r.invoice_no)}</td></tr>`).join('')}</table></td>`;
   tr.after(row);
 }
 // CSV（クォート内の改行・カンマ対応）
