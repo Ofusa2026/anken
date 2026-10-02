@@ -171,7 +171,7 @@ table.list tr:hover td { background:#f8fafc; }
   <aside class="side">
     <div class="brand">
       <h1>売上管理システム</h1>
-      <span class="ver">ver.20261002.03</span>
+      <span class="ver">ver.20261002.05</span>
     </div>
     <nav class="nav">
       <div class="nav-item active" data-page="dash" onclick="showPage('dash')"><span class="ic">📊</span><span class="txt">ダッシュボード</span></div>
@@ -732,9 +732,7 @@ function renderConfirmed() {
   document.getElementById('cfTaxStamp').textContent = `消費税 ${yen(sum(inMonth, 'tax'))}／印紙など ${yen(sum(inMonth, 'nontax_amount'))}`;
   document.getElementById('cfCount').textContent = inMonth.length + '件';
   document.getElementById('cfClients').textContent = new Set(inMonth.map(r => r.client_name)).size + '社';
-  const unpaid = inMonth.filter(r => r.payment_status !== '入金済み');
-  document.getElementById('cfUnpaid').textContent = yen(sum(unpaid, 'total'));
-  document.getElementById('cfUnpaidCnt').textContent = unpaid.length + '件';
+  renderCfUnpaid(inMonth);
   // 速報との差（同じ月の速報＝決定日ベースの税抜小計）
   const diffEl = document.getElementById('cfDiff');
   if (ym) {
@@ -777,7 +775,7 @@ function renderConfirmed() {
     <td>${esc(r.invoice_no)}</td><td>${esc(r.client_name)}</td><td>${esc(r.invoice_date || '')}</td><td>${esc(r.sales_date || '')}</td>
     <td class="num">${yen(Number(r.sales_amount))}</td><td class="num">${Number(r.nontax_amount) ? yen(Number(r.nontax_amount)) : '-'}</td>
     <td class="num">${yen(Number(r.tax))}</td><td class="num"><b>${yen(Number(r.total))}</b></td>
-    <td><span class="chip" style="cursor:default;${r.payment_status === '入金済み' ? 'background:var(--green-soft);color:var(--green)' : 'background:var(--amber-soft);color:var(--amber)'}">${esc(r.payment_status || '未設定')}</span></td>
+    <td>${mfPayChip(r)}</td>
     <td style="font-size:12px">${esc(r.staff || '')}</td>
     <td onclick="event.stopPropagation()">${mfNoteInput(r.invoice_no)}</td></tr>`).join('')
     || '<tr><td colspan="11" style="padding:16px;color:var(--sub)">該当する請求書はありません</td></tr>';
@@ -792,6 +790,34 @@ async function toggleMfItems(no, tr) {
   row.innerHTML = `<td></td><td colspan="10">${its.map(i => `<div class="item-line"><span class="il-name">${esc(i.item_name)}${i.detail ? ' <span style="color:var(--sub)">' + esc(i.detail) + '</span>' : ''}</span>
     <span class="il-amt">${yen(Number(i.unit_price))} × ${Number(i.qty)}${esc(i.unit || '')} ＝ ${yen(Number(i.amount))}（${esc(i.tax_rate)}）</span></div>`).join('') || '明細なし'}</td>`;
   tr.after(row);
+}
+function renderCfUnpaid(inMonth) {
+  if (!inMonth) { const ym = document.getElementById('cfMonth').value; inMonth = mfInv.filter(r => !ym || (r.sales_date || '').startsWith(ym)); }
+  const unpaid = inMonth.filter(r => r.payment_status !== '入金済み');
+  document.getElementById('cfUnpaid').textContent = yen(unpaid.reduce((t, r) => t + Number(r.total || 0), 0));
+  document.getElementById('cfUnpaidCnt').textContent = unpaid.length + '件';
+}
+// 入金ステータス：クリックで「入金済み」⇔「未入金」。マネフォ側も手で同じ状態にする（次のCSV取込ではマネフォの状態で上書き）
+function mfPayChip(r) {
+  const paid = r.payment_status === '入金済み';
+  return `<span class="chip mf-pay" data-no="${esc(r.invoice_no)}" title="クリックで${paid ? '未入金' : '入金済み'}に変更" onclick="event.stopPropagation();toggleMfPaid(this)"
+    style="cursor:pointer;${paid ? 'background:var(--green-soft);color:var(--green)' : 'background:var(--amber-soft);color:var(--amber)'}">${esc(r.payment_status || '未設定')}</span>`;
+}
+async function toggleMfPaid(el) {
+  const no = el.dataset.no;
+  const r = mfInv.find(x => x.invoice_no === no);
+  if (!r) return;
+  const next = r.payment_status === '入金済み' ? '未入金' : '入金済み';
+  if (!confirm(`請求書 No.${no}（${r.client_name}・${yen(Number(r.total))}）を「${next}」にしますか？\n\nマネーフォワード請求書の側も、同じく「${next}」に変更してください。次にCSVを取り込むと、マネフォの状態で上書きされます。`)) return;
+  const res = await fetch(`${SB_URL}/rest/v1/mf_invoices?invoice_no=eq.${encodeURIComponent(no)}`, {
+    method: 'PATCH', headers: sbHeaders({ Prefer: 'return=minimal' }),
+    body: JSON.stringify({ payment_status: next, updated_at: new Date().toISOString() })
+  });
+  if (!res.ok) { toast('⚠️ 入金ステータスを変更できませんでした'); return; }
+  r.payment_status = next;
+  document.querySelectorAll(`.mf-pay[data-no="${CSS.escape(no)}"]`).forEach(x => { x.outerHTML = mfPayChip(r); });
+  renderCfUnpaid();
+  toast(`No.${no} を「${next}」にしました。マネフォ請求書も変更してください`);
 }
 function mfNoteInput(no) {
   return `<input class="mf-note" value="${esc(mfNotes[no] || '')}" placeholder="コメント" data-no="${esc(no)}" onchange="saveMfNote(this)" onkeydown="if(event.key==='Enter'){this.blur()}">`;
@@ -828,7 +854,7 @@ async function toggleMfClient(i, tr) {
       <td style="white-space:nowrap"><b>No.${esc(r.invoice_no)}</b><br><span style="color:var(--sub)">請求日 ${esc(r.invoice_date || '')}／期限 ${esc(r.due_date || '')}</span></td>
       <td>${(mfItemCache[r.invoice_no] || []).map(it => `<div class="item-line"><span class="il-name">${esc(it.item_name)}${it.detail ? ' <span style="color:var(--sub)">' + esc(it.detail) + '</span>' : ''}</span>
         <span class="il-amt">${yen(Number(it.unit_price))} × ${Number(it.qty)}${esc(it.unit || '')} ＝ ${yen(Number(it.amount))}（${esc(it.tax_rate)}）</span></div>`).join('') || '明細なし'}</td>
-      <td class="num" style="white-space:nowrap"><b>${yen(Number(r.total))}</b><br><span class="chip" style="cursor:default;${r.payment_status === '入金済み' ? 'background:var(--green-soft);color:var(--green)' : 'background:var(--amber-soft);color:var(--amber)'}">${esc(r.payment_status || '未設定')}</span></td>
+      <td class="num" style="white-space:nowrap"><b>${yen(Number(r.total))}</b><br>${mfPayChip(r)}</td>
       <td style="min-width:200px" onclick="event.stopPropagation()">${mfNoteInput(r.invoice_no)}</td></tr>`).join('')}</table></td>`;
   tr.after(row);
 }
