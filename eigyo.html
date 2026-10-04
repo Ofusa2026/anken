@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261004.12</div>
+      <div class="ver">ver.20261004.13</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -4196,14 +4196,14 @@ function addWeekTodo(assignee){
   var asg = assignee==='共通'?'共通':assignee;
   _sb.from('eigyo_kanban').select('ord').eq('lane','todo').order('ord',{ascending:false}).limit(1).then(function(r){
     var maxOrd=(r.data&&r.data[0]&&r.data[0].ord)||0;
-    _sb.from('eigyo_kanban').insert({title:t, lane:'todo', assignee:asg, ord:maxOrd+1, week_start:MT.week}).then(function(ins){
+    _sb.from('eigyo_kanban').insert({title:t, lane:'todo', mtg_status:'todo', assignee:asg, ord:maxOrd+1, week_start:MT.week}).then(function(ins){
       if(ins.error){ alert('追加失敗：'+ins.error.message); return; }
       inp.value=''; autosaveToast('✓ タスクのToDoに追加しました'); renderWeekTodos();
     });
   });
 }
 function renderWeekTodos(){
-  _sb.from('eigyo_kanban').select('id,title,assignee,lane,week_start').in('lane',['todo','doing']).eq('week_start',MT.week).order('ord',{ascending:true}).then(function(r){
+  _sb.from('eigyo_kanban').select('id,title,assignee,mtg_status,week_start').in('mtg_status',['todo','doing']).eq('week_start',MT.week).order('ord',{ascending:true}).then(function(r){
     var d=(r.data)||[];
     ['中林','亀谷','共通'].forEach(function(a){
       var box=el('wkTodoList_'+a); if(!box) return;
@@ -4218,22 +4218,22 @@ var KB_LANE_COLOR={todo:'#3182ce',doing:'#dd6b20',done:'#38a169',stalled:'#c5303
 function renderPrevWeekTodos(){
   var box=el('prevWeekTodos'); if(!box) return;
   var prevW=kpAddD(MT.week,-7);
-  _sb.from('eigyo_kanban').select('id,title,assignee,lane,week_start').eq('week_start',prevW).order('ord',{ascending:true}).then(function(r){
+  _sb.from('eigyo_kanban').select('id,title,assignee,mtg_status,week_start').eq('week_start',prevW).order('ord',{ascending:true}).then(function(r){
     var d=(r.data)||[];
     if(!d.length){ box.innerHTML='<span class="sub">前週（'+esc(prevW)+'）に決めたことの記録はありません。</span>'; return; }
     var h='';
     ['中林','亀谷','共通'].forEach(function(a){
       var mine=d.filter(function(c){ return (c.assignee||'共通')===a; });
       if(!mine.length) return;
-      var doneN=mine.filter(function(c){return c.lane==='done';}).length;
+      var doneN=mine.filter(function(c){return c.mtg_status==='done';}).length;
       h+='<div style="margin-bottom:10px;"><div style="font-weight:700;font-size:13px;color:'+(a==='中林'?'#3182ce':(a==='亀谷'?'#38a169':'#718096'))+';margin-bottom:4px;">'+esc(a)+' <span class="sub" style="font-size:11px;">（完了 '+doneN+'/'+mine.length+'）</span></div>';
       h+=mine.map(function(c){
-        var col=KB_LANE_COLOR[c.lane]||'#718096';
+        var col=KB_LANE_COLOR[c.mtg_status]||'#718096';
         return '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#fff;border:1px solid var(--line);border-left:3px solid '+col+';border-radius:6px;margin-bottom:5px;">'
           + '<span style="font-size:10px;font-weight:700;color:#fff;background:'+col+';padding:1px 7px;border-radius:10px;flex:none;">'+esc(KB_LANE_LABEL[c.lane]||c.lane)+'</span>'
-          + '<span style="flex:1;font-size:13px;'+(c.lane==='done'?'text-decoration:line-through;color:#a0aec0;':'')+'">'+esc(c.title)+'</span>'
+          + '<span style="flex:1;font-size:13px;'+(c.mtg_status==='done'?'text-decoration:line-through;color:#a0aec0;':'')+'">'+esc(c.title)+'</span>'
           + '<button type="button" class="btn btn-sm" style="flex:none;color:#dd6b20;" onclick="kbCarryOver('+c.id+')" title="進行中にして今週に引き継ぐ">進行中→今週へ</button>'
-          + '<button type="button" class="btn btn-sm" style="flex:none;'+(c.lane==='done'?'background:#38a169;color:#fff;border-color:#38a169;':'color:#276749;')+'" onclick="kbMoveLane('+c.id+',\'done\')">✓完了</button>'
+          + '<button type="button" class="btn btn-sm" style="flex:none;'+(c.mtg_status==='done'?'background:#38a169;color:#fff;border-color:#38a169;':'color:#276749;')+'" onclick="mtgSetStatus('+c.id+',\'done\')">✓完了</button>'
           + '</div>';
       }).join('');
       h+='</div>';
@@ -4250,7 +4250,7 @@ function kbCarryOver(id){
     // 今週に既に同じ内容の複製が無いか簡易チェック（タイトル＋今週）
     _sb.from('eigyo_kanban').select('id').eq('title',c.title).eq('week_start',MT.week).limit(1).then(function(ex){
       if(ex.data && ex.data.length){ autosaveToast('既に今週に引き継ぎ済みです'); return; }
-      _sb.from('eigyo_kanban').insert({title:c.title, memo:c.memo, lane:'doing', assignee:c.assignee, ord:(c.ord||0)+0.5, week_start:MT.week}).then(function(ins){
+      _sb.from('eigyo_kanban').insert({title:c.title, memo:c.memo, lane:'todo', mtg_status:'doing', assignee:c.assignee, ord:(c.ord||0)+0.5, week_start:MT.week}).then(function(ins){
         if(ins.error){ alert('引き継ぎ失敗：'+ins.error.message); return; }
         autosaveToast('✓ 今週に引き継ぎました（前週はそのまま）'); renderPrevWeekTodos(); renderWeekTodos();
         if(typeof loadKanban==='function' && el('kanbanPane') && el('kanbanPane').style.display!=='none') loadKanban();
@@ -4258,10 +4258,16 @@ function kbCarryOver(id){
     });
   });
 }
+function mtgSetStatus(id,st){
+  _sb.from('eigyo_kanban').update({mtg_status:st, updated_at:new Date().toISOString()}).eq('id',id).then(function(r){
+    if(r.error){ alert('更新失敗：'+r.error.message); return; }
+    autosaveToast('✓ 更新しました'); renderPrevWeekTodos(); renderWeekTodos();
+  });
+}
 function kbMoveLane(id,lane){
   _sb.from('eigyo_kanban').update({lane:lane, updated_at:new Date().toISOString()}).eq('id',id).then(function(r){
     if(r.error){ alert('更新失敗：'+r.error.message); return; }
-    autosaveToast('✓ 更新しました'); renderPrevWeekTodos(); renderWeekTodos();
+    autosaveToast('✓ 更新しました');
     if(typeof loadKanban==='function' && el('kanbanPane') && el('kanbanPane').style.display!=='none') loadKanban();
   });
 }
