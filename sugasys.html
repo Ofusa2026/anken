@@ -70,6 +70,8 @@ button,input,select,textarea{font:inherit;color:inherit}
 .st.s-da,.st.s-sho{background:var(--kohaku-soft);color:var(--kohaku)}
 .st.s-zumi,.st.s-sei{background:var(--matsu-soft);color:var(--matsu)}
 .st.s-mi{background:#f6e3e1;color:var(--beni)}
+.tori{display:inline-block;border:1px solid var(--matsu);color:var(--matsu);background:#fff;border-radius:4px;padding:0 7px;font-size:12.5px;font-weight:700;white-space:nowrap}
+h2 .tori{font-family:var(--sans);font-size:14px;vertical-align:middle;margin-left:8px;padding:1px 9px}
 .empty{padding:28px 16px;color:var(--sub)}
 
 /* 詳細 */
@@ -148,7 +150,7 @@ dd{margin:0;word-break:break-word}
     <main class="detail" id="detail"></main>
   </div>
 </div>
-<div class="ver">ver.20261004.02</div>
+<div class="ver">ver.20261004.03</div>
 
 <script>
 const SB_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
@@ -157,7 +159,8 @@ const STATUSES = ['未着手','打診中','紹介済み','商談調整中','成�
 const ST_CLASS = {'打診中':'s-da','商談調整中':'s-sho','紹介済み':'s-zumi','成約':'s-sei','見送り':'s-mi'};
 const KAKUDO = ['高','中','低'];
 
-const OTHER_ST = ['未接触を除く','すべて','接触済み','商談予定','商談済み→依頼待ち','契約中','要経過観察','見込みなし','対象外','未接触'];
+const TORI = '<span class="tori">取引中</span>';
+const OTHER_ST = ['未接触を除く','すべて','取引中のみ','接触済み','商談予定','商談済み→依頼待ち','契約中','要経過観察','見込みなし','対象外','未接触'];
 let pw = '', leads = [], filter = 'すべて', currentId = null;
 let mode = 'suga', others = [], oTotal = 0, oQ = '', oSt = '未接触を除く';
 const $ = id => document.getElementById(id);
@@ -231,7 +234,7 @@ document.querySelector('.tabs').addEventListener('click', e => {
 async function searchOther(more){
   if(!more){ others = []; $('rows').innerHTML = '<div class="empty">探しています</div>'; }
   try{
-    const st = oSt === '未接触を除く' ? '__active' : (oSt === 'すべて' ? '' : oSt);
+    const st = oSt === '未接触を除く' ? '__active' : oSt === '取引中のみ' ? '__torihiki' : (oSt === 'すべて' ? '' : oSt);
     const r = await rpc('suga_search', {p_pw: pw, p_q: oQ, p_status: st, p_offset: others.length});
     if(mode !== 'other') return;
     others = others.concat(r.rows); oTotal = r.total; renderOther();
@@ -245,7 +248,7 @@ function renderOther(){
   $('rows').innerHTML = others.length ? others.map(l =>
     `<button type="button" class="row" data-id="${esc(l.reg_no)}" aria-current="${l.reg_no===currentId}">
       <span class="nm">${esc(l.name)}</span>
-      <span class="meta"><span class="st">${esc(l.status || '未設定')}</span>${l.pref?`<span>${esc(l.pref)}</span>`:''}</span></button>`
+      <span class="meta"><span class="st">${esc(l.status || '未設定')}</span>${l.torihiki?TORI:''}${l.pref?`<span>${esc(l.pref)}</span>`:''}</span></button>`
     ).join('') + (rest > 0 ? `<button type="button" class="more" id="more">続きを表示する（残り${rest.toLocaleString()}件）</button>` : '')
     : '<div class="empty">条件に合う会社はありません。言葉を変えて探してください。</div>';
 }
@@ -261,7 +264,7 @@ function renderList(){
     const s = sugaSt(l), nd = l.suga && l.suga.next_action_date;
     return `<button type="button" class="row" data-id="${esc(l.reg_no)}" aria-current="${l.reg_no===currentId}">
       <span class="nm">${esc(l.name)}</span>
-      <span class="meta"><span class="st ${ST_CLASS[s]||''}">${esc(s)}</span>
+      <span class="meta"><span class="st ${ST_CLASS[s]||''}">${esc(s)}</span>${l.torihiki?TORI:''}
       ${l.pref?`<span>${esc(l.pref)}</span>`:''}${nd?`<span>次回 ${esc(fmtD(nd))}</span>`:''}</span></button>`;
   }).join('') : `<div class="empty">${leads.length ? 'この状況の案件はありません。' : '菅沼案件はまだ登録されていません。'}</div>`;
 }
@@ -290,7 +293,7 @@ function renderDetail(){
   const site = l.website && /^https?:\/\//i.test(l.website) ? `<a href="${esc(l.website)}" target="_blank" rel="noopener noreferrer">ホームページ</a>` : '';
   el.innerHTML = `
     <button type="button" class="back" id="back">一覧に戻る</button>
-    <h2>${esc(l.name)}</h2>
+    <h2>${esc(l.name)}${l.torihiki?TORI:''}</h2>
     <p class="loc">${esc([l.pref,l.city,l.address].filter(Boolean).join(''))}${l.tel?`　電話 ${esc(l.tel)}`:''}${l.rep_name?`　代表 ${esc(l.rep_name)}`:''}${site?`　${site}`:''}</p>
     <div class="cols${isSuga ? '' : ' one'}">
       ${isSuga ? `<section class="panel mine">
@@ -320,6 +323,7 @@ function renderDetail(){
         <h3>大房側の営業状況</h3>
         <p class="note">${isSuga ? '大房側で更新している内容です。ここでは変更できません。' : '菅沼案件ではない会社です。見るだけで、状況やコメントは書けません。'}</p>
         <dl>
+          ${row('大房との取引', l.torihiki ? '取引中（案件のご依頼あり）' : 'なし')}
           ${row('ステータス', esc(l.status))}
           ${row('営業ランク', esc(l.lead_rank))}
           ${row('担当者', esc(l.staff))}
