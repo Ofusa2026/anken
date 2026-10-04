@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20260928.16</div>
+      <div class="ver">ver.20260928.17</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -4189,6 +4189,29 @@ function mtExp(reg,v){
   });
 }
 function mtSetAtk(k){ MT.atk=k; mtRender(); }
+// 今週やること → タスク(カンバン)のToDo列に追加
+function addWeekTodo(assignee){
+  var inp=el('wkTodo_'+assignee); if(!inp) return;
+  var t=(inp.value||'').trim(); if(!t) return;
+  var asg = assignee==='共通'?'共通':assignee;
+  _sb.from('eigyo_kanban').select('ord').eq('lane','todo').order('ord',{ascending:false}).limit(1).then(function(r){
+    var maxOrd=(r.data&&r.data[0]&&r.data[0].ord)||0;
+    _sb.from('eigyo_kanban').insert({title:t, lane:'todo', assignee:asg, ord:maxOrd+1}).then(function(ins){
+      if(ins.error){ alert('追加失敗：'+ins.error.message); return; }
+      inp.value=''; autosaveToast('✓ タスクのToDoに追加しました'); renderWeekTodos();
+    });
+  });
+}
+function renderWeekTodos(){
+  _sb.from('eigyo_kanban').select('id,title,assignee,lane').eq('lane','todo').order('ord',{ascending:true}).then(function(r){
+    var d=(r.data)||[];
+    ['中林','亀谷','共通'].forEach(function(a){
+      var box=el('wkTodoList_'+a); if(!box) return;
+      var mine=d.filter(function(c){ return (c.assignee||'共通')===a; });
+      box.innerHTML = mine.length ? mine.map(function(c){ return '<div style="padding:3px 0;border-bottom:1px dashed var(--line);">・'+esc(c.title)+'</div>'; }).join('') : '—';
+    });
+  });
+}
 function mtRender(){
   var box=el('mtRoot'), P=KP.plan; if(!box) return;
   if(!P){ box.innerHTML='<span class="sub">KPIの計画データがありません</span>'; return; }
@@ -4293,13 +4316,24 @@ function mtRender(){
       : '<div class="sub" style="font-size:13px;">アタックリストに会社がありません。</div>')
     + '<div class="sub" style="font-size:11px;margin-top:6px;">見込み人数は「想定支援者数」を優先し、未入力なら「支援者数」で計算します。チェックはこの週のMtgに保存され、翌週の①で答え合わせできます。</div></div>';
 
-  // ⑤ 今週やること
-  var ac=MT.data.actions||{};
-  var s5='<div style="'+card+'">'+head('5','今週やること','5分','担当者ごとに決めて記録（次回の⓪に表示されます）')
-    + KP_STAFF.filter(inSt).map(function(s){ return '<div style="margin-bottom:10px;"><b>'+esc(kpShort(s))+'</b><textarea rows="4" style="width:100%;margin-top:4px;font-size:13px;" placeholder="例：〇〇社と契約締結（120人）／依頼が少ない△△社の窓口と面談／アタックリストから5社に架電" onchange="mtSet(\'actions.'+s+'\',this.value)">'+esc(ac[s]||'')+'</textarea></div>'; }).join('')
-    + '<div><b>全体メモ</b><textarea rows="3" style="width:100%;margin-top:4px;font-size:13px;" onchange="mtSet(\'memo\',this.value)">'+esc(MT.data.memo||'')+'</textarea></div></div>';
+  // ⑤ 今週やること（担当ごとに1件ずつ入力→タスク(カンバン)のToDoに追加）
+  var s5='<div style="'+card+'">'+head('5','今週やること','5分','担当ごとに1件ずつ入力→「追加」でタスクのToDoに入ります')
+    + '<div style="display:flex;gap:16px;flex-wrap:wrap;">'
+    + ['中林','亀谷','共通'].map(function(a){
+        return '<div style="flex:1;min-width:240px;">'
+          + '<div style="font-weight:700;font-size:13px;margin-bottom:6px;color:'+(a==='中林'?'#3182ce':(a==='亀谷'?'#805ad5':'#718096'))+';">'+esc(a)+'</div>'
+          + '<div style="display:flex;gap:6px;margin-bottom:8px;">'
+          +   '<input type="text" id="wkTodo_'+a+'" placeholder="やることを入力" style="flex:1;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;" onkeydown="if(event.key===\'Enter\')addWeekTodo(\''+a+'\')">'
+          +   '<button class="btn btn-sm btn-primary" onclick="addWeekTodo(\''+a+'\')">＋追加</button>'
+          + '</div>'
+          + '<div id="wkTodoList_'+a+'" class="sub" style="font-size:12px;">—</div>'
+          + '</div>';
+      }).join('')
+    + '</div>'
+    + '<div style="margin-top:12px;"><b style="font-size:13px;">全体メモ</b><textarea rows="3" style="width:100%;margin-top:4px;font-size:13px;" onchange="mtSet(\'memo\',this.value)">'+esc(MT.data.memo||'')+'</textarea></div></div>';
 
   box.innerHTML=header+s0+s1+s2+s3+s4+s5;
+  renderWeekTodos();
 }
 
 /* ================= 🎓 セミナー ================= */
