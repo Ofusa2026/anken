@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261004.06</div>
+      <div class="ver">ver.20261004.07</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -4212,6 +4212,41 @@ function renderWeekTodos(){
     });
   });
 }
+// ⓪ 前回決めたことの確認：前週に登録したカードを担当別に表示（状態を操作できる）
+var KB_LANE_LABEL={todo:'ToDo',doing:'進行中',done:'完了',stalled:'停滞'};
+var KB_LANE_COLOR={todo:'#3182ce',doing:'#dd6b20',done:'#38a169',stalled:'#c53030'};
+function renderPrevWeekTodos(){
+  var box=el('prevWeekTodos'); if(!box) return;
+  var prevW=kpAddD(MT.week,-7);
+  _sb.from('eigyo_kanban').select('id,title,assignee,lane,week_start').eq('week_start',prevW).order('ord',{ascending:true}).then(function(r){
+    var d=(r.data)||[];
+    if(!d.length){ box.innerHTML='<span class="sub">前週（'+esc(prevW)+'）に決めたことの記録はありません。</span>'; return; }
+    var h='';
+    ['中林','亀谷','共通'].forEach(function(a){
+      var mine=d.filter(function(c){ return (c.assignee||'共通')===a; });
+      if(!mine.length) return;
+      var doneN=mine.filter(function(c){return c.lane==='done';}).length;
+      h+='<div style="margin-bottom:10px;"><div style="font-weight:700;font-size:13px;color:'+(a==='中林'?'#3182ce':(a==='亀谷'?'#805ad5':'#718096'))+';margin-bottom:4px;">'+esc(a)+' <span class="sub" style="font-size:11px;">（完了 '+doneN+'/'+mine.length+'）</span></div>';
+      h+=mine.map(function(c){
+        var col=KB_LANE_COLOR[c.lane]||'#718096';
+        return '<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#fff;border:1px solid var(--line);border-left:3px solid '+col+';border-radius:6px;margin-bottom:5px;">'
+          + '<span style="font-size:10px;font-weight:700;color:#fff;background:'+col+';padding:1px 7px;border-radius:10px;flex:none;">'+esc(KB_LANE_LABEL[c.lane]||c.lane)+'</span>'
+          + '<span style="flex:1;font-size:13px;'+(c.lane==='done'?'text-decoration:line-through;color:#a0aec0;':'')+'">'+esc(c.title)+'</span>'
+          + (c.lane!=='done'?'<button type="button" class="btn btn-sm" style="flex:none;color:#276749;" onclick="kbMoveLane('+c.id+',\'done\')">✓完了</button>':'<button type="button" class="btn btn-sm" style="flex:none;" onclick="kbMoveLane('+c.id+',\'doing\')">↩戻す</button>')
+          + '</div>';
+      }).join('');
+      h+='</div>';
+    });
+    box.innerHTML=h;
+  });
+}
+function kbMoveLane(id,lane){
+  _sb.from('eigyo_kanban').update({lane:lane, updated_at:new Date().toISOString()}).eq('id',id).then(function(r){
+    if(r.error){ alert('更新失敗：'+r.error.message); return; }
+    autosaveToast('✓ 更新しました'); renderPrevWeekTodos(); renderWeekTodos();
+    if(typeof loadKanban==='function' && el('kanbanPane') && el('kanbanPane').style.display!=='none') loadKanban();
+  });
+}
 function editWeekTodo(id, cur){
   var box=el('wkEditBox');
   if(!box){
@@ -4259,10 +4294,9 @@ function mtRender(){
     + '<div><h2 style="margin:0;font-size:18px;color:var(--accent);">🗓 週次Mtg</h2><div class="sub" style="font-size:12px;">対象週：<b>'+mtLabel(ws)+'</b>（この週の結果をふり返り、翌週のアクションを決めます）</div></div>'
     + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><button class="btn btn-sm" onclick="MT.week=kpAddD(MT.week,-7);mtLoad();">◀ 前の週</button><button class="btn btn-sm" onclick="MT.week=mtWeekDefault();mtLoad();">直近の週</button><button class="btn btn-sm" onclick="MT.week=kpAddD(MT.week,7);mtLoad();">次の週 ▶</button><span style="margin-left:10px;">'+staffBtns+'</span></div></div>';
 
-  // ⓪ 前回決めたこと
-  var pa=(MT.prev.actions)||{};
-  var s0='<div style="'+card+'">'+head('0','前回決めたことの確認','3分','先週のMtgで決めたアクションができたか')
-    + KP_STAFF.filter(inSt).map(function(s){ return '<div style="margin-bottom:8px;"><b>'+esc(kpShort(s))+'</b><div style="white-space:pre-wrap;background:#f7fafc;border-radius:6px;padding:8px 10px;font-size:13px;margin-top:4px;">'+(pa[s]?esc(pa[s]):'<span class="sub">（前回の記録なし）</span>')+'</div></div>'; }).join('')+'</div>';
+  // ⓪ 前回決めたことの確認（前週に登録したカードの進捗をカンバン風に表示）
+  var s0='<div style="'+card+'">'+head('0','前回決めたことの確認','3分','先週のMtgで決めたこと（カード）ができたか。状態を動かせます')
+    + '<div id="prevWeekTodos" class="sub" style="font-size:13px;">読み込み中…</div></div>';
 
   // ① 先週の新規取引（開始日または登録日が対象週）
   var wd=KP.deals.filter(function(d){ var cr=d.created_at?kpS(new Date(d.created_at)):''; return inSt(d.staff) && ((d.start_date>=ws&&d.start_date<=we)||(cr>=ws&&cr<=we)); });
@@ -4365,6 +4399,7 @@ function mtRender(){
 
   box.innerHTML=header+s0+s1+s2+s3+s4+s5;
   renderWeekTodos();
+  renderPrevWeekTodos();
 }
 
 /* ================= 🎓 セミナー ================= */
