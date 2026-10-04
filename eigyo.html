@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261004.18</div>
+      <div class="ver">ver.20261004.19</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -4191,6 +4191,20 @@ function mtExp(reg,v){
     MT.leads.forEach(function(l){ if(l.reg_no===reg) l.expected_supporter=n; }); autosaveToast('想定支援者数を保存しました'); mtRender();
   });
 }
+// ④ 今週の見込み：各社の最新の対応履歴を表示
+function fillLatestNotes(){
+  var cells=document.querySelectorAll('.mt-latest-note'); if(!cells.length) return;
+  var regs=[]; cells.forEach(function(c){ regs.push(c.getAttribute('data-reg')); });
+  _sb.from('eigyo_notes').select('reg_no,note_date,kind,body,id').in('reg_no',regs).order('note_date',{ascending:false}).order('id',{ascending:false}).then(function(r){
+    var latest={}; (r.data||[]).forEach(function(n){ if(!latest[n.reg_no]) latest[n.reg_no]=n; });
+    cells.forEach(function(c){
+      var n=latest[c.getAttribute('data-reg')];
+      if(!n){ c.innerHTML='<span style="color:#a0aec0;">履歴なし</span>'; return; }
+      var body=(n.body||'').replace(/\s+/g,' ').trim(); var short=body.length>60?body.slice(0,60)+'…':body;
+      c.innerHTML='<span style="color:#4a5568;font-weight:600;">'+esc(n.note_date||'')+'</span>'+(n.kind?' <span style="font-size:10px;background:#edf2f7;color:#4a5568;padding:1px 6px;border-radius:8px;">'+esc(n.kind)+'</span>':'')+'<br><span title="'+esc(body)+'" style="color:#2d3748;">'+esc(short)+'</span>';
+    });
+  });
+}
 function mtSetAtk(k){ MT.atk=k; mtRender(); }
 // 今週やること → タスク(カンバン)のToDo列に追加
 function addWeekTodo(assignee){
@@ -4398,13 +4412,13 @@ function mtRender(){
     + big('今週の契約見込み', nxCnt+'社 ／ '+kpNum(nxSum)+'人', '週の目標 '+kpNum(MT.staff==='all'?wkT:wkT/KP_STAFF.length)+'人 → '+kpPct(nxSum,MT.staff==='all'?wkT:wkT/KP_STAFF.length))
     + big('アタックリスト', lv.length+'社', atk==='all'?'アタックS・中林・亀谷':(atk==='S'?'アタックS':(atk==='nb'?'アタック中林':'アタック亀谷')))
     + '</div>'
-    + (lv.length?'<div style="overflow-x:auto;max-height:420px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;position:sticky;top:0;background:#fff;"><th style="'+th+'">今週見込み</th><th style="'+th+'">企業名</th><th style="'+th+'">ステータス</th><th style="'+th+'">ランク</th><th style="'+th+'">担当</th><th style="'+th+'">支援者数</th><th style="'+th+'">次のアクション</th></tr></thead><tbody>'
+    + (lv.length?'<div style="overflow-x:auto;max-height:420px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;position:sticky;top:0;background:#fff;"><th style="'+th+'">今週見込み</th><th style="'+th+'">企業名</th><th style="'+th+'">ステータス</th><th style="'+th+'">ランク</th><th style="'+th+'">担当</th><th style="'+th+'">支援者数</th><th style="'+th+'">最新の対応履歴</th></tr></thead><tbody>'
       + lv.map(function(l){ var on=!!nx[l.reg_no];
           return '<tr style="border-bottom:1px solid var(--line);'+(on?'background:#f0fff4;':'')+'"><td style="'+td+'text-align:center;"><input type="checkbox" '+(on?'checked':'')+' onchange="mtSet(\'next.'+esc(l.reg_no)+'\',this.checked);mtRender();" style="width:16px;height:16px;"></td>'
             + '<td style="'+td+'"><a href="javascript:void(0)" onclick="openDrawer(\''+esc(l.reg_no)+'\')" style="color:var(--accent);font-weight:600;">'+esc(l.name)+'</a>'+(l.attack100?' <span style="font-size:11px;">🎯S</span>':'')+(l.attack_nb?' <span style="font-size:11px;">🎯中林</span>':'')+(l.attack_km?' <span style="font-size:11px;">🎯亀谷</span>':'')+'</td>'
             + '<td style="'+td+'"><span class="badge b-'+esc(l.status)+'">'+esc(l.status)+'</span></td><td style="'+td+'">'+(l.lead_rank&&l.lead_rank!=='（未評価）'?'<b>'+esc(l.lead_rank)+'</b>':'—')+'</td>'
             + '<td style="'+td+'">'+esc(kpShort(l.staff||'')||'—')+'</td><td style="'+td+'">'+(l.supporter_count!=null?kpNum(l.supporter_count)+'人':'—')+'</td>'
-            + '<td class="sub" style="'+td+'font-size:12px;">'+esc(l.next_action||'')+(l.next_action_date?' <span>（'+esc(l.next_action_date)+'）</span>':'')+'</td></tr>'; }).join('')+'</tbody></table></div>'
+            + '<td class="sub mt-latest-note" data-reg="'+esc(l.reg_no)+'" style="'+td+'font-size:12px;max-width:340px;">…</td></tr>'; }).join('')+'</tbody></table></div>'
       : '<div class="sub" style="font-size:13px;">アタックリストに会社がありません。</div>')
     + '<div class="sub" style="font-size:11px;margin-top:6px;">見込み人数は「想定支援者数」を優先し、未入力なら「支援者数」で計算します。チェックはこの週のMtgに保存され、翌週の①で答え合わせできます。</div></div>';
 
@@ -4427,6 +4441,7 @@ function mtRender(){
   box.innerHTML=header+s0+s1+s2+s3+s4+s5;
   renderWeekTodos();
   renderPrevWeekTodos();
+  fillLatestNotes();
 }
 
 /* ================= 🎓 セミナー ================= */
