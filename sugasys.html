@@ -85,6 +85,11 @@ button,input,select,textarea{font:inherit;color:inherit}
 .st.s-sei{background:#f0fdf4;color:var(--green);border-color:#bbf7d0}
 .st.s-mi{background:#fef2f2;color:var(--red);border-color:#fecaca}
 .tori{display:inline-flex;align-items:center;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700;background:#f0fdf4;color:var(--green);border:1px solid #bbf7d0;white-space:nowrap}
+h2 .irai{font-size:12px;vertical-align:middle;margin-left:8px}
+.irai{display:inline-flex;align-items:center;border-radius:20px;padding:2px 9px;font-size:11px;font-weight:700;background:#fff7ed;color:var(--orange);border:1px solid #fed7aa;white-space:nowrap}
+.listact{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 16px}
+.listact span{font-size:12px;color:var(--gray-400)}
+.listact span.ng{color:var(--red)}
 h2 .tori{font-size:12px;vertical-align:middle;margin-left:8px}
 .more{display:block;width:100%;padding:12px;background:none;border:0;color:var(--blue);font-weight:600;font-size:13px;cursor:pointer}
 .empty{padding:28px 16px;color:var(--gray-400);font-size:13px}
@@ -161,11 +166,11 @@ dd{margin:0;word-break:break-word}
     <div class="sidebar-logo">
       <span class="logo-badge">スガシス</span>
       <div class="logo-title">菅沼顧問システム</div>
-      <div class="ver">ver.20261004.05</div>
+      <div class="ver">ver.20261004.06</div>
     </div>
     <div class="sidebar-section">メニュー</div>
     <div class="tabs" role="tablist">
-      <button type="button" class="tab nav-item" role="tab" data-m="suga" aria-selected="true"><span aria-hidden="true">🎯</span>菅沼案件</button>
+      <button type="button" class="tab nav-item" role="tab" data-m="suga" aria-selected="true"><span aria-hidden="true">🎯</span>アタックリスト</button>
       <button type="button" class="tab nav-item" role="tab" data-m="other" aria-selected="false"><span aria-hidden="true">🏢</span>その他の会社</button>
     </div>
     <div class="sidebar-user">
@@ -175,7 +180,7 @@ dd{margin:0;word-break:break-word}
     </div>
   </aside>
   <div class="main">
-  <div class="topbar"><span class="page-title" id="pageTitle">菅沼案件</span><span class="cnt" id="cnt"></span></div>
+  <div class="topbar"><span class="page-title" id="pageTitle">アタックリスト</span><span class="cnt" id="cnt"></span></div>
   <div class="body">
     <nav class="list" aria-label="会社の一覧">
       <div class="filters" id="filters"></div>
@@ -193,6 +198,7 @@ const STATUSES = ['未着手','打診中','紹介済み','商談調整中','成�
 const ST_CLASS = {'打診中':'s-da','商談調整中':'s-sho','紹介済み':'s-zumi','成約':'s-sei','見送り':'s-mi'};
 const KAKUDO = ['高','中','低'];
 
+const IRAI = '<span class="irai">アタック依頼</span>';
 const TORI = '<span class="tori">取引中</span>';
 const OTHER_ST = ['未接触を除く','すべて','取引中のみ','接触済み','商談予定','商談済み→依頼待ち','契約中','要経過観察','見込みなし','対象外','未接触'];
 let pw = '', leads = [], filter = 'すべて', currentId = null;
@@ -251,7 +257,7 @@ $('reload').addEventListener('click', async () => {
 
 function setMode(m){
   mode = m; currentId = null;
-  $('pageTitle').textContent = m === 'other' ? 'その他の会社' : '菅沼案件';
+  $('pageTitle').textContent = m === 'other' ? 'その他の会社' : 'アタックリスト';
   if(m === 'other') $('cnt').textContent = '';
   document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.m === m)));
   if(m === 'other'){
@@ -293,16 +299,18 @@ function renderList(){
   if(mode === 'other'){ renderOther(); return; }
   $('cnt').textContent = `${leads.length}件`;
   const counts = {}; leads.forEach(l => { const s = sugaSt(l); counts[s] = (counts[s]||0)+1; });
-  $('filters').innerHTML = ['すべて', ...STATUSES].filter(s => s === 'すべて' || counts[s])
+  const nIrai = leads.filter(l => l.irai).length; counts['アタック依頼'] = nIrai;
+  if(filter !== 'すべて' && !counts[filter]) filter = 'すべて';
+  $('filters').innerHTML = ['すべて', 'アタック依頼', ...STATUSES].filter(s => s === 'すべて' || counts[s])
     .map(s => `<button type="button" class="chip" aria-pressed="${s===filter}" data-f="${esc(s)}">${esc(s)} ${s==='すべて'?leads.length:counts[s]}</button>`).join('');
-  const shown = leads.filter(l => filter === 'すべて' || sugaSt(l) === filter);
+  const shown = leads.filter(l => filter === 'すべて' || (filter === 'アタック依頼' ? l.irai : sugaSt(l) === filter));
   $('rows').innerHTML = shown.length ? shown.map(l => {
     const s = sugaSt(l), nd = l.suga && l.suga.next_action_date;
     return `<button type="button" class="row" data-id="${esc(l.reg_no)}" aria-current="${l.reg_no===currentId}">
       <span class="nm">${esc(l.name)}</span>
-      <span class="meta"><span class="st ${ST_CLASS[s]||''}">${esc(s)}</span>${l.torihiki?TORI:''}
+      <span class="meta">${l.irai?IRAI:''}<span class="st ${ST_CLASS[s]||''}">${esc(s)}</span>${l.torihiki?TORI:''}
       ${l.pref?`<span>${esc(l.pref)}</span>`:''}${nd?`<span>次回 ${esc(fmtD(nd))}</span>`:''}</span></button>`;
-  }).join('') : `<div class="empty">${leads.length ? 'この状況の案件はありません。' : '菅沼案件はまだ登録されていません。'}</div>`;
+  }).join('') : `<div class="empty">${leads.length ? 'この状況の案件はありません。' : 'アタックリストはまだ空です。「その他の会社」から会社を選んで入れられます。'}</div>`;
 }
 $('filters').addEventListener('click', e => {
   const b = e.target.closest('[data-f]'); if(!b) return;
@@ -329,8 +337,12 @@ function renderDetail(){
   const site = l.website && /^https?:\/\//i.test(l.website) ? `<a href="${esc(l.website)}" target="_blank" rel="noopener noreferrer">ホームページ</a>` : '';
   el.innerHTML = `
     <button type="button" class="back" id="back">一覧に戻る</button>
-    <h2>${esc(l.name)}${l.torihiki?TORI:''}</h2>
+    <h2>${esc(l.name)}${isSuga && l.irai?IRAI:''}${l.torihiki?TORI:''}</h2>
     <p class="loc">${esc([l.pref,l.city,l.address].filter(Boolean).join(''))}${l.tel?`　電話 ${esc(l.tel)}`:''}${l.rep_name?`　代表 ${esc(l.rep_name)}`:''}${site?`　${site}`:''}</p>
+    ${isSuga ? (l.irai
+        ? `<div class="listact"><span>大房行政書士法人からアタックを依頼された会社です。</span></div>`
+        : `<div class="listact"><button type="button" class="btn ghost" id="listOff">アタックリストから外す</button><span id="listMsg">ご自身でアタックリストに入れた会社です。</span></div>`)
+      : `<div class="listact"><button type="button" class="btn" id="listOn">アタックリストに入れる</button><span id="listMsg"></span></div>`}
     <div class="cols${isSuga ? '' : ' one'}">
       ${isSuga ? `<section class="panel mine">
         <h3>菅沼さんの管理</h3>
@@ -357,7 +369,7 @@ function renderDetail(){
       </section>` : ''}
       <section class="panel">
         <h3>大房側の営業状況</h3>
-        <p class="note">${isSuga ? '大房側で更新している内容です。ここでは変更できません。' : '菅沼案件ではない会社です。見るだけで、状況やコメントは書けません。'}</p>
+        <p class="note">${isSuga ? '大房側で更新している内容です。ここでは変更できません。' : 'アタックリストに入っていない会社です。アタックリストに入れると、状況やコメントを書けるようになります。'}</p>
         <dl>
           ${row('大房との取引', l.torihiki ? '取引中（案件のご依頼あり）' : 'なし')}
           ${row('ステータス', esc(l.status))}
@@ -375,6 +387,8 @@ function renderDetail(){
       </section>
     </div>`;
   $('back').addEventListener('click', () => $('app').classList.remove('viewing'));
+  if($('listOn')) $('listOn').addEventListener('click', () => setInList(l, true));
+  if($('listOff')) $('listOff').addEventListener('click', () => setInList(l, false));
   if(isSuga){
     $('save').addEventListener('click', () => save(l));
     $('cmAdd').addEventListener('click', () => addComment(l));
@@ -382,6 +396,21 @@ function renderDetail(){
 }
 function cmHtml(c){ return `<div class="cm"><time>${esc(fmtDT(c.created_at))}　${esc(c.author)}</time><p>${esc(c.body)}</p></div>`; }
 
+async function setInList(l, on){
+  const btn = $(on ? 'listOn' : 'listOff'), msg = $('listMsg');
+  if(!on && !confirm(`「${l.name}」をアタックリストから外しますか？\n入力した状況やコメントは残ります。`)) return;
+  btn.disabled = true; msg.className = ''; msg.textContent = on ? 'アタックリストに入れています' : 'アタックリストから外しています';
+  try{
+    await rpc('suga_list_set', {p_pw: pw, p_reg_no: l.reg_no, p_on: on});
+    leads = await rpc('suga_list', {p_pw: pw});
+    others = []; oTotal = 0;
+    setMode('suga');
+    if(on){ filter = 'すべて'; currentId = l.reg_no; renderList(); renderDetail(); $('app').classList.add('viewing'); }
+  }catch(err){
+    btn.disabled = false; msg.className = 'ng';
+    msg.textContent = on ? 'アタックリストに入れられませんでした。もう一度押してください。' : 'アタックリストから外せませんでした。もう一度押してください。';
+  }
+}
 async function save(l){
   const btn = $('save'), msg = $('saveMsg'); btn.disabled = true; msg.className = ''; msg.textContent = '保存しています';
   try{
