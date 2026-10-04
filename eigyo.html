@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261004.10</div>
+      <div class="ver">ver.20261004.11</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -4241,12 +4241,21 @@ function renderPrevWeekTodos(){
     box.innerHTML=h;
   });
 }
-// 前回確認→進行中にして今週に引き継ぐ（前週から消えて今週やることに移る）
+// 前回確認→今週に引き継ぐ（元カードは前週にそのまま残し、今週に複製して出す）
 function kbCarryOver(id){
-  _sb.from('eigyo_kanban').update({lane:'doing', week_start:MT.week, updated_at:new Date().toISOString()}).eq('id',id).then(function(r){
-    if(r.error){ alert('更新失敗：'+r.error.message); return; }
-    autosaveToast('✓ 今週に引き継ぎました'); renderPrevWeekTodos(); renderWeekTodos();
-    if(typeof loadKanban==='function' && el('kanbanPane') && el('kanbanPane').style.display!=='none') loadKanban();
+  var c=null;
+  _sb.from('eigyo_kanban').select('*').eq('id',id).single().then(function(r){
+    if(r.error||!r.data){ alert('取得失敗'); return; }
+    c=r.data;
+    // 今週に既に同じ内容の複製が無いか簡易チェック（タイトル＋今週）
+    _sb.from('eigyo_kanban').select('id').eq('title',c.title).eq('week_start',MT.week).limit(1).then(function(ex){
+      if(ex.data && ex.data.length){ autosaveToast('既に今週に引き継ぎ済みです'); return; }
+      _sb.from('eigyo_kanban').insert({title:c.title, memo:c.memo, lane:'doing', assignee:c.assignee, ord:(c.ord||0)+0.5, week_start:MT.week}).then(function(ins){
+        if(ins.error){ alert('引き継ぎ失敗：'+ins.error.message); return; }
+        autosaveToast('✓ 今週に引き継ぎました（前週はそのまま）'); renderPrevWeekTodos(); renderWeekTodos();
+        if(typeof loadKanban==='function' && el('kanbanPane') && el('kanbanPane').style.display!=='none') loadKanban();
+      });
+    });
   });
 }
 function kbMoveLane(id,lane){
