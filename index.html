@@ -5679,7 +5679,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261008.15';
+var OFUSA_VERSION = 'ver.20261008.16';
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
 var _STAY_PERIOD_OPTS = (function(){
@@ -8602,6 +8602,7 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20261008.16', date:'2026-10-08', notify:true, part:true, items:['👤 <b>「未確認のUP書類（人材）」で、名前のかわりに「case_〜」という番号が出ていた案件</b>に、申請人の名前・案件名・所属機関・担当が出るようにしました。完了した案件などに書類が届いたときに起きていました。名前の横にその案件のステータス（「完了」など）も出ます。']},
   { version:'ver.20261008.15', date:'2026-10-08', notify:true, part:true, items:['📨 確認結果のご案内（人材）：公式アカウントから送るので、書き出しの<b>担当者の名前をなくし</b>「大房行政書士法人です。」にしました（「大房行政書士法人の○○です。」→「大房行政書士法人です。」）。']},
   { version:'ver.20261008.14', date:'2026-10-08', notify:true, part:true, items:['📋 会社の「確認結果のご案内」に<b>「📋 収集状況を確認」ボタン</b>を置きました（「会社のドライブを開く」の左）。押すとその会社の<b>書類チェック（入管書類・国交省書類）</b>が開きます。見終わったら右下の<b>「🔙 確認結果のご案内へ戻る」</b>で元の画面に戻れます。']},
   { version:'ver.20261008.13', date:'2026-10-08', notify:true, part:true, items:['🏛️ <b>建設の特定活動（特活）・特定技能1号の案件</b>は、他機関申請の<b>「国交省申請」が自動でON</b>になるようにしました（案件を開いたときに入ります）。自分で外した案件は、また勝手に付くことはありません。']},
@@ -124060,6 +124061,7 @@ function _applyUploadNotify(res) {
 
 function _augmentUploadList() {
   // モーダル表示時に一括付与（cData/companiesが揃っているタイミング）
+  var _miss = {};
   (_uploadNotifyList || []).forEach(function(row) {
     if (row._augmented) return; // 既に付与済みはスキップ
     if (row.case_id) {
@@ -124076,10 +124078,30 @@ function _augmentUploadList() {
       var co = (typeof companies !== 'undefined' ? companies : []).find(function(x){ return x.id === row.company_id; });
       if (co) { row._coName = co.name || ''; row._soName = co.supportOrgName || ''; if(!row._staff || row._staff==='—') row._staff = co.ofusaStaff || '—'; } // ver.20260903.14: 所属機関UPは会社の担当で埋める（担当フィルタを効かせる）
     }
+    // ver.20261008.16: 一覧に読み込まれていない案件（完了など）は、あとでDBから名前を取る
+    if (row.case_id && !row._applicant) {
+      var _ci = (window._upCaseInfo || {})[row.case_id];
+      if (_ci) {
+        row._staff = _ci.staff || '—'; row._caseName = _ci.name || ''; row._coName = _ci.company || '';
+        row._orgName = _ci.org || ''; row._applicant = _ci.applicant || _ci.name || ''; row._caseStatus = _ci.status || '';
+      } else if (_ci !== null) { _miss[row.case_id] = 1; }
+    }
     if (!row._staff) row._staff = '—';
     if (!row._coName) row._coName = row.company_name || '';
-    row._augmented = true;
+    row._augmented = !_miss[row.case_id];
   });
+  // ver.20261008.16: 見つからなかった案件をまとめて1回だけDBに問い合わせ、届いたら描き直す
+  var _ids = Object.keys(_miss);
+  if (!_ids.length || window._upCaseInfoLoading) return;
+  if (!(typeof DB_READY !== 'undefined' && DB_READY && typeof _sb !== 'undefined' && _sb)) return;
+  window._upCaseInfoLoading = true;
+  _sb.from('cases').select('id,name,applicant,company,org,staff,status').in('id', _ids).then(function(res){
+    window._upCaseInfoLoading = false;
+    window._upCaseInfo = window._upCaseInfo || {};
+    _ids.forEach(function(id){ window._upCaseInfo[id] = null; });   // 無かった案件は聞き直さない
+    ((res && res.data) || []).forEach(function(c){ window._upCaseInfo[c.id] = c; });
+    if (document.getElementById('uploadNotifyModal')) showUploadNotifyModal(window._uploadModalKind || 'person');
+  }, function(){ window._upCaseInfoLoading = false; });
 }
 
 // ===== ver.20260805.17: 書類のプレビュー =====
@@ -124688,7 +124710,7 @@ function showUploadNotifyModal(kind) {
     if (window._uploadModalKind === 'company') {
       h += '<div style="font-size:13px;font-weight:700;color:#0f172a;">🏢 ' + (coName || orgName || personName) + _catBadge + _patrolCompanySummary(row.company_id) + '</div>';
     } else {
-      h += '<div style="font-size:13px;font-weight:700;color:#0f172a;">👤 ' + personName + _catBadge + _patrolCaseSummary(row.case_id) + '</div>';
+      h += '<div style="font-size:13px;font-weight:700;color:#0f172a;">👤 ' + personName + (row._caseStatus ? ' <span title="案件一覧に出ていない案件です" style="background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0;font-size:9px;font-weight:800;padding:0 6px;border-radius:4px;vertical-align:middle;">'+esc(row._caseStatus)+'</span>' : '') + _catBadge + _patrolCaseSummary(row.case_id) + '</div>';   // ver.20261008.16
     }
     if (caseName)  h += '<div style="font-size:11px;color:#374151;margin-top:1px;">📋 ' + caseName + '</div>';
     if (orgName)   h += '<div style="font-size:11px;color:#6b7280;margin-top:1px;">🏢 ' + orgName + (coName?' ／ '+coName:'') + '</div>';
