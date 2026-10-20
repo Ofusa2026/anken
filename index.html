@@ -5755,7 +5755,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261020.03';
+var OFUSA_VERSION = 'ver.20261020.04';
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
 var _STAY_PERIOD_OPTS = (function(){
@@ -8697,6 +8697,7 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20261020.04', date:'2026-10-20', notify:true, part:false, items:['🤝 「🏢 所属機関初回案内」：2人目以降で、登録支援機関がなく（自社支援）自社支援の内容がまだ登録されていない会社は、開いたときに<b>「自社支援についてヒアリングしますか？」</b>とたずねるようにしました。<b>［ヒアリングする］</b>なら「① 企業情報＋自社支援」のフォームを案内文に入れ、<b>［しない（別で管理している）］</b>なら今までどおり1-6確認・押印だけの案内になります。選んだあとも案内画面の「変更する」で選び直せます。'] },
   { version:'ver.20261020.03', date:'2026-10-20', notify:true, part:false, items:['🤝 「🏢 所属機関初回案内」：自社支援（特定技能1号・登録支援機関なし）の会社で、<b>自社支援の内容がまだ登録されていない</b>ときは、2弾以降（2人目以降）でも<b>「① 企業情報＋自社支援」</b>のフォームを案内するようにしました（登録済みの会社情報が入った状態で開き、雇用条件は聞きません）。案内文にもそのURLが入ります。回答を取り込むと、所属機関の「🤝 自社支援」タブに入り、次からは今までどおり「不要」になります。'] },
   { version:'ver.20261020.02', date:'2026-10-20', notify:true, part:true, items:['🗾 【申請人】課税・納税：公式の申請書様式がまだ登録されていない自治体でも、<b>「🖨 印刷」を押すと、その場で自治体の公式の申請書・委任状を取り込み、AIが記入する場所を決めて記入</b>するようにしました（はじめての自治体だけ1〜2分かかります。2回目からはすぐです）。','🤖 AIが決めた様式は、はじめて印刷したときに枠に<b>「✅ 位置OK」「✗ ずれている」</b>が出ます。印刷したものを見て、文字が枠に入っていれば「✅ 位置OK」、ずれていれば「✗ ずれている」を押してください（ずれている自治体は、次から今までどおり汎用の申請書で作ります）。','📄 取り込めなかったときや、AIが決めきれなかったときは、今までどおり<b>汎用の申請書</b>で作ります（印刷が止まることはありません）。'] },
   { version:'ver.20261020.01', date:'2026-10-20', notify:true, part:false, items:['🏢 受信トレイで、<b>登録支援機関名をカードの一番上に大きく</b>表示するようにしました（これまでは日付の横に小さな薄い文字でした）。依頼スプレッドシートは機関名の横の「📊 シート」から開けます。'] },
@@ -61550,6 +61551,10 @@ function _buildShozokuAnnounce(caseId){
   var _ssSelfCase = isTokutei && !/(２号|2号)/.test(residence||'') && !String(c.org||'').trim() && !_nkbCase;
   var _ssObj = (co && co.extra && co.extra.selfSupport && typeof co.extra.selfSupport==='object') ? co.extra.selfSupport : null;
   var ssNeed = _ssSelfCase && !(_ssObj && Object.keys(_ssObj).length);
+  // ver.20261020.04: 自社支援を別で管理している会社もあるため、2弾以降は「ヒアリングするか」を先にたずねる（_ssAskHear）。「しない」なら案内しない
+  var ssAsk = ssNeed && secondPlus;
+  var ssPick = (window._ssHearPick && window._ssHearPick[caseId]) || '';
+  if(ssAsk && ssPick==='no') ssNeed = false;
   var ssFormUrl = ssNeed ? (formUrl + '&part=1') : '';
   // ver.20260902.27: 特定技能2号なら「①企業ヒアリングフォーム2（指導対象者）」＝2号誓約書フォーム(type=tokutei2_pledge)のURLを用意
   var isT2=/(２号|2号)/.test(residence||'');
@@ -61580,6 +61585,7 @@ function _buildShozokuAnnounce(caseId){
     formType:formType, teishiWarn:teishiWarn, fieldSkip:fieldSkip, hasExp:hasExp, secondPlus:secondPlus,
     appType:(c.appType||''), fieldDocUrl:_shozokuFieldDocUrl(c.appType, fieldKey, residence),
     isT2:isT2, nkb:_nkbCase,   // ver.20260917.30: 中林案件（技人国・project用）
+    ssAsk:ssAsk, ssPick:ssPick,   // ver.20261020.04: ヒアリングするか（yes／no／未選択）
     ssNeed:ssNeed,   // ver.20261020.03: 自社支援の内容が未登録（2弾以降でも①企業情報＋自社支援を案内）
     links:{ form:formUrl, upload:upUrl, field:fieldUrl, shidou:shidouUrl, ssForm:ssFormUrl },
     missing:{ companyId:(!cid && !hasExp), folder:(!folderId && !hasExp), field:(isTokutei && !fieldKey) }
@@ -61915,6 +61921,7 @@ function openShozokuAnnounce(caseId, _skipOc){
     document.body.appendChild(box0);
     return;
   }
+  if(a.ssAsk && !a.ssPick){ _ssAskHear(caseId); return; }   // ver.20261020.04
   var _ex=document.getElementById('_shozokuAnnounceModal'); if(_ex) _ex.remove();
   var box=document.createElement('div'); box.id='_shozokuAnnounceModal';
   box.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:100004;display:flex;align-items:center;justify-content:center;padding:20px;';
@@ -61952,7 +61959,7 @@ function openShozokuAnnounce(caseId, _skipOc){
           +'<div style="margin-top:3px;"><b style="color:#475569;">CC</b>　'+(ccParts.length?esc(ccParts.join(' ／ ')):'<span style="color:#f59e0b;">なし（登録支援機関メール／担当者メール未設定）</span>')+'</div>'
           +'</div>';
       })()
-    +(a.secondPlus?'<div style="margin:0 18px 8px;padding:8px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:11px;color:#1e3a8a;">📌 <b>2弾以降（2人目以降）</b>の案件のため、初回案内（①ヒアリングフォーム・②書類アップロード・③協議会加入）は不要です。<b>1-6確認依頼・押印依頼のみ</b>ご対応ください（下部「📧 企業メールで開く」→テンプレ「1-6所属機関確認依頼／所属機関押印依頼」）。'+(a.ssNeed?'<br>🤝 ただし<b>自社支援</b>の内容が未登録のため、<b>① 企業情報＋自社支援</b>だけはご案内ください。':'')+'</div>':'')
+    +(a.secondPlus?'<div style="margin:0 18px 8px;padding:8px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;font-size:11px;color:#1e3a8a;">📌 <b>2弾以降（2人目以降）</b>の案件のため、初回案内（①ヒアリングフォーム・②書類アップロード・③協議会加入）は不要です。<b>1-6確認依頼・押印依頼のみ</b>ご対応ください（下部「📧 企業メールで開く」→テンプレ「1-6所属機関確認依頼／所属機関押印依頼」）。'+(a.ssNeed?'<br>🤝 ただし<b>自社支援</b>の内容が未登録のため、<b>① 企業情報＋自社支援</b>だけはご案内ください。':'')+(a.ssPick==='no'?'<br>🤝 自社支援のヒアリングは<b>しない（別で管理している）</b>にしています。':'')+(a.ssAsk?' <a href="javascript:void(0)" onclick="_ssHearReset(\''+esc(a.caseId)+'\')" style="color:#1d4ed8;text-decoration:underline;">変更する</a>':'')+'</div>':'')
     +(a.nkb?'<div style="margin:0 18px 8px;padding:8px 12px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;font-size:11px;color:#3730a3;">中林案件（技人国）のため、①②は<b>project用</b>のリンクで案内します。③協議会加入は対象外です。必要書類はアップロードページのカテゴリー判定で表示されます。</div>':(a.hasExp?'<div style="margin:0 18px 8px;padding:8px 12px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;font-size:11px;color:#065f46;">受入経験ありのため、②書類アップロード・③協議会加入は不要です。代わりに'+(a.fieldName?('「'+esc(a.fieldName)+'分野」'):'該当分野')+'に関する書類の添付提出を案内します。</div>':''))
     +(warn?('<div style="margin:0 18px 8px;padding:8px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:11px;color:#92400e;">'+warn+'</div>'):'')
     +'<div style="padding:6px 18px 16px;">'
@@ -61967,6 +61974,35 @@ function openShozokuAnnounce(caseId, _skipOc){
     +row('③ 分野別ページ（協議会加入）'+(a.nkb?'（技人国のため対象外）':(a.secondPlus?'（2弾以降のため不要）':((!a.isTokutei)?'（特定技能のみ・対象外）':(a.hasExp?'（受入経験ありのため不要）':'')))), (a.nkb||a.secondPlus)?'':a.links.field, a.nkb?'技人国のため対象外':(a.secondPlus?'2弾以降のため不要':((!a.isTokutei)?'特定技能以外は対象外':(a.hasExp?'受入経験ありのため不要':(a.fieldSkip?'受入経験あり＆前回同分野のためスキップ対象':(a.missing.field?'分野未判定のため生成なし':''))))))
     +'</div></div>';
   box.innerHTML=h; document.body.appendChild(box);
+}
+// ver.20261020.04: 2弾以降・登録支援機関なし・自社支援が未登録のとき、自社支援をヒアリングするかを先にたずねる
+//   （自社支援を別で管理している会社があるため）。選んだ答えはこの画面を開いているあいだ案件ごとに覚える（_ssHearPick）
+function _ssAskHear(caseId){
+  var _ex=document.getElementById('_ssAskHearModal'); if(_ex) _ex.remove();
+  var box=document.createElement('div'); box.id='_ssAskHearModal';
+  box.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:100005;display:flex;align-items:center;justify-content:center;padding:20px;';
+  box.onclick=function(e){ if(e.target===box) box.remove(); };
+  var cid=String(caseId).replace(/'/g,"\\'");
+  var btn=function(v,label,bg,fg,bd){ return '<button onclick="_ssHearSet(\''+cid+'\',\''+v+'\')" style="width:100%;margin-top:8px;font-size:13px;padding:11px;background:'+bg+';color:'+fg+';border:'+(bd||'none')+';border-radius:8px;cursor:pointer;font-weight:800;">'+label+'</button>'; };
+  box.innerHTML='<div onclick="event.stopPropagation()" style="background:#fff;border-radius:14px;width:100%;max-width:440px;box-shadow:0 16px 48px rgba(0,0,0,.3);">'
+    +'<div style="padding:13px 18px;border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;"><div style="font-size:14px;font-weight:800;color:#0f2040;">🤝 自社支援のヒアリング</div><button onclick="document.getElementById(\'_ssAskHearModal\').remove()" style="background:none;border:none;font-size:20px;color:#94a3b8;cursor:pointer;">×</button></div>'
+    +'<div style="padding:16px 18px;font-size:12.5px;color:#334155;line-height:1.7;">この案件は<b>登録支援機関がありません</b>（自社支援）。<br>所属機関に<b>自社支援の内容がまだ登録されていません</b>。<br><br><b>自社支援についてヒアリングしますか？</b>'
+    +'<div style="font-size:11px;color:#64748b;margin-top:4px;">ヒアリングする → 「① 企業情報＋自社支援」のフォームを案内します（案内文にもURLが入ります）。</div>'
+    +btn('yes','🤝 ヒアリングする','#0f766e','#fff')
+    +btn('no','✗ しない（別で管理している）','#fff','#334155','1px solid #cbd5e1')
+    +'</div></div>';
+  document.body.appendChild(box);
+}
+function _ssHearSet(caseId, v){
+  window._ssHearPick = window._ssHearPick || {};
+  window._ssHearPick[caseId] = v;
+  var m=document.getElementById('_ssAskHearModal'); if(m) m.remove();
+  openShozokuAnnounce(caseId, true);
+}
+function _ssHearReset(caseId){
+  if(window._ssHearPick) delete window._ssHearPick[caseId];
+  var m=document.getElementById('_shozokuAnnounceModal'); if(m) m.remove();
+  openShozokuAnnounce(caseId, true);
 }
 // ver.20260831.32: 所属機関向け案内文（初回案内のような体裁）を組み立てる
 function _shozokuAnnounceBody(a){
