@@ -5755,7 +5755,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261020.05';
+var OFUSA_VERSION = 'ver.20261020.06';
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
 var _STAY_PERIOD_OPTS = (function(){
@@ -8697,6 +8697,7 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20261020.06', date:'2026-10-20', notify:true, part:false, items:['🚚 希望在留資格が特定活動でも、分野欄が<b>自動車運送業</b>の案件は特活の省略セット（顔写真・パスポート・合格証の3点）にせず、<b>健康診断票など通常の必要書類</b>を申請人に出すようにしました（アップロード画面・催促も同じ）。'] },
   { version:'ver.20261020.05', date:'2026-10-20', notify:true, part:false, items:['🤝 「🏢 所属機関初回案内」：2人目以降で、登録支援機関がなく（自社支援）自社支援の内容がまだ登録されていない会社は、開いたときに<b>「自社支援についてヒアリングしますか？」</b>とたずねるようにしました（自社支援を別で管理している会社があるため）。<b>［ヒアリングする］</b>＝「企業情報＋自社支援」のフォーム／<b>［企業情報だけ聞く（自社支援は別で管理）］</b>＝会社情報の確認だけのフォーム（自社支援のページは出ません）／<b>［どちらも聞かない］</b>＝今までどおり1-6確認・押印だけ。選んだフォームのURLは案内文にも入ります。あとから案内画面の「変更する」で選び直せます。'] },
   { version:'ver.20261020.03', date:'2026-10-20', notify:true, part:false, items:['🤝 「🏢 所属機関初回案内」：自社支援（特定技能1号・登録支援機関なし）の会社で、<b>自社支援の内容がまだ登録されていない</b>ときは、2弾以降（2人目以降）でも<b>「① 企業情報＋自社支援」</b>のフォームを案内するようにしました（登録済みの会社情報が入った状態で開き、雇用条件は聞きません）。案内文にもそのURLが入ります。回答を取り込むと、所属機関の「🤝 自社支援」タブに入り、次からは今までどおり「不要」になります。'] },
   { version:'ver.20261020.02', date:'2026-10-20', notify:true, part:true, items:['🗾 【申請人】課税・納税：公式の申請書様式がまだ登録されていない自治体でも、<b>「🖨 印刷」を押すと、その場で自治体の公式の申請書・委任状を取り込み、AIが記入する場所を決めて記入</b>するようにしました（はじめての自治体だけ1〜2分かかります。2回目からはすぐです）。','🤖 AIが決めた様式は、はじめて印刷したときに枠に<b>「✅ 位置OK」「✗ ずれている」</b>が出ます。印刷したものを見て、文字が枠に入っていれば「✅ 位置OK」、ずれていれば「✗ ずれている」を押してください（ずれている自治体は、次から今までどおり汎用の申請書で作ります）。','📄 取り込めなかったときや、AIが決めきれなかったときは、今までどおり<b>汎用の申請書</b>で作ります（印刷が止まることはありません）。'] },
@@ -91675,7 +91676,8 @@ function _getDocList(cas) {
   }
   // ver.20260827.44: 希望在留資格が特定活動なら、ボタンを押さなくても特活5点セットを自動適用
   //   （手動でプリセット/個別編集済み（_customあり）の案件はその内容を優先）
-  if (!_custom && typeof _isTokkatsuCase==='function' && _isTokkatsuCase(cas) && _autoDocsEligible(cas)) {
+  // ver.20261020.06: 自動車運送業（分野欄）は特定活動（特定自動車運送業準備）でも書類を省略しない（健康診断票などもアップロードしてもらう）→ 通常リストへ
+  if (!_custom && typeof _isTokkatsuCase==='function' && _isTokkatsuCase(cas) && _autoDocsEligible(cas) && !_isUnsoCase(cas)) {
     var _tkAuto = _tokkatsuDocsFor(listKey);   // ver.20261019.02: 認定は在留カードなし
     if(typeof _addConstructionDocs === 'function') _addConstructionDocs(_tkAuto, cas); // 建設は技能者IDを上乗せ（手動プリセットと同じ）
     return _tkAuto;
@@ -106681,6 +106683,10 @@ function _addKaigoDocsAuto(list, cas){
   }catch(e){}
 }
 // ver.20260827.44: 希望在留資格が特定活動の案件は、ボタン操作なしで特活5点セットを書類リストにする
+// ver.20261020.06: 自動車運送業の案件か（分野欄 applicantField だけで見る）
+function _isUnsoCase(cas){
+  try{ return String(cas.applicantField||'').indexOf('自動車運送') !== -1; }catch(e){ return false; }
+}
 function _isTokkatsuCase(cas){
   try{ return String(cas.residenceStatus||'').indexOf('特定活動') !== -1; }catch(e){ return false; }
 }
