@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261004.22</div>
+      <div class="ver">ver.20261021.01</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -643,6 +643,14 @@ var STATUSES = ['未接触','接触済み','商談予定','商談済み→依頼
 var DOC_METHODS = ['','行政書士','登録支援機関（システム利用）','登録支援機関（システム未利用）','登録支援機関＋行政書士','所属機関'];
 var HR_TOOLS = ['','LINE','Chatwork','Messenger','メール','その他'];
 var HR_MADOGUCHI = ['','登録支援機関','直接','送り出し機関','その他'];
+var CLOSE_PROBS = ['','90','80','50','20','10']; // 確度（%）
+var DOC_COLLECT_KIGYO  = ['登録支援機関','所属機関','大房'];
+var DOC_COLLECT_JINZAI = ['登録支援機関','所属機関','人材本人','大房'];
+function probColor(p){ p=parseInt(p,10); if(!p) return ''; if(p>=80) return '#2f855a'; if(p>=50) return '#b7791f'; return '#c53030'; }
+function probBadge(p){ if(p==null||p==='') return ''; var c=probColor(p); return ' <span style="display:inline-block;font-size:10.5px;font-weight:700;color:#fff;background:'+c+';border-radius:9px;padding:1px 7px;margin-left:3px;white-space:nowrap;">確度'+esc(p)+'%</span>'; }
+function docCollectChecks(prefix,opts,val){ var cur=String(val||'').split(',').filter(Boolean); return '<div style="display:flex;gap:12px;flex-wrap:wrap;padding:4px 0;">'+opts.map(function(o,i){ return '<label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;"><input type="checkbox" class="'+prefix+'" value="'+esc(o)+'" '+(cur.indexOf(o)>=0?'checked':'')+' style="width:15px;height:15px;">'+esc(o)+'</label>'; }).join('')+'</div>'; }
+function docCollectVal(prefix){ var a=[]; document.querySelectorAll('input.'+prefix+':checked').forEach(function(c){ a.push(c.value); }); return a.length?a.join(','):null; }
+function potHint(){ var e=el('ePotHint'); if(!e) return; var sp=parseInt((el('eSupporter')||{}).value,10)||parseInt((el('eExpSupporter')||{}).value,10)||0; var m=parseInt((el('eHrMonthly')||{}).value,10); var p=parseInt((el('eHrPotential')||{}).value,10); var t=[]; if(sp&&m>=0&&!isNaN(m)) t.push('支援者'+sp+'人に対し月'+m+'件（'+(Math.round(m/sp*1000)/10)+'%）'); if(!isNaN(m)&&m>0&&!isNaN(p)) t.push('うち当社 月'+p+'件（'+Math.round(p/m*100)+'%）'); e.textContent=t.join('／'); }
 var HR_KYOGIKAI = ['','登録支援機関','所属機関','大房行政書士法人','その他'];
 var HR_EXCLUSIVE = ['','専売','他社','複数社依頼(弊社含まず)','複数社依頼(弊社含む)'];
 var HR_SPOT = ['','スポット','定期依頼','トライアル次第','未確認'];
@@ -1190,7 +1198,7 @@ function render(){
       +   '</div></td>'
       + '<td class="il">'+ilText(x.reg_no,'search_rank',x.search_rank,'')+'</td>'
       + '<td class="il">'+ilListed(x.reg_no,x.is_listed)+'</td>'
-      + '<td><span class="badge b-'+esc(x.status)+'">'+esc(x.status)+'</span></td>'
+      + '<td><span class="badge b-'+esc(x.status)+'">'+esc(x.status)+'</span>'+probBadge(x.close_prob)+'</td>'
       + '<td class="il">'+ilSelect(x.reg_no,'acquisition_source',ACQ_SOURCES,x.acquisition_source,'—')+'</td>'
       + '<td class="sub">'+esc(x.staff||'')+'</td>'
       + '<td class="sub">'+(x.first_contact_date ? esc(x.first_contact_date)+(x.first_contact_kind?'<div class="sub">'+esc(x.first_contact_kind)+'</div>':'') : '—')+'</td>'
@@ -1292,7 +1300,7 @@ function openDrawer(regNo){
     catch(e){ el('dBody').innerHTML='<div class="empty">表示エラー：'+esc(e.message)+'<br><button class="btn btn-sm" onclick="closeDrawer()">閉じる</button></div>'; }
     loadNotes(regNo);
     loadMaterials(regNo);
-    setTimeout(function(){ var b=el('dBody'); if(b && !b._autobound){ b._autobound=true; b.addEventListener('input',scheduleAutosave); b.addEventListener('change',scheduleAutosave); } }, 0);
+    setTimeout(function(){ var b=el('dBody'); if(b && !b._autobound){ b._autobound=true; b.addEventListener('input',scheduleAutosave); b.addEventListener('change',scheduleAutosave); } potHint(); }, 0);
   });
 }
 // 詳細画面を閉じたとき、表示中のタブ（アタックリスト・週次Mtg・KPI・セミナー）も最新にする
@@ -1395,7 +1403,8 @@ function renderDrawer(){
   + '<div id="dpane1">'
   + '<div class="sec"><h3 class="sec-title" style="margin-top:0;">営業管理</h3><div class="form form-compact">'
   +   '<label>ステータス</label><select id="eStatus" onchange="saveStatusNow()">'+STATUSES.map(function(s){return '<option'+(s===x.status?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
-  +   '<label>支援者数（人）</label><input type="number" id="eSupporter" oninput="applyAutoRankDrawer()" value="'+(x.supporter_count===null||x.supporter_count===undefined?'':esc(x.supporter_count))+'" placeholder="人数を入力するとランク自動判定">'
+  +   '<label>確度</label><select id="eCloseProb" onchange="this.style.color=probColor(this.value)" style="font-weight:700;color:'+probColor(x.close_prob)+';">'+CLOSE_PROBS.map(function(p){return '<option value="'+p+'"'+((String(x.close_prob==null?'':x.close_prob)===p)?' selected':'')+'>'+(p?p+'%':'（未設定）')+'</option>';}).join('')+'</select>'
+  +   '<label>支援者数（人）</label><input type="number" id="eSupporter" oninput="applyAutoRankDrawer();potHint()" value="'+(x.supporter_count===null||x.supporter_count===undefined?'':esc(x.supporter_count))+'" placeholder="人数を入力するとランク自動判定">'
   +   '<label style="font-size:11px;color:var(--muted);">支援人数の目安</label><div class="span2" style="display:flex;gap:4px;flex-wrap:wrap;">'
   +     '<button type="button" class="btn btn-sm" onclick="setRankByRange(\'E\')">50名以下→E</button>'
   +     '<button type="button" class="btn btn-sm" onclick="setRankByRange(\'D\')">51〜100→D</button>'
@@ -1405,6 +1414,9 @@ function renderDrawer(){
   +     '<button type="button" class="btn btn-sm" onclick="setRankByRange(\'S\')">1001以上→S</button>'
   +   '</div>'
   +   '<label>想定支援者数</label><input type="number" id="eExpSupporter" value="'+(x.expected_supporter===null||x.expected_supporter===undefined?'':esc(x.expected_supporter))+'" placeholder="不明な場合の想定値">'
+  +   '<label>月の申請ポテンシャル</label><div style="display:flex;gap:6px;align-items:center;"><input type="number" id="eHrMonthly" oninput="potHint()" value="'+esc(x.hr_monthly_apps!=null?x.hr_monthly_apps:'')+'" placeholder="支援者数に対し月◯件" style="flex:0 0 150px;"><span class="sub" style="font-size:12px;">件/月</span></div>'
+  +   '<label>当社への依頼見込み</label><div style="display:flex;gap:6px;align-items:center;"><input type="number" id="eHrPotential" oninput="potHint()" value="'+esc(x.hr_potential_apps!=null?x.hr_potential_apps:'')+'" placeholder="うち当社に月◯件" style="flex:0 0 150px;"><span class="sub" style="font-size:12px;">件/月</span><input type="text" id="eHrPotentialField" value="'+esc(x.hr_potential_field||'')+'" placeholder="分野（例：特定技能）" style="flex:1;min-width:80px;"></div>'
+  +   '<div class="span2 sub" id="ePotHint" style="font-size:11.5px;color:#2b6cb0;margin:-2px 0 4px;"></div>'
   +   '<label>営業ランク</label><select id="eLeadRank" onchange="this.removeAttribute(\'data-auto\')">'+rankOpts(x.lead_rank).map(function(r){return '<option'+((r===(x.lead_rank||''))?' selected':'')+'>'+esc(r||'（未評価）')+'</option>';}).join('')+'</select>'
   +   '<label>アタックリスト</label><div style="display:flex;gap:14px;flex-wrap:wrap;">'+ATTACK_KINDS.map(function(k){ return '<label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:#c05621;font-weight:600;"><input type="checkbox" id="eAttack_'+k.key+'" '+(x[k.col]?'checked':'')+' onchange="toggleAttackKind(\''+k.key+'\',this.checked)" style="width:16px;height:16px;"> 🎯 '+k.label+'</label>'; }).join('')+'</div>'
   +   '<label>担当者</label><select id="eStaff"><option value="">（未設定）</option>'
@@ -1435,7 +1447,7 @@ function renderDrawer(){
   +     '<label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;">通訳 <input type="number" id="eTeamInterpreter" value="'+esc(x.team_interpreter!=null?x.team_interpreter:'')+'" placeholder="名" style="flex:1;width:100%;"></label>'
   +     '<label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px;">書類・事務 <input type="number" id="eTeamClerk" value="'+esc(x.team_clerk!=null?x.team_clerk:'')+'" placeholder="名" style="flex:1;width:100%;"></label>'
   +   '</div>'
-  +   '<label>月間件数</label><input type="number" id="eHrMonthly" value="'+esc(x.hr_monthly_apps!=null?x.hr_monthly_apps:'')+'" placeholder="件/月">'
+  +   '<label>月間件数</label><div class="ro" style="padding:6px 4px;color:var(--muted);font-size:12px;">↑ 上の「月の申請ポテンシャル」に入力</div>'
   +   '<label>年間件数</label><input type="number" id="eHrYearly" value="'+esc(x.hr_yearly_apps!=null?x.hr_yearly_apps:'')+'" placeholder="件/年">'
   +   '<label>取扱在留資格</label><textarea id="eHrVisa" placeholder="例：特定技能1号、技人国、技能実習 など" style="min-height:40px;">'+esc(x.hr_visa||'')+'</textarea>'
   +   '<label>取扱分野</label><textarea id="eHrFields" placeholder="例：建設、介護、外食 など" style="min-height:40px;">'+esc(x.hr_fields||'')+'</textarea>'
@@ -1476,8 +1488,13 @@ function renderDrawer(){
   +   '<label>既存の申請費用</label><div class="ro" id="roHrExistingFee" style="padding:6px 4px;color:#2d3748;">—</div>'
   +   '<label>既存の業務範囲</label><div class="ro" id="roHrScope" style="padding:6px 4px;color:#2d3748;">—</div>'
   +   '<label>見込み</label><select id="eHrSpot">'+HR_SPOT.map(function(m){return '<option'+((m===(x.hr_spot||''))?' selected':'')+'>'+esc(m||'（未選択）')+'</option>';}).join('')+'</select>'
-  +   '<label>獲得見込み</label><div style="display:flex;gap:6px;"><input type="number" id="eHrPotential" value="'+esc(x.hr_potential_apps!=null?x.hr_potential_apps:'')+'" placeholder="月◯件" style="flex:0 0 110px;"><input type="text" id="eHrPotentialField" value="'+esc(x.hr_potential_field||'')+'" placeholder="分野（例：特定技能）" style="flex:1;"></div>'
+  +   '<label>当社への依頼見込み</label><div class="ro" id="roHrPotential" style="padding:6px 4px;color:#2d3748;">—</div>'
   +   '<label>獲得条件</label><textarea id="eHrCondition" placeholder="どうなったら残りの申請件数を弊社に任せてもらえそうか" style="min-height:48px;">'+esc(x.hr_condition||'')+'</textarea>'
+  + '</div>'
+  + '<h3 style="margin:16px 0 8px;font-size:14px;">📂 書類収集の担当（誰が集めるか）</h3>'
+  + '<div class="form" style="grid-template-columns:130px 1fr;">'
+  +   '<label>企業書類</label>'+docCollectChecks('dcKigyo',DOC_COLLECT_KIGYO,x.doc_collect_kigyo)
+  +   '<label>人材書類</label>'+docCollectChecks('dcJinzai',DOC_COLLECT_JINZAI,x.doc_collect_jinzai)
   + '</div>'
   + '<h3 style="margin:16px 0 8px;font-size:14px;">💬 連絡ツールと窓口</h3>'
   + '<div class="form" style="grid-template-columns:130px 1fr 130px 1fr;">'
@@ -1584,7 +1601,8 @@ function switchDrawerTab(n){
 function syncHearingReflection(){
   function set(ro, v){ var e=el(ro); if(e) e.textContent=(v==null||v==='')?'—':v; }
   function val(id){ var e=el(id); return e?e.value:''; }
-  set('roHrMonthly', val('eHrMonthly'));
+  set('roHrMonthly', val('eHrMonthly')!==''?val('eHrMonthly')+'件/月':'');
+  set('roHrPotential', val('eHrPotential')!==''?'月'+val('eHrPotential')+'件'+(val('eHrPotentialField')?'（'+val('eHrPotentialField')+'）':''):'');
   var tp=[];
   if(val('eTeamSupport')!=='') tp.push('支援'+val('eTeamSupport'));
   if(val('eTeamSales')!=='') tp.push('営業'+val('eTeamSales'));
@@ -1734,7 +1752,10 @@ function saveLead(silent){
     hr_kyogikai:       el('eHrKyogikai').value || null,
     hr_olink_date:     el('eHrOlinkDate').value || null,
     hr_olink_memo:     el('eHrOlinkMemo').value.trim() || null,
-    hr_memo:           el('eHrMemo').value.trim() || null
+    hr_memo:           el('eHrMemo').value.trim() || null,
+    close_prob:        (el('eCloseProb')&&el('eCloseProb').value!=='')?parseInt(el('eCloseProb').value,10):null,
+    doc_collect_kigyo: docCollectVal('dcKigyo'),
+    doc_collect_jinzai: docCollectVal('dcJinzai')
   };
   // 支援者数・想定支援者数も自動保存の対象にする（以前はプロフィール保存ボタンのみ）
   if(el('eSupporter')){ var _sv=el('eSupporter').value.trim(); patch.supporter_count = _sv==='' ? null : parseInt(_sv,10); }
@@ -4165,7 +4186,7 @@ function mtLoad(){
     _sb.from('eigyo_deals').select('*').order('start_date',{ascending:true}),
     _sb.rpc('eigyo_deal_case_counts'),
     _sb.from('eigyo_weekly_mtg').select('*').in('week_start',[MT.week,prevW]),
-    _sb.from('eigyo_leads').select('reg_no,name,status,staff,lead_rank,supporter_count,expected_supporter,apt_at,meeting_date,next_action,next_action_date,attack100,attack_nb,attack_km,attack_sg')
+    _sb.from('eigyo_leads').select('reg_no,name,status,staff,lead_rank,supporter_count,expected_supporter,apt_at,meeting_date,next_action,next_action_date,attack100,attack_nb,attack_km,attack_sg,close_prob,hr_monthly_apps,hr_potential_apps')
       .or('attack100.eq.true,attack_nb.eq.true,attack_km.eq.true,attack_sg.eq.true'),
     _sb.rpc('eigyo_deal_sales'),
     _sb.from('eigyo_deal_adjust').select('*')
@@ -4194,6 +4215,19 @@ function mtExp(reg,v){
     if(r.error){ alert('保存エラー：'+r.error.message); return; }
     MT.leads.forEach(function(l){ if(l.reg_no===reg) l.expected_supporter=n; }); autosaveToast('想定支援者数を保存しました'); mtRender();
   });
+}
+// ④ 今週の見込み：確度・ポテンシャルのインライン編集
+function mtProbSel(l){
+  var v=l.close_prob==null?'':String(l.close_prob);
+  return '<select onchange="mtInline(\''+esc(l.reg_no)+'\',\'close_prob\',this.value===\'\'?null:parseInt(this.value,10),this);this.style.color=probColor(this.value);" style="font-size:12px;font-weight:700;padding:3px 2px;border:1px solid var(--line);border-radius:4px;color:'+probColor(v)+';">'
+    + CLOSE_PROBS.map(function(p){ return '<option value="'+p+'"'+(p===v?' selected':'')+'>'+(p?p+'%':'—')+'</option>'; }).join('')+'</select>';
+}
+function mtNumIn(l,field){
+  return '<input type="number" min="0" value="'+(l[field]==null?'':esc(l[field]))+'" placeholder="件/月" onchange="mtInline(\''+esc(l.reg_no)+'\',\''+field+'\',this.value===\'\'?null:parseInt(this.value,10),this)" style="width:64px;font-size:12px;padding:3px 4px;border:1px solid var(--line);border-radius:4px;text-align:right;">';
+}
+function mtInline(reg,field,value,elm){
+  inlineSave(reg,field,value,elm);
+  (MT.leads||[]).forEach(function(l){ if(l.reg_no===reg) l[field]=value; });
 }
 // ④ 今週の見込み：各社の最新の対応履歴を表示
 function fillLatestNotes(){
@@ -4417,14 +4451,18 @@ function mtRender(){
     + '</div>'
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
     + big('今週の契約見込み', nxCnt+'社 ／ '+kpNum(nxSum)+'人', '週の目標 '+kpNum(MT.staff==='all'?wkT:wkT/KP_STAFF.length)+'人 → '+kpPct(nxSum,MT.staff==='all'?wkT:wkT/KP_STAFF.length))
+    + (function(){ var pot=0,wp=0,mon=0; lv.forEach(function(l){ var p=l.hr_potential_apps||0; pot+=p; mon+=(l.hr_monthly_apps||0); wp+=p*((l.close_prob||0)/100); }); return big('当社への依頼見込み（月）', kpNum(pot)+'件', '確度加味 '+(Math.round(wp*10)/10)+'件 ／ 申請ポテンシャル計 '+kpNum(mon)+'件'); })()
     + big('アタックリスト', lv.length+'社', atk==='all'?'アタックS・中林・亀谷・菅沼':(atk==='S'?'アタックS':(atk==='nb'?'アタック中林':(atk==='sg'?'菅沼案件':'アタック亀谷'))))
     + '</div>'
-    + (lv.length?'<div style="overflow-x:auto;max-height:420px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;position:sticky;top:0;background:#fff;"><th style="'+th+'">今週見込み</th><th style="'+th+'">企業名</th><th style="'+th+'">ステータス</th><th style="'+th+'">ランク</th><th style="'+th+'">担当</th><th style="'+th+'">支援者数</th><th style="'+th+'">最新の対応履歴</th></tr></thead><tbody>'
+    + (lv.length?'<div style="overflow-x:auto;max-height:420px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;position:sticky;top:0;background:#fff;"><th style="'+th+'">今週見込み</th><th style="'+th+'">企業名</th><th style="'+th+'">ステータス</th><th style="'+th+'">ランク</th><th style="'+th+'">担当</th><th style="'+th+'">支援者数</th><th style="'+th+'">確度</th><th style="'+th+'" title="支援者数に対して月に何件申請が出るか">月の申請<br>ポテンシャル</th><th style="'+th+'" title="そのうち当社に依頼いただけそうな件数">当社への<br>依頼見込み</th><th style="'+th+'">最新の対応履歴</th></tr></thead><tbody>'
       + lv.map(function(l){ var on=!!nx[l.reg_no];
           return '<tr style="border-bottom:1px solid var(--line);'+(on?'background:#f0fff4;':'')+'"><td style="'+td+'text-align:center;"><input type="checkbox" '+(on?'checked':'')+' onchange="mtSet(\'next.'+esc(l.reg_no)+'\',this.checked);mtRender();" style="width:16px;height:16px;"></td>'
             + '<td style="'+td+'"><a href="javascript:void(0)" onclick="openDrawer(\''+esc(l.reg_no)+'\')" style="color:var(--accent);font-weight:600;">'+esc(l.name)+'</a>'+(l.attack100?' <span style="font-size:11px;">🎯S</span>':'')+(l.attack_nb?' <span style="font-size:11px;">🎯中林</span>':'')+(l.attack_km?' <span style="font-size:11px;">🎯亀谷</span>':'')+(l.attack_sg?' <span style="font-size:11px;">🎯菅沼</span>':'')+'</td>'
             + '<td style="'+td+'"><span class="badge b-'+esc(l.status)+'">'+esc(l.status)+'</span></td><td style="'+td+'">'+(l.lead_rank&&l.lead_rank!=='（未評価）'?'<b>'+esc(l.lead_rank)+'</b>':'—')+'</td>'
             + '<td style="'+td+'">'+esc(kpShort(l.staff||'')||'—')+'</td><td style="'+td+'">'+(l.supporter_count!=null?kpNum(l.supporter_count)+'人':'—')+'</td>'
+            + '<td style="'+td+'min-width:78px;">'+mtProbSel(l)+'</td>'
+            + '<td style="'+td+'min-width:70px;">'+mtNumIn(l,'hr_monthly_apps')+'</td>'
+            + '<td style="'+td+'min-width:70px;">'+mtNumIn(l,'hr_potential_apps')+'</td>'
             + '<td class="sub mt-latest-note" data-reg="'+esc(l.reg_no)+'" style="'+td+'font-size:12px;min-width:280px;max-width:420px;">…</td></tr>'; }).join('')+'</tbody></table></div>'
       : '<div class="sub" style="font-size:13px;">アタックリストに会社がありません。</div>')
     + '<div class="sub" style="font-size:11px;margin-top:6px;">見込み人数は「想定支援者数」を優先し、未入力なら「支援者数」で計算します。チェックはこの週のMtgに保存され、翌週の①で答え合わせできます。</div></div>';
