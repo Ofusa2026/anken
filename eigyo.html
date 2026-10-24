@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261021.01</div>
+      <div class="ver">ver.20261025.01</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -252,6 +252,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
 
   <div class="maintabs" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:14px;border-bottom:2px solid var(--line);">
     <button id="tabLeads" class="mtab mtab-on" onclick="switchMain('leads')">📋 リード一覧</button>
+    <button id="tabTorihiki" class="mtab" onclick="openTorihiki()">🏢 登録支援機関リスト</button>
     <button id="tabMaterials" class="mtab" onclick="openCommonMaterials()">📎 資料ライブラリ</button>
     <button id="tabMkt" class="mtab" onclick="switchMain('mkt')" style="display:none;">📣 マーケティング</button>
     <button id="tabSales" class="mtab" onclick="switchMain('sales')" style="display:none;">🧑‍💼 営業</button>
@@ -349,6 +350,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
   <div id="seminarPane" style="display:none;"></div>
   <div id="kpiPane" style="display:none;"></div>
   <div id="kanbanPane" style="display:none;"></div>
+  <div id="torihikiPane" style="display:none;"></div>
   <div id="mtgPane" style="display:none;"></div>
 </div>
 
@@ -4698,6 +4700,8 @@ function switchMain(which){
   if(el('mtgPane')) el('mtgPane').style.display = which==='mtg' ? '' : 'none';
   if(el('tabMtg')) el('tabMtg').className = 'mtab' + (which==='mtg'?' mtab-on':'');
   if(el('kanbanPane')) el('kanbanPane').style.display = which==='kanban' ? '' : 'none';
+  if(el('torihikiPane')) el('torihikiPane').style.display = which==='torihiki' ? '' : 'none';
+  if(el('tabTorihiki')) el('tabTorihiki').className = 'mtab' + (which==='torihiki'?' mtab-on':'');
   if(el('tabKanban')) el('tabKanban').className = 'mtab' + (which==='kanban'?' mtab-on':'');
   el('tabLeads').className = 'mtab' + (which==='leads'?' mtab-on':'');
   if(el('tabMaterials')) el('tabMaterials').className = 'mtab' + (which==='materials'?' mtab-on':'');
@@ -5388,6 +5392,133 @@ function mailSend(){
 }
 
 boot();
+
+/* ===== 🏢 登録支援機関リスト（案シス連動） ver.20261025.01 =====
+   案シスの登録支援機関とひもづいた「コンタクトがある登録支援機関」。依頼（cases.created_at）から自動判定：
+   取引あり＝直近6か月以内に依頼（うち3か月依頼なしは要確認）／離脱可能性あり＝6〜12か月依頼なし／離脱＝12か月以上依頼なし／取引なし＝依頼実績なし。
+   シェア＝直近12か月の依頼 ÷ 年間申請総数（hr_yearly_apps）。 */
+var _thData=null, _thFilter='all', _thView='num', _thQ='';
+var TH_EXCLUDE=/^(企業単独|中林案件|株式会社アイデム\(自前\))$|様\(オープンケア協同組合\)$|^オープンケア協同組合特技STA$/;
+function _thFetchAll(mk){
+  var out=[], P=1000;
+  function step(i){ return mk().range(i*P,i*P+P-1).then(function(r){ if(r.error) throw r.error; var d=r.data||[]; out=out.concat(d); return d.length===P?step(i+1):out; }); }
+  return step(0);
+}
+function openTorihiki(){ switchMain('torihiki'); loadTorihiki(); }
+function loadTorihiki(){
+  var pane=el('torihikiPane'); if(!pane) return;
+  pane.innerHTML='<div class="loading">読み込み中...</div>';
+  Promise.all([
+    _thFetchAll(function(){ return _sb.from('eigyo_leads').select('reg_no,name,status,staff,support_org_id,hr_monthly_apps,hr_yearly_apps,hr_potential_apps,hr_start_date,close_prob,doc_method,hr_exclusive,source').not('support_org_id','is',null).order('reg_no'); }),
+    _thFetchAll(function(){ return _sb.from('support_orgs').select('id,name').order('id'); }),
+    _thFetchAll(function(){ return _sb.from('cases').select('id,org,created_at').order('id'); })
+  ]).then(function(R){
+    var leads=R[0], orgs=R[1], cases=R[2], now=Date.now(), D=86400000, nd=new Date();
+    var months=[]; for(var i=11;i>=0;i--){ var d=new Date(nd.getFullYear(), nd.getMonth()-i, 1); months.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); }
+    var orgName={}; orgs.forEach(function(o){ orgName[o.id]=String(o.name||'').trim(); });
+    var agg={};
+    cases.forEach(function(c){ var o=String(c.org||'').trim(); if(!o||!c.created_at) return; var dt=new Date(c.created_at), t=dt.getTime();
+      var a=agg[o]||(agg[o]={first:t,last:t,n3:0,n6:0,n12:0,tot:0,m:{}}); if(t<a.first)a.first=t; if(t>a.last)a.last=t; a.tot++;
+      if(now-t<=91*D)a.n3++; if(now-t<=182*D)a.n6++; if(now-t<=365*D)a.n12++;
+      var ym=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0'); a.m[ym]=(a.m[ym]||0)+1; });
+    var linked={}; leads.forEach(function(l){ linked[l.support_org_id]=1; });
+    var unlinked=orgs.filter(function(o){ return !linked[o.id] && !TH_EXCLUDE.test(String(o.name||'').trim()); });
+    var rows=leads.map(function(l){
+      var on=orgName[l.support_org_id]||String(l.name||'').trim(), a=agg[on]||null, st, days=null;
+      if(!a) st='none'; else { days=Math.floor((now-a.last)/D); st= days<=182?'active':(days<=365?'risk':'lost'); }
+      var yr=Number(l.hr_yearly_apps)||0, share= (a&&yr)? Math.round(a.n12/yr*1000)/10 : null;
+      var miss=[]; if(!yr) miss.push('年間総数'); if(!l.hr_start_date) miss.push('開始月'); if(!l.hr_monthly_apps) miss.push('月間'); if(l.close_prob==null||l.close_prob==='') miss.push('確度');
+      return {l:l, on:on, a:a, st:st, days:days, chk: a?(days>90&&days<=182):false, yr:yr, share:share, room: yr? Math.max(0, yr-(a?a.n12:0)) : null, miss:miss};
+    });
+    _thData={rows:rows, unlinked:unlinked, months:months};
+    renderTorihiki();
+  }).catch(function(e){ pane.innerHTML='<div class="empty">読み込みエラー：'+esc(e.message||e)+'</div>'; });
+}
+function thFilter(f){ _thFilter=(_thFilter===f && f!=='all')?'all':f; renderTorihiki(); }
+function thView(v){ _thView=v; renderTorihiki(); }
+function thSearch(v){ _thQ=v; renderTorihikiTable(); }
+var TH_ST={active:['取引あり','#2f855a','#f0fff4'],risk:['離脱可能性あり','#c05621','#fffaf0'],lost:['離脱','#c53030','#fff5f5'],none:['取引なし','#4a5568','#edf2f7']};
+function _thYm(t){ var d=new Date(t); return d.getFullYear()+'/'+String(d.getMonth()+1).padStart(2,'0'); }
+function renderTorihiki(){
+  var pane=el('torihikiPane'); if(!pane||!_thData) return;
+  var rows=_thData.rows; function cnt(f){ return rows.filter(f).length; }
+  var act=cnt(function(r){return r.st==='active';});
+  var n12=rows.reduce(function(s,r){return s+(r.a&&r.yr?r.a.n12:0);},0), yrT=rows.reduce(function(s,r){return s+(r.a?r.yr:0);},0);
+  function k(key,cls,label,val,sub){ return '<div class="kpi '+cls+(_thFilter===key?' on':'')+'" onclick="thFilter(\''+key+'\')"><div class="k">'+label+'</div><div class="v">'+val+'</div>'+(sub?'<div class="sub">'+sub+'</div>':'')+'</div>'; }
+  var h='<div class="kpis">'
+    +k('all','s0','連動先 合計',rows.length,'案シス連動')
+    +k('active','s4','取引あり',act,'6か月以内に依頼')
+    +k('check','s1','うち要確認',cnt(function(r){return r.chk;}),'3か月依頼なし')
+    +k('risk','s3','離脱可能性あり',cnt(function(r){return r.st==='risk';}),'6〜12か月依頼なし')
+    +k('lost','s5','離脱',cnt(function(r){return r.st==='lost';}),'12か月以上依頼なし')
+    +k('none','s0','取引なし',cnt(function(r){return r.st==='none';}),'依頼実績なし')
+    +'<div class="kpi s2" style="cursor:default;"><div class="k">大房シェア</div><div class="v">'+(yrT?(Math.round(n12/yrT*1000)/10)+'%':'—')+'</div><div class="sub">'+(yrT?n12+' / '+yrT+'件':'年間総数が未入力')+'</div></div>'
+    +'</div>';
+  var chk=rows.filter(function(r){return r.chk;});
+  if(chk.length) h+='<div class="msg" style="display:block;background:#fffaf0;border:1px solid #fbd38d;color:#7b341e;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12.5px;">⚠️ <b>状況を確認してください</b>（3か月依頼なし '+chk.length+'社）：'+chk.map(function(r){return esc(r.l.name);}).join('、')+'</div>';
+  if(_thData.unlinked.length) h+='<div style="background:#ebf8ff;border:1px solid #bee3f8;color:#2a4365;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12.5px;">🔗 案シスに未連動の登録支援機関が <b>'+_thData.unlinked.length+'件</b>：'+_thData.unlinked.map(function(o){return esc(o.name);}).join('、')+' <button class="btn btn-sm" onclick="thSyncNew()">営シスに取り込む</button></div>';
+  h+='<div class="filters" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border-radius:10px;padding:10px 12px;margin-bottom:12px;box-shadow:0 2px 6px rgba(0,0,0,.04);">'
+    +'<input type="text" placeholder="名称・担当で検索" value="'+esc(_thQ)+'" oninput="thSearch(this.value)" style="flex:1;min-width:200px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;">'
+    +'<div style="display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;">'
+    +'<button class="btn btn-sm" style="border:0;border-radius:0;'+(_thView==='num'?'background:var(--accent);color:#fff;':'')+'" onclick="thView(\'num\')">🔢 数字</button>'
+    +'<button class="btn btn-sm" style="border:0;border-radius:0;'+(_thView==='graph'?'background:var(--accent);color:#fff;':'')+'" onclick="thView(\'graph\')">📊 グラフ</button></div>'
+    +'<button class="btn btn-sm" onclick="loadTorihiki()">↻ 再読込</button></div>';
+  h+='<div class="tablewrap" id="thTable"></div>';
+  pane.innerHTML=h; renderTorihikiTable();
+}
+function renderTorihikiTable(){
+  var box=el('thTable'); if(!box||!_thData) return;
+  var q=String(_thQ||'').trim().toLowerCase(), months=_thData.months;
+  var list=_thData.rows.filter(function(r){
+    if(q && (String(r.l.name)+' '+r.on+' '+(r.l.staff||'')).toLowerCase().indexOf(q)<0) return false;
+    var f=_thFilter; if(f==='all') return true; if(f==='check') return r.chk; return r.st===f; });
+  var ord={active:0,risk:1,lost:2,none:3};
+  list.sort(function(a,b){ return (ord[a.st]-ord[b.st]) || ((b.a?b.a.n12:0)-(a.a?a.a.n12:0)) || String(a.l.name).localeCompare(String(b.l.name),'ja'); });
+  var NW='white-space:nowrap;', R='text-align:right;'+NW, mx=1;
+  list.forEach(function(r){ if(r.a) months.forEach(function(m){ mx=Math.max(mx, r.a.m[m]||0); }); });
+  function nameTd(r){ return '<td style="'+NW+'max-width:260px;overflow:hidden;text-overflow:ellipsis;" title="'+esc(r.l.name)+(r.on!==String(r.l.name).trim()?'（案シス：'+esc(r.on)+'）':'')+'"><span class="nm">'+esc(r.l.name)+'</span></td>'; }
+  function stTd(r){ var s=TH_ST[r.st]; return '<td style="'+NW+'"><span class="badge" style="background:'+s[2]+';color:'+s[1]+';">'+s[0]+'</span>'+(r.chk?' <span class="badge" style="background:#fffaf0;color:#c05621;" title="3か月依頼なし">要確認</span>':'')+'</td>'; }
+    function shareTxt(r){ return r.share==null?'<span class="sub">—</span>':r.share+'%'; }
+  var h='<table><thead><tr>';
+  if(_thView==='num'){
+    h+=['登録支援機関','取引区分','担当','初回','最終','経過','3か月','6か月','12か月','月平均','年間総数','シェア','見込み','余地','未入力'].map(function(t,i){ return '<th style="'+(i>=5&&i<=13?'text-align:right;':'')+'">'+t+'</th>'; }).join('')+'</tr></thead><tbody>';
+    list.forEach(function(r){ var a=r.a;
+      h+='<tr onclick="openDrawer(\''+esc(r.l.reg_no)+'\')">'+nameTd(r)+stTd(r)
+        +'<td style="'+NW+'">'+esc(r.l.staff||'')+'</td>'
+        +'<td style="'+NW+'">'+(a?_thYm(a.first):'—')+'</td><td style="'+NW+'">'+(a?_thYm(a.last):'—')+'</td>'
+        +'<td style="'+R+'">'+(r.days==null?'—':r.days+'日')+'</td>'
+        +'<td style="'+R+'">'+(a?a.n3:0)+'</td><td style="'+R+'">'+(a?a.n6:0)+'</td><td style="'+R+'"><b>'+(a?a.n12:0)+'</b></td>'
+        +'<td style="'+R+'">'+(a?Math.round(a.n12/12*10)/10:0)+'</td>'
+        +'<td style="'+R+'">'+(r.yr||'<span class="sub">—</span>')+'</td>'
+        +'<td style="'+R+'">'+shareTxt(r)+'</td>'
+        +'<td style="'+R+'">'+(r.l.hr_potential_apps||'<span class="sub">—</span>')+'</td>'
+        +'<td style="'+R+'">'+(r.room==null?'<span class="sub">—</span>':r.room)+'</td>'
+        +'<td style="'+NW+'">'+(r.miss.length?'<span style="color:#c53030;font-size:11px;">'+r.miss.join('・')+'</span>':'<span style="color:#2f855a;">✓</span>')+'</td></tr>';
+    });
+  } else {
+    h+='<th>登録支援機関</th><th>取引区分</th><th>担当</th><th>月別依頼（直近12か月：'+months[0].replace('-','/')+'〜）</th><th style="text-align:right;">12か月</th><th style="min-width:180px;">シェア</th><th style="text-align:right;">余地</th></tr></thead><tbody>';
+    list.forEach(function(r){ var a=r.a;
+      var spark='<div style="display:flex;align-items:flex-end;gap:2px;height:22px;">'+months.map(function(m){ var v=a?(a.m[m]||0):0; return '<span title="'+m.replace('-','/')+'：'+v+'件" style="display:inline-block;width:9px;height:'+(v?Math.max(3,Math.round(v/mx*22)):1)+'px;background:'+(v?'#3182ce':'#e2e8f0')+';border-radius:2px 2px 0 0;"></span>'; }).join('')+'</div>';
+      var sb= r.share==null? '<span class="sub">年間総数 未入力</span>' : '<div style="display:flex;align-items:center;gap:6px;"><div style="flex:1;height:10px;background:#edf2f7;border-radius:5px;overflow:hidden;min-width:110px;"><div style="height:100%;width:'+Math.min(100,r.share)+'%;background:'+(r.share>=50?'#38a169':(r.share>=20?'#3182ce':'#dd6b20'))+';"></div></div><span style="'+NW+'font-size:12px;font-weight:600;">'+r.share+'%</span></div>';
+      h+='<tr onclick="openDrawer(\''+esc(r.l.reg_no)+'\')">'+nameTd(r)+stTd(r)
+        +'<td style="'+NW+'">'+esc(r.l.staff||'')+'</td><td style="padding-top:5px;padding-bottom:5px;">'+spark+'</td>'
+        +'<td style="'+R+'"><b>'+(a?a.n12:0)+'</b></td><td>'+sb+'</td>'
+        +'<td style="'+R+'">'+(r.room==null?'<span class="sub">—</span>':r.room)+'</td></tr>';
+    });
+  }
+  if(!list.length) h+='<tr><td colspan="16" class="empty">該当なし</td></tr>';
+  h+='</tbody></table>';
+  box.innerHTML=h;
+}
+function thSyncNew(){
+  if(!_thData||!_thData.unlinked.length) return;
+  // 案シス由来の取引先はランクを入れない（後で手動入力）
+  var recs=_thData.unlinked.map(function(o){ return {reg_no:'AS-'+o.id, name:String(o.name||'').trim(), support_org_id:o.id, is_client:true, is_manual:true, source:'案シス', status:'商談済み→依頼待ち'}; });
+  _sb.from('eigyo_leads').upsert(recs,{onConflict:'reg_no'}).then(function(r){
+    if(r.error){ alert('取り込みエラー：'+r.error.message); return; }
+    loadTorihiki();
+  });
+}
 </script>
 </body>
 </html>
