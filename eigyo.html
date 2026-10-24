@@ -219,13 +219,15 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261025.01</div>
+      <div class="ver">ver.20261025.02</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
 
   <div class="sidebar">
     <div class="sb-logo">📋 営業管理システム</div>
+    <div class="sb-group">取引先</div>
+    <div class="nav-item" id="navTorihiki" onclick="openTorihiki()">🏢 登録支援機関リスト</div>
     <div class="sb-group">操作</div>
     <div class="nav-item" onclick="openNew()">＋ 新規登録</div>
     <div class="nav-item" onclick="openApptImport()">📥 アポ取込</div>
@@ -252,7 +254,6 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
 
   <div class="maintabs" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:14px;border-bottom:2px solid var(--line);">
     <button id="tabLeads" class="mtab mtab-on" onclick="switchMain('leads')">📋 リード一覧</button>
-    <button id="tabTorihiki" class="mtab" onclick="openTorihiki()">🏢 登録支援機関リスト</button>
     <button id="tabMaterials" class="mtab" onclick="openCommonMaterials()">📎 資料ライブラリ</button>
     <button id="tabMkt" class="mtab" onclick="switchMain('mkt')" style="display:none;">📣 マーケティング</button>
     <button id="tabSales" class="mtab" onclick="switchMain('sales')" style="display:none;">🧑‍💼 営業</button>
@@ -4701,7 +4702,8 @@ function switchMain(which){
   if(el('tabMtg')) el('tabMtg').className = 'mtab' + (which==='mtg'?' mtab-on':'');
   if(el('kanbanPane')) el('kanbanPane').style.display = which==='kanban' ? '' : 'none';
   if(el('torihikiPane')) el('torihikiPane').style.display = which==='torihiki' ? '' : 'none';
-  if(el('tabTorihiki')) el('tabTorihiki').className = 'mtab' + (which==='torihiki'?' mtab-on':'');
+  if(el('navTorihiki')) el('navTorihiki').style.background = which==='torihiki' ? 'rgba(255,255,255,.14)' : '';
+  if(el('navTorihiki')) el('navTorihiki').style.color = which==='torihiki' ? '#fff' : '';
   if(el('tabKanban')) el('tabKanban').className = 'mtab' + (which==='kanban'?' mtab-on':'');
   el('tabLeads').className = 'mtab' + (which==='leads'?' mtab-on':'');
   if(el('tabMaterials')) el('tabMaterials').className = 'mtab' + (which==='materials'?' mtab-on':'');
@@ -5393,12 +5395,12 @@ function mailSend(){
 
 boot();
 
-/* ===== 🏢 登録支援機関リスト（案シス連動） ver.20261025.01 =====
+/* ===== 🏢 登録支援機関リスト（案シス連動） ver.20261025.02 =====
    案シスの登録支援機関とひもづいた「コンタクトがある登録支援機関」。依頼（cases.created_at）から自動判定：
    取引あり＝直近6か月以内に依頼（うち3か月依頼なしは要確認）／離脱可能性あり＝6〜12か月依頼なし／離脱＝12か月以上依頼なし／取引なし＝依頼実績なし。
    シェア＝直近12か月の依頼 ÷ 年間申請総数（hr_yearly_apps）。 */
 var _thData=null, _thFilter='all', _thView='num', _thQ='';
-var TH_EXCLUDE=/^(企業単独|中林案件|株式会社アイデム\(自前\))$|様\(オープンケア協同組合\)$|^オープンケア協同組合特技STA$/;
+var TH_EXCLUDE=/^(企業単独|中林案件|株式会社アイデム\(自前\)|大房行政書士法人|サンプル登録支援機関株式会社|株式会社アールビー・ライズ)$|様\(オープンケア協同組合\)$|^オープンケア協同組合特技STA$|^\d+\.\s*.*案件$/;
 function _thFetchAll(mk){
   var out=[], P=1000;
   function step(i){ return mk().range(i*P,i*P+P-1).then(function(r){ if(r.error) throw r.error; var d=r.data||[]; out=out.concat(d); return d.length===P?step(i+1):out; }); }
@@ -5421,8 +5423,11 @@ function loadTorihiki(){
       var a=agg[o]||(agg[o]={first:t,last:t,n3:0,n6:0,n12:0,tot:0,m:{}}); if(t<a.first)a.first=t; if(t>a.last)a.last=t; a.tot++;
       if(now-t<=91*D)a.n3++; if(now-t<=182*D)a.n6++; if(now-t<=365*D)a.n12++;
       var ym=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0'); a.m[ym]=(a.m[ym]||0)+1; });
-    var linked={}; leads.forEach(function(l){ linked[l.support_org_id]=1; });
-    var unlinked=orgs.filter(function(o){ return !linked[o.id] && !TH_EXCLUDE.test(String(o.name||'').trim()); });
+    // 同じ登録支援機関に複数リードがひもづく場合は1行にまとめる（登録番号の新しい方を表示）
+    var byOrg={}; leads.forEach(function(l){ var c=byOrg[l.support_org_id]; if(!c || String(l.reg_no)>String(c.reg_no)) byOrg[l.support_org_id]=l; });
+    leads=Object.keys(byOrg).map(function(k){ return byOrg[k]; });
+    var linked={}, linkedName={}; leads.forEach(function(l){ linked[l.support_org_id]=1; linkedName[orgName[l.support_org_id]||String(l.name||'').trim()]=1; linkedName[String(l.name||'').trim()]=1; });
+    var unlinked=orgs.filter(function(o){ var n=String(o.name||'').trim(); return !linked[o.id] && !linkedName[n] && !TH_EXCLUDE.test(n); });
     var rows=leads.map(function(l){
       var on=orgName[l.support_org_id]||String(l.name||'').trim(), a=agg[on]||null, st, days=null;
       if(!a) st='none'; else { days=Math.floor((now-a.last)/D); st= days<=182?'active':(days<=365?'risk':'lost'); }
