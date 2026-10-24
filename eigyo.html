@@ -219,7 +219,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261025.02</div>
+      <div class="ver">ver.20261025.03</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -5395,11 +5395,11 @@ function mailSend(){
 
 boot();
 
-/* ===== 🏢 登録支援機関リスト（案シス連動） ver.20261025.02 =====
+/* ===== 🏢 登録支援機関リスト（案シス連動） ver.20261025.03 =====
    案シスの登録支援機関とひもづいた「コンタクトがある登録支援機関」。依頼（cases.created_at）から自動判定：
    取引あり＝直近6か月以内に依頼（うち3か月依頼なしは要確認）／離脱可能性あり＝6〜12か月依頼なし／離脱＝12か月以上依頼なし／取引なし＝依頼実績なし。
    シェア＝直近12か月の依頼 ÷ 年間申請総数（hr_yearly_apps）。 */
-var _thData=null, _thFilter='all', _thView='num', _thQ='';
+var _thData=null, _thFilter='all', _thView='num', _thQ='', _thStaff='', _thMiss='', _thSort='n12', _thDir=-1;
 var TH_EXCLUDE=/^(企業単独|中林案件|株式会社アイデム\(自前\)|大房行政書士法人|サンプル登録支援機関株式会社|株式会社アールビー・ライズ)$|様\(オープンケア協同組合\)$|^オープンケア協同組合特技STA$|^\d+\.\s*.*案件$/;
 function _thFetchAll(mk){
   var out=[], P=1000;
@@ -5413,14 +5413,14 @@ function loadTorihiki(){
   Promise.all([
     _thFetchAll(function(){ return _sb.from('eigyo_leads').select('reg_no,name,status,staff,support_org_id,hr_monthly_apps,hr_yearly_apps,hr_potential_apps,hr_start_date,close_prob,doc_method,hr_exclusive,source').not('support_org_id','is',null).order('reg_no'); }),
     _thFetchAll(function(){ return _sb.from('support_orgs').select('id,name').order('id'); }),
-    _thFetchAll(function(){ return _sb.from('cases').select('id,org,created_at').order('id'); })
+    _thFetchAll(function(){ return _sb.from('cases').select('id,org,created_at,staff').order('id'); })
   ]).then(function(R){
     var leads=R[0], orgs=R[1], cases=R[2], now=Date.now(), D=86400000, nd=new Date();
     var months=[]; for(var i=11;i>=0;i--){ var d=new Date(nd.getFullYear(), nd.getMonth()-i, 1); months.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); }
     var orgName={}; orgs.forEach(function(o){ orgName[o.id]=String(o.name||'').trim(); });
     var agg={};
     cases.forEach(function(c){ var o=String(c.org||'').trim(); if(!o||!c.created_at) return; var dt=new Date(c.created_at), t=dt.getTime();
-      var a=agg[o]||(agg[o]={first:t,last:t,n3:0,n6:0,n12:0,tot:0,m:{}}); if(t<a.first)a.first=t; if(t>a.last)a.last=t; a.tot++;
+      var a=agg[o]||(agg[o]={first:t,last:t,n3:0,n6:0,n12:0,tot:0,m:{},st:{}}); if(c.staff && now-t<=182*D){ var sn=String(c.staff).replace(/[\s　]+/g,' ').trim().split(' ')[0]; a.st[sn]=(a.st[sn]||0)+1; } if(t<a.first)a.first=t; if(t>a.last)a.last=t; a.tot++;
       if(now-t<=91*D)a.n3++; if(now-t<=182*D)a.n6++; if(now-t<=365*D)a.n12++;
       var ym=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0'); a.m[ym]=(a.m[ym]||0)+1; });
     // 同じ登録支援機関に複数リードがひもづく場合は1行にまとめる（登録番号の新しい方を表示）
@@ -5433,7 +5433,8 @@ function loadTorihiki(){
       if(!a) st='none'; else { days=Math.floor((now-a.last)/D); st= days<=182?'active':(days<=365?'risk':'lost'); }
       var yr=Number(l.hr_yearly_apps)||0, share= (a&&yr)? Math.round(a.n12/yr*1000)/10 : null;
       var miss=[]; if(!yr) miss.push('年間総数'); if(!l.hr_start_date) miss.push('開始月'); if(!l.hr_monthly_apps) miss.push('月間'); if(l.close_prob==null||l.close_prob==='') miss.push('確度');
-      return {l:l, on:on, a:a, st:st, days:days, chk: a?(days>90&&days<=182):false, yr:yr, share:share, room: yr? Math.max(0, yr-(a?a.n12:0)) : null, miss:miss};
+      var cst=''; if(a){ var bm=0; Object.keys(a.st).forEach(function(k){ if(a.st[k]>bm){ bm=a.st[k]; cst=k; } }); }
+      return {l:l, on:on, a:a, st:st, staff:(l.staff||cst||''), staffAuto:!l.staff&&!!cst, days:days, chk: a?(days>90&&days<=182):false, yr:yr, share:share, room: yr? Math.max(0, yr-(a?a.n12:0)) : null, miss:miss};
     });
     _thData={rows:rows, unlinked:unlinked, months:months};
     renderTorihiki();
@@ -5442,6 +5443,9 @@ function loadTorihiki(){
 function thFilter(f){ _thFilter=(_thFilter===f && f!=='all')?'all':f; renderTorihiki(); }
 function thView(v){ _thView=v; renderTorihiki(); }
 function thSearch(v){ _thQ=v; renderTorihikiTable(); }
+function thSet(k,v){ if(k==='f') _thFilter=v||'all'; if(k==='staff') _thStaff=v; if(k==='miss') _thMiss=v; if(k==='sort'){ _thSort=v; _thDir=(v==='name'||v==='staff'||v==='st'||v==='days')?1:-1; } renderTorihiki(); }
+function thSortBy(k){ if(_thSort===k) _thDir=-_thDir; else { _thSort=k; _thDir=(k==='name'||k==='staff'||k==='st'||k==='days')?1:-1; } renderTorihiki(); }
+function thClear(){ _thFilter='all'; _thStaff=''; _thMiss=''; _thQ=''; _thSort='n12'; _thDir=-1; renderTorihiki(); }
 var TH_ST={active:['取引あり','#2f855a','#f0fff4'],risk:['離脱可能性あり','#c05621','#fffaf0'],lost:['離脱','#c53030','#fff5f5'],none:['取引なし','#4a5568','#edf2f7']};
 function _thYm(t){ var d=new Date(t); return d.getFullYear()+'/'+String(d.getMonth()+1).padStart(2,'0'); }
 function renderTorihiki(){
@@ -5464,6 +5468,13 @@ function renderTorihiki(){
   if(_thData.unlinked.length) h+='<div style="background:#ebf8ff;border:1px solid #bee3f8;color:#2a4365;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12.5px;">🔗 案シスに未連動の登録支援機関が <b>'+_thData.unlinked.length+'件</b>：'+_thData.unlinked.map(function(o){return esc(o.name);}).join('、')+' <button class="btn btn-sm" onclick="thSyncNew()">営シスに取り込む</button></div>';
   h+='<div class="filters" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:#fff;border-radius:10px;padding:10px 12px;margin-bottom:12px;box-shadow:0 2px 6px rgba(0,0,0,.04);">'
     +'<input type="text" placeholder="名称・担当で検索" value="'+esc(_thQ)+'" oninput="thSearch(this.value)" style="flex:1;min-width:200px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;">'
+    +(function(){ var ss={}; _thData.rows.forEach(function(r){ if(r.staff) ss[r.staff]=(ss[r.staff]||0)+1; }); var keys=Object.keys(ss).sort(function(x,y){return x.localeCompare(y,'ja');});
+        function sel(k,cur,opts){ return '<select onchange="thSet(\''+k+'\',this.value)" style="padding:7px 8px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:#fff;">'+opts.map(function(o){ return '<option value="'+esc(o[0])+'"'+(String(cur)===String(o[0])?' selected':'')+'>'+esc(o[1])+'</option>'; }).join('')+'</select>'; }
+        return sel('f',_thFilter,[['all','全取引区分'],['active','取引あり'],['check','うち要確認'],['risk','離脱可能性あり'],['lost','離脱'],['none','取引なし']])
+          + sel('staff',_thStaff,[['','全担当']].concat(keys.map(function(k){return [k,k+'（'+ss[k]+'）'];})).concat([['__none','担当なし']]))
+          + sel('miss',_thMiss,[['','入力状況：全て'],['any','未入力あり'],['yr','年間総数が未入力'],['ok','入力済み']])
+          + sel('sort',_thSort,[['n12','12か月の依頼が多い順'],['n3','3か月の依頼が多い順'],['share','シェアが高い順'],['room','余地が大きい順'],['pot','見込みが多い順'],['yr','年間総数が多い順'],['last','最終依頼が新しい順'],['days','経過日数が短い順'],['st','取引区分順'],['staff','担当順'],['name','名前順']])
+          + '<button class="btn btn-sm" onclick="thClear()">クリア</button>'; })()
     +'<div style="display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;">'
     +'<button class="btn btn-sm" style="border:0;border-radius:0;'+(_thView==='num'?'background:var(--accent);color:#fff;':'')+'" onclick="thView(\'num\')">🔢 数字</button>'
     +'<button class="btn btn-sm" style="border:0;border-radius:0;'+(_thView==='graph'?'background:var(--accent);color:#fff;':'')+'" onclick="thView(\'graph\')">📊 グラフ</button></div>'
@@ -5475,21 +5486,25 @@ function renderTorihikiTable(){
   var box=el('thTable'); if(!box||!_thData) return;
   var q=String(_thQ||'').trim().toLowerCase(), months=_thData.months;
   var list=_thData.rows.filter(function(r){
-    if(q && (String(r.l.name)+' '+r.on+' '+(r.l.staff||'')).toLowerCase().indexOf(q)<0) return false;
+    if(q && (String(r.l.name)+' '+r.on+' '+(r.staff||'')).toLowerCase().indexOf(q)<0) return false;
+    if(_thStaff){ if(_thStaff==='__none'){ if(r.staff) return false; } else if(r.staff!==_thStaff) return false; }
+    if(_thMiss==='any' && !r.miss.length) return false; if(_thMiss==='ok' && r.miss.length) return false; if(_thMiss==='yr' && r.yr) return false;
     var f=_thFilter; if(f==='all') return true; if(f==='check') return r.chk; return r.st===f; });
   var ord={active:0,risk:1,lost:2,none:3};
-  list.sort(function(a,b){ return (ord[a.st]-ord[b.st]) || ((b.a?b.a.n12:0)-(a.a?a.a.n12:0)) || String(a.l.name).localeCompare(String(b.l.name),'ja'); });
+  function sv(r){ var a=r.a; switch(_thSort){ case 'name': return String(r.l.name); case 'st': return ord[r.st]; case 'staff': return r.staff||'\uffff'; case 'first': return a?a.first:0; case 'last': return a?a.last:0; case 'days': return r.days==null?99999:r.days; case 'n3': return a?a.n3:0; case 'n6': return a?a.n6:0; case 'yr': return r.yr||0; case 'share': return r.share==null?-1:r.share; case 'pot': return Number(r.l.hr_potential_apps)||0; case 'room': return r.room==null?-1:r.room; default: return a?a.n12:0; } }
+  list.sort(function(a,b){ var x=sv(a), y=sv(b), c= (typeof x==='string')? x.localeCompare(y,'ja') : (x-y); return (c*_thDir) || ((b.a?b.a.n12:0)-(a.a?a.a.n12:0)) || String(a.l.name).localeCompare(String(b.l.name),'ja'); });
   var NW='white-space:nowrap;', R='text-align:right;'+NW, mx=1;
   list.forEach(function(r){ if(r.a) months.forEach(function(m){ mx=Math.max(mx, r.a.m[m]||0); }); });
+  function staffTd(r){ return '<td style="'+NW+'"'+(r.staffAuto?' title="案シスの案件担当（直近6か月で最多）"':'')+'>'+(r.staffAuto?'<span style="color:#718096;">'+esc(r.staff)+'</span>':esc(r.staff))+'</td>'; }
   function nameTd(r){ return '<td style="'+NW+'max-width:260px;overflow:hidden;text-overflow:ellipsis;" title="'+esc(r.l.name)+(r.on!==String(r.l.name).trim()?'（案シス：'+esc(r.on)+'）':'')+'"><span class="nm">'+esc(r.l.name)+'</span></td>'; }
   function stTd(r){ var s=TH_ST[r.st]; return '<td style="'+NW+'"><span class="badge" style="background:'+s[2]+';color:'+s[1]+';">'+s[0]+'</span>'+(r.chk?' <span class="badge" style="background:#fffaf0;color:#c05621;" title="3か月依頼なし">要確認</span>':'')+'</td>'; }
     function shareTxt(r){ return r.share==null?'<span class="sub">—</span>':r.share+'%'; }
   var h='<table><thead><tr>';
   if(_thView==='num'){
-    h+=['登録支援機関','取引区分','担当','初回','最終','経過','3か月','6か月','12か月','月平均','年間総数','シェア','見込み','余地','未入力'].map(function(t,i){ return '<th style="'+(i>=5&&i<=13?'text-align:right;':'')+'">'+t+'</th>'; }).join('')+'</tr></thead><tbody>';
+    h+=['登録支援機関','取引区分','担当','初回','最終','経過','3か月','6か月','12か月','月平均','年間総数','シェア','見込み','余地','未入力'].map(function(t,i){ var key=['name','st','staff','first','last','days','n3','n6','n12','n12','yr','share','pot','room',''][i]; return '<th '+(key?'onclick="thSortBy(\''+key+'\')" ':'')+'style="'+(key?'cursor:pointer;':'')+(_thSort===key&&i!==9?'color:var(--accent);':'')+(i>=5&&i<=13?'text-align:right;':'')+'">'+t+(_thSort===key&&key&&i!==9?(_thDir<0?' ▼':' ▲'):'')+'</th>'; }).join('')+'</tr></thead><tbody>';
     list.forEach(function(r){ var a=r.a;
       h+='<tr onclick="openDrawer(\''+esc(r.l.reg_no)+'\')">'+nameTd(r)+stTd(r)
-        +'<td style="'+NW+'">'+esc(r.l.staff||'')+'</td>'
+        +staffTd(r)
         +'<td style="'+NW+'">'+(a?_thYm(a.first):'—')+'</td><td style="'+NW+'">'+(a?_thYm(a.last):'—')+'</td>'
         +'<td style="'+R+'">'+(r.days==null?'—':r.days+'日')+'</td>'
         +'<td style="'+R+'">'+(a?a.n3:0)+'</td><td style="'+R+'">'+(a?a.n6:0)+'</td><td style="'+R+'"><b>'+(a?a.n12:0)+'</b></td>'
