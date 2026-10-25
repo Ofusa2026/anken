@@ -221,7 +221,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261026.07</div>
+      <div class="ver">ver.20261026.08</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -876,10 +876,12 @@ function initUi(){
     var e = el(id);
     var ev = (e.type==='text') ? 'input' : 'change';
     var t;
-    e.addEventListener(ev, function(){
+    e.addEventListener(ev, function(evt){
+      if(evt && evt.isComposing) return; // 日本語変換中（ひらがな確定前）は検索しない
       clearTimeout(t);
       t = setTimeout(function(){ page=0; syncPrefButtons(); load(); }, e.type==='text'?350:0);
     });
+    if(e.type==='text') e.addEventListener('compositionend', function(){ clearTimeout(t); t=setTimeout(function(){ page=0; syncPrefButtons(); load(); },200); });
   });
 }
 
@@ -1063,9 +1065,12 @@ function buildQuery(forCount){
   return q;
 }
 
+var _loadSeq=0;
 function load(){
+  var seq=++_loadSeq; // 古い検索結果が後から返ってきて上書きしないようにする
   el('rows').innerHTML = '<tr><td colspan="16" class="loading">読み込み中...</td></tr>';
   buildQuery(true).range(page*PAGE, page*PAGE+PAGE-1).then(function(r){
+    if(seq!==_loadSeq) return;
     if(r.error){
       el('rows').innerHTML = '<tr><td colspan="16" class="empty">読み込みエラー：'+esc(r.error.message)+'</td></tr>';
       return;
@@ -5432,7 +5437,7 @@ function mailSend(){
 
 boot();
 
-/* ===== 🏢 登録支援機関リスト（案シス連動） ver.20261026.07 =====
+/* ===== 🏢 登録支援機関リスト（案シス連動） ver.20261026.08 =====
    案シスの登録支援機関とひもづいた「コンタクトがある登録支援機関」。依頼（cases.created_at）から自動判定：
    取引あり＝直近6か月以内に依頼（うち3か月依頼なしは要確認）／離脱可能性あり＝6〜12か月依頼なし／離脱＝12か月以上依頼なし／取引なし＝依頼実績なし。
    シェア＝直近12か月の依頼 ÷ 年間申請総数（hr_yearly_apps）。 */
@@ -5480,7 +5485,7 @@ function _thLoad(){
     return _thData;
   });
 }
-/* ===== 案シス連動の自動反映 ver.20261026.07 =====
+/* ===== 案シス連動の自動反映 ver.20261026.08 =====
    ① ステータス：案シスとひもづく登録支援機関は、依頼の状況で自動で切り替える
       直近6か月に依頼あり→契約中／6〜12か月なし→離脱可能性あり／12か月以上なし→離脱（対象外は触らない）
    ② 受注：案シスに初めて案件が登録された日を「受注開始日」として eigyo_deals に入れる
@@ -5625,7 +5630,7 @@ function thSyncNew(){
   });
 }
 
-/* ===== 📅 月別計画（予想と実績） ver.20261026.07 =====
+/* ===== 📅 月別計画（予想と実績） ver.20261026.08 =====
    予想：KPIの計画（eigyo_kpi_plan：開始月・月数・目標売上）を、前提（1社あたり月申請・成約率・商談率・平均単価・既存の月平均）で月ごとに割り戻す。
      新規取引開始は毎月同じペース（n社/月）、申請件数＝既存の月平均＋新規の累計社数×1社あたり月申請、売上＝申請件数×平均単価。
      nは「計画期間の売上合計＝目標売上」になるように計算。商談＝新規取引開始÷成約率、接触＝商談÷商談化率。
