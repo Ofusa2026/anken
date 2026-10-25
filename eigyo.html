@@ -222,7 +222,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261026.15</div>
+      <div class="ver">ver.20261026.17</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -4212,13 +4212,15 @@ function mtLoad(){
     _sb.from('eigyo_leads').select('reg_no,name,status,staff,lead_rank,supporter_count,expected_supporter,apt_at,meeting_date,next_action,next_action_date,attack100,attack_nb,attack_km,attack_sg,close_prob,hr_monthly_apps,hr_potential_apps,month_prospect,next_plan,next_action_kind')
       .or('attack100.eq.true,attack_nb.eq.true,attack_km.eq.true,attack_sg.eq.true'),
     _sb.rpc('eigyo_deal_sales'),
-    _sb.from('eigyo_deal_adjust').select('*')
+    _sb.from('eigyo_deal_adjust').select('*'),
+    _sb.from('eigyo_leads').select('reg_no,name,status,staff,apt_at,meeting_date,next_action,supporter_count,attack_nb,attack_km,acquisition_source').eq('status','商談予定')
   ]).then(function(rs){
     var err=rs.filter(function(r){return r.error;})[0];
     if(err){ el('mtRoot').innerHTML='<span class="sub">読み込みエラー：'+esc(err.error.message)+'</span>'; return; }
     KP.plan=rs[0].data; KP.deals=rs[1].data||[]; KP.counts=rs[2].data||[]; KP.sales=rs[5].data||[]; KP.adj=rs[6].data||[];
     MT.data={}; MT.prev={};
     (rs[3].data||[]).forEach(function(r){ if(r.week_start===MT.week) MT.data=r.data||{}; else MT.prev=r.data||{}; });
+    MT.apts=rs[7].data||[];
     MT.leads=(rs[4].data||[]).filter(function(l){ return ['契約中','見込みなし','対象外'].indexOf(l.status)<0; });
     mtRender();
   });
@@ -4238,6 +4240,34 @@ function mtExp(reg,v){
     if(r.error){ alert('保存エラー：'+r.error.message); return; }
     MT.leads.forEach(function(l){ if(l.reg_no===reg) l.expected_supporter=n; }); autosaveToast('想定支援者数を保存しました'); mtRender();
   });
+}
+// ④ 今週の商談予定：表示中の対象週の翌週（＝Mtgをしている今週）に商談日時が入っている会社
+function mtAptBlock(inSt){
+  var ws=kpAddD(MT.week,7), we=kpAddD(MT.week,13);
+  var mine=function(l){ if(MT.staff==='all') return true; var s=kpShort(MT.staff);
+    return inSt(l.staff) || (s==='中林'&&l.attack_nb) || (s==='亀谷'&&l.attack_km); };
+  var all=(MT.apts||[]).filter(mine);
+  var dOf=function(l){ return l.apt_at?kpS(new Date(l.apt_at)):(l.meeting_date||''); };
+  var wk=all.filter(function(l){ var d=dOf(l); return d>=ws&&d<=we; }).sort(function(a,b){ return String(a.apt_at||a.meeting_date).localeCompare(String(b.apt_at||b.meeting_date)); });
+  var undated=all.filter(function(l){ return !dOf(l); });
+  var W=['日','月','火','水','木','金','土'];
+  var fmt=function(l){ if(l.apt_at){ var t=new Date(l.apt_at); return (t.getMonth()+1)+'/'+t.getDate()+'('+W[t.getDay()]+') '+t.getHours()+':'+('0'+t.getMinutes()).slice(-2)+'〜'; }
+    var d=kpD(l.meeting_date); return (d.getMonth()+1)+'/'+d.getDate()+'('+W[d.getDay()]+') 時間未定'; };
+  var th='padding:6px 8px;white-space:nowrap;text-align:left;', td='padding:6px 8px;vertical-align:top;';
+  var h='<div style="background:#fffaf0;border:1px solid #fbd38d;border-radius:8px;padding:12px 14px;margin-bottom:12px;">'
+    + '<div style="font-weight:700;font-size:14px;margin-bottom:8px;">🤝 今週の商談予定（'+mtLabel(ws)+'）<span style="margin-left:8px;color:#c05621;">'+wk.length+'件</span></div>';
+  if(wk.length){
+    h+='<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;"><th style="'+th+'">日時</th><th style="'+th+'">企業名</th><th style="'+th+'">担当</th><th style="'+th+'">支援者数</th><th style="'+th+'">獲得経路</th><th style="'+th+'">ネクストアクション</th></tr></thead><tbody>'
+      + wk.map(function(l){ var tag=(l.attack_nb?'中林':'')+(l.attack_km?(l.attack_nb?'・':'')+'亀谷':'');
+          return '<tr style="border-bottom:1px solid var(--line);"><td style="'+td+'white-space:nowrap;font-weight:700;">'+esc(fmt(l))+'</td>'
+          + '<td style="'+td+'"><a href="javascript:void(0)" onclick="openDrawer(\''+esc(l.reg_no)+'\')" style="color:var(--accent);font-weight:600;">'+esc(l.name)+'</a></td>'
+          + '<td style="'+td+'">'+esc(kpShort(l.staff||'')||tag||'—')+'</td>'
+          + '<td style="'+td+'">'+(l.supporter_count!=null?kpNum(l.supporter_count)+'人':'—')+'</td>'
+          + '<td style="'+td+'">'+esc(l.acquisition_source&&l.acquisition_source!=='（未選択）'?l.acquisition_source:'—')+'</td>'
+          + '<td class="sub" style="'+td+'font-size:12px;">'+esc(l.next_action||'')+'</td></tr>'; }).join('')+'</tbody></table></div>';
+  } else h+='<div class="sub" style="font-size:13px;">今週の商談予定はありません。</div>';
+  if(undated.length) h+='<div class="sub" style="font-size:12px;margin-top:8px;">日程未定の商談予定：'+undated.map(function(l){ return '<a href="javascript:void(0)" onclick="openDrawer(\''+esc(l.reg_no)+'\')" style="color:var(--accent);">'+esc(l.name)+'</a>'; }).join('、')+'</div>';
+  return h+'</div>';
 }
 // ④ 今月の見込み：月キー（表示中の週の月曜日の月）とチェック保存
 function mtMonthKey(){ var w=String(MT.week||''); if(/^\d{4}-\d{2}/.test(w)) return w.slice(0,7); var d=new Date(); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2); }
@@ -4424,9 +4454,9 @@ function mtRender(){
 
   // ⓪ 前回決めたことの確認（前週に登録したカードの進捗をカンバン風に表示）
   var s0='<div style="'+card+'">'+head('0','前回決めたことの確認','3分','先週のMtgで決めたこと（カード）ができたか。状態を動かせます')
-    + '<div id="prevWeekTodos" class="sub" style="font-size:13px;">読み込み中…</div>'
-    + '<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);"><b style="font-size:14px;">📢 共有事項</b><span class="sub" style="font-size:12px;margin-left:8px;">— 今週のMtgで全員に伝えたいこと（自動保存）</span>'
-    + '<textarea rows="4" placeholder="例：10/27は商談4件（F.Assist・関西技術・MATSU・CareEarth）／セミナー参加者の架電状況 など" style="width:100%;margin-top:6px;font-size:13px;" onchange="mtSet(\'share\',this.value)">'+esc(MT.data.share||'')+'</textarea></div></div>';
+    + '<div style="margin-bottom:14px;padding-bottom:12px;border-bottom:1px dashed var(--line);"><b style="font-size:14px;">📢 共有事項</b><span class="sub" style="font-size:12px;margin-left:8px;">— 今週のMtgで全員に伝えたいこと（自動保存）</span>'
+    + '<textarea rows="4" placeholder="例：10/27は商談4件（F.Assist・関西技術・MATSU・CareEarth）／セミナー参加者の架電状況 など" style="width:100%;margin-top:6px;font-size:13px;" onchange="mtSet(\'share\',this.value)">'+esc(MT.data.share||'')+'</textarea></div>'
+    + '<div id="prevWeekTodos" class="sub" style="font-size:13px;">読み込み中…</div>'+'</div>';
 
   // ① 先週の新規取引（開始日または登録日が対象週）
   var wd=KP.deals.filter(function(d){ var cr=d.created_at?kpS(new Date(d.created_at)):''; return inSt(d.staff) && ((d.start_date>=ws&&d.start_date<=we)||(cr>=ws&&cr<=we)); });
@@ -4499,6 +4529,7 @@ function mtRender(){
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">'
     +   atkBtn('all','全体')+atkBtn('S','アタックS')+atkBtn('nb','中林')+atkBtn('km','亀谷')+atkBtn('sg','菅沼案件')
     + '</div>'
+    + mtAptBlock(inSt)
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
     + big('今月の契約見込み', nxCnt+'社 ／ '+kpNum(nxSum)+'人', '月の目標 '+kpNum(MT.staff==='all'?moT:moT/KP_STAFF.length)+'人 → '+kpPct(nxSum,MT.staff==='all'?moT:moT/KP_STAFF.length))
     + (function(){ var pot=0,wp=0,mon=0; lv.forEach(function(l){ var p=l.hr_potential_apps||0; pot+=p; mon+=(l.hr_monthly_apps||0); wp+=p*((l.close_prob||0)/100); }); return big('当社への依頼見込み（月）', kpNum(pot)+'件', '確度加味 '+(Math.round(wp*10)/10)+'件 ／ 申請ポテンシャル計 '+kpNum(mon)+'件'); })()
@@ -5450,7 +5481,7 @@ function mailSend(){
 
 boot();
 
-/* ===== 🏢 登録支援機関リスト（案シス連動） ver.20261026.15 =====
+/* ===== 🏢 登録支援機関リスト（案シス連動） ver.20261026.17 =====
    案シスの登録支援機関とひもづいた「コンタクトがある登録支援機関」。依頼（cases.created_at）から自動判定：
    取引あり＝直近6か月以内に依頼（うち3か月依頼なしは要確認）／離脱可能性あり＝6〜12か月依頼なし／離脱＝12か月以上依頼なし／取引なし＝依頼実績なし。
    シェア＝直近12か月の依頼 ÷ 年間申請総数（hr_yearly_apps）。 */
@@ -5498,7 +5529,7 @@ function _thLoad(){
     return _thData;
   });
 }
-/* ===== 案シス連動の自動反映 ver.20261026.15 =====
+/* ===== 案シス連動の自動反映 ver.20261026.17 =====
    ① ステータス：案シスとひもづく登録支援機関は、依頼の状況で自動で切り替える
       直近6か月に依頼あり→契約中／6〜12か月なし→離脱可能性あり／12か月以上なし→離脱（対象外は触らない）
    ② 受注：案シスに初めて案件が登録された日を「受注開始日」として eigyo_deals に入れる
@@ -5643,7 +5674,7 @@ function thSyncNew(){
   });
 }
 
-/* ===== 📅 月別計画（予想と実績） ver.20261026.15 =====
+/* ===== 📅 月別計画（予想と実績） ver.20261026.17 =====
    予想：KPIの計画（eigyo_kpi_plan：開始月・月数・目標売上）を、前提（1社あたり月申請・成約率・商談率・平均単価・既存の月平均）で月ごとに割り戻す。
      新規取引開始は毎月同じペース（n社/月）、申請件数＝既存の月平均＋新規の累計社数×1社あたり月申請、売上＝申請件数×平均単価。
      nは「計画期間の売上合計＝目標売上」になるように計算。商談＝新規取引開始÷成約率、接触＝商談÷商談化率。
