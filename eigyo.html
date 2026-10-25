@@ -93,6 +93,7 @@ tbody tr:hover{background:#f7fafc;}
 .b-案件依頼前{background:#fefcbf;color:#975a16;}
 .b-要経過観察{background:#faf5ff;color:#6b46c1;}
 .b-商談済み→依頼待ち{background:#fffaf0;color:#c05621;}
+.note-line{margin-top:3px;font-size:11px;color:#2c5282;background:#ebf8ff;border-left:3px solid #63b3ed;padding:2px 6px;border-radius:3px;line-height:1.4;white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;cursor:help;max-width:240px;}
 .memo-line{margin-top:3px;font-size:11px;color:#8a6d3b;background:#fffbeb;border-left:3px solid #f6c453;padding:2px 6px;border-radius:3px;line-height:1.4;white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;cursor:help;max-width:240px;}
 .apt-chip{display:inline-block;font-size:10px;font-weight:600;padding:1px 6px;border-radius:10px;margin-top:2px;}
 .apt-pending{background:#fff5f5;color:#c53030;border:1px solid #feb2b2;}
@@ -221,7 +222,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261026.10</div>
+      <div class="ver">ver.20261026.11</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -325,7 +326,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
         <th style="width:92px;">担当</th>
         <th style="width:112px;">初回接触</th>
         <th style="width:112px;">商談予定</th>
-        <th style="width:180px;">社内メモ</th>
+        <th style="width:180px;">社内メモ／最新の対応履歴</th>
         <th style="width:120px;">ネクストアクション</th>
       </tr></thead>
       <tbody id="rows"><tr><td colspan="16" class="loading">読み込み中...</td></tr></tbody>
@@ -1216,11 +1217,12 @@ function render(){
       + '<td class="sub">'+esc(x.staff||'')+'</td>'
       + '<td class="sub">'+(x.first_contact_date ? esc(x.first_contact_date)+(x.first_contact_kind?'<div class="sub">'+esc(x.first_contact_kind)+'</div>':'') : '—')+'</td>'
       + '<td class="sub">'+apptCell(x)+'</td>'
-      + '<td style="min-width:200px;">'+(x.memo ? '<div class="memo-line" title="'+esc(x.memo)+'">'+esc(x.memo)+'</div>' : '<span class="sub">—</span>')+'</td>'
+      + '<td style="min-width:200px;">'+(x.memo ? '<div class="memo-line" title="'+esc(x.memo)+'">'+esc(x.memo)+'</div>' : '')+'<div class="lst-note" data-reg="'+esc(x.reg_no)+'" data-hasmemo="'+(x.memo?'1':'')+'">'+(x.memo?'':'<span class="sub">—</span>')+'</div></td>'
       + '<td>'+due+'</td>'
       + '</tr>';
   }).join('');
   el('rows').innerHTML = html;
+  fillListNotes();
   // 行クリック（イベント委譲）：セル・テキストどこを押しても行を開く
   var tb = el('rows');
   if(!tb._delegated){
@@ -4261,6 +4263,20 @@ function mtInline(reg,field,value,elm){
   (MT.leads||[]).forEach(function(l){ if(l.reg_no===reg) l[field]=value; });
 }
 // ④ 今月の見込み：各社の最新の対応履歴を表示
+// リード一覧：社内メモの下に最新の対応履歴を表示
+function fillListNotes(){
+  var cells=document.querySelectorAll('.lst-note'); if(!cells.length) return;
+  var regs=[]; cells.forEach(function(c){ regs.push(c.getAttribute('data-reg')); });
+  _sb.from('eigyo_notes').select('reg_no,note_date,kind,author,body,id').in('reg_no',regs).order('note_date',{ascending:false}).order('id',{ascending:false}).then(function(r){
+    var latest={}; (r.data||[]).forEach(function(n){ if(!latest[n.reg_no]) latest[n.reg_no]=n; });
+    cells.forEach(function(c){
+      var n=latest[c.getAttribute('data-reg')];
+      if(!n){ if(c.getAttribute('data-hasmemo')) c.innerHTML=''; return; }
+      var meta=[n.note_date,n.kind,n.author].filter(function(v){return v;}).map(esc).join(' ／ ');
+      c.innerHTML='<div class="note-line" title="'+esc(n.body||'')+'"><span style="font-size:10px;color:#4a5568;font-weight:700;">📝 '+meta+'</span><br>'+esc(n.body||'')+'</div>';
+    });
+  });
+}
 function fillLatestNotes(){
   var cells=document.querySelectorAll('.mt-latest-note'); if(!cells.length) return;
   var regs=[]; cells.forEach(function(c){ regs.push(c.getAttribute('data-reg')); });
@@ -5427,7 +5443,7 @@ function mailSend(){
 
 boot();
 
-/* ===== 🏢 登録支援機関リスト（案シス連動） ver.20261026.10 =====
+/* ===== 🏢 登録支援機関リスト（案シス連動） ver.20261026.11 =====
    案シスの登録支援機関とひもづいた「コンタクトがある登録支援機関」。依頼（cases.created_at）から自動判定：
    取引あり＝直近6か月以内に依頼（うち3か月依頼なしは要確認）／離脱可能性あり＝6〜12か月依頼なし／離脱＝12か月以上依頼なし／取引なし＝依頼実績なし。
    シェア＝直近12か月の依頼 ÷ 年間申請総数（hr_yearly_apps）。 */
@@ -5475,7 +5491,7 @@ function _thLoad(){
     return _thData;
   });
 }
-/* ===== 案シス連動の自動反映 ver.20261026.10 =====
+/* ===== 案シス連動の自動反映 ver.20261026.11 =====
    ① ステータス：案シスとひもづく登録支援機関は、依頼の状況で自動で切り替える
       直近6か月に依頼あり→契約中／6〜12か月なし→離脱可能性あり／12か月以上なし→離脱（対象外は触らない）
    ② 受注：案シスに初めて案件が登録された日を「受注開始日」として eigyo_deals に入れる
@@ -5620,7 +5636,7 @@ function thSyncNew(){
   });
 }
 
-/* ===== 📅 月別計画（予想と実績） ver.20261026.10 =====
+/* ===== 📅 月別計画（予想と実績） ver.20261026.11 =====
    予想：KPIの計画（eigyo_kpi_plan：開始月・月数・目標売上）を、前提（1社あたり月申請・成約率・商談率・平均単価・既存の月平均）で月ごとに割り戻す。
      新規取引開始は毎月同じペース（n社/月）、申請件数＝既存の月平均＋新規の累計社数×1社あたり月申請、売上＝申請件数×平均単価。
      nは「計画期間の売上合計＝目標売上」になるように計算。商談＝新規取引開始÷成約率、接触＝商談÷商談化率。
