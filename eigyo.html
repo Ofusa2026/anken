@@ -222,7 +222,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261026.20</div>
+      <div class="ver">ver.20261026.21</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -707,7 +707,7 @@ function loadSugaKakutoku(){
   if(!el('sugaList')){
     pane.innerHTML='<div style="background:#fff;border-radius:10px;padding:14px 16px;margin-bottom:12px;box-shadow:0 2px 6px rgba(0,0,0,.04);">'
       +'<div style="font-weight:800;font-size:15px;margin-bottom:2px;">🤝 菅沼獲得案件</div>'
-      +'<div class="sub" style="font-size:12px;margin-bottom:10px;">菅沼さんが獲得した登録支援機関です。2026/10/15以降に依頼された案件を数えます（スガシスの「獲得案件管理」と同じ数字）。</div>'
+      +'<div class="sub" style="font-size:12px;margin-bottom:10px;">菅沼さんが獲得した登録支援機関です。2026/10/15以降に案シスへ登録された案件を数えます（スガシスの「獲得案件管理」と同じ数字）。</div>'
       +'<input type="text" id="sugaQ" placeholder="会社名・登録番号で探してチェックを付ける" oninput="sugaSearch(this.value)" autocomplete="off" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;">'
       +'<div id="sugaHits"></div></div>'
       +'<div class="tablewrap" id="sugaList"><div class="loading">読み込み中...</div></div>';
@@ -728,13 +728,13 @@ function loadSugaKakutoku(){
       var all=[]; Object.keys(names).forEach(function(k){ all=all.concat(names[k]); });
       return _sb.from('cases').select('id,name,org,status,app_type,residence_status,request_date,created_at,shinsa_date').in('org', all).then(function(c){
         if(c.error) throw c.error;
-        var cases=(c.data||[]).filter(function(x){ var d=x.request_date||String(x.created_at||'').slice(0,10); return d>=SUGA_SINCE; });
-        var h='<table><thead><tr><th>会社名</th><th>営業ステータス</th><th>担当</th><th style="text-align:right;">依頼数</th><th style="text-align:right;">準備中</th><th style="text-align:right;">申請中</th><th style="text-align:right;">許可</th><th>最終依頼日</th><th></th></tr></thead><tbody>';
+        var cases=(c.data||[]).filter(function(x){ return sugaDay(x)>=SUGA_SINCE; });
+        var h='<table><thead><tr><th>会社名</th><th>営業ステータス</th><th>担当</th><th style="text-align:right;">依頼数</th><th style="text-align:right;">準備中</th><th style="text-align:right;">申請中</th><th style="text-align:right;">許可</th><th>最終登録日</th><th></th></tr></thead><tbody>';
         var tot={i:0,j:0,s:0,k:0}; _sugaCases={};
         leads.forEach(function(l){
           var cs=cases.filter(function(x){ return names[l.reg_no].indexOf(String(x.org||'').trim())>=0; });
           var k=cs.filter(function(x){return SUGA_KYOKA.indexOf(x.status)>=0;}).length, sh=cs.filter(function(x){return SUGA_SHINSEI.indexOf(x.status)>=0;}).length, j=cs.length-k-sh;
-          var last=cs.map(function(x){return x.request_date||String(x.created_at||'').slice(0,10);}).sort().pop()||'';
+          var last=cs.map(sugaDay).sort().pop()||'';
           _sugaCases[l.reg_no]=cs; var op=_sugaOpen===l.reg_no;
           tot.i+=cs.length; tot.j+=j; tot.s+=sh; tot.k+=k;
           h+='<tr style="cursor:pointer;'+(op?'background:#ebf8ff;':'')+'" onclick="sugaToggle(\''+esc(l.reg_no)+'\',event)" title="クリックで案件の一覧を開く"><td><span style="display:inline-block;width:14px;color:var(--muted);">'+(op?'▾':'▸')+'</span><a href="javascript:void(0)" onclick="event.stopPropagation();openDrawer(\''+esc(l.reg_no)+'\')" style="color:var(--accent);font-weight:600;">'+esc(l.name)+'</a><div class="sub" style="font-size:11px;margin-left:14px;">'+esc(l.reg_no)+'</div></td>'
@@ -750,15 +750,17 @@ function loadSugaKakutoku(){
     }).catch(function(e){ el('sugaList').innerHTML='<div class="empty">読み込みエラー：'+esc(e.message||e)+'</div>'; });
   });
 }
+// ver.20261026.21: 10/15以降かどうかは案シスへの登録日（created_at・日本時間）で判定する
+function sugaDay(c){ if(!c||!c.created_at) return ''; var t=new Date(c.created_at); if(isNaN(t)) return String(c.created_at).slice(0,10); return new Date(t.getTime()+9*3600000).toISOString().slice(0,10); }
 function sugaStage(st){ return SUGA_KYOKA.indexOf(st)>=0?'許可':(SUGA_SHINSEI.indexOf(st)>=0?'申請中':'準備中'); }
 function sugaCasesHtml(cs){
-  if(!cs.length) return '<div class="sub" style="font-size:12px;">2026/10/15以降の依頼はまだありません。</div>';
-  var rows=cs.slice().sort(function(a,b){ var x=a.request_date||String(a.created_at||'').slice(0,10), y=b.request_date||String(b.created_at||'').slice(0,10); return x<y?1:x>y?-1:0; });
+  if(!cs.length) return '<div class="sub" style="font-size:12px;">2026/10/15以降に登録された案件はまだありません。</div>';
+  var rows=cs.slice().sort(function(a,b){ var x=sugaDay(a), y=sugaDay(b); return x<y?1:x>y?-1:0; });
   var col={'許可':['#f0fff4','#2f855a'],'申請中':['#fffaf0','#c05621'],'準備中':['#edf2f7','#4a5568']};
-  return '<table style="font-size:12px;background:#fff;"><thead><tr><th>依頼日</th><th>案件名</th><th>申請種別</th><th>在留資格</th><th>ステータス</th><th>区分</th><th>許可日</th></tr></thead><tbody>'
+  return '<table style="font-size:12px;background:#fff;"><thead><tr><th>登録日</th><th>案件名</th><th>申請種別</th><th>在留資格</th><th>ステータス</th><th>区分</th><th>許可日</th></tr></thead><tbody>'
     + rows.map(function(c){ var g=sugaStage(c.status), t=col[g];
         var kd = g==='許可' ? (c.shinsa_date||'') : '';
-        return '<tr><td style="white-space:nowrap;">'+esc(String(c.request_date||String(c.created_at||'').slice(0,10)).replace(/-/g,'/'))+'</td>'
+        return '<tr><td style="white-space:nowrap;">'+esc(sugaDay(c).replace(/-/g,'/'))+'</td>'
           +'<td style="font-weight:600;">'+esc(c.name||'（案件名なし）')+'</td>'
           +'<td>'+esc(c.app_type||'')+'</td><td>'+esc(c.residence_status||'')+'</td><td>'+esc(c.status||'')+'</td>'
           +'<td><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;background:'+t[0]+';color:'+t[1]+';">'+g+'</span></td>'
