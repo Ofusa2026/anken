@@ -195,7 +195,7 @@ dd{margin:0;word-break:break-word}
     <div class="sidebar-logo">
       <span class="logo-badge">スガシス</span>
       <div class="logo-title">菅沼顧問システム</div>
-      <div class="ver">ver.20261026.06</div>
+      <div class="ver">ver.20261026.07</div>
     </div>
     <div class="sidebar-section">メニュー</div>
     <div class="tabs" role="tablist">
@@ -233,7 +233,7 @@ const IRAI = '<span class="irai">アタック依頼</span>';
 const TORI = '<span class="tori">取引中</span>';
 const OTHER_ST = ['すべて','未接触を除く','取引中のみ','接触済み','商談予定','商談済み→依頼待ち','契約中','要経過観察','見込みなし','対象外','未接触'];
 let pw = '', leads = [], filter = 'すべて', currentId = null;
-let kaku = null, kakuOpen = null;
+let kaku = null, kakuOpen = null, kakuMonth = null;
 let mode = 'suga', others = [], oTotal = 0, oQ = '', oSt = 'すべて';
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -337,67 +337,82 @@ async function loadKaku(){
   catch(err){ if(mode === 'kaku') $('kaku').innerHTML = '<div class="empty">読み込めませんでした。左下の「最新の内容にする」を押してください。</div>'; }
 }
 function renderKaku(){
-  const orgs = kaku.orgs || [], cases = kaku.cases || [], rate = Number(kaku.rate || 0.05);
-  const sum = k => orgs.reduce((a, o) => a + (Number(o[k]) || 0), 0);
+  const orgs = kaku.orgs || [], allCases = kaku.cases || [], rate = Number(kaku.rate || 0.05);
   const yen = n => Number(n || 0).toLocaleString() + '円';
   const pct = Math.round(rate * 1000) / 10;
   const prText = p => { const t = ['認定','変更','更新'].filter(k => p && p[k] != null).map(k => `${k} ${Number(p[k]/10000).toLocaleString()}万`); return t.length ? t.join('・') : '未設定'; };
-  const since = esc(fmtD(kaku.since));
+  const ym = d => String(d||'').slice(0,7);
+  const ymLabel = m => m.replace('-','年').replace(/年0?/, '年') + '月';
+  const typ = t => t==='認定'?'nintei':t==='変更'?'henko':t==='更新'?'koshin':'sonota';
+  const PAY = {'許可待ち':['','許可後に支払い'],'未払い':['s','未払い'],'支払済':['k','支払済'],'キャンセル':['','キャンセル']};
   $('cnt').textContent = `${orgs.length}機関`;
   if(!orgs.length){
     $('kaku').innerHTML = '<div class="panel"><h3>獲得した登録支援機関はまだありません</h3><p class="note" style="margin:0">大房側で登録支援機関に「菅沼獲得案件」のチェックが入ると、ここに依頼数と許可実績が表示されます。</p></div>';
     return;
   }
-  const irai = sum('irai'), nintei = sum('nintei'), henko = sum('henko'), koshin = sum('koshin'), sonota = sum('sonota'),
-        kyoka = sum('kyoka'), amount = sum('amount'), reward = Math.round(amount * rate);
-  let h = `<div class="kpis">
-    <div class="kpi"><div class="lb">依頼数</div><div class="vl">${irai}<small>件</small></div>
-      <div class="note" style="margin:2px 0 0">認定 ${nintei}・変更 ${henko}・更新 ${koshin}${sonota?`・その他 ${sonota}`:''}</div></div>
-    <div class="kpi"><div class="lb">許可（審査完了）</div><div class="vl">${kyoka}<small>件</small></div></div>
-    <div class="kpi"><div class="lb">申請費用の合計</div><div class="vl">${Number(amount).toLocaleString()}<small>円</small></div></div>
-    <div class="kpi" style="border-top:3px solid var(--green)"><div class="lb">菅沼さんの報酬（${pct}%）</div><div class="vl" style="color:var(--green)">${Number(reward).toLocaleString()}<small>円</small></div></div>
-  </div>`;
-
-  // 月別（2026年10月以降）
-  const start = '2026-10', now = new Date(), months = [];
+  // 締め月（2026年10月〜今月）
+  const now = new Date(), months = [];
   for(let d = new Date(2026, 9, 1); d <= now; d = new Date(d.getFullYear(), d.getMonth() + 1, 1))
     months.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
-  const M = {}; months.forEach(m => M[m] = {nintei:0, henko:0, koshin:0, sonota:0, irai:0, kyoka:0, amount:0});
-  cases.forEach(c => {
-    const a = String(c.irai_date||'').slice(0,7);
-    if(M[a]){ const t = c.app_type==='認定'?'nintei':c.app_type==='変更'?'henko':c.app_type==='更新'?'koshin':'sonota';
-      M[a][t]++; M[a].irai++; M[a].amount += Number(c.price)||0; }
-    const b = String(c.kyoka_date||'').slice(0,7);
-    if(c.kanryo && M[b]) M[b].kyoka++;
-  });
-  h += `<section class="panel"><h3>月別の実績</h3><p class="note">${start.replace('-','年')}月以降。依頼数・申請費用は大房が受け付けた月、許可は審査が完了した月で数えています。</p>
-    <div class="tscroll"><table class="ktbl"><thead><tr><th>月</th><th class="n">認定</th><th class="n">変更</th><th class="n">更新</th><th class="n">依頼数</th><th class="n">許可</th><th class="n">申請費用</th><th class="n">菅沼さん報酬</th></tr></thead><tbody>
-    ${months.slice().reverse().map(m => { const x = M[m]; return `<tr><td>${m.replace('-','年')}月</td><td class="n">${x.nintei}</td><td class="n">${x.henko}</td><td class="n">${x.koshin}</td>
-      <td class="n"><b>${x.irai}</b></td><td class="n">${x.kyoka}</td><td class="n">${yen(x.amount)}</td><td class="n" style="color:var(--green);font-weight:700">${yen(Math.round(x.amount*rate))}</td></tr>`; }).join('')}
+  if(!kakuMonth || (kakuMonth !== 'all' && months.indexOf(kakuMonth) < 0)) kakuMonth = months[months.length - 1];
+  const agg = list => { const a = {nintei:0, henko:0, koshin:0, sonota:0, irai:0, cancel:0, kyoka:0, amount:0, reward:0, paid:0, unpaid:0, wait:0, no_price:0};
+    list.forEach(c => { if(c.canceled){ a.cancel++; return; }
+      a[typ(c.app_type)]++; a.irai++; if(c.kanryo) a.kyoka++; if(c.price == null) a.no_price++;
+      a.amount += Number(c.price)||0; a.reward += Number(c.reward)||0;
+      if(c.pay==='支払済') a.paid += Number(c.reward)||0; else if(c.pay==='未払い') a.unpaid += Number(c.reward)||0; else a.wait += Number(c.reward)||0; });
+    return a; };
+  const T = agg(allCases);
+  let h = `<div class="kpis">
+    <div class="kpi"><div class="lb">依頼数</div><div class="vl">${T.irai}<small>件</small></div>
+      <div class="note" style="margin:2px 0 0">認定 ${T.nintei}・変更 ${T.henko}・更新 ${T.koshin}${T.sonota?`・その他 ${T.sonota}`:''}${T.cancel?`／キャンセル ${T.cancel}`:''}</div></div>
+    <div class="kpi"><div class="lb">許可（審査完了）</div><div class="vl">${T.kyoka}<small>件</small></div></div>
+    <div class="kpi"><div class="lb">申請費用の合計</div><div class="vl">${Number(T.amount).toLocaleString()}<small>円</small></div></div>
+    <div class="kpi" style="border-top:3px solid var(--green)"><div class="lb">菅沼さんの報酬（${pct}%）</div><div class="vl" style="color:var(--green)">${Number(T.reward).toLocaleString()}<small>円</small></div>
+      <div class="note" style="margin:2px 0 0">支払済 ${yen(T.paid)}・未払い ${yen(T.unpaid)}・許可待ち ${yen(T.wait)}</div></div>
+  </div>
+  <p class="note" style="margin:-6px 0 14px">※菅沼さんの報酬は<b>許可後に支払い</b>です。審査が完了した案件から「未払い」になり、お支払いが済むと「支払済」になります。キャンセルになった案件は報酬の対象外です。</p>`;
+
+  // 月別の実績（受け付けた月で締める）
+  const MB = {}; months.forEach(m => MB[m] = []); allCases.forEach(c => { const m = ym(c.irai_date); if(MB[m]) MB[m].push(c); });
+  h += `<section class="panel"><h3>月別の実績</h3><p class="note">2026年10月以降。月ごとに締めています（大房が受け付けた月で計上）。</p>
+    <div class="tscroll"><table class="ktbl"><thead><tr><th>月</th><th class="n">認定</th><th class="n">変更</th><th class="n">更新</th><th class="n">依頼数</th><th class="n">キャンセル</th><th class="n">許可</th><th class="n">申請費用</th><th class="n">菅沼さん報酬</th><th class="n">支払済</th><th class="n">未払い</th><th class="n">許可待ち</th></tr></thead><tbody>
+    ${months.slice().reverse().map(m => { const x = agg(MB[m]); return `<tr><td style="white-space:nowrap">${ymLabel(m)}</td><td class="n">${x.nintei}</td><td class="n">${x.henko}</td><td class="n">${x.koshin}</td>
+      <td class="n"><b>${x.irai}</b></td><td class="n">${x.cancel}</td><td class="n">${x.kyoka}</td><td class="n">${yen(x.amount)}</td>
+      <td class="n" style="color:var(--green);font-weight:700">${yen(x.reward)}</td><td class="n">${yen(x.paid)}</td><td class="n" style="color:var(--orange)">${yen(x.unpaid)}</td><td class="n" style="color:var(--gray-400)">${yen(x.wait)}</td></tr>`; }).join('')}
     </tbody></table></div></section>`;
 
-  // 登録支援機関ごと
-  h += `<section class="panel"><h3>登録支援機関ごとの実績</h3><p class="note">${since}以降に大房が受け付けた案件です。申請費用は「1件あたり単価×件数」、菅沼さんの報酬はその${pct}%です。行を押すと案件の一覧が開きます（申請人の個人情報は表示しません）。</p>
-    <div class="tscroll"><table class="ktbl"><thead><tr><th>登録支援機関</th><th>1件あたり単価</th><th class="n">認定</th><th class="n">変更</th><th class="n">更新</th><th class="n">依頼数</th><th class="n">許可</th><th class="n">申請費用</th><th class="n">菅沼さん報酬</th></tr></thead><tbody>`;
+  // 登録支援機関ごと（締め月で切り替え）
+  const cases = kakuMonth === 'all' ? allCases : allCases.filter(c => ym(c.irai_date) === kakuMonth);
+  h += `<section class="panel"><h3>登録支援機関ごとの実績</h3>
+    <div class="filters" style="padding:8px 0 10px;border:0;background:none" role="group" aria-label="締め月">
+      ${months.slice().reverse().map(m => `<button type="button" class="chip" data-month="${m}" aria-pressed="${kakuMonth===m}">${ymLabel(m)}</button>`).join('')}
+      <button type="button" class="chip" data-month="all" aria-pressed="${kakuMonth==='all'}">全期間</button>
+    </div>
+    <p class="note">申請費用は「1件あたり単価×件数」、菅沼さんの報酬はその${pct}%です（許可後に支払い）。行を押すと案件の一覧が開きます（申請人の個人情報は表示しません）。</p>
+    <div class="tscroll"><table class="ktbl"><thead><tr><th>登録支援機関</th><th>1件あたり単価</th><th class="n">認定</th><th class="n">変更</th><th class="n">更新</th><th class="n">依頼数</th><th class="n">キャンセル</th><th class="n">許可</th><th class="n">申請費用</th><th class="n">菅沼さん報酬</th><th class="n">うち未払い</th></tr></thead><tbody>`;
+  const S = agg(cases);
   orgs.forEach(o => {
-    const open = kakuOpen === o.id;
+    const open = kakuOpen === o.id, cs = cases.filter(c => c.org_id === o.id), x = agg(cs);
     h += `<tr class="org" data-org="${esc(o.id)}" aria-expanded="${open}" tabindex="0"><td>${esc(o.name)}</td><td style="white-space:nowrap">${esc(prText(o.prices))}</td>
-      <td class="n">${o.nintei}</td><td class="n">${o.henko}</td><td class="n">${o.koshin}</td><td class="n"><b>${o.irai}</b>${o.sonota?`<div style="font-size:11px;color:var(--gray-400)">その他 ${o.sonota}</div>`:''}</td><td class="n">${o.kyoka}</td>
-      <td class="n">${yen(o.amount)}${o.no_price?`<div style="font-size:11px;color:var(--orange)">単価未設定 ${o.no_price}件</div>`:''}</td>
-      <td class="n" style="color:var(--green);font-weight:700">${yen(Math.round((Number(o.amount)||0)*rate))}</td></tr>`;
+      <td class="n">${x.nintei}</td><td class="n">${x.henko}</td><td class="n">${x.koshin}</td><td class="n"><b>${x.irai}</b>${x.sonota?`<div style="font-size:11px;color:var(--gray-400)">その他 ${x.sonota}</div>`:''}</td><td class="n">${x.cancel}</td><td class="n">${x.kyoka}</td>
+      <td class="n">${yen(x.amount)}${x.no_price?`<div style="font-size:11px;color:var(--orange)">単価未設定 ${x.no_price}件</div>`:''}</td>
+      <td class="n" style="color:var(--green);font-weight:700">${yen(x.reward)}</td><td class="n" style="color:var(--orange)">${yen(x.unpaid)}</td></tr>`;
     if(open){
-      const cs = cases.filter(c => c.org_id === o.id);
-      h += `<tr class="sub"><td colspan="9">${cs.length ? `<table><thead><tr><th>受付日</th><th>申請種別</th><th>在留資格</th><th>申請費用</th><th>状況</th><th>許可日</th></tr></thead><tbody>
-        ${cs.map(c => `<tr><td>${esc(fmtD(c.irai_date))}</td><td>${esc(c.app_type)||'—'}</td><td>${esc(c.residence_status)||'—'}</td><td style="white-space:nowrap">${c.price==null?'<span style="color:var(--orange)">未設定</span>':yen(c.price)}</td>
-          <td><span class="stg ${c.kanryo?'k':c.stage==='申請中'?'s':''}">${c.kanryo?'許可':esc(c.stage)}</span></td><td>${esc(fmtD(c.kyoka_date))||'—'}</td></tr>`).join('')}
-        </tbody></table>` : `<div class="empty" style="padding:12px 24px">${since}以降に受け付けた案件はまだありません。</div>`}</td></tr>`;
+      h += `<tr class="sub"><td colspan="11">${cs.length ? `<table><thead><tr><th>受付日</th><th>申請種別</th><th>在留資格</th><th>申請費用</th><th>状況</th><th>許可日</th><th>菅沼さん報酬</th><th>支払</th></tr></thead><tbody>
+        ${cs.map(c => { const pp = PAY[c.pay] || ['', c.pay]; return `<tr${c.canceled?' style="opacity:.55"':''}><td>${esc(fmtD(c.irai_date))}</td><td>${esc(c.app_type)||'—'}</td><td>${esc(c.residence_status)||'—'}</td>
+          <td style="white-space:nowrap">${c.canceled?'—':c.price==null?'<span style="color:var(--orange)">未設定</span>':yen(c.price)}</td>
+          <td><span class="stg ${c.kanryo?'k':c.stage==='申請中'?'s':''}">${c.canceled?'キャンセル':c.kanryo?'許可':esc(c.stage)}</span></td><td>${esc(fmtD(c.kyoka_date))||'—'}</td>
+          <td style="white-space:nowrap">${c.canceled?'—':yen(c.reward)}</td>
+          <td style="white-space:nowrap"><span class="stg ${pp[0]}">${esc(pp[1])}</span>${c.pay==='支払済'&&c.paid_at?` <span style="font-size:11px;color:var(--gray-400)">${esc(fmtD(c.paid_at))}</span>`:''}</td></tr>`; }).join('')}
+        </tbody></table>` : `<div class="empty" style="padding:12px 24px">${kakuMonth==='all'?'':ymLabel(kakuMonth)+'に'}受け付けた案件はありません。</div>`}</td></tr>`;
     }
   });
-  h += `<tr style="background:var(--gray-100);font-weight:800"><td colspan="2">合計（${orgs.length}機関）</td><td class="n">${nintei}</td><td class="n">${henko}</td><td class="n">${koshin}</td><td class="n">${irai}</td><td class="n">${kyoka}</td><td class="n">${yen(amount)}</td><td class="n" style="color:var(--green)">${yen(reward)}</td></tr>`;
+  h += `<tr style="background:var(--gray-100);font-weight:800"><td colspan="2">合計（${orgs.length}機関）</td><td class="n">${S.nintei}</td><td class="n">${S.henko}</td><td class="n">${S.koshin}</td><td class="n">${S.irai}</td><td class="n">${S.cancel}</td><td class="n">${S.kyoka}</td><td class="n">${yen(S.amount)}</td><td class="n" style="color:var(--green)">${yen(S.reward)}</td><td class="n" style="color:var(--orange)">${yen(S.unpaid)}</td></tr>`;
   h += '</tbody></table></div></section>';
   $('kaku').innerHTML = h;
 }
 $('kaku').addEventListener('click', e => {
+  const mb = e.target.closest('[data-month]'); if(mb){ kakuMonth = mb.dataset.month; renderKaku(); return; }
   const tr = e.target.closest('tr.org'); if(!tr) return;
   kakuOpen = kakuOpen === tr.dataset.org ? null : tr.dataset.org; renderKaku();
 });
