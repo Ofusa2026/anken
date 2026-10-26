@@ -222,7 +222,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261026.26</div>
+      <div class="ver">ver.20261026.28</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -5899,7 +5899,7 @@ function loadMonthPlan(force){
     _thFetchAll(function(){ return _sb.from('support_orgs').select('id,name,kb_price,kb_prices').order('id'); }),
     _thFetchAll(function(){ return _sb.from('eigyo_leads').select('reg_no,staff,meeting_date,apt_at,first_contact_date').or('meeting_date.gte.2026-01-01,apt_at.gte.2026-01-01,first_contact_date.gte.2026-01-01').order('reg_no'); }),
     _sb.from('eigyo_deals').select('id,start_date,supporters,staff,support_org_id'),   // ver.20261026.24
-    _thFetchAll(function(){ return _sb.from('eigyo_leads').select('reg_no,staff,status,supporter_count,expected_supporter,month_prospect,decided_at').or('month_prospect.not.is.null,decided_at.not.is.null').order('reg_no'); })   // ver.20261026.25: Plan・決定
+    _thFetchAll(function(){ return _sb.from('eigyo_leads').select('reg_no,staff,status,supporter_count,expected_supporter,hr_start_date,decided_at').or('hr_start_date.not.is.null,decided_at.not.is.null').order('reg_no'); })   // ver.20261026.25: Plan・決定
   ]).then(function(R){
     var plan=(R[0].data)||{plan_start:'2026-09-01',plan_months:12,target_revenue:0};
     var saved={}; try{ saved=JSON.parse((R[1].data&&R[1].data.value)||'{}')||{}; }catch(e){}
@@ -5957,7 +5957,7 @@ function mpSetAssume(k,v){
   renderMonthPlan();
 }
 // ver.20261026.25: 月別計画は「目標／Plan／決定／実績」の縦4行（支援者数・社数）。金額は出さない
-//   目標＝毎月の新規支援者数（前提）／Plan＝パイプラインの見込み月（month_prospect：いつ決まりそうか）がその月の支援者数（だめは除く）
+//   目標＝毎月の新規支援者数（前提）／Plan＝パイプラインのスタート見込み月（hr_start_date）がその月の支援者数（だめは除く）
 //   決定＝決定日（decided_at）がその月／実績＝案シスに初回案件が登録された月（受注 eigyo_deals の開始日）
 var MP_STAFF=['大房','亀谷','中林','菅沼'];
 function _mpStaffOk(s){ var S=_MP.staff||'all'; if(S==='all') return true; return String(s||'').replace(/^[\s　]+/,'').indexOf(S)===0; }
@@ -5973,9 +5973,12 @@ function _mpCalc(){
   var R={}; months.forEach(function(m){ R[m]={plan:Z(),dec:Z(),act:Z(),meet:0,contact:0,apps:(act[m]||{}).apps||0,newApps:0}; });
   function at(m){ return R[m]; }
   function sp(l){ return Number(l.supporter_count)||Number(l.expected_supporter)||0; }
+  var BS={}; MP_STAFF.forEach(function(k){ BS[k]={}; months.forEach(function(m){ BS[k][m]={sup:0,org:0}; }); });   // ver.20261026.28: 担当別のPlan（絞り込みに関係なく4人分）
   (M.pipe||[]).forEach(function(l){
+    var _pm=String(l.hr_start_date||'').slice(0,7), _k=String(l.staff||'').replace(/^[\s　]+/,''), _sk=MP_STAFF.filter(function(x){ return _k.indexOf(x)===0; })[0];
+    if(_sk && BS[_sk][_pm] && ['見込みなし','対象外','テレアポ失注'].indexOf(l.status)<0){ BS[_sk][_pm].sup+=sp(l); BS[_sk][_pm].org++; }
     if(!_mpStaffOk(l.staff)) return;
-    var pm=String(l.month_prospect||'').slice(0,7); if(pm && at(pm) && ['見込みなし','対象外','テレアポ失注'].indexOf(l.status)<0){ at(pm).plan.sup+=sp(l); at(pm).plan.org++; }
+    var pm=String(l.hr_start_date||'').slice(0,7); if(pm && at(pm) && ['見込みなし','対象外','テレアポ失注'].indexOf(l.status)<0){ at(pm).plan.sup+=sp(l); at(pm).plan.org++; }
     var dm=String(l.decided_at||'').slice(0,7); if(dm && at(dm)){ at(dm).dec.sup+=sp(l); at(dm).dec.org++; }
   });
   deals.forEach(function(d){ if(!d.start_date || !_mpStaffOk(d.staff)) return; var x=at(String(d.start_date).slice(0,7)); if(!x) return; x.act.sup+=Number(d.supporters)||0; x.act.org++; });
@@ -5983,7 +5986,7 @@ function _mpCalc(){
   var noa=M.newOrgApps||{}; Object.keys(noa).forEach(function(m){ if(!at(m)) return; var n=0; Object.keys(noa[m]).forEach(function(org){ if(_mpStaffOk((M.orgStaff||{})[org])) n+=noa[m][org]; }); at(m).newApps=n; });
   var tSup=as.supTarget*share, tOrg=as.avgSup? tSup/as.avgSup:0, tMeet=as.winRate? tOrg/(as.winRate/100):0, tCon=as.meetRate? tMeet/(as.meetRate/100):0;
   var rows=months.map(function(m){ return {m:m, fut:m>now, cur:m===now, t:{sup:tSup, org:tOrg, meet:tMeet, contact:tCon}, r:R[m]}; });
-  return {months:months, rows:rows, as:as, DEF:DEF, share:share, t:{sup:tSup, org:tOrg, meet:tMeet, contact:tCon}};
+  return {months:months, rows:rows, as:as, DEF:DEF, share:share, t:{sup:tSup, org:tOrg, meet:tMeet, contact:tCon}, bs:BS, tStaff:as.supTarget/MP_STAFF.length};
 }
 function renderMonthPlan(){
   var pane=el('monthPane'); if(!pane||!_MP.data) return;
@@ -5998,7 +6001,7 @@ function renderMonthPlan(){
     +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'+sb('all','全員')+MP_STAFF.map(function(s){ return sb(s,s); }).join('')+'<button class="btn btn-sm" onclick="loadMonthPlan(true)">↻ 再集計</button></div></div>';
   // 説明（4つの意味）
   var lg=function(c,b,t){ return '<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;"><span style="width:10px;height:10px;border-radius:3px;background:'+c+';display:inline-block;"></span><b>'+b+'</b><span class="sub">'+t+'</span></span>'; };
-  h+='<div style="font-size:12px;margin-bottom:10px;line-height:1.9;">'+lg('#94a3b8','目標','毎月の新規支援者数')+lg('#7c3aed','Plan','パイプラインの見込み月')+lg('#d97706','決定','合意して「決まった」にした月')+lg('#16a34a','実績','案シスに案件が登録された月')
+  h+='<div style="font-size:12px;margin-bottom:10px;line-height:1.9;">'+lg('#94a3b8','目標','毎月の新規支援者数')+lg('#7c3aed','Plan','パイプラインの見込み月（スタート見込み月）')+lg('#d97706','決定','合意して「決まった」にした月')+lg('#16a34a','実績','案シスに案件が登録された月')
     +(S!=='all'?'<span class="sub">（'+S+'さん：目標は4人で割った値）</span>':'')+'</div>';
   // 今月までのまとめ
   function tile(cls,label,v,sub){ return '<div class="kpi '+cls+'" style="cursor:default;"><div class="k">'+label+'</div><div class="v">'+v+'<span style="font-size:12px;font-weight:600;">人</span></div><div class="sub">'+sub+'</div></div>'; }
@@ -6023,6 +6026,18 @@ function renderMonthPlan(){
         }).join('')
         +'<td style="padding:6px 10px;text-align:right;white-space:nowrap;font-weight:700;font-size:12.5px;">'+(L[0]==='t'?'<span style="color:#94a3b8;">'+n1(tot.t[U[0]])+'</span>':n1(tot[L[0]][U[0]]))+'</td></tr>';
     });
+  });
+  h+='</tbody></table></div>';
+  // ver.20261026.28: 担当別のPlan（スタート見込み月の支援者数）
+  h+='<div style="font-weight:800;font-size:14px;margin:16px 0 6px;">👥 担当別のPlan<span class="sub" style="font-weight:400;font-size:12px;margin-left:8px;">パイプラインの見込み月（スタート見込み月）ごとの支援者数（社数）。1人あたりの目標は毎月 '+n1(C.tStaff)+'人</span></div>';
+  h+='<div class="tablewrap"><table style="border-collapse:collapse;width:100%;"><thead><tr><th style="'+th+'text-align:left;">担当</th>'
+    +C.rows.map(function(r){ return '<th style="'+th+(r.cur?'color:var(--accent);background:#eef4fd;':'')+'">'+(+r.m.slice(5))+'月</th>'; }).join('')+'<th style="'+th+'">合計</th><th style="'+th+'">目標比</th></tr></thead><tbody>';
+  MP_STAFF.forEach(function(k){
+    var tS=0, tO=0;
+    h+='<tr style="'+(S===k?'background:#f5f3ff;':'')+'"><td style="padding:8px 10px;font-weight:800;font-size:13.5px;white-space:nowrap;border-bottom:1px solid #edf2f7;"><a href="javascript:void(0)" onclick="_MP.staff=\''+k+'\';renderMonthPlan()" style="color:inherit;">'+k+'</a></td>'
+      +C.rows.map(function(r){ var v=C.bs[k][r.m]; tS+=v.sup; tO+=v.org; return '<td style="padding:8px 10px;text-align:right;white-space:nowrap;font-size:13px;border-bottom:1px solid #edf2f7;'+(r.cur?'background:#f3f7fd;':'')+'">'+(v.sup?'<b style="color:#6d28d9;">'+n1(v.sup)+'</b><span class="sub" style="font-size:11px;">（'+v.org+'社）</span>':'<span style="color:#e2e8f0;">0</span>')+'</td>'; }).join('')
+      +'<td style="padding:8px 10px;text-align:right;font-weight:800;white-space:nowrap;border-bottom:1px solid #edf2f7;">'+n1(tS)+'<span class="sub" style="font-size:11px;font-weight:400;">（'+tO+'社）</span></td>'
+      +'<td style="padding:8px 10px;text-align:right;white-space:nowrap;border-bottom:1px solid #edf2f7;">'+pct(tS, C.tStaff*C.rows.length)+'</td></tr>';
   });
   h+='</tbody></table></div>';
   // 参考：活動量と申請件数（今月まで）
@@ -6106,7 +6121,7 @@ function renderPipeline(){
   var list=mine.filter(function(l){ var k=plCol(l.status); return G==='all' || (G==='open'? openK.indexOf(k)>=0 : k===G); });
   var q=String(_PL.f||'').trim(); if(q) list=list.filter(function(l){ return String(l.name||'').indexOf(q)>=0; });
   var ord={}; PL_COLS.forEach(function(c,i){ ord[c.k]=i; });
-  list.sort(function(a,b){ var am=String(a.month_prospect||'9999'), bm=String(b.month_prospect||'9999'); if(am!==bm) return am<bm?-1:1; var o=ord[plCol(a.status)]-ord[plCol(b.status)]; if(o) return o; return plSup(b)-plSup(a); });
+  list.sort(function(a,b){ var am=String(a.hr_start_date||'9999'), bm=String(b.hr_start_date||'9999'); if(am!==bm) return am<bm?-1:1; var o=ord[plCol(a.status)]-ord[plCol(b.status)]; if(o) return o; return plSup(b)-plSup(a); });
   var verSup=0, verPpl=0; mine.forEach(function(l){ if(plCol(l.status)!=='won') return; var a=aggOf(l); if(a){ verSup+=plSup(l); verPpl+=Object.keys(a.ppl).length; } });
   var mT=plSupTargetMonth(D.plan, D.saved), nM=parseInt(D.plan.plan_months,10)||12, yT=mT*nM*((S==='all')?1:1/PL_STAFF.length);
   var staffBtn=function(k,l){ var on=S===k; return '<button class="btn btn-sm" style="'+(on?'background:var(--accent);color:#fff;':'')+'" onclick="_PL.staff=\''+k+'\';renderPipeline()">'+l+'</button>'; };
@@ -6131,33 +6146,31 @@ function renderPipeline(){
     +'<span class="sub" style="font-size:11px;">追加すると「候補」に入ります'+(S!=='all'?'（担当：'+S+'）':'')+'</span>'
     +'<div id="plHits" style="flex-basis:100%;"></div></div>';
   // 表
-  var th='padding:7px 8px;font-size:11.5px;color:#475569;font-weight:700;white-space:nowrap;text-align:left;border-bottom:2px solid var(--line);background:#f8fafc;position:sticky;top:0;';
-  var td='padding:6px 8px;border-bottom:1px solid #edf2f7;font-size:12.5px;vertical-align:middle;';
-  var inp='font-size:12px;padding:3px 5px;border:1px solid #e2e8f0;border-radius:5px;';
+  var th='padding:10px 10px;font-size:13.5px;color:#334155;font-weight:800;white-space:nowrap;text-align:left;border-bottom:2px solid var(--line);background:#f8fafc;position:sticky;top:0;z-index:1;';
+  var td='padding:9px 10px;border-bottom:1px solid #edf2f7;font-size:15px;vertical-align:middle;';
+  var inp='font-size:14.5px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;';
   h+='<div class="tablewrap" style="max-height:calc(100vh - 330px);overflow:auto;"><table style="width:100%;border-collapse:collapse;"><thead><tr>'
-    +['いつやる','登録支援機関','支援者数','担当','段階','確度','見込み月','決定月','スタート見込み','実績（案シス）',''].map(function(x){ return '<th style="'+th+'">'+x+'</th>'; }).join('')+'</tr></thead><tbody>';
-  if(!list.length) h+='<tr><td colspan="11" style="'+td+'text-align:center;color:#94a3b8;padding:20px;">該当する会社がありません</td></tr>';
+    +['いつやる','登録支援機関','支援者数','担当','段階','確度','スタート見込み月','実績（案シス）',''].map(function(x){ return '<th style="'+th+'">'+x+'</th>'; }).join('')+'</tr></thead><tbody>';
+  if(!list.length) h+='<tr><td colspan="9" style="'+td+'text-align:center;color:#94a3b8;padding:20px;">該当する会社がありません</td></tr>';
   list.forEach(function(l){
     var k=plCol(l.status), col=PL_COLS.filter(function(c){ return c.k===k; })[0], a=aggOf(l), sp=plSup(l), R=esc(l.reg_no);
     var res='<span style="color:#cbd5e1;">—</span>';
-    if(a){ var np=Object.keys(a.ppl).length; res='<span style="color:#166534;font-weight:700;">✔ 初回 '+a.first.slice(2).replace(/-/g,'/')+'</span><div class="sub" style="font-size:11px;">申請 '+a.apps+'件・'+np+'人'+(sp?'（取得率 '+Math.round(np/sp*1000)/10+'%）':'')+'</div>'; }
+    if(a){ var np=Object.keys(a.ppl).length; res='<span style="color:#166534;font-weight:700;">✔ 初回 '+a.first.slice(2).replace(/-/g,'/')+'</span><div class="sub" style="font-size:12.5px;">申請 '+a.apps+'件・'+np+'人'+(sp?'（取得率 '+Math.round(np/sp*1000)/10+'%）':'')+'</div>'; }
     else if(k==='won') res='<span style="color:#b45309;font-size:11.5px;">⏳ 案件待ち</span>';
     var em=String(l.month_prospect||'').slice(0,7), dm=String(l.decided_at||'').slice(0,7), sm=String(l.hr_start_date||'').slice(0,7);
     h+='<tr style="'+(k==='lost'?'opacity:.55;':'')+'">'
-      +'<td style="'+td+'"><input type="month" value="'+esc(l.attack_month||'')+'" onchange="plSave(\''+R+'\',{attack_month:this.value||null},\'いつやるかを保存しました\')" style="'+inp+'width:118px;"></td>'
-      +'<td style="'+td+'min-width:200px;"><a href="javascript:void(0)" onclick="openDrawer(\''+R+'\')" style="font-weight:700;color:var(--accent);">'+esc(l.name||'')+'</a><div class="sub" style="font-size:11px;">'+esc(l.pref||'')+'</div></td>'
-      +'<td style="'+td+'"><input type="number" min="0" value="'+(l.supporter_count!=null?esc(l.supporter_count):'')+'" placeholder="'+(l.expected_supporter?esc(l.expected_supporter):'')+'" onchange="plSetSup(\''+R+'\',this.value)" style="'+inp+'width:70px;text-align:right;font-weight:700;">人</td>'
+      +'<td style="'+td+'"><input type="month" value="'+esc(l.attack_month||'')+'" onchange="plSave(\''+R+'\',{attack_month:this.value||null},\'いつやるかを保存しました\')" style="'+inp+'width:150px;"></td>'
+      +'<td style="'+td+'min-width:200px;"><a href="javascript:void(0)" onclick="openDrawer(\''+R+'\')" style="font-weight:700;color:var(--accent);">'+esc(l.name||'')+'</a><div class="sub" style="font-size:12.5px;">'+esc(l.pref||'')+'</div></td>'
+      +'<td style="'+td+'"><input type="number" min="0" value="'+(l.supporter_count!=null?esc(l.supporter_count):'')+'" placeholder="'+(l.expected_supporter?esc(l.expected_supporter):'')+'" onchange="plSetSup(\''+R+'\',this.value)" style="'+inp+'width:90px;text-align:right;font-weight:800;">人</td>'
       +'<td style="'+td+'"><select onchange="plSetStaff(\''+R+'\',this.value)" style="'+inp+'"><option value="">—</option>'+STAFF_SEED.map(function(s){ var kk=s.split(/[\s　]/)[0]; return '<option value="'+esc(s)+'"'+(plStaffKey(l.staff)===kk||l.staff===s?' selected':'')+'>'+esc(kk)+'</option>'; }).join('')+'</select></td>'
       +'<td style="'+td+'"><select onchange="plMove(\''+R+'\',this.value)" style="'+inp+'font-weight:700;color:'+col.c+';border-color:'+col.c+'66;">'+PL_COLS.map(function(x){ return '<option value="'+x.k+'"'+(x.k===k?' selected':'')+'>'+x.l+'</option>'; }).join('')+'</select></td>'
-      +'<td style="'+td+'">'+ilProb(l.reg_no,l.close_prob).replace('inlineSave(','plProbSave(')+'</td>'
-      +'<td style="'+td+'"><input type="month" value="'+esc(em)+'" title="いつ決まりそうか（この月のPlanに入ります）" onchange="plSave(\''+R+'\',{month_prospect:this.value||null},\'見込み月を保存しました（その月のPlanに入ります）\')" style="'+inp+'width:118px;"></td>'
-      +'<td style="'+td+'"><input type="month" value="'+esc(dm)+'" title="合意して決まった月" onchange="plSave(\''+R+'\',{decided_at:this.value?this.value+\'-01\':null},\'決定月を保存しました\')" style="'+inp+'width:118px;'+(k==='won'?'':'color:#94a3b8;')+'"></td>'
-      +'<td style="'+td+'"><input type="month" value="'+esc(sm)+'" title="いつから依頼がスタートしそうか" onchange="plSave(\''+R+'\',{hr_start_date:this.value?this.value+\'-01\':null},\'スタート見込みを保存しました\')" style="'+inp+'width:118px;"></td>'
+      +'<td style="'+td+'min-width:96px;">'+ilProb(l.reg_no,l.close_prob).replace('inlineSave(','plProbSave(').replace('font-size:12px;','font-size:14px;').replace('padding:3px 2px;','padding:6px 4px;')+'</td>'
+      +'<td style="'+td+'"><input type="month" value="'+esc(sm)+'" title="いつから依頼がスタートしそうか（この月の月別計画のPlanに入ります）" onchange="plSave(\''+R+'\',{hr_start_date:this.value?this.value+\'-01\':null},\'スタート見込み月を保存しました（その月のPlanに入ります）\')" style="'+inp+'width:150px;"></td>'
       +'<td style="'+td+'white-space:nowrap;">'+res+'</td>'
       +'<td style="'+td+'">'+(plIn(l)?'<button title="パイプラインから外す" onclick="plRemove(\''+R+'\')" style="border:none;background:none;color:#94a3b8;cursor:pointer;">✕</button>':'')+'</td></tr>';
   });
   h+='</tbody></table></div>';
-  h+='<div class="sub" style="font-size:11.5px;margin-top:6px;">見込み月＝いつ決まりそうか（その月の月別計画の<b>Plan</b>に入ります）。段階を「✅ 決まった」にすると決定月に今月が入り、<b>決定</b>に入ります。スタート見込み＝いつから依頼が始まりそうか。<b>実績</b>は案シスに案件が登録された月で数えます。</div>';
+  h+='<div class="sub" style="font-size:13px;margin-top:8px;">スタート見込み月＝いつから依頼が始まりそうか（その月の月別計画の<b>Plan</b>に入ります）。段階を「✅ 決まった」にすると、その月の<b>決定</b>に入ります。<b>実績</b>は案シスに案件が登録された月で数えます。</div>';
   pane.innerHTML=h;
   if(_PL.hits) plHitsPaint();
 }
