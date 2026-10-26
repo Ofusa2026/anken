@@ -222,7 +222,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261026.21</div>
+      <div class="ver">ver.20261026.22</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -698,7 +698,8 @@ function toggleSugaKakutoku(on){
 /* ===== ver.20261026.19: 🤝 菅沼獲得案件（取引先メニュー） =====
    eigyo_leads.suga_kakutoku にチェックが付いた登録支援機関を一覧表示し、
    2026/10/15 以降の案件（依頼数・申請中・許可）を数える。検索してその場でチェックも付けられる。 */
-var SUGA_SINCE='2026-10-15', _sugaQ='', _sugaSearchT=null, _sugaOpen=null, _sugaCases={};   // ver.20261026.20: 案件名まで開けるようにした
+var SUGA_SINCE='2026-10-15', _sugaQ='', _sugaSearchT=null, _sugaOpen=null, _sugaCases={}, _sugaPrices={};
+var SUGA_TYPES=['更新','認定','変更'];   // ver.20261026.22: 1件あたり単価（eigyo_leads.suga_prices）   // ver.20261026.20: 案件名まで開けるようにした
 var SUGA_KYOKA=['完了','★窓口受取','窓口受取（本人）','★郵送交付','郵送交付中','許可済 受取方法調整中'];
 var SUGA_SHINSEI=['審査中','特活審査中','申請済(番号待)','★要追完','要追完 企業不足書類待ち','要追完 人材不足書類待ち','他社申請中'];
 function openSugaKakutoku(){ switchMain('suga'); loadSugaKakutoku(); }
@@ -712,7 +713,7 @@ function loadSugaKakutoku(){
       +'<div id="sugaHits"></div></div>'
       +'<div class="tablewrap" id="sugaList"><div class="loading">読み込み中...</div></div>';
   } else el('sugaList').innerHTML='<div class="loading">読み込み中...</div>';
-  _sb.from('eigyo_leads').select('reg_no,name,status,staff,support_org_id').eq('suga_kakutoku',true).order('name').then(function(r){
+  _sb.from('eigyo_leads').select('reg_no,name,status,staff,support_org_id,suga_prices').eq('suga_kakutoku',true).order('name').then(function(r){
     if(r.error){ el('sugaList').innerHTML='<div class="empty">読み込みエラー：'+esc(r.error.message)+'</div>'; return; }
     var leads=r.data||[];
     if(!leads.length){ el('sugaList').innerHTML='<div class="empty">まだチェックが付いた会社はありません。上の検索から会社を探してチェックを付けてください。</div>'; return; }
@@ -729,22 +730,23 @@ function loadSugaKakutoku(){
       return _sb.from('cases').select('id,name,org,status,app_type,residence_status,request_date,created_at,shinsa_date').in('org', all).then(function(c){
         if(c.error) throw c.error;
         var cases=(c.data||[]).filter(function(x){ return sugaDay(x)>=SUGA_SINCE; });
-        var h='<table><thead><tr><th>会社名</th><th>営業ステータス</th><th>担当</th><th style="text-align:right;">依頼数</th><th style="text-align:right;">準備中</th><th style="text-align:right;">申請中</th><th style="text-align:right;">許可</th><th>最終登録日</th><th></th></tr></thead><tbody>';
-        var tot={i:0,j:0,s:0,k:0}; _sugaCases={};
+        var h='<table><thead><tr><th>会社名</th><th>営業ステータス</th><th>担当</th><th>1件あたり単価</th><th style="text-align:right;">依頼数</th><th style="text-align:right;">準備中</th><th style="text-align:right;">申請中</th><th style="text-align:right;">許可</th><th style="text-align:right;">依頼金額</th><th>最終登録日</th><th></th></tr></thead><tbody>';
+        var tot={i:0,j:0,s:0,k:0,a:0}; _sugaCases={}; _sugaPrices={};
         leads.forEach(function(l){
           var cs=cases.filter(function(x){ return names[l.reg_no].indexOf(String(x.org||'').trim())>=0; });
           var k=cs.filter(function(x){return SUGA_KYOKA.indexOf(x.status)>=0;}).length, sh=cs.filter(function(x){return SUGA_SHINSEI.indexOf(x.status)>=0;}).length, j=cs.length-k-sh;
           var last=cs.map(sugaDay).sort().pop()||'';
-          _sugaCases[l.reg_no]=cs; var op=_sugaOpen===l.reg_no;
+          _sugaCases[l.reg_no]=cs; var op=_sugaOpen===l.reg_no; var pr=l.suga_prices||{}; _sugaPrices[l.reg_no]=pr;
+          var amt=0, noP=0; cs.forEach(function(x){ var v=pr[x.app_type]; if(v==null||v==='') noP++; else amt+=Number(v)||0; }); tot.a+=amt;
           tot.i+=cs.length; tot.j+=j; tot.s+=sh; tot.k+=k;
           h+='<tr style="cursor:pointer;'+(op?'background:#ebf8ff;':'')+'" onclick="sugaToggle(\''+esc(l.reg_no)+'\',event)" title="クリックで案件の一覧を開く"><td><span style="display:inline-block;width:14px;color:var(--muted);">'+(op?'▾':'▸')+'</span><a href="javascript:void(0)" onclick="event.stopPropagation();openDrawer(\''+esc(l.reg_no)+'\')" style="color:var(--accent);font-weight:600;">'+esc(l.name)+'</a><div class="sub" style="font-size:11px;margin-left:14px;">'+esc(l.reg_no)+'</div></td>'
-            +'<td>'+esc(l.status||'')+'</td><td>'+esc(l.staff||'')+'</td>'
-            +'<td style="text-align:right;font-weight:700;">'+cs.length+'</td><td style="text-align:right;">'+j+'</td><td style="text-align:right;">'+sh+'</td><td style="text-align:right;color:#2f855a;font-weight:700;">'+k+'</td>'
+            +'<td>'+esc(l.status||'')+'</td><td>'+esc(l.staff||'')+'</td><td style="white-space:nowrap;">'+esc(sugaPriceText(pr))+'</td>'
+            +'<td style="text-align:right;font-weight:700;">'+cs.length+'</td><td style="text-align:right;">'+j+'</td><td style="text-align:right;">'+sh+'</td><td style="text-align:right;color:#2f855a;font-weight:700;">'+k+'</td><td style="text-align:right;white-space:nowrap;">'+amt.toLocaleString()+'円'+(noP?'<div style="font-size:11px;color:#c05621;">単価未設定 '+noP+'件</div>':'')+'</td>'
             +'<td style="white-space:nowrap;">'+esc(last.replace(/-/g,'/'))+'</td>'
             +'<td style="white-space:nowrap;"><button class="btn btn-sm" onclick="event.stopPropagation();sugaSet(\''+esc(l.reg_no)+'\',false,\''+esc(String(l.name||'').replace(/'/g,''))+'\')">チェックを外す</button></td></tr>';
-          if(op) h+='<tr><td colspan="9" style="background:#f7fafc;padding:8px 10px 12px 24px;">'+sugaCasesHtml(cs)+'</td></tr>';
+          if(op) h+='<tr><td colspan="11" style="background:#f7fafc;padding:8px 10px 12px 24px;">'+sugaPriceForm(l.reg_no,pr)+sugaCasesHtml(cs,pr)+'</td></tr>';
         });
-        h+='<tr style="background:#f7fafc;font-weight:700;"><td colspan="3">合計（'+leads.length+'社）</td><td style="text-align:right;">'+tot.i+'</td><td style="text-align:right;">'+tot.j+'</td><td style="text-align:right;">'+tot.s+'</td><td style="text-align:right;color:#2f855a;">'+tot.k+'</td><td colspan="2"></td></tr>';
+        h+='<tr style="background:#f7fafc;font-weight:700;"><td colspan="4">合計（'+leads.length+'社）</td><td style="text-align:right;">'+tot.i+'</td><td style="text-align:right;">'+tot.j+'</td><td style="text-align:right;">'+tot.s+'</td><td style="text-align:right;color:#2f855a;">'+tot.k+'</td><td style="text-align:right;white-space:nowrap;">'+tot.a.toLocaleString()+'円</td><td colspan="2"></td></tr>';
         el('sugaList').innerHTML=h+'</tbody></table>';
       });
     }).catch(function(e){ el('sugaList').innerHTML='<div class="empty">読み込みエラー：'+esc(e.message||e)+'</div>'; });
@@ -753,16 +755,29 @@ function loadSugaKakutoku(){
 // ver.20261026.21: 10/15以降かどうかは案シスへの登録日（created_at・日本時間）で判定する
 function sugaDay(c){ if(!c||!c.created_at) return ''; var t=new Date(c.created_at); if(isNaN(t)) return String(c.created_at).slice(0,10); return new Date(t.getTime()+9*3600000).toISOString().slice(0,10); }
 function sugaStage(st){ return SUGA_KYOKA.indexOf(st)>=0?'許可':(SUGA_SHINSEI.indexOf(st)>=0?'申請中':'準備中'); }
-function sugaCasesHtml(cs){
+function sugaPriceText(p){ var t=SUGA_TYPES.filter(function(k){ return p&&p[k]!=null&&p[k]!==''; }).map(function(k){ return k+' '+(Number(p[k])/10000).toLocaleString()+'万'; }); return t.length?t.join('・'):'未設定'; }
+function sugaPriceForm(regNo,p){
+  return '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:12px;" onclick="event.stopPropagation()"><b>1件あたり単価</b>'
+    + SUGA_TYPES.map(function(k){ return '<label style="display:inline-flex;align-items:center;gap:4px;">'+k+'<input type="number" min="0" step="1000" id="sugaP_'+k+'" value="'+(p&&p[k]!=null?esc(p[k]):'')+'" style="width:90px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;">円</label>'; }).join('')
+    + '<button class="btn btn-sm" onclick="sugaSavePrice(\''+esc(regNo)+'\')">単価を保存</button><span class="sub">スガシスにも同じ単価が表示されます</span></div>';
+}
+function sugaSavePrice(regNo){
+  var p={}; SUGA_TYPES.forEach(function(k){ var v=String((el('sugaP_'+k)||{}).value||'').replace(/[,，\s]/g,''); if(v!=='') p[k]=Math.max(0,parseInt(v,10)||0); });
+  _sb.from('eigyo_leads').update({suga_prices:p}).eq('reg_no',regNo).then(function(r){
+    if(r.error){ autosaveToast('保存失敗：'+r.error.message,'#c53030'); return; }
+    autosaveToast('💴 単価を保存しました'); loadSugaKakutoku();
+  });
+}
+function sugaCasesHtml(cs,pr){
   if(!cs.length) return '<div class="sub" style="font-size:12px;">2026/10/15以降に登録された案件はまだありません。</div>';
   var rows=cs.slice().sort(function(a,b){ var x=sugaDay(a), y=sugaDay(b); return x<y?1:x>y?-1:0; });
   var col={'許可':['#f0fff4','#2f855a'],'申請中':['#fffaf0','#c05621'],'準備中':['#edf2f7','#4a5568']};
-  return '<table style="font-size:12px;background:#fff;"><thead><tr><th>登録日</th><th>案件名</th><th>申請種別</th><th>在留資格</th><th>ステータス</th><th>区分</th><th>許可日</th></tr></thead><tbody>'
+  return '<table style="font-size:12px;background:#fff;"><thead><tr><th>登録日</th><th>案件名</th><th>申請種別</th><th>在留資格</th><th>単価</th><th>ステータス</th><th>区分</th><th>許可日</th></tr></thead><tbody>'
     + rows.map(function(c){ var g=sugaStage(c.status), t=col[g];
         var kd = g==='許可' ? (c.shinsa_date||'') : '';
         return '<tr><td style="white-space:nowrap;">'+esc(sugaDay(c).replace(/-/g,'/'))+'</td>'
           +'<td style="font-weight:600;">'+esc(c.name||'（案件名なし）')+'</td>'
-          +'<td>'+esc(c.app_type||'')+'</td><td>'+esc(c.residence_status||'')+'</td><td>'+esc(c.status||'')+'</td>'
+          +'<td>'+esc(c.app_type||'')+'</td><td>'+esc(c.residence_status||'')+'</td><td style="white-space:nowrap;">'+(pr&&pr[c.app_type]!=null&&pr[c.app_type]!==''?Number(pr[c.app_type]).toLocaleString()+'円':'<span style="color:#c05621;">未設定</span>')+'</td><td>'+esc(c.status||'')+'</td>'
           +'<td><span style="display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700;background:'+t[0]+';color:'+t[1]+';">'+g+'</span></td>'
           +'<td style="white-space:nowrap;">'+esc(String(kd).replace(/-/g,'/'))+'</td></tr>'; }).join('')
     + '</tbody></table>';
