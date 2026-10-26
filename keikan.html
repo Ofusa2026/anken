@@ -49,13 +49,13 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto
       <a href="./index.html">📋 案シス（案件管理）</a>
       <a href="./eigyo.html">🤝 営シス（営業管理）</a>
     </nav>
-    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261026.02</span></div>
+    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261026.03</span></div>
   </aside>
   <main class="kk-main" id="kkMain"><div style="padding:60px;text-align:center;color:#94a3b8;">読み込み中…</div></main>
 </div>
 <div id="toast"></div>
 <script>
-var OFUSA_VERSION='ver.20261026.02';
+var OFUSA_VERSION='ver.20261026.03';
 var SUPABASE_URL='https://ehwlgbwpycglmopiqyty.supabase.co', SUPABASE_KEY='sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}, global:{headers:{'x-ofusa-user':encodeURIComponent((function(){ try{ return localStorage.getItem('ofusa_currentUser')||''; }catch(e){ return ''; } })())}}});
 var DB_READY=true;
@@ -1116,24 +1116,52 @@ function _kkOrgInner(){
     +'<button onclick="_kkOrgLoad(true)" style="font:inherit;font-size:12px;padding:4px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;">↻</button></div>';
   // 代表を上に
   var rep=[]; deps[0].members.forEach(function(m){ if(/代表/.test(_kkOrgTitle(m))) rep.push(m); });
-  var person=function(m, d, idx){
-    var t=_kkOrgTitle(m), lead=/代表|部長|マネージャー|リーダー/.test(t);
-    return '<div onclick="_kkOrgEdit(\''+d.key+'\','+idx+')" title="クリックで編集" style="cursor:pointer;display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:6px;font-size:12px;'+(lead?'background:#fffbeb;':'')+'" onmouseover="this.style.background=\'#eff6ff\'" onmouseout="this.style.background=\''+(lead?'#fffbeb':'transparent')+'\'">'
-      +'<span style="flex:1;min-width:0;font-weight:'+(lead?800:600)+';color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(m.name||'（名前なし）')+(m.gyosei?' <span title="行政書士" style="font-size:11px;">⚖️</span>':'')+'</span>'
-      +(t?'<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:5px;background:'+(lead?'#fde68a':'#e2e8f0')+';color:'+(lead?'#92400e':'#475569')+';white-space:nowrap;">'+esc(t)+'</span>':'')
-      +'<span style="font-size:10px;">'+(_kkOrgArea(m,d.name)==='カンボジア'?'🇰🇭':'')+'</span></div>';
-  };
-  if(rep.length) h+='<div style="display:flex;justify-content:center;margin-bottom:12px;"><div style="background:#eef4fd;border:1px solid #c7d7f0;border-radius:10px;padding:8px 18px;text-align:center;"><div style="font-size:11px;color:#64748b;">代表</div>'+rep.map(function(m){ return '<div style="font-size:14px;font-weight:900;color:#0f172a;">'+esc(m.name)+(m.gyosei?' ⚖️':'')+'</div>'; }).join('')+'<div style="font-size:11px;color:#64748b;">大房行政書士法人</div></div></div>';
-  h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;">';
+  // ver.20261026.03: よくあるツリー型の組織図（代表 → 部署 → 役職者 → メンバー）に作り直し
+  var LEAD=/代表|部長|マネージャー|リーダー|経理/;
+  var ord=function(t){ var O=['代表','経理','部長','マネージャー','リーダー','社員','パート','その他'], i=O.indexOf(t); return i<0?9:i; };
+  var mark=function(m, d){ return (m.gyosei?' <span title="行政書士">⚖️</span>':'')+(_kkOrgArea(m,d.name)==='カンボジア'&&!/カンボジア/.test(d.name)?' <span title="カンボジア">🇰🇭</span>':''); };
+  var clk=function(d, idx){ return ' onclick="_kkOrgEdit(\''+d.key+'\','+idx+')" title="クリックで編集"'; };
+  h+='<style>'
+    +'.kko-wrap{overflow-x:auto;padding:4px 0 8px;}'
+    +'.kko{width:max-content;min-width:100%;display:flex;flex-direction:column;align-items:center;}'
+    +'.kko-box{background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:8px 16px;text-align:center;}'
+    +'.kko-v{width:1px;height:20px;background:#94a3b8;}'
+    +'.kko-row{display:flex;align-items:flex-start;}'
+    +'.kko-col{position:relative;padding:20px 8px 0;width:176px;}'
+    +'.kko-col:before{content:"";position:absolute;top:0;left:50%;width:1px;height:20px;background:#94a3b8;}'
+    +'.kko-col:after{content:"";position:absolute;top:0;left:0;right:0;height:1px;background:#94a3b8;}'
+    +'.kko-col:first-child:after{left:50%;}.kko-col:last-child:after{right:50%;}.kko-col:only-child:after{display:none;}'
+    +'.kko-dept{background:#fff;border:1px solid #cbd5e1;border-top-width:4px;border-radius:8px;padding:7px 8px;text-align:center;font-size:13px;font-weight:800;color:#0f172a;position:relative;}'
+    +'.kko-dept small{display:block;font-size:10px;font-weight:600;color:#64748b;}'
+    +'.kko-add{position:absolute;top:4px;right:4px;font:inherit;font-size:11px;line-height:1;padding:2px 6px;border:1px solid #e2e8f0;border-radius:5px;background:#fff;color:#64748b;cursor:pointer;}'
+    +'.kko-lead{margin:8px 0 0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;padding:5px 8px;text-align:center;cursor:pointer;}'
+    +'.kko-lead:hover,.kko-mem:hover{background:#eff6ff;}'
+    +'.kko-lead small{display:block;font-size:10px;color:#64748b;}.kko-lead b{font-size:12.5px;color:#0f172a;}'
+    +'.kko-list{margin:8px 0 0 12px;border-left:1px solid #cbd5e1;}'
+    +'.kko-mem{position:relative;display:flex;align-items:center;gap:4px;padding:3px 6px 3px 12px;font-size:12px;color:#1e293b;cursor:pointer;border-radius:4px;white-space:nowrap;}'
+    +'.kko-mem:before{content:"";position:absolute;left:0;top:50%;width:8px;height:1px;background:#cbd5e1;}'
+    +'.kko-mem span.nm{overflow:hidden;text-overflow:ellipsis;}'
+    +'.kko-tag{margin-left:auto;font-size:9.5px;color:#64748b;border:1px solid #e2e8f0;border-radius:4px;padding:0 4px;}'
+    +'</style>';
+  h+='<div class="kko-wrap"><div class="kko">';
+  h+='<div class="kko-box" style="border-top:4px solid #1F4E79;min-width:180px;"><div style="font-size:10px;color:#64748b;">大房行政書士法人</div>'
+    +(rep.length?rep.map(function(m){ return '<div style="font-size:15px;font-weight:900;color:#0f172a;">'+esc(m.name)+(m.gyosei?' ⚖️':'')+'</div>'; }).join(''):'<div style="font-size:14px;font-weight:800;">代表</div>')
+    +'<div style="font-size:10px;color:#64748b;">代表</div></div>';
+  var cols=[];
   deps.forEach(function(d){
-    var list=[]; d.members.forEach(function(m,i){ if(d.key==='common' && /代表/.test(_kkOrgTitle(m))) return; if(A!=='all' && _kkOrgArea(m,d.name)!==A) return; list.push({m:m,i:i}); });
+    var list=[]; d.members.forEach(function(m,i){ if(!m || !m.name) return; if(d.key==='common' && /代表/.test(_kkOrgTitle(m))) return; if(A!=='all' && _kkOrgArea(m,d.name)!==A) return; list.push({m:m,i:i}); });
     if(!list.length && A!=='all') return;
-    var ord=function(t){ return ['代表','経理','部長','マネージャー','リーダー','社員','パート','その他'].indexOf(t)<0?9:['代表','経理','部長','マネージャー','リーダー','社員','パート','その他'].indexOf(t); };
     list.sort(function(a,b){ return ord(_kkOrgTitle(a.m))-ord(_kkOrgTitle(b.m)); });
-    h+='<div style="border:2px solid '+d.color+'33;border-radius:12px;overflow:hidden;background:#fff;"><div style="background:'+d.color+';color:#fff;padding:7px 12px;display:flex;align-items:center;"><b style="font-size:13px;">'+esc(d.name)+'</b><span style="margin-left:6px;font-size:11px;opacity:.8;">'+list.length+'名</span><span style="flex:1;"></span><button onclick="_kkOrgEdit(\'new\',null,\''+d.key+'\')" title="この部署に追加" style="font:inherit;font-size:11px;padding:1px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.5);background:rgba(255,255,255,.15);color:#fff;cursor:pointer;">＋</button></div>'
-      +'<div style="padding:6px;">'+(list.length?list.map(function(x){ return person(x.m,d,x.i); }).join(''):'<div style="font-size:11px;color:#94a3b8;padding:4px;">まだいません</div>')+'</div></div>';
+    var leads=list.filter(function(x){ return LEAD.test(_kkOrgTitle(x.m)); }), mems=list.filter(function(x){ return !LEAD.test(_kkOrgTitle(x.m)); });
+    var c='<div class="kko-col"><div class="kko-dept" style="border-top-color:'+d.color+';">'+esc(d.name)+'<small>'+list.length+'名</small>'
+      +'<button class="kko-add" onclick="_kkOrgEdit(\'new\',null,\''+d.key+'\')" title="この部署に追加">＋</button></div>';
+    leads.forEach(function(x){ c+='<div class="kko-lead"'+clk(d,x.i)+'><small>'+esc(_kkOrgTitle(x.m))+'</small><b>'+esc(x.m.name)+'</b>'+mark(x.m,d)+'</div>'; });
+    if(mems.length) c+='<div class="kko-list">'+mems.map(function(x){ var t=_kkOrgTitle(x.m); return '<div class="kko-mem"'+clk(d,x.i)+'><span class="nm">'+esc(x.m.name)+'</span>'+mark(x.m,d)+((t&&t!=='社員')?'<span class="kko-tag">'+esc(t)+'</span>':'')+'</div>'; }).join('')+'</div>';
+    else if(!leads.length) c+='<div style="font-size:11px;color:#94a3b8;text-align:center;padding:6px;">まだいません</div>';
+    cols.push(c+'</div>');
   });
-  h+='</div>';
+  if(cols.length) h+='<div class="kko-v"></div><div class="kko-row">'+cols.join('')+'</div>';
+  h+='</div></div>';
   h+='<div class="skp-note" style="margin-top:8px;">名前を押すと、部署・役職・エリア・行政書士の資格を変えられます。ここで直した内容は、案シスの「⚙️ 設定 → 👥 チーム管理」と同じデータです（案シスのログイン名にもなります）。</div>';
   if(_kkOrg.edit) h+=_kkOrgForm();
   return h+'</div>';
