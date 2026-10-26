@@ -5988,7 +5988,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261026.01';
+var OFUSA_VERSION = 'ver.20261026.02';
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
 var _STAY_PERIOD_OPTS = (function(){
@@ -8930,6 +8930,7 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20261026.02', date:'2026-10-26', notify:false, part:false, items:['🎯 登録支援機関の画面に<b>「菅沼案件」</b>のチェックを追加しました。チェックを入れた登録支援機関は、スガシスの<b>「獲得案件管理」</b>で依頼数・許可実績が集計されます。'] },
   { version:'ver.20261026.01', date:'2026-10-26', notify:false, part:false, items:['🖨 管理部レポートに<b>「作業時間」タブ</b>を追加しました（管理部のみ）。Saysayで書類を作るのにかかった時間（書類別・担当者別）、読み込んだのに印刷していない回数、案シスのタスクの「着手→Saysay読込→印刷→確認」の時間を見られます'] },
   { version:'ver.20261025.05', date:'2026-10-25', notify:true, part:false, items:['⚙️ サイドバーに<b>「⚙️ 設定」</b>を追加しました。<b>提出期限・アラート設定・必要書類チェックリスト・判定テンプレート・AI判定テンプレート・AI関連・進捗URLカスタマイズ・チーム管理</b>は、ここから開きます（中身や使い方は今までと同じです）','📁 「テンプレート」は<b>書類テンプレ・テンプレテキスト・書類フォーム</b>の3つだけになりました','🚨 「書類AI判定 差戻し」は今までどおりサイドバーから開けます'] },
   { version:'ver.20261025.04', date:'2026-10-25', notify:false, part:true, items:['📊 見込み・実績・売上・Result &amp; Plan・ロードマップを、新しい<b>経管（経営企画）</b>ページ（keikan.html・管理部のみ）にまとめました。登録支援機関担当者は「👤 人数」「📁 案件数」だけに戻し、管理部レポートのロードマップのタブも外しました。サイドバーの「📊 経管（経営企画）」から開けます。'] },
@@ -75083,6 +75084,27 @@ function _soPickLineGroup(groupName){
   }
 }
 
+// ver.20261026.02: 菅沼案件のチェック（support_orgs.suga_kakutoku / suga_kakutoku_date だけを更新する）
+async function soSetSuga(orgId, on){
+  var o=(typeof supportOrgs!=='undefined'?supportOrgs:[]).find(function(x){ return x.id===orgId; });
+  if(!o) return;
+  var d=new Date(); var today=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  var date=on ? (o.sugaKakutokuDate||today) : (o.sugaKakutokuDate||null);
+  var r=await _sb.from('support_orgs').update({suga_kakutoku:!!on, suga_kakutoku_date:date||null}).eq('id', orgId);
+  if(r.error){ alert('保存に失敗しました\n'+r.error.message); renderSupportDetail(o); return; }
+  o.sugaKakutoku=!!on; o.sugaKakutokuDate=date||'';
+  showToast(on?'🎯 菅沼案件にしました（獲得日 '+date+'）':'菅沼案件のチェックを外しました');
+  renderSupportDetail(o);
+}
+async function soSetSugaDate(orgId, date){
+  var o=(typeof supportOrgs!=='undefined'?supportOrgs:[]).find(function(x){ return x.id===orgId; });
+  if(!o) return;
+  var r=await _sb.from('support_orgs').update({suga_kakutoku_date:date||null}).eq('id', orgId);
+  if(r.error){ alert('保存に失敗しました\n'+r.error.message); renderSupportDetail(o); return; }
+  o.sugaKakutokuDate=date||'';
+  showToast('獲得日を'+(date||'未設定')+'にしました');
+}
+
 // ver.20260727.42: 部署プルダウンから直接変える（確認なしで即反映）
 async function soSetTeam(orgId, team){
   var o=(typeof supportOrgs!=='undefined'?supportOrgs:[]).find(function(x){ return x.id===orgId; });
@@ -75248,6 +75270,11 @@ function renderSupportDetail(o) {
   if(o.spreadsheetUrl) h+=' <a href="'+o.spreadsheetUrl+'" target="_blank" style="font-size:11px;background:#e6f4ea;color:#137333;padding:2px 7px;border-radius:5px;text-decoration:none;font-weight:700;" title="スプレッドシート">📊</a>';
   h+='</div>';
   if(o.nameEn) h+='<div style="font-size:12px;color:var(--gray-400);">'+o.nameEn+'</div>';
+  // ver.20261026.02: 菅沼案件（菅沼顧問が獲得した登録支援機関）。スガシスの「獲得案件管理」で集計される
+  h+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;">';
+  h+='<label style="display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:800;color:#c2410c;cursor:pointer;"><input type="checkbox"'+(o.sugaKakutoku?' checked':'')+' onchange="soSetSuga(\''+o.id+'\',this.checked)" style="cursor:pointer;">🎯 菅沼案件</label>';
+  if(o.sugaKakutoku) h+='<span style="font-size:11px;color:var(--gray-400);font-weight:700;">獲得日</span><input type="date" value="'+esc(o.sugaKakutokuDate||'')+'" onchange="soSetSugaDate(\''+o.id+'\',this.value)" title="この日以降に依頼された案件を集計します" style="font-size:12px;padding:2px 6px;border:1px solid var(--gray-200);border-radius:6px;">';
+  h+='</div>';
   h+='</div>';
   h+='<div style="display:flex;gap:6px;">';
   h+='<label ondragover="event.preventDefault();this.style.background=\'#dbeafe\';this.style.borderColor=\'var(--blue)\'" ondragleave="this.style.background=\'#f0fdf4\';this.style.borderColor=\'var(--green)\'" style="font-size:12px;padding:5px 12px;background:#f0fdf4;color:var(--green);border:1.5px dashed var(--green);border-radius:8px;cursor:pointer;font-weight:700;display:inline-flex;align-items:center;gap:3px;transition:.15s;">📥 Excel<input type="file" accept=".xlsx,.xls" data-action="excel-import" data-id="'+o.id+'" style="display:none;"></label>';
@@ -136167,6 +136194,7 @@ function loadAllFromSupabase() {
           address:r.address||'', addressEn:r.address_en||'', tel:r.tel||'', repName:r.rep_name||'', repNameKana:r.rep_name_kana||'',
           repNameEn:r.rep_name_en||'', languages:r.languages||'',
           ofusaTeam:r.ofusa_team||'',
+          sugaKakutoku:!!r.suga_kakutoku, sugaKakutokuDate:r.suga_kakutoku_date||'',   // ver.20261026.02: 菅沼案件（獲得案件管理）
           displayName:r.display_name||'',
           supportManager:r.support_manager||'',
           supportManagerKana:r.support_manager_kana||'', supportManagerTitle:r.support_manager_title||'',
