@@ -49,13 +49,13 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto
       <a href="./index.html">📋 案シス（案件管理）</a>
       <a href="./eigyo.html">🤝 営シス（営業管理）</a>
     </nav>
-    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261026.01</span></div>
+    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261026.02</span></div>
   </aside>
   <main class="kk-main" id="kkMain"><div style="padding:60px;text-align:center;color:#94a3b8;">読み込み中…</div></main>
 </div>
 <div id="toast"></div>
 <script>
-var OFUSA_VERSION='ver.20261026.01';
+var OFUSA_VERSION='ver.20261026.02';
 var SUPABASE_URL='https://ehwlgbwpycglmopiqyty.supabase.co', SUPABASE_KEY='sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}, global:{headers:{'x-ofusa-user':encodeURIComponent((function(){ try{ return localStorage.getItem('ofusa_currentUser')||''; }catch(e){ return ''; } })())}}});
 var DB_READY=true;
@@ -934,9 +934,11 @@ function _skRmPageHtml(R){
   h+='<div class="skrp-sec">採用計画（申請担当）<span>'+(p.auto?'必要人数で自動：需要÷1人あたり件数。月ごとに何名増えるか':'手で入れた採用')+'</span></div>';
   var steps=[], prev=p.members.length; C.rows.forEach(function(r){ if(r.staff>prev){ steps.push({ym:r.ym, n:r.staff-prev, tot:r.staff}); } prev=r.staff; });
   h+='<div class="skp-auto" style="display:block;">'+(steps.length?'<div style="display:flex;flex-wrap:wrap;gap:6px;">'+steps.map(function(s){ return '<span class="skrp-chip" style="padding-right:10px;">'+s.ym.slice(0,4)+'年'+(+s.ym.slice(5))+'月 <b style="color:#b45309;">＋'+s.n+'名</b><span style="color:#94a3b8;font-weight:600;">→ '+s.tot+'名</span></span>'; }).join('')+'</div>':'<span style="color:#94a3b8;">増員なし</span>')+'<div class="skp-note" style="margin:6px 0 0;">採用は入社月の前に。育成期間がある場合は、その分早めに採用します。</div></div>';
+  // ver.20261026.02: 現在の組織図（案シスのチーム管理と同じデータ）
+  h+='<div class="skrp-sec">🏢 現在の組織図<span>案シスに登録されている全員（日本・カンボジア）。⚖️＝行政書士</span></div>'+_kkOrgHtml();
   // 組織図
   var oy=_skRp.orgYear&&C.years[_skRp.orgYear]?_skRp.orgYear:GY;
-  h+='<div class="skrp-sec">組織図<span><select onchange="_skRp.orgYear=this.value;_skRpRefresh()" style="font:inherit;font-size:12px;border:1px solid #e2e8f0;border-radius:8px;padding:2px 6px;">'+Ys.map(function(y){ return '<option'+(y===oy?' selected':'')+'>'+y+'</option>'; }).join('')+'</select> 年末</span></div>'+_skRmOrgChart(C,p,oy);
+  h+='<div class="skrp-sec">計画の組織図（申請部）<span><select onchange="_skRp.orgYear=this.value;_skRpRefresh()" style="font:inherit;font-size:12px;border:1px solid #e2e8f0;border-radius:8px;padding:2px 6px;">'+Ys.map(function(y){ return '<option'+(y===oy?' selected':'')+'>'+y+'</option>'; }).join('')+'</select> 年末</span></div>'+_skRmOrgChart(C,p,oy);
   // ① 人員
   var others=_shienAllStaffNames().filter(function(n){ return p.members.indexOf(n)<0; });
   h+='<div class="skrp-sec">① 人員（申請担当）<span>今のメンバーと、人数の決め方</span></div><div class="skp-auto" style="display:block;">'
@@ -1072,6 +1074,118 @@ function _renderShienPerf(box, toolbar){
   h+='</div>';
   box.innerHTML=h;
 }
+// ===== ver.20261026.02: 🏢 現在の組織図（案シスのチーム管理＝settings.team_data をそのまま使う） =====
+//   部署＝チーム（経営企画＝common）、名前、役職（title が無ければ role）、エリア（日本／カンボジア。未設定はカンボジアのチームならカンボジア）、⚖️＝行政書士
+//   ここで直した内容は案シスの「⚙️ 設定 → 👥 チーム管理」と同じデータに保存される
+var _kkOrg={data:null, loading:false, err:'', edit:null, area:'all'};
+function _kkOrgLoad(force){
+  if(_kkOrg.loading || (_kkOrg.data && !force)) return; _kkOrg.loading=true; _kkOrg.err='';
+  _sb.from('settings').select('value').eq('key','team_data').maybeSingle().then(function(r){
+    if(r.error) throw r.error;
+    var v=r.data&&r.data.value; _kkOrg.data=(typeof v==='string')?JSON.parse(v):(v||{teams:[],common:[]});
+    if(!_kkOrg.data.common) _kkOrg.data.common=[]; if(!_kkOrg.data.teams) _kkOrg.data.teams=[];
+  }).catch(function(e){ _kkOrg.err=String(e&&e.message||e); }).then(function(){ _kkOrg.loading=false; _kkOrgPaint(); });
+}
+function _kkOrgArea(m, dept){ return m.area || (/カンボジア/.test(dept||'')?'カンボジア':'日本'); }
+function _kkOrgTitle(m){ return m.title || m.role || ''; }
+function _kkOrgDepts(){ var D=_kkOrg.data; return [{key:'common', name:'経営企画', color:'#475569', members:D.common}].concat(D.teams.map(function(t,i){ return {key:String(i), name:t.name, color:t.color||'#2563eb', members:t.members||[]}; })); }
+function _kkOrgSave(msg){
+  var D=_kkOrg.data;
+  return _sb.from('settings').upsert({key:'team_data', value:JSON.stringify(D)},{onConflict:'key'}).then(function(r){
+    if(r.error){ alert('保存できませんでした：'+r.error.message); return; }
+    try{ localStorage.removeItem('ofusa_teamData'); }catch(e){}
+    if(msg && typeof showToast==='function') showToast(msg);
+  });
+}
+function _kkOrgHtml(){
+  var esc=_skEsc;
+  if(!_kkOrg.data){ setTimeout(function(){ _kkOrgLoad(); },0); return '<div id="kkOrgNow" style="padding:16px;color:#94a3b8;font-size:12px;">'+(_kkOrg.err?'⚠️ 読み込めませんでした：'+esc(_kkOrg.err):'組織図を読み込み中…')+'</div>'; }
+  return '<div id="kkOrgNow">'+_kkOrgInner()+'</div>';
+}
+function _kkOrgPaint(){ var el=document.getElementById('kkOrgNow'); if(el) el.innerHTML=_kkOrgInner(); }
+var KK_TITLES=['代表','経理','部長','マネージャー','リーダー','社員','パート','その他'];
+function _kkOrgInner(){
+  var esc=_skEsc, js=function(s){ return esc(s).replace(/'/g,"\\'"); }, deps=_kkOrgDepts(), A=_kkOrg.area;
+  var cnt={all:0,'日本':0,'カンボジア':0}, gy=0;
+  deps.forEach(function(d){ d.members.forEach(function(m){ if(!m.name) return; cnt.all++; cnt[_kkOrgArea(m,d.name)]++; if(m.gyosei) gy++; }); });
+  var tab=function(k,l){ return '<button onclick="_kkOrg.area=\''+k+'\';_kkOrgPaint()" style="font:inherit;font-size:12px;padding:3px 12px;border-radius:999px;border:1px solid '+(A===k?'#1F4E79':'#e2e8f0')+';background:'+(A===k?'#1F4E79':'#fff')+';color:'+(A===k?'#fff':'#334155')+';cursor:pointer;">'+l+'</button>'; };
+  var h='<div style="background:#fff;border:1px solid #e5e9f0;border-radius:12px;padding:14px;">';
+  h+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;">'+tab('all','すべて（'+cnt.all+'名）')+tab('日本','🇯🇵 日本（'+cnt['日本']+'名）')+tab('カンボジア','🇰🇭 カンボジア（'+cnt['カンボジア']+'名）')
+    +'<span style="font-size:12px;color:#475569;">⚖️ 行政書士 '+gy+'名</span><span style="flex:1;"></span>'
+    +'<button onclick="_kkOrgEdit(\'new\')" style="font:inherit;font-size:12px;padding:4px 12px;border:none;border-radius:8px;background:#1F4E79;color:#fff;cursor:pointer;font-weight:700;">＋ 人を追加</button>'
+    +'<button onclick="_kkOrgLoad(true)" style="font:inherit;font-size:12px;padding:4px 10px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;">↻</button></div>';
+  // 代表を上に
+  var rep=[]; deps[0].members.forEach(function(m){ if(/代表/.test(_kkOrgTitle(m))) rep.push(m); });
+  var person=function(m, d, idx){
+    var t=_kkOrgTitle(m), lead=/代表|部長|マネージャー|リーダー/.test(t);
+    return '<div onclick="_kkOrgEdit(\''+d.key+'\','+idx+')" title="クリックで編集" style="cursor:pointer;display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:6px;font-size:12px;'+(lead?'background:#fffbeb;':'')+'" onmouseover="this.style.background=\'#eff6ff\'" onmouseout="this.style.background=\''+(lead?'#fffbeb':'transparent')+'\'">'
+      +'<span style="flex:1;min-width:0;font-weight:'+(lead?800:600)+';color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+esc(m.name||'（名前なし）')+(m.gyosei?' <span title="行政書士" style="font-size:11px;">⚖️</span>':'')+'</span>'
+      +(t?'<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:5px;background:'+(lead?'#fde68a':'#e2e8f0')+';color:'+(lead?'#92400e':'#475569')+';white-space:nowrap;">'+esc(t)+'</span>':'')
+      +'<span style="font-size:10px;">'+(_kkOrgArea(m,d.name)==='カンボジア'?'🇰🇭':'')+'</span></div>';
+  };
+  if(rep.length) h+='<div style="display:flex;justify-content:center;margin-bottom:12px;"><div style="background:#eef4fd;border:1px solid #c7d7f0;border-radius:10px;padding:8px 18px;text-align:center;"><div style="font-size:11px;color:#64748b;">代表</div>'+rep.map(function(m){ return '<div style="font-size:14px;font-weight:900;color:#0f172a;">'+esc(m.name)+(m.gyosei?' ⚖️':'')+'</div>'; }).join('')+'<div style="font-size:11px;color:#64748b;">大房行政書士法人</div></div></div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;">';
+  deps.forEach(function(d){
+    var list=[]; d.members.forEach(function(m,i){ if(d.key==='common' && /代表/.test(_kkOrgTitle(m))) return; if(A!=='all' && _kkOrgArea(m,d.name)!==A) return; list.push({m:m,i:i}); });
+    if(!list.length && A!=='all') return;
+    var ord=function(t){ return ['代表','経理','部長','マネージャー','リーダー','社員','パート','その他'].indexOf(t)<0?9:['代表','経理','部長','マネージャー','リーダー','社員','パート','その他'].indexOf(t); };
+    list.sort(function(a,b){ return ord(_kkOrgTitle(a.m))-ord(_kkOrgTitle(b.m)); });
+    h+='<div style="border:2px solid '+d.color+'33;border-radius:12px;overflow:hidden;background:#fff;"><div style="background:'+d.color+';color:#fff;padding:7px 12px;display:flex;align-items:center;"><b style="font-size:13px;">'+esc(d.name)+'</b><span style="margin-left:6px;font-size:11px;opacity:.8;">'+list.length+'名</span><span style="flex:1;"></span><button onclick="_kkOrgEdit(\'new\',null,\''+d.key+'\')" title="この部署に追加" style="font:inherit;font-size:11px;padding:1px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.5);background:rgba(255,255,255,.15);color:#fff;cursor:pointer;">＋</button></div>'
+      +'<div style="padding:6px;">'+(list.length?list.map(function(x){ return person(x.m,d,x.i); }).join(''):'<div style="font-size:11px;color:#94a3b8;padding:4px;">まだいません</div>')+'</div></div>';
+  });
+  h+='</div>';
+  h+='<div class="skp-note" style="margin-top:8px;">名前を押すと、部署・役職・エリア・行政書士の資格を変えられます。ここで直した内容は、案シスの「⚙️ 設定 → 👥 チーム管理」と同じデータです（案シスのログイン名にもなります）。</div>';
+  if(_kkOrg.edit) h+=_kkOrgForm();
+  return h+'</div>';
+}
+function _kkOrgEdit(dk, idx, preDept){
+  if(dk==='new') _kkOrg.edit={isNew:true, dept:preDept||'0', name:'', title:'社員', area:'', gyosei:false};
+  else { var d=_kkOrgDepts().filter(function(x){ return x.key===dk; })[0], m=d&&d.members[idx]; if(!m) return; _kkOrg.edit={isNew:false, dk:dk, idx:idx, dept:dk, name:m.name||'', title:_kkOrgTitle(m), area:_kkOrgArea(m,d.name), gyosei:!!m.gyosei}; }
+  _kkOrgPaint();
+}
+function _kkOrgForm(){
+  var e=_kkOrg.edit, esc=_skEsc, deps=_kkOrgDepts();
+  var inp='font:inherit;font-size:13px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px;width:100%;box-sizing:border-box;';
+  return '<div onclick="if(event.target===this){_kkOrg.edit=null;_kkOrgPaint();}" style="position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;">'
+    +'<div style="background:#fff;border-radius:14px;width:100%;max-width:420px;padding:18px 20px;box-shadow:0 20px 50px rgba(0,0,0,.25);">'
+    +'<div style="font-size:15px;font-weight:900;color:#0f172a;margin-bottom:12px;">'+(e.isNew?'＋ 人を追加':'✏️ '+esc(e.name)+' を編集')+'</div>'
+    +'<div style="display:grid;grid-template-columns:80px 1fr;gap:10px 10px;align-items:center;font-size:12.5px;color:#334155;">'
+    +'<label>名前</label><input id="kkoName" value="'+esc(e.name)+'" placeholder="例：山田　太郎（姓と名の間は全角スペース）" style="'+inp+'">'
+    +'<label>部署</label><select id="kkoDept" style="'+inp+'">'+deps.map(function(d){ return '<option value="'+d.key+'"'+(String(e.dept)===d.key?' selected':'')+'>'+esc(d.name)+'</option>'; }).join('')+'</select>'
+    +'<label>役職</label><input id="kkoTitle" list="kkoTitles" value="'+esc(e.title)+'" style="'+inp+'"><datalist id="kkoTitles">'+KK_TITLES.map(function(t){ return '<option value="'+t+'">'; }).join('')+'</datalist>'
+    +'<label>エリア</label><select id="kkoArea" style="'+inp+'"><option value="日本"'+(e.area!=='カンボジア'?' selected':'')+'>🇯🇵 日本</option><option value="カンボジア"'+(e.area==='カンボジア'?' selected':'')+'>🇰🇭 カンボジア</option></select>'
+    +'<label>資格</label><label style="cursor:pointer;"><input type="checkbox" id="kkoGy"'+(e.gyosei?' checked':'')+'> ⚖️ 行政書士</label>'
+    +'</div><div style="display:flex;gap:8px;margin-top:16px;">'
+    +(e.isNew?'':'<button onclick="_kkOrgRemove()" style="font:inherit;font-size:12px;padding:7px 12px;border:1px solid #fecaca;background:#fff;color:#dc2626;border-radius:8px;cursor:pointer;">削除</button>')
+    +'<span style="flex:1;"></span><button onclick="_kkOrg.edit=null;_kkOrgPaint()" style="font:inherit;font-size:12px;padding:7px 14px;border:1px solid #e2e8f0;background:#fff;border-radius:8px;cursor:pointer;">やめる</button>'
+    +'<button onclick="_kkOrgSubmit()" style="font:inherit;font-size:12px;padding:7px 16px;border:none;background:#1F4E79;color:#fff;border-radius:8px;cursor:pointer;font-weight:800;">保存</button></div>'
+    +(e.isNew?'<div style="font-size:11px;color:#64748b;margin-top:10px;line-height:1.6;">追加した人は、案シスのログイン画面の名前にも出ます（最初のパスワードは案シスのチーム管理の決まりどおり）。</div>':'')
+    +'</div></div>';
+}
+function _kkArr(dk){ var D=_kkOrg.data; return dk==='common'?D.common:D.teams[+dk].members; }
+function _kkOrgSubmit(){
+  var e=_kkOrg.edit; if(!e) return;
+  var name=String(document.getElementById('kkoName').value||'').trim(); if(!name){ alert('名前を入れてください'); return; }
+  var dept=document.getElementById('kkoDept').value, title=String(document.getElementById('kkoTitle').value||'').trim(), area=document.getElementById('kkoArea').value, gy=document.getElementById('kkoGy').checked;
+  var norm=function(s){ return String(s||'').replace(/[\s　]/g,''); };
+  var dup=_kkOrgDepts().some(function(d){ return d.members.some(function(m,i){ return norm(m.name)===norm(name) && !( !e.isNew && d.key===e.dk && i===e.idx ); }); });
+  if(dup){ alert('「'+name+'」はすでにいます'); return; }
+  var ROLES=['代表','経理','マネージャー','リーダー','社員','パート','その他'];
+  var m;
+  if(e.isNew){ m={name:name}; }
+  else { m=_kkArr(e.dk)[e.idx]; if(dept!==e.dk){ _kkArr(e.dk).splice(e.idx,1); } }
+  m.name=name; m.title=title; m.area=area; m.gyosei=gy;
+  if(ROLES.indexOf(title)>=0) m.role=title; else if(!m.role) m.role=(dept==='common'?'':'社員');
+  if(e.isNew || dept!==e.dk) _kkArr(dept).push(m);
+  _kkOrg.edit=null; _kkOrgPaint();
+  _kkOrgSave('✅ 保存しました');
+}
+function _kkOrgRemove(){
+  var e=_kkOrg.edit; if(!e||e.isNew) return;
+  if(!confirm('「'+e.name+'」を組織から外しますか？\n（案シスのチーム管理からも外れ、ログインの名前の一覧からも消えます）')) return;
+  _kkArr(e.dk).splice(e.idx,1); _kkOrg.edit=null; _kkOrgPaint(); _kkOrgSave('🗑 外しました');
+}
+
 function _skEsc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 function _jstParts(d){ // d=シフト済Date
   return { y:d.getUTCFullYear(), m:d.getUTCMonth()+1, d:d.getUTCDate(), hh:d.getUTCHours(), mi:d.getUTCMinutes(), dow:d.getUTCDay() };
