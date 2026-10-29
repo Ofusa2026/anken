@@ -227,7 +227,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261029.08</div>
+      <div class="ver">ver.20261029.09</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -3651,13 +3651,34 @@ function _ppAutoPush(D){
     return Promise.all(jobs);
   });
 }
+/* ver.20261029.09: 申請実績の件数を案シスから自動で上乗せ
+   土台＝2026年10月時点で22,000件。11月以降は案シス（cases.receipt_date）の申請件数を、確定した前月分まで足す。千件未満は切り捨て */
+var PP_JISSEKI_BASE = { count:22000, ym:'2026-10' };
+function _ppJisseki(){
+  var now=new Date(Date.now()+9*3600*1000), y=now.getUTCFullYear(), m=now.getUTCMonth()+1;
+  var py=(m===1?y-1:y), pm=(m===1?12:m-1), lastYm=py+'-'+String(pm).padStart(2,'0');
+  var b=PP_JISSEKI_BASE, label=function(ym,n){ var a=ym.split('-'); return a[0]+'年'+Number(a[1])+'月時点：約'+(Math.floor(n/1000)*1000).toLocaleString()+'件以上'; };
+  if(lastYm<=b.ym) return Promise.resolve(label(b.ym,b.count));
+  var bp=b.ym.split('-'), ny=Number(bp[0]), nm=Number(bp[1])+1; if(nm>12){ nm=1; ny++; }
+  var from=ny+'-'+String(nm).padStart(2,'0')+'-01', to=y+'-'+String(m).padStart(2,'0')+'-01';
+  return _sb.from('cases').select('id',{count:'exact',head:true}).gte('receipt_date',from).lt('receipt_date',to).then(function(r){
+    if(r.error) return label(b.ym,b.count);
+    return label(lastYm, b.count+(r.count||0));
+  }).catch(function(){ return label(b.ym,b.count); });
+}
 function printProposal(){
   if(!curLead) return;
+  var w=window.open('', '_blank', 'width=900,height=1200');
+  if(w){ w.document.write('<p style="font-family:sans-serif;padding:20px;">料金表を作成中…</p>'); }
+  _ppJisseki().then(function(jj){ _ppPrintBody(w, jj); });
+}
+function _ppPrintBody(w, jisseki){
+  if(!w) return;
   var nm=curLead.name||'';
   var info=[['商号','大房行政書士法人（旧：山下社労士行政書士合同事務所）'],['設立','2016年（2022年12月法人化）'],['代表者','大房 明良'],
     ['資格・所属','申請取次行政書士・東京都行政書士会所属'],['業務内容','入管申請手続き業務（特定技能・技能実習・技人国・配偶者等）'],
     ['住所','〒144-0052 東京都大田区蒲田5丁目11-10 FUNDES蒲田8階'],['電話・FAX','03-6424-8849 ・ 03-6424-8854'],
-    ['HP','https://gyosei-cambo.com/'],['メール','mail@gyosei-cambo.com'],['特定技能 申請実績等','2026年8月時点：約18,000件以上']];
+    ['HP','https://gyosei-cambo.com/'],['メール','mail@gyosei-cambo.com'],['特定技能 申請実績等',jisseki]];
   var body='<h1>事務所案内</h1><table class="info">'+info.map(function(r){ return '<tr><td class="k">'+escHtml(r[0])+'</td><td>'+escHtml(r[1])+'</td></tr>'; }).join('')+'</table>';
   var lastSec='', page1=true, count=0;
   PP_STD.forEach(function(s){
@@ -3689,7 +3710,7 @@ function printProposal(){
     +'.price span{font-size:7.5pt;font-weight:400;color:#333;}.price.ask{font-size:11pt;}.note{font-size:7.5pt;color:#333;margin-top:2mm;}'
     +'.bill p{margin:1mm 0;font-size:9pt;}.bill ul{margin:1mm 0 0 4mm;padding:0;list-style:none;font-size:8.5pt;}.bill li::before{content:"• ";}'
     +'.pb{page-break-before:always;margin-top:0;}@media screen{body{padding:20px;max-width:800px;margin:auto;}}';
-  var w=window.open('', '_blank', 'width=900,height=1200');
+  w.document.open();
   w.document.write('<html><head><meta charset="utf-8"><title>事務所案内_料金表 -'+escHtml(nm)+'様</title>'
     +'<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet"><style>'+css+'</style></head><body>'+body
     +'<script>window.onload=function(){setTimeout(function(){window.print();},500);};<\/script></body></html>');
