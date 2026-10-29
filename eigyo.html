@@ -227,7 +227,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261029.05</div>
+      <div class="ver">ver.20261029.06</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -664,8 +664,7 @@ var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ver.20261029.01: ステータスを8つに整理（未接触／アタック中／商談予定／結果待ち／確定／依頼待ち＝確定して最初の案件待ち／だめ／離脱）
-// ver.20261029.04: 「結果待ち」を廃止（既存は依頼待ちへ移行）
-var STATUSES = ['未接触','アタック中','商談予定','確定','依頼待ち','だめ','離脱'];
+var STATUSES = ['未接触','アタック中','商談予定','結果待ち','確定','依頼待ち','だめ','離脱'];
 var DOC_METHODS = ['','行政書士','登録支援機関（システム利用）','登録支援機関（システム未利用）','登録支援機関＋行政書士','所属機関'];
 var HR_TOOLS = ['','LINE','Chatwork','Messenger','メール','その他'];
 var HR_MADOGUCHI = ['','登録支援機関','直接','送り出し機関','その他'];
@@ -900,7 +899,7 @@ function autoRank(n){
   return '';
 }
 // KPIカードに出すステータス
-var KPI_STATUSES = ['未接触','アタック中','商談予定','確定','依頼待ち','だめ','離脱'];
+var KPI_STATUSES = ['未接触','アタック中','商談予定','結果待ち','確定','依頼待ち','だめ','離脱'];
 var KINDS    = ['架電','メール','オンライン商談','訪問','郵送','その他'];
 var FIRST_KINDS   = ['テレアポ（自社）','テレアポ（外注）','セミナー','交流会','紹介','問い合わせ'];
 var MEETING_KINDS = ['オンライン','訪問'];
@@ -1503,7 +1502,7 @@ function nextPage(){ if((page+1)*PAGE < total){ page++; load(); window.scrollTo(
 
 /* ---------------- KPI ---------------- */
 function loadKpis(){
-  var CLS = { '未接触':'s0','アタック中':'s1','商談予定':'s1','確定':'s4','依頼待ち':'s2','だめ':'s5','離脱':'s5' };
+  var CLS = { '未接触':'s0','アタック中':'s1','商談予定':'s1','結果待ち':'s3','確定':'s4','依頼待ち':'s2','だめ':'s5','離脱':'s5' };
   var box = el('kpis');
   box.innerHTML = KPI_STATUSES.map(function(k){
     return '<div class="kpi '+(CLS[k]||'s0')+'" data-k="'+esc(k)+'"><div class="k">'+esc(k)+'</div><div class="v">…</div></div>';
@@ -2130,7 +2129,7 @@ function followupDays(){ try{ var v=parseInt(localStorage.getItem('followupDays'
 function setFollowupDays(v){ v=parseInt(v,10)||30; if(v<1)v=1; try{ localStorage.setItem('followupDays',v); }catch(e){} return v; }
 function checkFollowupReminder(){
   var days=followupDays();
-  _sb.from('eigyo_leads').select('reg_no,name,updated_at').eq('status','依頼待ち').then(function(r){
+  _sb.from('eigyo_leads').select('reg_no,name,updated_at').eq('status','結果待ち').then(function(r){
     var leads=(r.data)||[]; if(!leads.length){ closeFollowupModal(); return; }
     var regs=leads.map(function(l){return l.reg_no;});
     _sb.from('eigyo_notes').select('reg_no,note_date').in('reg_no',regs).then(function(nr){
@@ -2266,10 +2265,10 @@ function markMeetSent(flag){
 function markThanksSent(flag){
   if(!curLead) return;
   var patch = flag ? {thanks_sent:true, thanks_sent_at:new Date().toISOString()} : {thanks_sent:false, thanks_sent_at:null};
-  // 送信済みにしたら、未接触・アタック中・商談予定のときだけステータスを「依頼待ち」に自動更新
+  // 送信済みにしたら、未接触・アタック中・商談予定のときだけステータスを「結果待ち」に自動更新
   var statusMsg='';
   if(flag && ['','未接触','アタック中','商談予定'].indexOf(curLead.status||'')>=0){
-    patch.status='依頼待ち'; statusMsg='／ステータスを依頼待ちに変更';
+    patch.status='結果待ち'; statusMsg='／ステータスを結果待ちに変更';
   }
   _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
     if(r.error){ showMsg('dMsg','更新に失敗しました：'+r.error.message,'err'); return; }
@@ -2516,7 +2515,7 @@ function reschedOpen(regNo){ closeReschedModal(); openDrawer(regNo); }
 function openShareList(){
   var pane=el('toolPane'); if(!pane) return; _evictBoxes(); pane.innerHTML='';
   var checks=STATUSES.map(function(s){
-    var def=(s==='アタック中'||s==='商談予定'||s==='依頼待ち')?' checked':'';
+    var def=(s==='アタック中'||s==='商談予定'||s==='結果待ち')?' checked':'';
     return '<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:2px 0;"><input type="checkbox" class="sharest" value="'+esc(s)+'"'+def+'> '+esc(s)+'</label>';
   }).join('');
   pane.innerHTML='<div style="background:#fff;border-radius:10px;padding:20px 22px;box-shadow:0 2px 6px rgba(0,0,0,.04);max-width:560px;">'
@@ -2603,7 +2602,7 @@ function openHelp(){
     'リスケ（連絡待ち）は「<b>📧 催促文をコピー</b>」で追いかけ、送ったら「<b>✅ フォロー実施</b>」（履歴に自動記録）。'
   ]);
   h+=sec('✉️','メール一斉配信（メルマガ）',[
-    'ツールバー「✉️ メール配信」→ 配信先ステータスを選択（例：依頼待ち）。',
+    'ツールバー「✉️ メール配信」→ 配信先ステータスを選択（例：結果待ち）。',
     '会社ごとにチェックで選択、「<b>全選択/全解除</b>」も可能。まず<b>テスト送信</b>で確認してから本配信。',
     '詳細画面の「<b>✉️ メール配信不要</b>」にチェックした会社は配信対象から除外されます。'
   ]);
@@ -6100,6 +6099,7 @@ var PL_COLS=[
   // ver.20261029.01: 段階＝ステータスそのもの（未接触はアタック中として扱う）
   {k:'touch', l:'📞 アタック中', st:['アタック中','未接触',''],   c:'#2563eb', to:'アタック中'},
   {k:'meet',  l:'🗓 商談予定',   st:['商談予定'],                 c:'#7c3aed', to:'商談予定'},
+  {k:'wait',  l:'⏳ 結果待ち',   st:['結果待ち'],                 c:'#d97706', to:'結果待ち'},
   {k:'won',   l:'✅ 確定',       st:['確定'],                     c:'#16a34a', to:'確定'},
   {k:'req',   l:'📮 依頼待ち',   st:['依頼待ち'],                 c:'#ca8a04', to:'依頼待ち'},
   {k:'lost',  l:'✖ だめ',       st:['だめ','離脱'],              c:'#dc2626', to:'だめ'}
@@ -6156,11 +6156,11 @@ function renderPipeline(){
   var n0=function(v){ return Math.round(v||0).toLocaleString(); };
   var cnt={}, sup={}; PL_COLS.forEach(function(c){ cnt[c.k]=0; sup[c.k]=0; });
   mine.forEach(function(l){ var k=plCol(l.status); cnt[k]++; sup[k]+=plSup(l); });
-  var openK=['touch','meet'], openN=0, openS=0; openK.forEach(function(k){ openN+=cnt[k]; openS+=sup[k]; });
+  var openK=['touch','meet','wait'], openN=0, openS=0; openK.forEach(function(k){ openN+=cnt[k]; openS+=sup[k]; });
   var list=mine.filter(function(l){ var k=plCol(l.status); return G==='all' || (G==='open'? openK.indexOf(k)>=0 : k===G); });
   var q=String(_PL.f||'').trim(); if(q) list=list.filter(function(l){ return String(l.name||'').indexOf(q)>=0; });
-  // ver.20261029.04: 並び順は段階で自動（依頼待ち → アタック中 → 商談予定 → 確定 → だめ）。同じ段階なら（アタック中は確度が高い順 →）依頼開始見込みが早い順 → 支援者数が多い順
-  var ord={req:0, touch:1, meet:2, won:3, lost:4};
+  // ver.20261029.06: 並び順は段階で自動（依頼待ち → アタック中 → 商談予定 → 結果待ち → 確定 → だめ）。同じ段階なら（アタック中は確度が高い順 →）依頼開始見込みが早い順 → 支援者数が多い順
+  var ord={req:0, touch:1, meet:2, wait:3, won:4, lost:5};
   list.sort(function(a,b){ if(_PL.justAdded){ if(a.reg_no===_PL.justAdded) return -1; if(b.reg_no===_PL.justAdded) return 1; } var o=(ord[plCol(a.status)]||0)-(ord[plCol(b.status)]||0); if(o) return o; if(plCol(a.status)==='touch'){ var pa=(a.close_prob==null||a.close_prob==='')?-1:+a.close_prob, pb=(b.close_prob==null||b.close_prob==='')?-1:+b.close_prob; if(pa!==pb) return pb-pa; } var am=String(a.hr_start_date||'9999'), bm=String(b.hr_start_date||'9999'); if(am!==bm) return am<bm?-1:1; return plSup(b)-plSup(a); });
   var verSup=0, verPpl=0; mine.forEach(function(l){ var _kw=plCol(l.status); if(_kw!=='won' && _kw!=='req') return; var a=aggOf(l); if(a){ verSup+=plSup(l); verPpl+=Object.keys(a.ppl).length; } });
   var mT=plSupTargetMonth(D.plan, D.saved), nM=parseInt(D.plan.plan_months,10)||12, yT=mT*nM*((S==='all')?1:1/PL_STAFF.length);
@@ -6171,7 +6171,7 @@ function renderPipeline(){
     +'<button class="btn btn-sm" onclick="loadPipeline(true)">↻ 再集計</button></div></div>';
   function tile(cls,label,v,unit,sub){ return '<div class="kpi '+cls+'" style="cursor:default;"><div class="k">'+label+'</div><div class="v">'+v+'<span style="font-size:12px;font-weight:600;">'+unit+'</span></div><div class="sub">'+sub+'</div></div>'; }
   h+='<div class="kpis">'
-    +tile('s0','動いている支援者数',n0(openS),'人','アタック中〜商談予定 '+openN+'社')
+    +tile('s0','動いている支援者数',n0(openS),'人','アタック中〜結果待ち '+openN+'社')
     +tile('s2','決定した支援者数',n0(sup.won),'人',cnt.won+'社'+(yT?' ／ 年間目標 '+n0(yT)+'人の '+Math.round(sup.won/yT*100)+'%':''))
     +tile('s3','申請見込み（月）',n0(list.reduce(function(a,l){ return a+(+l.hr_monthly_apps||0); },0)),'件','表に出ている会社の合計'+(function(){ var m=list.filter(function(l){ return l.hr_monthly_apps==null; }).length; return m?'（未入力 '+m+'社）':''; })())
     +tile('s1','実績（案シスに案件あり）',n0(verSup),'人','取得率 '+(verSup?Math.round(verPpl/verSup*1000)/10+'%':'—')+'（申請した人数 '+n0(verPpl)+'人）')
