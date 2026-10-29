@@ -227,7 +227,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261029.10</div>
+      <div class="ver">ver.20261029.12</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -495,10 +495,10 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
 
 
 <!-- ver.20261029.08: 会社ごとの提案金額 -->
-<div class="overlay" id="ppOv" onclick="closeProposal()"></div>
+<div class="overlay" id="ppOv" onclick="closeProposal()" style="z-index:62;"></div>
 <div id="ppBox" style="display:none;position:fixed;z-index:63;top:50%;left:50%;transform:translate(-50%,-50%);
      width:min(720px,96vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;padding:20px 22px;box-shadow:0 8px 30px rgba(0,0,0,.2);">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin:-20px -22px 6px;padding:14px 22px 8px;position:sticky;top:-20px;background:#fff;z-index:2;border-bottom:1px solid var(--line);">
     <h2 id="ppTitle" style="margin:0;font-size:17px;color:var(--accent);">提案金額</h2>
     <button class="btn btn-sm" onclick="closeProposal()">✕</button>
   </div>
@@ -507,7 +507,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
   <div id="ppMsg" class="msg"></div>
   <div id="ppList"></div>
   <div style="margin-top:16px;display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;">
-    <button class="btn" onclick="ppReset()">標準料金に戻す</button>
+    <div style="display:flex;gap:8px;"><button class="btn" onclick="closeProposal()">閉じる</button><button class="btn" onclick="ppReset()">標準料金に戻す</button></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn" onclick="printProposal()">🖨 料金表PDF</button>
       <button class="btn" onclick="pushProposal()">🔄 案シスへ反映</button>
@@ -2300,6 +2300,20 @@ function markThanksSent(flag){
   });
 }
 function thanksSenderDefault(){ try{ return localStorage.getItem('thanksSender')||''; }catch(e){ return ''; } }
+/* ver.20261029.11: 提案金額が通常料金と違う会社は、御礼文にその説明を入れる（税込で表示） */
+var PP_SEC_SHORT={'特定技能1号・特定技能2号':'特定技能','技能実習':'技能実習','自動車運送業（特定活動55号を挟む場合）':'自動車運送業','技術・人文知識・国際業務':'技人国','その他在留資格':''};
+function _ppDiffLines(lead){
+  var p=lead&&lead.proposal_prices; if(typeof p==='string'){ try{p=JSON.parse(p);}catch(e){p=null;} }
+  if(!p||!p.items) return [];
+  var out=[], fmt=function(n){ return n==null?'要相談':_ppYen(_ppIncl(n))+'円'; };
+  PP_STD.forEach(function(sct){ sct.items.forEach(function(it){
+    var v=p.items[it.k]||{}; if(v.price===undefined || v.price===it.price) return;
+    var show=(v.show===undefined?!it.off:!!v.show); if(!show) return;
+    var head=(sct.sub&&sct.sub.indexOf('人材紹介')===0)?'人材紹介＋申請（特定技能1号）':(PP_SEC_SHORT[sct.sec]||'');
+    out.push('・'+(head?head+' ':'')+it.label+'：通常 '+fmt(it.price)+' → '+fmt(v.price)+(it.stamp?'（'+it.stamp.replace(/^＊/,'')+'）':''));
+  }); });
+  return out;
+}
 function copyThanksMsg(){
   if(!curLead) return;
   var person=(curLead.apt_person||'').replace(/\/.*$/,'').replace(/[（(].*?[）)]/,'').replace(/様$/,'').trim()||'ご担当者';
@@ -2315,12 +2329,16 @@ function copyThanksMsg(){
     if(arr.length) links='\n▼共有資料\n\n'+arr.join('\n\n')+'\n';
   }
   var pledgeNote = hasPledge ? '\n監査サービスをご希望の場合は、上記の監査対応サービス誓約書にご署名をしていただく必要がございます。\n' : '';
+  var pd=_ppDiffLines(curLead);
+  var priceNote = pd.length ? ('\nなお、料金につきましては、貴社向けに下記のとおり通常料金から変更してご提案させていただいております（税込）。\n\n'
+      + pd.join('\n')+'\n\n上記以外は通常料金となります。添付の料金表もあわせてご確認ください。\n') : '';
   var body='件名：本日の御礼（大房行政書士法人）\n\n'
     + esc0(curLead.name||'')+'\n'+person+'様\n\n'
     + intro+'\n'
     + '本日はお忙しい中、お打ち合わせのお時間をいただき誠にありがとうございました。\n\n'
     + '本日使用した資料を添付いたします。\n'
     + 'ご不明な点やご相談などございましたら、お気軽にご連絡ください。\n'
+    + priceNote
     + links
     + pledgeNote
     + '\n今後ともどうぞよろしくお願いいたします。\n\n'
@@ -3543,6 +3561,7 @@ function openProposal(){
   renderProposal();
 }
 function closeProposal(){ el('ppOv').classList.remove('on'); el('ppBox').style.display='none'; }
+document.addEventListener('keydown',function(e){ if(e.key==='Escape' && el('ppBox') && el('ppBox').style.display==='block') closeProposal(); });
 function ppSet(k, field, v){
   _pp.items[k] = _pp.items[k] || {};
   if(field==='show') _pp.items[k].show = !!v;
