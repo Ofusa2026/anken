@@ -227,7 +227,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261029.07</div>
+      <div class="ver">ver.20261029.08</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -493,6 +493,28 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
   </div>
 </div>
 
+
+<!-- ver.20261029.08: 会社ごとの提案金額 -->
+<div class="overlay" id="ppOv" onclick="closeProposal()"></div>
+<div id="ppBox" style="display:none;position:fixed;z-index:63;top:50%;left:50%;transform:translate(-50%,-50%);
+     width:min(720px,96vw);max-height:88vh;overflow-y:auto;background:#fff;border-radius:12px;padding:20px 22px;box-shadow:0 8px 30px rgba(0,0,0,.2);">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+    <h2 id="ppTitle" style="margin:0;font-size:17px;color:var(--accent);">提案金額</h2>
+    <button class="btn btn-sm" onclick="closeProposal()">✕</button>
+  </div>
+  <div class="sub" style="font-size:11.5px;margin-bottom:6px;">金額は<b>税抜</b>で入力します（料金表PDFでは税込で表示）。標準と違う金額は黄色になります。チェックを外した項目はPDFに載りません。空欄は「要相談」になります。</div>
+  <div id="ppStatus" style="font-size:11.5px;margin-bottom:4px;"></div>
+  <div id="ppMsg" class="msg"></div>
+  <div id="ppList"></div>
+  <div style="margin-top:16px;display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;">
+    <button class="btn" onclick="ppReset()">標準料金に戻す</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn" onclick="printProposal()">🖨 料金表PDF</button>
+      <button class="btn" onclick="pushProposal()">🔄 案シスへ反映</button>
+      <button class="btn btn-primary" onclick="saveProposal()">保存</button>
+    </div>
+  </div>
+</div>
 <!-- 品目マスタ選択 -->
 <div class="overlay" id="pmOv" onclick="closePriceMaster()"></div>
 <div id="pmBox" style="display:none;position:fixed;z-index:63;top:50%;left:50%;transform:translate(-50%,-50%);
@@ -1561,7 +1583,7 @@ function renderDrawer(){
   el('dSub').innerHTML = '<span class="sub">'+esc(x.reg_no)+' ／ 登録日 '+esc(x.reg_date||'-')+'</span>'
     + (x.is_client?'<span class="tag t-client">既存顧客</span>':'')
     + (x.is_suspended?'<span class="tag t-susp">休止届出</span>':'')
-    + '<div style="margin-top:8px;"><button class="btn btn-sm btn-primary" onclick="openQuote()">📄 この先の見積書を作成</button></div>';
+    + '<div style="margin-top:8px;"><button class="btn btn-sm btn-primary" onclick="openQuote()">📄 この先の見積書を作成</button> <button class="btn btn-sm" onclick="openProposal()">💴 提案金額・料金表</button></div>';
 
   var offices = '';
   try{
@@ -3467,6 +3489,212 @@ function togglePricePush(id, on){
   });
 }
 
+
+
+/* ===== ver.20261029.08: 会社ごとの提案金額（eigyo_leads.proposal_prices）=====
+   ・金額は税抜で入力（案シスの単価マスタと同じ）。料金表PDFでは×1.1の税込で表示する
+   ・料金表PDF：事務所案内のレイアウトで「事務所案内_料金表 -○○様」を出す
+   ・案シス反映：在留資格と申請種別がはっきりしている項目だけ eigyo_price_items に push_to_anken=true で入れる
+     （案シス側の「営業管理システムから取得」で単価マスタに未承認で取り込まれる）
+   ・自動反映：その会社の最初の案件が案シスに入ったら（_anshisSync）、未反映の提案金額を同じ流れで送る */
+var PP_STD = [
+  {sec:'特定技能1号・特定技能2号', sub:'申請のみ', items:[
+    {k:'tg_nin', label:'在留資格認定証明書交付申請費用', price:50000, visa:['特定技能1号','特定技能2号'], app:'認定'},
+    {k:'tg_hen', label:'在留資格変更許可申請費用', stamp:'＊別途収入印紙代金', price:50000, visa:['特定技能1号','特定技能2号'], app:'変更'},
+    {k:'tg_kou', label:'在留期間更新許可申請費用', stamp:'＊別途収入印紙代金', price:30000, visa:['特定技能1号','特定技能2号'], app:'更新'},
+    {k:'tg_kokko', label:'建設特定技能受入計画申請', price:30000, visa:['国交省'], app:null}
+  ]},
+  {sec:'特定技能1号・特定技能2号', sub:'人材紹介＋申請の依頼（特定技能1号）', note:'※ 人材紹介は関連企業の株式会社KMT・一般社団法人KMTからのご紹介となります。', items:[
+    {k:'sk_nin', label:'認定', price:150000},
+    {k:'sk_hen', label:'変更', stamp:'＊別途収入印紙代金', price:150000}
+  ]},
+  {sec:'技能実習', items:[
+    {k:'gj_nin', label:'在留資格認定証明書交付申請費用', price:10000, visa:['技能実習'], app:'認定', off:true},
+    {k:'gj_hen', label:'在留資格変更許可申請費用', stamp:'＊別途収入印紙代金', price:30000, visa:['技能実習'], app:'変更', off:true},
+    {k:'gj_kou', label:'在留期間更新許可申請費用', stamp:'＊別途収入印紙代金', price:30000, visa:['技能実習'], app:'更新', off:true}
+  ]},
+  {sec:'自動車運送業（特定活動55号を挟む場合）', sub:'申請のみ', after:'※ 特定活動55号は入管窓口でしか申請できないため、東京入管以外の入管で申請が必要な場合、別途交通費が発生いたします。', items:[
+    {k:'jd_nin', label:'認定', stamp:'＊別途収入印紙代金（1枚）', price:100000},
+    {k:'jd_hen', label:'変更', stamp:'＊別途収入印紙代金（2枚）', price:100000}
+  ]},
+  {sec:'技術・人文知識・国際業務', items:[
+    {k:'gj2_nin', label:'在留資格認定証明書交付申請費用', price:50000, visa:['技人国'], app:'認定'},
+    {k:'gj2_hen', label:'在留資格変更許可申請費用', stamp:'＊別途収入印紙代金', price:50000, visa:['技人国'], app:'変更'},
+    {k:'gj2_ku', label:'在留期間更新許可申請費用（転職有）', stamp:'＊別途収入印紙代金', price:50000, visa:['技人国'], app:'更新_転職有'},
+    {k:'gj2_kn', label:'在留期間更新許可申請費用（転職無）', stamp:'＊別途収入印紙代金', price:30000, visa:['技人国'], app:'更新_転職無'}
+  ]},
+  {sec:'その他在留資格', after:'※ 上記在留資格申請以外のご依頼にもご要望に応じて柔軟に対応可能ですので、その他要ご相談ください。', items:[
+    {k:'ot_kazoku', label:'家族滞在', stamp:'＊別途収入印紙代金', price:50000, visa:['家族滞在'], app:null},
+    {k:'ot_keiei', label:'経営・管理', stamp:'＊別途収入印紙代金', price:null},
+    {k:'ot_eijyu', label:'永住許可申請', stamp:'＊別途収入印紙代金', price:null}
+  ]}
+];
+var _pp = null;   // {items:{k:{price,show}}, pushed_at, updated_at}
+function _ppStdItem(k){ var f=null; PP_STD.forEach(function(s){ s.items.forEach(function(it){ if(it.k===k) f=it; }); }); return f; }
+function _ppVal(it){ var v=(_pp.items||{})[it.k]||{}; return { price:(v.price===undefined?it.price:v.price), show:(v.show===undefined?!it.off:!!v.show) }; }
+function _ppYen(n){ return Number(n||0).toLocaleString(); }
+function _ppIncl(n){ return Math.round(Number(n||0)*1.1); }
+function openProposal(){
+  if(!curLead) return;
+  var p=curLead.proposal_prices; if(typeof p==='string'){ try{ p=JSON.parse(p); }catch(e){ p=null; } }
+  _pp = p && p.items ? JSON.parse(JSON.stringify(p)) : {items:{}};
+  el('ppTitle').textContent = '提案金額：'+(curLead.name||'');
+  el('ppOv').classList.add('on'); el('ppBox').style.display='block'; showMsg('ppMsg','','');
+  renderProposal();
+}
+function closeProposal(){ el('ppOv').classList.remove('on'); el('ppBox').style.display='none'; }
+function ppSet(k, field, v){
+  _pp.items[k] = _pp.items[k] || {};
+  if(field==='show') _pp.items[k].show = !!v;
+  else { var s=String(v).replace(/[,，\s]/g,''); _pp.items[k].price = (s===''? null : (parseInt(s,10)||0)); }
+  var it=_ppStdItem(k), c=el('ppIncl_'+k), val=_ppVal(it);
+  if(c) c.textContent = val.price==null ? '要相談' : '税込 '+_ppYen(_ppIncl(val.price))+'円';
+  var inp=el('ppIn_'+k); if(inp) inp.style.background = (val.price!==it.price) ? '#fff7e6' : '#fff';
+}
+function ppReset(){
+  if(!confirm('この会社の提案金額を標準料金に戻しますか？（保存するまで反映されません）')) return;
+  _pp.items={}; renderProposal();
+}
+function renderProposal(){
+  var h='', lastSec='';
+  PP_STD.forEach(function(s){
+    if(s.sec!==lastSec){ h+='<div style="background:#1f2a5c;color:#fff;font-weight:700;font-size:12.5px;padding:6px 10px;border-radius:6px;margin-top:12px;">'+esc(s.sec)+'</div>'; lastSec=s.sec; }
+    if(s.sub) h+='<div style="font-size:11.5px;font-weight:700;color:#1f2a5c;margin:8px 2px 2px;">'+esc(s.sub)+'</div>';
+    h+='<table style="width:100%;font-size:12.5px;border-collapse:collapse;">';
+    s.items.forEach(function(it){
+      var v=_ppVal(it), changed=(v.price!==it.price);
+      h+='<tr style="border-bottom:1px dashed #e2e8f0;">'
+        +'<td style="width:28px;padding:6px 2px;"><input type="checkbox" '+(v.show?'checked':'')+' title="料金表PDFに載せる" onchange="ppSet(\''+it.k+'\',\'show\',this.checked)"></td>'
+        +'<td style="padding:6px 4px;">◆ '+esc(it.label)+(it.stamp?'<div class="sub" style="font-size:10.5px;">'+esc(it.stamp)+'</div>':'')
+        +  (it.visa?'<div class="sub" style="font-size:10px;color:#2b6cb0;">案シス連携：'+esc(it.visa.join('・'))+(it.app?' ／ '+esc(it.app):'')+'</div>':'')+'</td>'
+        +'<td style="width:130px;padding:6px 4px;text-align:right;"><input type="text" inputmode="numeric" id="ppIn_'+it.k+'" value="'+(v.price==null?'':v.price)+'" placeholder="要相談" oninput="ppSet(\''+it.k+'\',\'price\',this.value)" style="width:110px;padding:5px 7px;border:1px solid var(--line);border-radius:6px;text-align:right;background:'+(changed?'#fff7e6':'#fff')+';"><div class="sub" style="font-size:10px;">標準 '+(it.price==null?'要相談':_ppYen(it.price))+'</div></td>'
+        +'<td style="width:110px;padding:6px 4px;text-align:right;font-size:11px;color:#475569;" id="ppIncl_'+it.k+'">'+(v.price==null?'要相談':'税込 '+_ppYen(_ppIncl(v.price))+'円')+'</td>'
+        +'</tr>';
+    });
+    h+='</table>';
+  });
+  el('ppList').innerHTML=h;
+  var st = _pp.pushed_at ? '<span style="color:#276749;font-weight:700;">✅ 案シスへ反映済み（'+esc(String(_pp.pushed_at).slice(0,10))+'）</span>'
+                         : '<span class="sub">案シスへは未反映（最初の案件が案シスに入ると自動で反映されます）</span>';
+  el('ppStatus').innerHTML = st + (_pp.updated_at?'<span class="sub">　最終保存 '+esc(String(_pp.updated_at).slice(0,16).replace('T',' '))+'</span>':'');
+}
+function _ppPayload(){
+  var out={}; Object.keys(_pp.items||{}).forEach(function(k){
+    var it=_ppStdItem(k); if(!it) return; var v=_ppVal(it), o={};
+    if(v.price!==it.price) o.price=v.price;
+    if(v.show!==!it.off) o.show=v.show;
+    if(Object.keys(o).length) out[k]=o;
+  });
+  return out;
+}
+function saveProposal(cb){
+  if(!curLead) return;
+  var changed = JSON.stringify(_ppPayload()) !== JSON.stringify((function(){ var p=curLead.proposal_prices; if(typeof p==='string'){ try{p=JSON.parse(p);}catch(e){p=null;} } return (p&&p.items)||{}; })());
+  var wasPushed = !!_pp.pushed_at;
+  var rec = { items:_ppPayload(), updated_at:new Date().toISOString(), pushed_at:(changed?null:(_pp.pushed_at||null)) };
+  _sb.from('eigyo_leads').update({ proposal_prices:rec }).eq('reg_no', curLead.reg_no).then(function(r){
+    if(r.error){ showMsg('ppMsg','保存に失敗しました：'+r.error.message,'err'); return; }
+    curLead.proposal_prices=rec; _pp=JSON.parse(JSON.stringify(rec)); renderProposal();
+    if(typeof cb==='function') cb(); else showMsg('ppMsg', (changed&&wasPushed) ? '保存しました（内容が変わったので、案シスへ再反映してください）' : '保存しました','ok');
+  });
+}
+function _ppOrgName(lead){
+  var o = (window._thData&&_thData.orgs||[]).filter(function(x){ return x.id===lead.support_org_id; })[0];
+  return (o&&o.name) || lead.name || '';
+}
+function _ppRows(lead, p){
+  var rows=[], org=_ppOrgName(lead), save={items:p.items||{}};
+  var bak=_pp; _pp=save;
+  PP_STD.forEach(function(s){ s.items.forEach(function(it){
+    if(!it.visa) return; var v=_ppVal(it); if(v.price==null || !v.show) return;
+    it.visa.forEach(function(vs){ rows.push({ channel:'via', org_key:org, visa:vs, app_type:it.app, unit_price:v.price,
+      stamp_price:null, stamp_count:null, billing_to:null, kb:null, variable_flag:false,
+      note:'営シス提案金額（'+lead.reg_no+'）', is_active:true, push_to_anken:true }); });
+  }); });
+  _pp=bak; return rows;
+}
+function _ppPush(lead, p){
+  var rows=_ppRows(lead, p);
+  if(!rows.length) return Promise.resolve({n:0});
+  return _sb.from('eigyo_price_items').insert(rows).then(function(r){
+    if(r.error) throw r.error;
+    var rec=Object.assign({}, p, {pushed_at:new Date().toISOString()});
+    return _sb.from('eigyo_leads').update({proposal_prices:rec}).eq('reg_no', lead.reg_no).then(function(u){
+      if(u.error) throw u.error; return {n:rows.length, rec:rec};
+    });
+  });
+}
+function pushProposal(){
+  if(!curLead) return;
+  if(!curLead.support_org_id && !confirm('この会社はまだ案シスの登録支援機関とひもづいていません。\n機関名「'+(curLead.name||'')+'」で送りますか？')) return;
+  saveProposal(function(){
+    var n=_ppRows(curLead, _pp).length;
+    if(!n){ showMsg('ppMsg','案シスへ送れる項目（在留資格と申請種別がある項目）がありません','err'); return; }
+    if(!confirm(n+'件の単価を案シスへ送ります。\n案シス側の「営業管理システムから取得」で単価マスタに未承認で取り込まれます。')) return;
+    _ppPush(curLead, curLead.proposal_prices).then(function(res){
+      curLead.proposal_prices=res.rec; _pp=JSON.parse(JSON.stringify(res.rec)); renderProposal();
+      showMsg('ppMsg','✅ '+res.n+'件を案シスへ送りました（案シス側で取得・承認してください）','ok');
+    }).catch(function(e){ showMsg('ppMsg','反映に失敗しました：'+(e.message||e),'err'); });
+  });
+}
+/* 自動反映：案シスで案件が始まった会社の未反映の提案金額を送る（_anshisSync から呼ぶ） */
+function _ppAutoPush(D){
+  return _sb.from('eigyo_leads').select('reg_no,name,support_org_id,proposal_prices').not('proposal_prices','is',null).not('support_org_id','is',null).then(function(r){
+    if(r.error || !r.data) return;
+    var started={}; (D.orgs||[]).forEach(function(o){ var nm=String(o.name||'').trim(); if(nm && D.agg && D.agg[nm]) started[o.id]=1; });
+    var jobs=[];
+    r.data.forEach(function(l){
+      var p=l.proposal_prices; if(typeof p==='string'){ try{p=JSON.parse(p);}catch(e){p=null;} }
+      if(!p || p.pushed_at || !started[l.support_org_id]) return;
+      jobs.push(_ppPush(l, p).then(function(x){ if(x.n) console.log('[提案金額] 自動反映 '+l.name+' '+x.n+'件'); }).catch(function(e){ console.warn('[提案金額]', e); }));
+    });
+    return Promise.all(jobs);
+  });
+}
+function printProposal(){
+  if(!curLead) return;
+  var nm=curLead.name||'';
+  var info=[['商号','大房行政書士法人（旧：山下社労士行政書士合同事務所）'],['設立','2016年（2022年12月法人化）'],['代表者','大房 明良'],
+    ['資格・所属','申請取次行政書士・東京都行政書士会所属'],['業務内容','入管申請手続き業務（特定技能・技能実習・技人国・配偶者等）'],
+    ['住所','〒144-0052 東京都大田区蒲田5丁目11-10 FUNDES蒲田8階'],['電話・FAX','03-6424-8849 ・ 03-6424-8854'],
+    ['HP','https://gyosei-cambo.com/'],['メール','mail@gyosei-cambo.com'],['特定技能 申請実績等','2026年8月時点：約18,000件以上']];
+  var body='<h1>事務所案内</h1><table class="info">'+info.map(function(r){ return '<tr><td class="k">'+escHtml(r[0])+'</td><td>'+escHtml(r[1])+'</td></tr>'; }).join('')+'</table>';
+  var lastSec='', page1=true, count=0;
+  PP_STD.forEach(function(s){
+    var shown=s.items.filter(function(it){ return _ppVal(it).show; });
+    if(!shown.length) return;
+    var brk = (s.sec==='自動車運送業（特定活動55号を挟む場合）');
+    if(s.sec!==lastSec) body+='<div class="sec'+(brk?' pb':'')+'">'+escHtml(s.sec)+'</div>';
+    lastSec=s.sec;
+    body+='<div class="box">'+(s.sub?'<div class="subt">'+escHtml(s.sub)+'</div>':'');
+    shown.forEach(function(it){
+      var v=_ppVal(it);
+      body+='<div class="row"><div class="lab">◆ '+escHtml(it.label)+(it.stamp?'<small>'+escHtml(it.stamp)+'</small>':'')+'</div>'
+        +(v.price==null?'<div class="price ask">要相談</div>':'<div class="price">'+_ppYen(_ppIncl(v.price))+' <span>円/人（税込）</span></div>')+'</div>';
+    });
+    if(s.note) body+='<div class="note">'+escHtml(s.note)+'</div>';
+    body+='</div>';
+    if(s.after) body+='<div class="note">'+escHtml(s.after)+'</div>';
+  });
+  body+='<div class="sec">請求について</div><div class="box bill"><p>⑴ お支払いに関しては、着手月末請求／翌月支払いとなります。</p><p>⑵ キャンセル時の返金につきましては、以下の通りです。</p>'
+    +'<ul><li>請求後申請前：70％ご返金</li><li>申請後審査完了前：50％ご返金</li><li>申請後審査完了後：0％ご返金</li><li>不許可時：100％ご返金（または再申請）</li></ul></div>';
+  var css='@page{size:A4;margin:11mm 16mm 10mm;}*{box-sizing:border-box;}body{font-family:"Noto Sans JP","Hiragino Sans","Yu Gothic",sans-serif;color:#222;font-size:9.5pt;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
+    +'h1{text-align:center;font-size:14pt;letter-spacing:.6em;margin:0 0 3mm;}table.info{width:100%;border-collapse:collapse;margin-bottom:3mm;}'
+    +'table.info td{border:1px solid #c9ccd8;padding:1.1mm 2.5mm;font-size:9pt;}table.info td.k{background:#eef0f6;font-weight:700;width:26%;}'
+    +'.sec{background:#1f2a5c;color:#fff;font-weight:700;font-size:10pt;padding:2mm 3mm;margin-top:3mm;page-break-after:avoid;}'
+    +'.box{background:#f5f6fb;border:1px solid #d3d6e3;padding:2.2mm 4mm;margin-top:2.5mm;page-break-inside:avoid;}'
+    +'.subt{color:#1f2a5c;font-weight:700;font-size:9.5pt;margin-bottom:1.5mm;}'
+    +'.row{display:flex;justify-content:space-between;align-items:center;border-bottom:1px dashed #d3d6e3;padding:1.3mm 0;}.row:last-of-type{border-bottom:none;}'
+    +'.lab small{display:block;font-size:7pt;color:#555;}.price{color:#1f2a5c;font-weight:700;font-size:15pt;white-space:nowrap;}'
+    +'.price span{font-size:7.5pt;font-weight:400;color:#333;}.price.ask{font-size:11pt;}.note{font-size:7.5pt;color:#333;margin-top:2mm;}'
+    +'.bill p{margin:1mm 0;font-size:9pt;}.bill ul{margin:1mm 0 0 4mm;padding:0;list-style:none;font-size:8.5pt;}.bill li::before{content:"• ";}'
+    +'.pb{page-break-before:always;margin-top:0;}@media screen{body{padding:20px;max-width:800px;margin:auto;}}';
+  var w=window.open('', '_blank', 'width=900,height=1200');
+  w.document.write('<html><head><meta charset="utf-8"><title>事務所案内_料金表 -'+escHtml(nm)+'様</title>'
+    +'<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet"><style>'+css+'</style></head><body>'+body
+    +'<script>window.onload=function(){setTimeout(function(){window.print();},500);};<\/script></body></html>');
+  w.document.close();
+}
 
 function qSetExpiry(which){
   var base = new Date((el('qIssue').value||today())+'T00:00:00');
@@ -5802,6 +6030,7 @@ function _anshisSync(){
         supporters:Number(l.supporter_count)||Number(l.expected_supporter)||0, price_nh:plan.price_nh||30000, price_ko:plan.price_ko||30000,
         memo:'案シスの初回案件から自動登録', created_by:'auto:案シス'}));
     });
+    jobs.push(_ppAutoPush(D));   // ver.20261029.08: 案件が始まった会社の提案金額を案シスへ自動反映
     return Promise.all(jobs);
   }).then(function(res){
     var err=(res||[]).filter(function(r){ return r && r.error; })[0];
