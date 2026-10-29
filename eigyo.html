@@ -227,7 +227,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261029.02</div>
+      <div class="ver">ver.20261029.03</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -6150,7 +6150,8 @@ function renderPipeline(){
   // ver.20261026.25: 営業はここを触る。1社1行の表（いつやるか・支援機関・支援者数・担当・段階・確度・見込み月・決定日・実績）
   var pane=el('pipePane'); if(!pane||!_PL.data) return;
   var D=_PL.data, S=_PL.staff, G=_PL.stage||'open';
-  var mine=D.leads.filter(function(l){ return S==='all' || plStaffKey(l.staff)===S; });
+  var CSF=_PL.cs||''; // 案件担当で絞り込み
+  var mine=D.leads.filter(function(l){ if(!(S==='all' || plStaffKey(l.staff)===S)) return false; if(CSF==='__none') return !l.case_staff; if(CSF) return String(l.case_staff||'')===CSF; return true; });
   function aggOf(l){ var on=D.orgName[l.support_org_id]||''; return on? D.agg[on]: null; }
   var n0=function(v){ return Math.round(v||0).toLocaleString(); };
   var cnt={}, sup={}; PL_COLS.forEach(function(c){ cnt[c.k]=0; sup[c.k]=0; });
@@ -6158,13 +6159,15 @@ function renderPipeline(){
   var openK=['touch','meet','wait'], openN=0, openS=0; openK.forEach(function(k){ openN+=cnt[k]; openS+=sup[k]; });
   var list=mine.filter(function(l){ var k=plCol(l.status); return G==='all' || (G==='open'? openK.indexOf(k)>=0 : k===G); });
   var q=String(_PL.f||'').trim(); if(q) list=list.filter(function(l){ return String(l.name||'').indexOf(q)>=0; });
-  var ord={}; PL_COLS.forEach(function(c,i){ ord[c.k]=i; });
-  list.sort(function(a,b){ if(_PL.justAdded){ if(a.reg_no===_PL.justAdded) return -1; if(b.reg_no===_PL.justAdded) return 1; } var am=String(a.hr_start_date||'9999'), bm=String(b.hr_start_date||'9999'); if(am!==bm) return am<bm?-1:1; var o=ord[plCol(a.status)]-ord[plCol(b.status)]; if(o) return o; return plSup(b)-plSup(a); });
+  // ver.20261029.03: 並び順は段階で自動（依頼待ち → アタック中 → 商談予定 → 結果待ち → 確定 → だめ）。同じ段階なら依頼開始見込みが早い順 → 支援者数が多い順
+  var ord={req:0, touch:1, meet:2, wait:3, won:4, lost:5};
+  list.sort(function(a,b){ if(_PL.justAdded){ if(a.reg_no===_PL.justAdded) return -1; if(b.reg_no===_PL.justAdded) return 1; } var o=(ord[plCol(a.status)]||0)-(ord[plCol(b.status)]||0); if(o) return o; var am=String(a.hr_start_date||'9999'), bm=String(b.hr_start_date||'9999'); if(am!==bm) return am<bm?-1:1; return plSup(b)-plSup(a); });
   var verSup=0, verPpl=0; mine.forEach(function(l){ var _kw=plCol(l.status); if(_kw!=='won' && _kw!=='req') return; var a=aggOf(l); if(a){ verSup+=plSup(l); verPpl+=Object.keys(a.ppl).length; } });
   var mT=plSupTargetMonth(D.plan, D.saved), nM=parseInt(D.plan.plan_months,10)||12, yT=mT*nM*((S==='all')?1:1/PL_STAFF.length);
   var staffBtn=function(k,l){ var on=S===k; return '<button class="btn btn-sm" style="'+(on?'background:var(--accent);color:#fff;':'')+'" onclick="_PL.staff=\''+k+'\';renderPipeline()">'+l+'</button>'; };
   var h='<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;"><h2 style="margin:0;font-size:18px;color:var(--accent);">🧭 パイプライン</h2>'
-    +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">'+staffBtn('all','全員')+PL_STAFF.map(function(s){ return staffBtn(s,s); }).join('')
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;"><b style="font-size:13px;color:#334155;">営業担当で絞り込み</b>'+staffBtn('all','全員')+PL_STAFF.map(function(s){ return staffBtn(s,s); }).join('')
+    +'<b style="font-size:13px;color:#334155;margin-left:10px;">案件担当</b><select onchange="_PL.cs=this.value;renderPipeline()" style="font-size:13px;padding:5px 8px;border:1px solid var(--line);border-radius:7px;'+(CSF?'background:var(--accent);color:#fff;':'')+'"><option value="">全員</option><option value="__none"'+(CSF==='__none'?' selected':'')+'>未定</option>'+(function(){ var set={}; CASE_STAFF.forEach(function(x){ set[x]=1; }); D.leads.forEach(function(l){ if(l.case_staff) set[l.case_staff]=1; }); return Object.keys(set).map(function(x){ return '<option value="'+esc(x)+'"'+(x===CSF?' selected':'')+'>'+esc(String(x).split(/[\s　]/)[0])+'</option>'; }).join(''); })()+'</select>'
     +'<button class="btn btn-sm" onclick="loadPipeline(true)">↻ 再集計</button></div></div>';
   function tile(cls,label,v,unit,sub){ return '<div class="kpi '+cls+'" style="cursor:default;"><div class="k">'+label+'</div><div class="v">'+v+'<span style="font-size:12px;font-weight:600;">'+unit+'</span></div><div class="sub">'+sub+'</div></div>'; }
   h+='<div class="kpis">'
