@@ -87,6 +87,11 @@ tbody tr:hover{background:#f7fafc;}
 .sub{color:var(--muted);font-size:11px;}
 .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap;}
 .b-未接触{background:#edf2f7;color:#4a5568;}
+.b-アタック中{background:#ebf8ff;color:#2b6cb0;}
+.b-結果待ち{background:#fffaf0;color:#c05621;}
+.b-確定{background:#f0fff4;color:#276749;}
+.b-依頼待ち{background:#fefcbf;color:#975a16;}
+.b-だめ{background:#fff5f5;color:#c53030;}
 .b-接触済み{background:#ebf8ff;color:#2b6cb0;}
 .b-商談予定{background:#e6fffa;color:#285e61;}
 .b-商談中{background:#fffaf0;color:#c05621;}
@@ -222,7 +227,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261026.32</div>
+      <div class="ver">ver.20261029.01</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -658,7 +663,8 @@ var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-var STATUSES = ['未接触','接触済み','商談予定','商談済み→依頼待ち','要経過観察','見込みなし','契約中','離脱可能性あり','離脱','対象外','テレアポ失注'];
+// ver.20261029.01: ステータスを8つに整理（未接触／アタック中／商談予定／結果待ち／確定／依頼待ち＝確定して最初の案件待ち／だめ／離脱）
+var STATUSES = ['未接触','アタック中','商談予定','結果待ち','確定','依頼待ち','だめ','離脱'];
 var DOC_METHODS = ['','行政書士','登録支援機関（システム利用）','登録支援機関（システム未利用）','登録支援機関＋行政書士','所属機関'];
 var HR_TOOLS = ['','LINE','Chatwork','Messenger','メール','その他'];
 var HR_MADOGUCHI = ['','登録支援機関','直接','送り出し機関','その他'];
@@ -893,7 +899,7 @@ function autoRank(n){
   return '';
 }
 // KPIカードに出すステータス
-var KPI_STATUSES = ['未接触','接触済み','商談予定','商談済み→依頼待ち','要経過観察','見込みなし','契約中','離脱可能性あり','離脱','対象外','テレアポ失注'];
+var KPI_STATUSES = ['未接触','アタック中','商談予定','結果待ち','確定','依頼待ち','だめ','離脱'];
 var KINDS    = ['架電','メール','オンライン商談','訪問','郵送','その他'];
 var FIRST_KINDS   = ['テレアポ（自社）','テレアポ（外注）','セミナー','交流会','紹介','問い合わせ'];
 var MEETING_KINDS = ['オンライン','訪問'];
@@ -1190,6 +1196,34 @@ function resetFilters(){
   page=0; syncPrefButtons(); loadPrefCounts(); load();
 }
 // 担当者は営業担当の4名に固定
+// ver.20261029.01: 案件担当者（案シスで書類を担当する人）。案シスのチーム設定（書類部）から読む。読めないときの予備
+var CASE_STAFF = ['大盛　南美','内田　海帆','陳　雅琦','村山　七虹','清水　星吏','マッタ　綾子','神出　紘陽','金丸　瑞希','中原　有博','山内　七月','宮澤　朋宏','町田　善洋'];
+function loadCaseStaff(){
+  if(typeof _sb==='undefined' || !_sb || window._caseStaffLoaded) return;
+  window._caseStaffLoaded=true;
+  _sb.from('settings').select('value').eq('key','team_data').maybeSingle().then(function(r){
+    try{
+      var v=r&&r.data&&r.data.value; var t=(typeof v==='string')?JSON.parse(v):v;
+      var tm=(t&&t.teams||[]).filter(function(x){ return x.name==='書類部'; })[0];
+      var L=(tm&&tm.members||[]).filter(function(m){ return m && m.name && m.role!=='パート'; }).map(function(m){ return m.name; });
+      if(L.length) CASE_STAFF=L;
+    }catch(e){}
+  });
+}
+function csOptions(val){
+  var L=CASE_STAFF.slice(); if(val && L.indexOf(val)<0) L.unshift(val);
+  return '<option value="">—</option>'+L.map(function(s){ return '<option value="'+esc(s)+'"'+(s===val?' selected':'')+'>'+esc(s.split(/[\s　]/)[0])+'</option>'; }).join('');
+}
+// 案件担当者を保存。案シスの登録支援機関と紐づいていれば、案シスの担当欄も同じ人にする
+function saveCaseStaff(reg, v, orgId, after){
+  v=v||null;
+  return _sb.from('eigyo_leads').update({case_staff:v, updated_at:new Date().toISOString()}).eq('reg_no',reg).then(function(r){
+    if(r.error){ alert('保存エラー：'+r.error.message); return; }
+    if(orgId && v){ _sb.from('support_orgs').update({staff:v}).eq('id',orgId).then(function(r2){ if(r2&&r2.error) console.warn('support_orgs staff', r2.error); }); }
+    autosaveToast('案件担当者を'+(v?v.split(/[\s　]/)[0]:'なし')+'にしました'+(orgId&&v?'（案シスの担当も変更）':''));
+    if(after) after();
+  });
+}
 var STAFF_SEED = ['中林　俊介','亀谷　潤','町田　善洋','宮澤　朋宏','大房','菅沼'];   // ver.20261026.24: 菅沼を追加（営シスだけの営業担当。案シスのメンバーとは別）
 
 function loadStaff(){
@@ -1284,7 +1318,7 @@ function ilStatus(reg,val){
 }
 function ilStatusSave(reg, elm){
   var v=elm.value; elm.className='badge b-'+v;
-  if(v==='契約中'){ _sb.from('eigyo_leads').select('decided_at').eq('reg_no',reg).maybeSingle().then(function(r){ if(r.data && !r.data.decided_at) inlineSave(reg,'decided_at',new Date(Date.now()+9*3600000).toISOString().slice(0,10),null); }); }
+  if(v==='確定'||v==='依頼待ち'){ _sb.from('eigyo_leads').select('decided_at').eq('reg_no',reg).maybeSingle().then(function(r){ if(r.data && !r.data.decided_at) inlineSave(reg,'decided_at',new Date(Date.now()+9*3600000).toISOString().slice(0,10),null); }); }
   inlineSave(reg,'status',v,elm);
 }
 function ilStaff(reg,val){
@@ -1468,9 +1502,7 @@ function nextPage(){ if((page+1)*PAGE < total){ page++; load(); window.scrollTo(
 
 /* ---------------- KPI ---------------- */
 function loadKpis(){
-  var CLS = { '未接触':'s0','接触済み':'s1','商談予定':'s1','商談済み→依頼待ち':'s3',
-              '要経過観察':'s2','見込みなし':'s5','契約中':'s4','離脱可能性あり':'s3','離脱':'s5',
-              '対象外':'s0','テレアポ失注':'s5' };
+  var CLS = { '未接触':'s0','アタック中':'s1','商談予定':'s1','結果待ち':'s3','確定':'s4','依頼待ち':'s2','だめ':'s5','離脱':'s5' };
   var box = el('kpis');
   box.innerHTML = KPI_STATUSES.map(function(k){
     return '<div class="kpi '+(CLS[k]||'s0')+'" data-k="'+esc(k)+'"><div class="k">'+esc(k)+'</div><div class="v">…</div></div>';
@@ -1626,6 +1658,7 @@ function renderDrawer(){
   +   '<label>営業ランク</label><select id="eLeadRank" onchange="this.removeAttribute(\'data-auto\')">'+rankOpts(x.lead_rank).map(function(r){return '<option'+((r===(x.lead_rank||''))?' selected':'')+'>'+esc(r||'（未評価）')+'</option>';}).join('')+'</select>'
   +   '<label>パイプライン</label><div><label style="display:inline-flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;color:#1F4E79;font-weight:800;"><input type="checkbox" id="ePipe" '+(plIn(x)?'checked':'')+' onchange="plToggle(\''+esc(x.reg_no)+'\',this.checked,this)" style="width:18px;height:18px;"> 🧭 パイプラインに入れる</label><div class="sub" style="font-size:11.5px;margin-top:2px;">チェックすると、サイドバーの「🧭 パイプライン」に並びます（担当はこの画面の担当者）</div></div>'
   +   '<label>菅沼獲得案件</label><div><label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:#c05621;font-weight:600;"><input type="checkbox" id="eSugaKakutoku" '+(x.suga_kakutoku?'checked':'')+' onchange="toggleSugaKakutoku(this.checked)" style="width:16px;height:16px;"> 🤝 菅沼さんが獲得した登録支援機関</label><div class="sub" style="font-size:11.5px;margin-top:2px;">スガシスの「獲得案件管理」で、2026/10/15以降の依頼数・許可実績が集計されます</div></div>'
+  +   '<label>案件担当者</label><div><select id="eCaseStaff" onchange="saveCaseStaff(curLead.reg_no,this.value,curLead.support_org_id,function(){ curLead.case_staff=el(\'eCaseStaff\').value||null; _PL.data=null; })">'+csOptions(x.case_staff||'')+'</select><div class="sub" style="font-size:11.5px;margin-top:2px;">案シスで書類を担当する人（営業担当とは別）。案シスの登録支援機関と紐づいていれば、案シスの担当も変わります</div></div>'
   +   '<label>担当者</label><select id="eStaff"><option value="">（未設定）</option>'
   +     staffOptions.map(function(s){return '<option'+(s===x.staff?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
   +   '<label>書類作成方法</label><select id="eDocMethod">'+DOC_METHODS.map(function(m){return '<option'+((m===(x.doc_method||''))?' selected':'')+'>'+esc(m)+'</option>';}).join('')+'</select>'
@@ -2096,7 +2129,7 @@ function followupDays(){ try{ var v=parseInt(localStorage.getItem('followupDays'
 function setFollowupDays(v){ v=parseInt(v,10)||30; if(v<1)v=1; try{ localStorage.setItem('followupDays',v); }catch(e){} return v; }
 function checkFollowupReminder(){
   var days=followupDays();
-  _sb.from('eigyo_leads').select('reg_no,name,updated_at').eq('status','商談済み→依頼待ち').then(function(r){
+  _sb.from('eigyo_leads').select('reg_no,name,updated_at').eq('status','結果待ち').then(function(r){
     var leads=(r.data)||[]; if(!leads.length){ closeFollowupModal(); return; }
     var regs=leads.map(function(l){return l.reg_no;});
     _sb.from('eigyo_notes').select('reg_no,note_date').in('reg_no',regs).then(function(nr){
@@ -2232,10 +2265,10 @@ function markMeetSent(flag){
 function markThanksSent(flag){
   if(!curLead) return;
   var patch = flag ? {thanks_sent:true, thanks_sent_at:new Date().toISOString()} : {thanks_sent:false, thanks_sent_at:null};
-  // 送信済みにしたら、契約中・対象外以外はステータスを「商談済み→依頼待ち」に自動更新
+  // 送信済みにしたら、未接触・アタック中・商談予定のときだけステータスを「結果待ち」に自動更新
   var statusMsg='';
-  if(flag && curLead.status!=='契約中' && curLead.status!=='対象外' && curLead.status!=='商談済み→依頼待ち'){
-    patch.status='商談済み→依頼待ち'; statusMsg='／ステータスを商談済み→依頼待ちに変更';
+  if(flag && ['','未接触','アタック中','商談予定'].indexOf(curLead.status||'')>=0){
+    patch.status='結果待ち'; statusMsg='／ステータスを結果待ちに変更';
   }
   _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
     if(r.error){ showMsg('dMsg','更新に失敗しました：'+r.error.message,'err'); return; }
@@ -2482,7 +2515,7 @@ function reschedOpen(regNo){ closeReschedModal(); openDrawer(regNo); }
 function openShareList(){
   var pane=el('toolPane'); if(!pane) return; _evictBoxes(); pane.innerHTML='';
   var checks=STATUSES.map(function(s){
-    var def=(s==='接触済み'||s==='商談予定'||s==='商談済み→依頼待ち')?' checked':'';
+    var def=(s==='アタック中'||s==='商談予定'||s==='結果待ち')?' checked':'';
     return '<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:2px 0;"><input type="checkbox" class="sharest" value="'+esc(s)+'"'+def+'> '+esc(s)+'</label>';
   }).join('');
   pane.innerHTML='<div style="background:#fff;border-radius:10px;padding:20px 22px;box-shadow:0 2px 6px rgba(0,0,0,.04);max-width:560px;">'
@@ -2569,7 +2602,7 @@ function openHelp(){
     'リスケ（連絡待ち）は「<b>📧 催促文をコピー</b>」で追いかけ、送ったら「<b>✅ フォロー実施</b>」（履歴に自動記録）。'
   ]);
   h+=sec('✉️','メール一斉配信（メルマガ）',[
-    'ツールバー「✉️ メール配信」→ 配信先ステータスを選択（例：商談済み→依頼待ち）。',
+    'ツールバー「✉️ メール配信」→ 配信先ステータスを選択（例：結果待ち）。',
     '会社ごとにチェックで選択、「<b>全選択/全解除</b>」も可能。まず<b>テスト送信</b>で確認してから本配信。',
     '詳細画面の「<b>✉️ メール配信不要</b>」にチェックした会社は配信対象から除外されます。'
   ]);
@@ -4412,7 +4445,7 @@ function mtLoad(){
     MT.data={}; MT.prev={};
     (rs[3].data||[]).forEach(function(r){ if(r.week_start===MT.week) MT.data=r.data||{}; else MT.prev=r.data||{}; });
     MT.apts=rs[7].data||[];
-    MT.leads=(rs[4].data||[]).filter(function(l){ return ['契約中','見込みなし','対象外'].indexOf(l.status)<0; });
+    MT.leads=(rs[4].data||[]).filter(function(l){ return ['確定','依頼待ち','だめ','離脱'].indexOf(l.status)<0; });
     mtRender();
   });
 }
@@ -5733,7 +5766,7 @@ function _thLoad(){
 }
 /* ===== 案シス連動の自動反映 ver.20261026.17 =====
    ① ステータス：案シスとひもづく登録支援機関は、依頼の状況で自動で切り替える
-      直近6か月に依頼あり→契約中／6〜12か月なし→離脱可能性あり／12か月以上なし→離脱（対象外は触らない）
+      直近6か月に依頼あり→確定／6か月以上なし→離脱（だめは触らない）
    ② 受注：案シスに初めて案件が登録された日を「受注開始日」として eigyo_deals に入れる
       既存の受注は開始日を初回案件日に合わせる。受注が無い機関は、初回案件が計画開始日（KPI）以降なら自動で受注を作る */
 var _anshisSyncing=false;
@@ -5743,9 +5776,9 @@ function _anshisSync(){
   var D=_thData, now=Date.now(), jobs=[], nSt=0, nDeal=0, nDate=0;
   D.rows.forEach(function(r){
     if(!r.a) return;
-    var want = r.st==='active'?'契約中':(r.st==='risk'?'離脱可能性あり':'離脱');
+    var want = r.st==='active'?'確定':'離脱';   // ver.20261029.01
     D.leadsAll.filter(function(l){ return l.support_org_id===r.l.support_org_id; }).forEach(function(l){
-      if(l.status===want || l.status==='対象外') return;
+      if(l.status===want || l.status==='だめ') return;
       nSt++; l.status=want;
       jobs.push(_sb.from('eigyo_leads').update({status:want, updated_at:new Date().toISOString()}).eq('reg_no', l.reg_no));
     });
@@ -5869,7 +5902,7 @@ function renderTorihikiTable(){
 function thSyncNew(){
   if(!_thData||!_thData.unlinked.length) return;
   // 案シス由来の取引先はランクを入れない（後で手動入力）
-  var recs=_thData.unlinked.map(function(o){ return {reg_no:'AS-'+o.id, name:String(o.name||'').trim(), support_org_id:o.id, is_client:true, is_manual:true, source:'案シス', status:'商談済み→依頼待ち'}; });
+  var recs=_thData.unlinked.map(function(o){ return {reg_no:'AS-'+o.id, name:String(o.name||'').trim(), support_org_id:o.id, is_client:true, is_manual:true, source:'案シス', status:'確定'}; });
   _sb.from('eigyo_leads').upsert(recs,{onConflict:'reg_no'}).then(function(r){
     if(r.error){ alert('取り込みエラー：'+r.error.message); return; }
     loadTorihiki();
@@ -5978,9 +6011,9 @@ function _mpCalc(){
   var BS={}; MP_STAFF.forEach(function(k){ BS[k]={}; months.forEach(function(m){ BS[k][m]={sup:0,org:0}; }); });   // ver.20261026.28: 担当別のPlan（絞り込みに関係なく4人分）
   (M.pipe||[]).forEach(function(l){
     var _pm=String(l.hr_start_date||'').slice(0,7), _k=String(l.staff||'').replace(/^[\s　]+/,''), _sk=MP_STAFF.filter(function(x){ return _k.indexOf(x)===0; })[0];
-    if(_sk && BS[_sk][_pm] && ['見込みなし','対象外','テレアポ失注'].indexOf(l.status)<0){ BS[_sk][_pm].sup+=sp(l); BS[_sk][_pm].org++; }
+    if(_sk && BS[_sk][_pm] && ['だめ','離脱'].indexOf(l.status)<0){ BS[_sk][_pm].sup+=sp(l); BS[_sk][_pm].org++; }
     if(!_mpStaffOk(l.staff)) return;
-    var pm=String(l.hr_start_date||'').slice(0,7); if(pm && at(pm) && ['見込みなし','対象外','テレアポ失注'].indexOf(l.status)<0){ at(pm).plan.sup+=sp(l); at(pm).plan.org++; }
+    var pm=String(l.hr_start_date||'').slice(0,7); if(pm && at(pm) && ['だめ','離脱'].indexOf(l.status)<0){ at(pm).plan.sup+=sp(l); at(pm).plan.org++; }
     var dm=String(l.decided_at||'').slice(0,7); if(dm && at(dm)){ at(dm).dec.sup+=sp(l); at(dm).dec.org++; }
   });
   deals.forEach(function(d){ if(!d.start_date || !_mpStaffOk(d.staff)) return; var x=at(String(d.start_date).slice(0,7)); if(!x) return; x.act.sup+=Number(d.supporters)||0; x.act.org++; });
@@ -6003,7 +6036,7 @@ function renderMonthPlan(){
     +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'+sb('all','全員')+MP_STAFF.map(function(s){ return sb(s,s); }).join('')+'<button class="btn btn-sm" onclick="loadMonthPlan(true)">↻ 再集計</button></div></div>';
   // 説明（4つの意味）
   var lg=function(c,b,t){ return '<span style="display:inline-flex;align-items:center;gap:5px;margin-right:16px;"><b>'+b+'</b><span class="sub">'+t+'</span></span>'; };
-  h+='<div style="font-size:12px;margin-bottom:10px;line-height:1.9;">'+lg('#94a3b8','目標','毎月の新規支援者数')+lg('#7c3aed','Plan','パイプラインのスタート時期')+lg('#d97706','決定','合意して「決まった」にした月')+lg('#16a34a','実績','案シスに案件が登録された月')
+  h+='<div style="font-size:12px;margin-bottom:10px;line-height:1.9;">'+lg('#94a3b8','目標','毎月の新規支援者数')+lg('#7c3aed','Plan','パイプラインのスタート時期')+lg('#d97706','決定','合意して「確定」「依頼待ち」にした月')+lg('#16a34a','実績','案シスに案件が登録された月')
     +(S!=='all'?'<span class="sub">（'+S+'さん：目標は4人で割った値）</span>':'')+'</div>';
   // 今月までのまとめ
   function tile(cls,label,v,sub){ return '<div class="kpi" style="cursor:default;border-left:3px solid #cbd5e1;"><div class="k">'+label+'</div><div class="v">'+v+'<span style="font-size:12px;font-weight:600;">人</span></div><div class="sub">'+sub+'</div></div>'; }
@@ -6063,12 +6096,13 @@ function renderMonthPlan(){
    取得率＝案シスで申請した人数（重複なし）÷ 支援者数 */
 var PL_STAFF=['大房','亀谷','中林','菅沼'];
 var PL_COLS=[
-  {k:'cand',  l:'🎯 候補',      st:['未接触',''],               c:'#64748b', to:'未接触'},
-  {k:'touch', l:'📞 アタック中', st:['接触済み','要経過観察'],     c:'#2563eb', to:'接触済み'},
+  // ver.20261029.01: 段階＝ステータスそのもの（未接触はアタック中として扱う）
+  {k:'touch', l:'📞 アタック中', st:['アタック中','未接触',''],   c:'#2563eb', to:'アタック中'},
   {k:'meet',  l:'🗓 商談予定',   st:['商談予定'],                 c:'#7c3aed', to:'商談予定'},
-  {k:'wait',  l:'⏳ 依頼待ち',   st:['商談済み→依頼待ち'],        c:'#d97706', to:'商談済み→依頼待ち'},
-  {k:'won',   l:'✅ 決まった',   st:['契約中','離脱可能性あり','離脱'], c:'#16a34a', to:'契約中'},
-  {k:'lost',  l:'✖ だめ',       st:['見込みなし','対象外'],      c:'#dc2626', to:'見込みなし'}
+  {k:'wait',  l:'⏳ 結果待ち',   st:['結果待ち'],                 c:'#d97706', to:'結果待ち'},
+  {k:'won',   l:'✅ 確定',       st:['確定'],                     c:'#16a34a', to:'確定'},
+  {k:'req',   l:'📮 依頼待ち',   st:['依頼待ち'],                 c:'#ca8a04', to:'依頼待ち'},
+  {k:'lost',  l:'✖ だめ',       st:['だめ','離脱'],              c:'#dc2626', to:'だめ'}
 ];
 var _PL={data:null, staff:'all', q:'', hits:null};
 function plStaffKey(s){ s=String(s||'').replace(/^[\s　]+/,''); for(var i=0;i<PL_STAFF.length;i++){ if(s.indexOf(PL_STAFF[i])===0) return PL_STAFF[i]; } return ''; }
@@ -6080,7 +6114,8 @@ function loadPipeline(force){
   var pane=el('pipePane'); if(!pane) return;
   if(_PL.data && !force){ renderPipeline(); return; }
   pane.innerHTML='<div class="loading">読み込み中...（案シスの実績を集計しています）</div>';
-  var F='reg_no,name,pref,status,staff,supporter_count,expected_supporter,support_org_id,attack100,attack100_at,attack_nb,attack_km,attack_sg,updated_at,meeting_date,apt_at,next_action,next_action_date,close_prob,hr_start_date,attack_month,decided_at,month_prospect';
+  var F='reg_no,name,pref,status,staff,supporter_count,expected_supporter,support_org_id,attack100,attack100_at,attack_nb,attack_km,attack_sg,updated_at,meeting_date,apt_at,next_action,next_action_date,close_prob,hr_start_date,attack_month,decided_at,month_prospect,case_staff,hr_monthly_apps';
+  loadCaseStaff();
   Promise.all([
     _thFetchAll(function(){ return _sb.from('eigyo_leads').select(F).or('attack100.eq.true,attack_nb.eq.true,attack_km.eq.true,attack_sg.eq.true').order('reg_no'); }),
     _thFetchAll(function(){ return _sb.from('support_orgs').select('id,name').order('id'); }),
@@ -6120,12 +6155,12 @@ function renderPipeline(){
   var n0=function(v){ return Math.round(v||0).toLocaleString(); };
   var cnt={}, sup={}; PL_COLS.forEach(function(c){ cnt[c.k]=0; sup[c.k]=0; });
   mine.forEach(function(l){ var k=plCol(l.status); cnt[k]++; sup[k]+=plSup(l); });
-  var openK=['cand','touch','meet','wait'], openN=0, openS=0; openK.forEach(function(k){ openN+=cnt[k]; openS+=sup[k]; });
+  var openK=['touch','meet','wait'], openN=0, openS=0; openK.forEach(function(k){ openN+=cnt[k]; openS+=sup[k]; });
   var list=mine.filter(function(l){ var k=plCol(l.status); return G==='all' || (G==='open'? openK.indexOf(k)>=0 : k===G); });
   var q=String(_PL.f||'').trim(); if(q) list=list.filter(function(l){ return String(l.name||'').indexOf(q)>=0; });
   var ord={}; PL_COLS.forEach(function(c,i){ ord[c.k]=i; });
   list.sort(function(a,b){ if(_PL.justAdded){ if(a.reg_no===_PL.justAdded) return -1; if(b.reg_no===_PL.justAdded) return 1; } var am=String(a.hr_start_date||'9999'), bm=String(b.hr_start_date||'9999'); if(am!==bm) return am<bm?-1:1; var o=ord[plCol(a.status)]-ord[plCol(b.status)]; if(o) return o; return plSup(b)-plSup(a); });
-  var verSup=0, verPpl=0; mine.forEach(function(l){ if(plCol(l.status)!=='won') return; var a=aggOf(l); if(a){ verSup+=plSup(l); verPpl+=Object.keys(a.ppl).length; } });
+  var verSup=0, verPpl=0; mine.forEach(function(l){ var _kw=plCol(l.status); if(_kw!=='won' && _kw!=='req') return; var a=aggOf(l); if(a){ verSup+=plSup(l); verPpl+=Object.keys(a.ppl).length; } });
   var mT=plSupTargetMonth(D.plan, D.saved), nM=parseInt(D.plan.plan_months,10)||12, yT=mT*nM*((S==='all')?1:1/PL_STAFF.length);
   var staffBtn=function(k,l){ var on=S===k; return '<button class="btn btn-sm" style="'+(on?'background:var(--accent);color:#fff;':'')+'" onclick="_PL.staff=\''+k+'\';renderPipeline()">'+l+'</button>'; };
   var h='<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;"><h2 style="margin:0;font-size:18px;color:var(--accent);">🧭 パイプライン</h2>'
@@ -6133,10 +6168,16 @@ function renderPipeline(){
     +'<button class="btn btn-sm" onclick="loadPipeline(true)">↻ 再集計</button></div></div>';
   function tile(cls,label,v,unit,sub){ return '<div class="kpi '+cls+'" style="cursor:default;"><div class="k">'+label+'</div><div class="v">'+v+'<span style="font-size:12px;font-weight:600;">'+unit+'</span></div><div class="sub">'+sub+'</div></div>'; }
   h+='<div class="kpis">'
-    +tile('s0','動いている支援者数',n0(openS),'人','候補〜依頼待ち '+openN+'社')
+    +tile('s0','動いている支援者数',n0(openS),'人','アタック中〜結果待ち '+openN+'社')
     +tile('s2','決定した支援者数',n0(sup.won),'人',cnt.won+'社'+(yT?' ／ 年間目標 '+n0(yT)+'人の '+Math.round(sup.won/yT*100)+'%':''))
+    +tile('s3','申請見込み（月）',n0(list.reduce(function(a,l){ return a+(+l.hr_monthly_apps||0); },0)),'件','表に出ている会社の合計'+(function(){ var m=list.filter(function(l){ return l.hr_monthly_apps==null; }).length; return m?'（未入力 '+m+'社）':''; })())
     +tile('s1','実績（案シスに案件あり）',n0(verSup),'人','取得率 '+(verSup?Math.round(verPpl/verSup*1000)/10+'%':'—')+'（申請した人数 '+n0(verPpl)+'人）')
     +'</div>';
+  // ver.20261029.01: 案件担当ごとの申請見込み（月）
+  (function(){ var g={}; list.forEach(function(l){ var k=l.case_staff?String(l.case_staff).split(/[\s　]/)[0]:'未定'; g[k]=(g[k]||0)+(+l.hr_monthly_apps||0); });
+    var ks=Object.keys(g).sort(function(a,b){ return g[b]-g[a]; });
+    if(ks.length) h+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:-2px 0 10px;font-size:13px;"><b style="color:#334155;">案件担当ごとの申請見込み（月）</b>'+ks.map(function(k){ return '<span style="padding:3px 10px;border-radius:999px;background:'+(k==='未定'?'#fef3c7':'#eff6ff')+';border:1px solid '+(k==='未定'?'#fcd34d':'#bfdbfe')+';color:'+(k==='未定'?'#92400e':'#1e40af')+';font-weight:700;">'+esc(k)+' '+n0(g[k])+'件</span>'; }).join('')+'</div>';
+  })();
   // 段階の切り替え（件数・支援者数つき）
   var chip=function(k,l,n,s,c){ var on=G===k; return '<button onclick="_PL.stage=\''+k+'\';renderPipeline()" style="font:inherit;font-size:12.5px;padding:5px 12px;border-radius:999px;cursor:pointer;border:1px solid '+(on?(c||'var(--accent)'):'var(--line)')+';background:'+(on?(c||'var(--accent)'):'#fff')+';color:'+(on?'#fff':'#334155')+';font-weight:'+(on?800:600)+';">'+l+' <span style="opacity:.8;font-weight:600;">'+n+'社・'+n0(s)+'人</span></button>'; };
   h+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">'+chip('open','動いている',openN,openS,'#1F4E79')
@@ -6158,27 +6199,29 @@ function renderPipeline(){
   var td='padding:9px 10px;border-bottom:1px solid #edf2f7;font-size:15px;vertical-align:middle;';
   var inp='font-size:14.5px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;';
   h+='<div class="tablewrap" style="max-height:calc(100vh - 330px);overflow:auto;"><table style="width:100%;border-collapse:collapse;"><thead><tr>'
-    +['いつやる','スタート時期','登録支援機関','支援者数','担当','段階','確度','実績（案シス）',''].map(function(x){ return '<th style="'+th+'">'+x+'</th>'; }).join('')+'</tr></thead><tbody>';
-  if(!list.length) h+='<tr><td colspan="9" style="'+td+'text-align:center;color:#94a3b8;padding:20px;">該当する会社がありません</td></tr>';
+    +['いつやる','スタート時期','登録支援機関','支援者数','申請見込み（月）','担当（営業）','案件担当','段階','確度','実績（案シス）',''].map(function(x){ return '<th style="'+th+'">'+x+'</th>'; }).join('')+'</tr></thead><tbody>';
+  if(!list.length) h+='<tr><td colspan="11" style="'+td+'text-align:center;color:#94a3b8;padding:20px;">該当する会社がありません</td></tr>';
   list.forEach(function(l){
     var k=plCol(l.status), col=PL_COLS.filter(function(c){ return c.k===k; })[0], a=aggOf(l), sp=plSup(l), R=esc(l.reg_no);
     var res='<span style="color:#cbd5e1;">—</span>';
     if(a){ var np=Object.keys(a.ppl).length; res='<span style="color:#166534;font-weight:700;">✔ 初回 '+a.first.slice(2).replace(/-/g,'/')+'</span><div class="sub" style="font-size:12.5px;">申請 '+a.apps+'件・'+np+'人'+(sp?'（取得率 '+Math.round(np/sp*1000)/10+'%）':'')+'</div>'; }
-    else if(k==='won') res='<span style="color:#b45309;font-size:11.5px;">⏳ 案件待ち</span>';
+    else if(k==='won'||k==='req') res='<span style="color:#b45309;font-size:11.5px;">⏳ 案件待ち</span>';
     var em=String(l.month_prospect||'').slice(0,7), dm=String(l.decided_at||'').slice(0,7), sm=String(l.hr_start_date||'').slice(0,7);
     h+='<tr style="'+(k==='lost'?'opacity:.55;':'')+(l.reg_no===_PL.justAdded?'background:#fefce8;':'')+'">'
       +'<td style="'+td+'"><input type="month" value="'+esc(l.attack_month||'')+'" onchange="plSave(\''+R+'\',{attack_month:this.value||null},\'いつやるかを保存しました\')" style="'+inp+'width:150px;"></td>'
       +'<td style="'+td+'"><input type="month" value="'+esc(sm)+'" title="いつから依頼がスタートしそうか（この月の月別計画のPlanに入ります）" onchange="plSave(\''+R+'\',{hr_start_date:this.value?this.value+\'-01\':null},\'スタート時期を保存しました（その月のPlanに入ります）\')" style="'+inp+'width:150px;"></td>'
       +'<td style="'+td+'min-width:200px;"><a href="javascript:void(0)" onclick="openDrawer(\''+R+'\')" style="font-weight:700;color:var(--accent);">'+esc(l.name||'')+'</a><div class="sub" style="font-size:12.5px;">'+esc(l.pref||'')+'</div></td>'
       +'<td style="'+td+'"><input type="number" min="0" value="'+(l.supporter_count!=null?esc(l.supporter_count):'')+'" placeholder="'+(l.expected_supporter?esc(l.expected_supporter):'')+'" onchange="plSetSup(\''+R+'\',this.value)" style="'+inp+'width:90px;text-align:right;font-weight:800;">人</td>'
+      +'<td style="'+td+'white-space:nowrap;"><input type="number" min="0" value="'+(l.hr_monthly_apps!=null?esc(l.hr_monthly_apps):'')+'" placeholder="—" title="月に何件くらい申請が来そうか（営シスの「月の申請ポテンシャル」）" onchange="plSave(\''+R+'\',{hr_monthly_apps:this.value===\'\'?null:parseInt(this.value,10)},\'申請見込みを保存しました\')" style="'+inp+'width:80px;text-align:right;font-weight:800;color:#1d4ed8;">件</td>'
       +'<td style="'+td+'"><select onchange="plSetStaff(\''+R+'\',this.value)" style="'+inp+'"><option value="">—</option>'+STAFF_SEED.map(function(s){ var kk=s.split(/[\s　]/)[0]; return '<option value="'+esc(s)+'"'+(plStaffKey(l.staff)===kk||l.staff===s?' selected':'')+'>'+esc(kk)+'</option>'; }).join('')+'</select></td>'
+      +'<td style="'+td+'"><select onchange="saveCaseStaff(\''+R+'\',this.value,\''+esc(l.support_org_id||'')+'\',function(){ loadPipeline(true); })" style="'+inp+'">'+csOptions(l.case_staff||'')+'</select></td>'
       +'<td style="'+td+'"><select onchange="plMove(\''+R+'\',this.value)" style="'+inp+'font-weight:700;color:'+col.c+';border-color:'+col.c+'66;">'+PL_COLS.map(function(x){ return '<option value="'+x.k+'"'+(x.k===k?' selected':'')+'>'+x.l+'</option>'; }).join('')+'</select></td>'
       +'<td style="'+td+'min-width:96px;">'+ilProb(l.reg_no,l.close_prob).replace('inlineSave(','plProbSave(').replace('font-size:12px;','font-size:14px;').replace('padding:3px 2px;','padding:6px 4px;')+'</td>'
       +'<td style="'+td+'white-space:nowrap;">'+res+'</td>'
       +'<td style="'+td+'">'+(plIn(l)?'<button title="パイプラインから外す" onclick="plRemove(\''+R+'\')" style="border:none;background:none;color:#94a3b8;cursor:pointer;">✕</button>':'')+'</td></tr>';
   });
   h+='</tbody></table></div>';
-  h+='<div class="sub" style="font-size:13px;margin-top:8px;">スタート時期＝いつから依頼が始まりそうか（その月の月別計画の<b>Plan</b>に入ります）。段階を「✅ 決まった」にすると、その月の<b>決定</b>に入ります。<b>実績</b>は案シスに案件が登録された月で数えます。</div>';
+  h+='<div class="sub" style="font-size:13px;margin-top:8px;">スタート時期＝いつから依頼が始まりそうか（その月の月別計画の<b>Plan</b>に入ります）。段階を「✅ 確定」「📮 依頼待ち」にすると、その月の<b>決定</b>に入ります。<b>実績</b>は案シスに案件が登録された月で数えます。</div>';
   pane.innerHTML=h;
   if(_PL.hits && String(_PL.q||'').trim()) plHitsPaint();
 }
@@ -6213,7 +6256,7 @@ function plSave(reg, row, msg){
 }
 function plMove(reg, k){ var c=PL_COLS.filter(function(x){ return x.k===k; })[0]; if(!c) return; var l=plFind(reg); if(l && c.st.indexOf(l.status||'')>=0) return;
   var row={status:c.to};   // ver.20261026.25: 決まった＝合意した日を決定日に（月別計画の「決定」）。決まった以外に戻したら決定日を消す
-  if(k==='won'){ if(!(l&&l.decided_at)) row.decided_at=new Date(Date.now()+9*3600000).toISOString().slice(0,10); }
+  if(k==='won'||k==='req'){ if(!(l&&l.decided_at)) row.decided_at=new Date(Date.now()+9*3600000).toISOString().slice(0,10); }
   else if(l && l.decided_at) row.decided_at=null;
   plSave(reg,row,'「'+c.l.replace(/^\S+\s/,'')+'」にしました'+(row.decided_at?'（決定月 '+(+row.decided_at.slice(5,7))+'月）':''));
 }
@@ -6257,7 +6300,7 @@ function plAdd(reg){
     if(r.error){ alert('保存エラー：'+r.error.message); return; }
     Object.assign(l,row); if(!plFind(reg)) _PL.data.leads.push(Object.assign({},l)); else Object.assign(plFind(reg),row);
     _PL.q=''; _PL.hits=null; _PL.justAdded=reg; _PL.f='';
-    var _k=plCol(l.status); if(!(_PL.stage==='all' || _PL.stage===_k || (_PL.stage==='open' && ['cand','touch','meet','wait'].indexOf(_k)>=0))) _PL.stage='all';
+    var _k=plCol(l.status); if(!(_PL.stage==='all' || _PL.stage===_k || (_PL.stage==='open' && ['touch','meet','wait'].indexOf(_k)>=0))) _PL.stage='all';
     autosaveToast('「'+(l.name||'')+'」をパイプラインに追加しました'); renderPipeline();
   });
 }

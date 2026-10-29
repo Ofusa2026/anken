@@ -49,13 +49,13 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto
       <a href="./index.html">📋 案シス（案件管理）</a>
       <a href="./eigyo.html">🤝 営シス（営業管理）</a>
     </nav>
-    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261026.03</span></div>
+    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261029.01</span></div>
   </aside>
   <main class="kk-main" id="kkMain"><div style="padding:60px;text-align:center;color:#94a3b8;">読み込み中…</div></main>
 </div>
 <div id="toast"></div>
 <script>
-var OFUSA_VERSION='ver.20261026.03';
+var OFUSA_VERSION='ver.20261029.01';
 var SUPABASE_URL='https://ehwlgbwpycglmopiqyty.supabase.co', SUPABASE_KEY='sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}, global:{headers:{'x-ofusa-user':encodeURIComponent((function(){ try{ return localStorage.getItem('ofusa_currentUser')||''; }catch(e){ return ''; } })())}}});
 var DB_READY=true;
@@ -1287,7 +1287,7 @@ function kkHomeHtml(R){
   return h;
 }
 // ===== 🤝 営業計画（営シス連携） =====
-var KK_PIPE=['商談予定','商談済み→依頼待ち','契約中'];
+var KK_PIPE=['商談予定','結果待ち','確定','依頼待ち'];   // ver.20261029.01: 営シスのステータス変更に合わせる
 async function kkSalesLoad(){
   if(KK.salesLoading) return; KK.salesLoading=true;
   try{
@@ -1314,23 +1314,23 @@ function kkSalesHtml(){
   var filled=S.leads.filter(function(l){ return l.hr_monthly_apps; }).length, withStart=S.leads.filter(function(l){ return l.hr_start_date; }).length, withProb=S.leads.filter(function(l){ return l.close_prob!=null&&l.close_prob!==''; }).length;
   var h='<div class="skrp-kpis">'
     +_skRpKpi('n','商談予定',n0(cnt['商談予定']),'社','')
-    +_skRpKpi('b','商談済み→依頼待ち',n0(cnt['商談済み→依頼待ち']),'社','')
-    +_skRpKpi('g','契約中',n0(cnt['契約中']),'社','受注登録（eigyo_deals）'+S.deals.length+'件')
+    +_skRpKpi('b','結果待ち',n0(cnt['結果待ち']),'社','')
+    +_skRpKpi('g','確定',n0((cnt['確定']||0)+(cnt['依頼待ち']||0)),'社','うち依頼待ち '+n0(cnt['依頼待ち']||0)+'社／受注登録（eigyo_deals）'+S.deals.length+'件')
     +_skRpKpi('o','月間申請の見込みが入っている先',n0(filled),'社','開始予定月 '+withStart+'社・確度 '+withProb+'社')
     +'</div>';
   // 見込み → ロードマップへ
-  var pend=S.leads.filter(function(l){ return l.status!=='契約中' && (l.hr_monthly_apps||l.hr_potential_apps); });
+  var pend=S.leads.filter(function(l){ return (l.status!=='確定' && l.status!=='依頼待ち') && (l.hr_monthly_apps||l.hr_potential_apps); });
   h+='<div class="skrp-sec">見込み先の申請見込み<span>営シスの「月間申請（hr_monthly_apps）」「開始予定（hr_start_date）」「確度（close_prob）」から。期待値＝月間申請×確度</span></div>';
   h+='<div style="overflow:auto;"><table class="skp-tbl"><thead><tr><th class="l" style="padding-left:12px;">見込み先</th><th>ステータス</th><th>担当</th><th>月間申請</th><th>開始予定</th><th>確度</th><th>期待値（件／月）</th><th>期待売上（万円／月）</th></tr></thead><tbody>';
   var tN=0;
-  pend.forEach(function(l){ var m=+l.hr_monthly_apps||Math.round((+l.hr_potential_apps||0)/12), pr=(l.close_prob!=null&&l.close_prob!=='')?+l.close_prob:(l.status==='商談済み→依頼待ち'?50:20), ex=m*pr/100; tN+=ex;
+  pend.forEach(function(l){ var m=+l.hr_monthly_apps||Math.round((+l.hr_potential_apps||0)/12), pr=(l.close_prob!=null&&l.close_prob!=='')?+l.close_prob:(l.status==='結果待ち'?50:20), ex=m*pr/100; tN+=ex;
     h+='<tr class="st"><td class="l" style="padding-left:12px;font-weight:700;color:#0f172a;">'+esc(l.name)+'</td><td>'+esc(l.status)+'</td><td>'+esc(l.staff||'')+'</td><td>'+n0(m)+'</td><td>'+esc(String(l.hr_start_date||'').slice(0,7)||'—')+'</td><td>'+pr+'%'+((l.close_prob==null||l.close_prob==='')?'<span class="skp-tag">仮</span>':'')+'</td><td style="font-weight:800;">'+(Math.round(ex*10)/10)+'</td><td>'+_skRpMan(ex*_SKRP_PRICE['認定・変更'],1)+'</td></tr>'; });
   if(!pend.length) h+='<tr class="sub"><td class="l" colspan="8" style="padding-left:12px;color:#94a3b8;">営シスに月間申請の見込みが入っている見込み先がまだありません。</td></tr>';
   h+='<tr class="tot"><td class="l" style="padding-left:16px;">合計（期待値）</td><td></td><td></td><td></td><td></td><td></td><td>'+(Math.round(tN*10)/10)+'</td><td>'+_skRpMan(tN*50000,1)+'</td></tr></tbody></table></div>'
     +(pend.length?'<button class="skp-btn pri" style="margin-top:8px;" onclick="kkPushToRoadmap()">🗺 この期待値をロードマップの「申請の上乗せ」に入れる</button>':'');
-  // 契約中の進捗（予定と実績）
-  var cl=S.leads.filter(function(l){ return l.status==='契約中'; });
-  h+='<div class="skrp-sec">契約中の進捗（予定と実績）<span>実績＝案シスの依頼件数（案件の登録数・登録支援機関で照合）</span></div>';
+  // 確定先の進捗（予定と実績）
+  var cl=S.leads.filter(function(l){ return l.status==='確定'||l.status==='依頼待ち'; });
+  h+='<div class="skrp-sec">確定先の進捗（予定と実績）<span>実績＝案シスの依頼件数（案件の登録数・登録支援機関で照合）</span></div>';
   h+='<div style="overflow:auto;"><table class="skp-tbl"><thead><tr><th class="l" style="padding-left:12px;">契約先</th><th>予定（月）</th>'+months.map(function(m,i){ return '<th'+(i===0?' class="dv"':'')+(m===nowYm?' style="color:#1d4ed8;"':'')+'>'+(+m.slice(5))+'月</th>'; }).join('')+'<th class="dv">達成（直近3か月）</th></tr></thead><tbody>';
   var rows=cl.map(function(l){ var on=orgName[l.support_org_id]||l.name, a=byOrg[on]||byOrg[String(l.name).trim()]||{}; return {l:l, a:a, tot:months.reduce(function(s,m){ return s+(a[m]||0); },0)}; }).sort(function(x,y){ return y.tot-x.tot; });
   rows.slice(0,60).forEach(function(r){ var plan=+r.l.hr_monthly_apps||0, l3=[months[2],months[3],months[4]].reduce(function(s,m){ return s+(r.a[m]||0); },0)/3, pc=plan?Math.round(l3/plan*100):null;
@@ -1339,18 +1339,18 @@ function kkSalesHtml(){
   // 営シスに足りない機能
   h+='<div class="skrp-sec">営シスに足りないもの（経営企画とつなぐために）</div><div class="kk-card" style="font-size:12.5px;line-height:1.9;color:#334155;">'
     +'<b>1. 見込み先ごとの「いつから・月何件・いくら・確度」の入力</b>：入れる欄（月間申請・開始予定・確度・単価）はDBにあるが、画面で使われておらず入っているのは '+filled+'社／確度は '+withProb+'社。<br>'
-    +'<b>2. 受注の登録と案シスの登録支援機関のひもづけ</b>：受注（eigyo_deals）は '+S.deals.length+'件だけ。契約中 '+cl.length+'社のうち登録支援機関IDがあるのは '+cl.filter(function(l){ return l.support_org_id; }).length+'社。IDがないと予定と実績を比べられない。<br>'
+    +'<b>2. 受注の登録と案シスの登録支援機関のひもづけ</b>：受注（eigyo_deals）は '+S.deals.length+'件だけ。確定 '+cl.length+'社のうち登録支援機関IDがあるのは '+cl.filter(function(l){ return l.support_org_id; }).length+'社。IDがないと予定と実績を比べられない。<br>'
     +'<b>3. 営業計画（月別の受注目標→申請件数→売上）</b>：KPI計画（年間売上目標 '+(S.plan?_skRpMan(+S.plan.target_revenue,0)+'万円':'未設定')+'・100社あたり申請数）はあるが、月ごとの「何社受注・何件増える・いくら」の計画と実績の表がない。<br>'
     +'<b>4. 活動の実績入力</b>：架電・商談・受注のKPI目標はあるが、日々の実績（eigyo_kpi_daily）が0件。<br>'
-    +'<b>5. 既存先の増減（伸び・離反）</b>：契約中の申請が減った・止まった先を知らせる仕組みがない（上の表で3か月平均が予定を下回る先）。<br>'
+    +'<b>5. 既存先の増減（伸び・離反）</b>：確定先の申請が減った・止まった先を知らせる仕組みがない（上の表で3か月平均が予定を下回る先）。<br>'
     +'→ 1・2が入れば、この画面の期待値が自動でロードマップの上乗せになり、予定と実績を毎月追えます。</div>';
   return h;
 }
 function kkPushToRoadmap(){
   var S=KK.sales; if(!S) return; var R=_skRpCalc(_skPerf.year), p=_skRmOf(R), added=0;
   p.items=(p.items||[]).filter(function(it){ return it.src!=='eigyo'; });
-  S.leads.filter(function(l){ return l.status!=='契約中' && (l.hr_monthly_apps||l.hr_potential_apps); }).forEach(function(l){
-    var m=+l.hr_monthly_apps||Math.round((+l.hr_potential_apps||0)/12), pr=(l.close_prob!=null&&l.close_prob!=='')?+l.close_prob:(l.status==='商談済み→依頼待ち'?50:20), ex=Math.round(m*pr/10)/10; if(!ex) return;
+  S.leads.filter(function(l){ return (l.status!=='確定' && l.status!=='依頼待ち') && (l.hr_monthly_apps||l.hr_potential_apps); }).forEach(function(l){
+    var m=+l.hr_monthly_apps||Math.round((+l.hr_potential_apps||0)/12), pr=(l.close_prob!=null&&l.close_prob!=='')?+l.close_prob:(l.status==='結果待ち'?50:20), ex=Math.round(m*pr/10)/10; if(!ex) return;
     var ym=String(l.hr_start_date||'').slice(0,7); if(!/^\d{4}-\d{2}$/.test(ym) || ym<p.start) ym=p.start;
     p.items.push({name:l.name+'（営シス見込み）', ym:ym, n:ex, mode:'flat', kind:'認定・変更', price:null, end:'', src:'eigyo'}); added++; });
   showToast('🗺 '+added+'件をロードマップに入れました'); _skRmSave(p);
