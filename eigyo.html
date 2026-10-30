@@ -227,7 +227,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261030.01</div>
+      <div class="ver">ver.20261030.03</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -1549,6 +1549,7 @@ function loadKpis(){
 /* ---------------- 詳細ドロワー ---------------- */
 var curLead = null;
 function openDrawer(regNo){
+  _noteAutoFlush();   // ver.20261030.03: 入力中の履歴は描き直す前に自動で追加
   el('ov').classList.add('on');
   el('dw').classList.add('on');
   el('dBody').innerHTML = '<div class="loading">読み込み中...</div>';
@@ -1572,6 +1573,7 @@ function refreshOpenPane(){
 }
 function closeDrawer(){
   flushAutosave();
+  _noteAutoFlush();   // ver.20261030.03: 「履歴を追加」の押し忘れ対策
   el('ov').classList.remove('on');
   el('dw').classList.remove('on');
   var wasDirty=_autosaveDirty||_drawerSaved; curLead = null; _drawerSaved=false;
@@ -1801,8 +1803,8 @@ function renderDrawer(){
   +   '<label>日付</label><input type="date" id="nDate" value="'+today()+'">'
   +   '<label>種別</label><select id="nKind">'+KINDS.map(function(k){return '<option>'+esc(k)+'</option>';}).join('')+'</select>'
   +   '<label>記入者</label><input type="text" id="nAuthor" value="'+esc(x.staff||'')+'">'
-  +   '<label>内容</label><textarea id="nBody" placeholder="話した内容・先方の反応など"></textarea>'
-  + '</div><div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" onclick="addNote()">履歴を追加</button></div></div>'
+  +   '<label>内容</label><textarea id="nBody" placeholder="話した内容・先方の反応など（閉じると自動で追加されます／Ctrl+Enterでも追加）" oninput="_noteDirtyUi()" onkeydown="if((event.ctrlKey||event.metaKey)&&event.key===\'Enter\'){event.preventDefault();addNote();}"></textarea>'
+  + '</div><div style="margin-top:10px;text-align:right;"><button class="btn btn-primary" id="nAddBtn" onclick="addNote()">履歴を追加</button></div></div>'
 
   + '<div class="sec"><h3>対応履歴</h3><div id="noteList"><div class="loading">読み込み中...</div></div></div>'
 
@@ -2323,16 +2325,16 @@ function copyThanksMsg(){
   var intro = sender ? ('お世話になっております。大房行政書士法人の'+sender+'でございます。')
                      : 'お世話になっております。大房行政書士法人でございます。';
   var sign = sender || '大房行政書士法人';
-  var links=''; var hasPledge=false;
+  var links=''; var hasPledge=false; var ownPrice=false;
   var picks=document.querySelectorAll('.matpick:checked');
   if(picks && picks.length){
-    var arr=[]; for(var i=0;i<picks.length;i++){ var u=picks[i].getAttribute('data-url'); var n=picks[i].getAttribute('data-name'); if(u) arr.push('・'+n+'：'+u); if(n && n.indexOf('誓約書')>=0) hasPledge=true; }
+    var arr=[]; for(var i=0;i<picks.length;i++){ var u=picks[i].getAttribute('data-url'); var n=picks[i].getAttribute('data-name'); if(u) arr.push('・'+n+'：'+u); if(n && n.indexOf('誓約書')>=0) hasPledge=true; if(u && picks[i].getAttribute('data-cat')==='料金表') ownPrice=true; }
     if(arr.length) links='\n▼共有資料\n\n'+arr.join('\n\n')+'\n';
   }
   var pledgeNote = hasPledge ? '\n監査サービスをご希望の場合は、上記の監査対応サービス誓約書にご署名をしていただく必要がございます。\n' : '';
   var pd=_ppDiffLines(curLead);
   var priceNote = pd.length ? ('\nなお、料金につきましては、貴社向けに下記のとおり通常料金から変更してご提案させていただいております（税込）。\n\n'
-      + pd.join('\n')+'\n\n上記以外は通常料金となります。添付の料金表もあわせてご確認ください。\n') : '';
+      + pd.join('\n')+'\n\n上記以外は通常料金となります。'+(ownPrice?'下記の共有資料にある貴社向けの料金表もあわせてご確認ください。':'添付の料金表もあわせてご確認ください。')+'\n') : '';
   var body='件名：本日の御礼（大房行政書士法人）\n\n'
     + esc0(curLead.name||'')+'\n'+person+'様\n\n'
     + intro+'\n'
@@ -3131,7 +3133,22 @@ function loadMaterials(regNo){
     if(r.error){ box.innerHTML='<span class="sub">読み込みエラー</span>'; return; }
     var d=r.data||[]; var common=d.filter(function(m){return m.scope==='common';}); var mine=d.filter(function(m){return m.scope==='lead';});
     var h='';
+    var hasOwnPrice=mine.some(function(m){ return m.category==='料金表'; });
     h+='<div style="font-size:11px;color:#805ad5;margin-bottom:3px;">御礼文に入れる資料（チェックしたリンクが御礼文に入ります）</div>';
+    if(mine.length){
+      h+='<div style="border:1px solid #f6ad55;background:#fffaf0;border-radius:6px;padding:6px 8px;margin-bottom:6px;text-align:left;">';
+      h+='<div style="font-size:11px;font-weight:700;color:#c05621;margin:2px 0;">この会社用の資料'+(hasOwnPrice?'（提案金額の料金表）':'')+'</div>';
+      h+='<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px;">';
+      h+=mine.map(function(m){
+        var checked=(m.category==='料金表')?' checked':'';
+        return '<tr>'
+          + '<td style="width:22px;vertical-align:top;padding:2px 0;"><input type="checkbox" class="matpick" value="'+m.id+'" data-own="1" data-cat="'+esc(m.category||'')+'" data-name="'+esc(m.name)+'" data-url="'+esc(m.url||'')+'"'+checked+' style="width:15px;height:15px;padding:0;margin:0;"></td>'
+          + '<td style="vertical-align:top;padding:2px 4px;word-break:break-word;">'+esc(m.name)+'</td>'
+          + '<td style="width:34px;vertical-align:top;padding:2px 0;text-align:right;">'+(m.url?'<a href="'+esc(m.url)+'" target="_blank" style="font-size:10px;">開く</a>':'')+'</td>'
+          + '</tr>';
+      }).join('');
+      h+='</table></div>';
+    }
     if(common.length){
       var groups={}; common.forEach(function(m){ var c=m.category||'共通資料'; (groups[c]=groups[c]||[]).push(m); });
       h+='<div style="border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-bottom:6px;text-align:left;">';
@@ -3139,7 +3156,7 @@ function loadMaterials(regNo){
         h+='<div style="font-size:11px;font-weight:700;color:#6b46c1;margin:2px 0;">'+esc(c)+'</div>';
         h+='<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px;">';
         h+=groups[c].map(function(m){
-          var checked=(c==='共通資料')?' checked':'';
+          var checked=(c==='共通資料' && !(hasOwnPrice && String(m.name).indexOf('料金表')>=0))?' checked':'';
           return '<tr>'
             + '<td style="width:22px;vertical-align:top;padding:2px 0;"><input type="checkbox" class="matpick" value="'+m.id+'" data-name="'+esc(m.name)+'" data-url="'+esc(m.url||'')+'"'+checked+' style="width:15px;height:15px;padding:0;margin:0;"></td>'
             + '<td style="vertical-align:top;padding:2px 4px;word-break:break-word;">'+esc(m.name)+'</td>'
@@ -3386,29 +3403,58 @@ function deleteNote(id){
   });
 }
 
+/* ver.20261030.03: 入力中の履歴を自動で追加（閉じる・別の会社を開く・描き直す前） */
+function _noteDirtyUi(){
+  var b=el('nAddBtn'), t=el('nBody'); if(!b||!t) return;
+  var dirty=!!t.value.trim();
+  b.textContent = dirty ? '履歴を追加（未保存）' : '履歴を追加';
+  b.style.background = dirty ? '#dd6b20' : ''; b.style.borderColor = dirty ? '#dd6b20' : '';
+}
+function _noteToast(txt){
+  var d=document.createElement('div'); d.textContent=txt;
+  d.style.cssText='position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:9999;background:#2f855a;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.25);';
+  document.body.appendChild(d); setTimeout(function(){ d.remove(); }, 3500);
+}
+function _noteAutoFlush(){
+  var t=el('nBody'); if(!curLead || !t || !t.value.trim()) return;
+  var reg=curLead.reg_no, name=curLead.name||'';
+  var rec={ reg_no:reg, note_date:(el('nDate')&&el('nDate').value)||today(), kind:el('nKind')?el('nKind').value:null,
+            author:(el('nAuthor')&&el('nAuthor').value.trim())||null, body:t.value.trim(), status_to:null };
+  t.value=''; _noteDirtyUi();
+  _sb.from('eigyo_notes').insert(rec).then(function(r){
+    if(r.error){ alert('入力中の対応履歴を自動で追加できませんでした（'+name+'）：'+r.error.message+'\n\n内容：\n'+rec.body); return; }
+    _sb.from('eigyo_leads').update({ last_contact_date: rec.note_date }).eq('reg_no', reg).then(function(){
+      _noteToast('📝 入力中の対応履歴を自動で追加しました（'+name+'）');
+      if(curLead && curLead.reg_no===reg){ curLead.last_contact_date=rec.note_date; loadNotes(reg); }
+      load(); if(typeof fillLatestNotes==='function') fillLatestNotes();
+    });
+  });
+}
 function addNote(){
   var body = el('nBody').value.trim();
   if(!body){ showMsg('dMsg','内容を入力してください','err'); return; }
+  var reg = curLead.reg_no;
   var rec = {
-    reg_no:    curLead.reg_no,
+    reg_no:    reg,
     note_date: el('nDate').value || today(),
     kind:      el('nKind').value,
     author:    el('nAuthor').value.trim() || null,
     body:      body,
     status_to: null
   };
+  el('nBody').value=''; _noteDirtyUi();   // 二重追加を防ぐため先に空にする（失敗したら戻す）
   _sb.from('eigyo_notes').insert(rec).then(function(r){
-    if(r.error){ showMsg('dMsg','追加に失敗しました：'+r.error.message,'err'); return; }
+    if(r.error){ var t=el('nBody'); if(t && curLead && curLead.reg_no===reg){ t.value=body; _noteDirtyUi(); } showMsg('dMsg','追加に失敗しました：'+r.error.message,'err'); return; }
     var patch = { last_contact_date: rec.note_date };
     if(rec.status_to) patch.status = rec.status_to;
-    _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(){
-      showMsg('dMsg','履歴を追加しました','ok');
-      el('nBody').value='';
-      if(rec.status_to){ curLead.status = rec.status_to; el('eStatus').value = rec.status_to; }
-      curLead.last_contact_date = rec.note_date;
-      loadNotes(curLead.reg_no);
+    _sb.from('eigyo_leads').update(patch).eq('reg_no', reg).then(function(){
       load();
       if(typeof fillLatestNotes==='function') fillLatestNotes();
+      if(!curLead || curLead.reg_no!==reg) return;
+      showMsg('dMsg','履歴を追加しました','ok');
+      if(rec.status_to){ curLead.status = rec.status_to; el('eStatus').value = rec.status_to; }
+      curLead.last_contact_date = rec.note_date;
+      loadNotes(reg);
     });
   });
 }
@@ -3764,7 +3810,8 @@ function saveProposal(cb){
   _sb.from('eigyo_leads').update({ proposal_prices:rec }).eq('reg_no', curLead.reg_no).then(function(r){
     if(r.error){ showMsg('ppMsg','保存に失敗しました：'+r.error.message,'err'); return; }
     curLead.proposal_prices=rec; _pp=JSON.parse(JSON.stringify(rec)); renderProposal();
-    if(typeof cb==='function') cb(); else showMsg('ppMsg', (changed&&wasPushed) ? '保存しました（内容が変わったので、案シスへ再反映してください）' : '保存しました','ok');
+    if(typeof cb==='function') cb(); else showMsg('ppMsg', (changed&&wasPushed) ? '保存しました（内容が変わったので、案シスへ再反映してください）' : '保存しました（料金表PDFを作成中…）','ok');
+    if(typeof cb!=='function' && !(changed&&wasPushed)) _ppAutoPdf(curLead); else _ppAutoPdfQuiet(curLead);
   });
 }
 function _ppOrgName(lead){
@@ -3835,15 +3882,27 @@ function _ppJisseki(){
     return label(lastYm, b.count+(r.count||0));
   }).catch(function(){ return label(b.ym,b.count); });
 }
+/* ver.20261030.02: 料金表PDFを作って、この会社の資料に保存する（御礼文にリンクが自動で入る） */
 function printProposal(){
   if(!curLead) return;
+  var lead=curLead;
   var w=window.open('', '_blank', 'width=900,height=1200');
-  if(w){ w.document.write('<p style="font-family:sans-serif;padding:20px;">料金表を作成中…</p>'); }
-  _ppJisseki().then(function(jj){ _ppPrintBody(w, jj); });
+  if(w){ w.document.write('<p style="font-family:sans-serif;padding:20px;">料金表PDFを作成中…（数秒かかります）</p>'); }
+  showMsg('ppMsg','料金表PDFを作成中…','');
+  _ppJisseki().then(function(jj){
+    return _ppSavePdf(lead, jj).then(function(m){
+      showMsg('ppMsg','料金表PDFを保存しました。御礼文の「▼共有資料」にリンクが入ります','ok');
+      if(w) w.location.href=m.url;
+    }).catch(function(e){
+      console.warn('[料金表PDF]', e);
+      showMsg('ppMsg','PDFの保存に失敗したので、印刷画面で開きます（'+((e&&e.message)||e)+'）','err');
+      _ppPrintBody(w, jj);
+    });
+  });
 }
-function _ppPrintBody(w, jisseki){
-  if(!w) return;
-  var nm=curLead.name||'';
+/* 料金表HTML（印刷・PDF共通） */
+function _ppDoc(lead, jisseki){
+  var nm=(lead&&lead.name)||'';
   var info=[['商号','大房行政書士法人（旧：山下社労士行政書士合同事務所）'],['設立','2016年（2022年12月法人化）'],['代表者','大房 明良'],
     ['資格・所属','申請取次行政書士・東京都行政書士会所属'],['業務内容','入管申請手続き業務（特定技能・技能実習・技人国・配偶者等）'],
     ['住所','〒144-0052 東京都大田区蒲田5丁目11-10 FUNDES蒲田8階'],['電話・FAX','03-6424-8849 ・ 03-6424-8854'],
@@ -3879,11 +3938,84 @@ function _ppPrintBody(w, jisseki){
     +'.price span{font-size:7.5pt;font-weight:400;color:#333;}.price.ask{font-size:11pt;}.note{font-size:7.5pt;color:#333;margin-top:2mm;}'
     +'.bill p{margin:1mm 0;font-size:9pt;}.bill ul{margin:1mm 0 0 4mm;padding:0;list-style:none;font-size:8.5pt;}.bill li::before{content:"• ";}'
     +'.pb{page-break-before:always;margin-top:0;}@media screen{body{padding:20px;max-width:800px;margin:auto;}}';
+  return { title:'事務所案内_料金表 -'+nm+'様', css:css, body:body };
+}
+function _ppPrintBody(w, jisseki){
+  if(!w) return;
+  var d=_ppDoc(curLead, jisseki);
   w.document.open();
-  w.document.write('<html><head><meta charset="utf-8"><title>事務所案内_料金表 -'+escHtml(nm)+'様</title>'
-    +'<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet"><style>'+css+'</style></head><body>'+body
+  w.document.write('<html><head><meta charset="utf-8"><title>'+escHtml(d.title)+'</title>'
+    +'<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet"><style>'+d.css+'</style></head><body>'+d.body
     +'<script>window.onload=function(){setTimeout(function(){window.print();},500);};<\/script></body></html>');
   w.document.close();
+}
+/* 料金表PDFを作る（html2pdf.js を必要なときだけ読む） */
+var _h2pP=null;
+function _ppLoadH2p(){
+  if(window.html2pdf) return Promise.resolve();
+  if(_h2pP) return _h2pP;
+  _h2pP=new Promise(function(ok,ng){
+    if(!document.getElementById('ppNotoFont')){ var l=document.createElement('link'); l.id='ppNotoFont'; l.rel='stylesheet'; l.href='https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&display=swap'; document.head.appendChild(l); }
+    var sc=document.createElement('script'); sc.src='https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+    sc.onload=function(){ ok(); }; sc.onerror=function(){ _h2pP=null; ng(new Error('PDF作成ライブラリを読み込めませんでした')); };
+    document.head.appendChild(sc);
+  });
+  return _h2pP;
+}
+function _ppScopeCss(css){
+  css=css.replace(/@page\{[^}]*\}/,'').replace(/@media screen\{.*\}\}\s*$/,'');
+  return css.split('}').map(function(r){
+    var i=r.indexOf('{'); if(i<0) return '';
+    var sel=r.slice(0,i).split(',').map(function(x){ x=x.trim(); return x==='body'?'#ppPdfRoot':'#ppPdfRoot '+x; }).join(',');
+    return sel+'{'+r.slice(i+1)+'}';
+  }).join('');
+}
+function _ppMakePdfBlob(lead, jisseki){
+  return _ppLoadH2p().then(function(){
+    var d=_ppDoc(lead, jisseki);
+    var box=document.createElement('div');
+    box.style.cssText='position:fixed;left:-10000px;top:0;width:178mm;background:#fff;';
+    box.innerHTML='<style>'+_ppScopeCss(d.css)+'#ppPdfRoot{width:178mm;padding:0;}</style><div id="ppPdfRoot">'+d.body+'</div>';
+    document.body.appendChild(box);
+    var root=box.querySelector('#ppPdfRoot');
+    var wait=(document.fonts&&document.fonts.ready)?document.fonts.ready:Promise.resolve();
+    return wait.then(function(){
+      return html2pdf().set({ margin:[11,16,10,16], filename:d.title+'.pdf', image:{type:'jpeg',quality:0.95},
+        html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff'}, jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},
+        pagebreak:{mode:['css','legacy'], before:'.pb', avoid:['.box','.row','table.info tr']} }).from(root).outputPdf('blob');
+    }).then(function(blob){ box.remove(); return {blob:blob, title:d.title}; }, function(e){ box.remove(); throw e; });
+  });
+}
+/* 作ったPDFを会社別資料（category=料金表）として保存。古い料金表は置き換える */
+function _ppSavePdf(lead, jisseki){
+  var reg=lead.reg_no;
+  return _ppMakePdfBlob(lead, jisseki).then(function(x){
+    var path='lead/'+reg+'/ryokinhyo_'+Date.now()+'.pdf';
+    return _sb.storage.from(MAT_BUCKET).upload(path, x.blob, {upsert:false, contentType:'application/pdf'}).then(function(up){
+      if(up.error) throw up.error;
+      var pub=_sb.storage.from(MAT_BUCKET).getPublicUrl(path), url=(pub&&pub.data&&pub.data.publicUrl)||null;
+      return _sb.from('eigyo_materials').select('id,path').eq('scope','lead').eq('reg_no',reg).eq('category','料金表').then(function(old){
+        var olds=(old&&old.data)||[];
+        return _sb.from('eigyo_materials').insert({scope:'lead', reg_no:reg, category:'料金表', name:x.title, path:path, url:url, size:x.blob.size}).then(function(ins){
+          if(ins.error) throw ins.error;
+          if(olds.length){
+            var paths=olds.map(function(o){return o.path;}).filter(Boolean);
+            if(paths.length) _sb.storage.from(MAT_BUCKET).remove(paths);
+            _sb.from('eigyo_materials').delete().in('id', olds.map(function(o){return o.id;})).then(function(){});
+          }
+          if(curLead && curLead.reg_no===reg) loadMaterials(reg);
+          return {url:url, name:x.title};
+        });
+      });
+    });
+  });
+}
+function _ppAutoPdfQuiet(lead){ _ppJisseki().then(function(jj){ return _ppSavePdf(lead, jj); }).catch(function(e){ console.warn('[料金表PDF] 自動作成失敗', e); }); }
+/* 提案金額を保存したら、裏で料金表PDFも作り直す */
+function _ppAutoPdf(lead){
+  _ppJisseki().then(function(jj){ return _ppSavePdf(lead, jj); }).then(function(){
+    showMsg('ppMsg','保存しました（料金表PDFも更新し、御礼文に入るようにしました）','ok');
+  }).catch(function(e){ console.warn('[料金表PDF] 自動作成失敗', e); showMsg('ppMsg','保存しました（料金表PDFの自動作成は失敗しました。「🖨 料金表PDF」を押してください）','err'); });
 }
 
 function qSetExpiry(which){
