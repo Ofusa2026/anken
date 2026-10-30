@@ -45,17 +45,20 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto
       <div class="sep">計画</div>
       <a data-p="roadmap" onclick="kkGo('roadmap')">🗺 ロードマップ・人員・組織</a>
       <a data-p="sales" onclick="kkGo('sales')">🤝 営業計画（営シス連携）</a>
+      <div class="sep">お金</div>
+      <a data-p="cost" onclick="kkGo('cost')">💴 費用</a>
+      <a data-p="pl" onclick="kkGo('pl')">📈 月次の損益</a>
       <div class="sep">システム</div>
       <a href="./index.html">📋 案シス（案件管理）</a>
       <a href="./eigyo.html">🤝 営シス（営業管理）</a>
     </nav>
-    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261030.08</span></div>
+    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261030.09</span></div>
   </aside>
   <main class="kk-main" id="kkMain"><div style="padding:60px;text-align:center;color:#94a3b8;">読み込み中…</div></main>
 </div>
 <div id="toast"></div>
 <script>
-var OFUSA_VERSION='ver.20261030.08';
+var OFUSA_VERSION='ver.20261030.09';
 var SUPABASE_URL='https://ehwlgbwpycglmopiqyty.supabase.co', SUPABASE_KEY='sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}, global:{headers:{'x-ofusa-user':encodeURIComponent((function(){ try{ return localStorage.getItem('ofusa_currentUser')||''; }catch(e){ return ''; } })())}}});
 var DB_READY=true;
@@ -1366,7 +1369,7 @@ function kkRender(){
   if(!_skIsKanribu()){ el.innerHTML='<div class="kk-card" style="padding:30px;">このページは管理部（町田・中林・大房・亀谷・宮澤）だけが見られます。<br><span style="color:#94a3b8;font-size:12px;">案シスで管理部の名前でログインしてから開いてください（今の名前：'+_skEsc(currentUser||'未設定')+'）。</span></div>'; return; }
   _skPlanStyle(); _skRpStyle();
   var P=KK.page, Y=_skPerf.year, h='';
-  var title={home:'🏠 総合',result:'📊 件数・売上（Result）',budget:'📝 機関別の依頼予算',perf:'👤 担当者別（査定）',roadmap:'🗺 ロードマップ・人員・組織計画',sales:'🤝 営業計画（営シス連携）'}[P]||'';
+  var title={home:'🏠 総合',result:'📊 件数・売上（Result）',budget:'📝 機関別の依頼予算',perf:'👤 担当者別（査定）',roadmap:'🗺 ロードマップ・人員・組織計画',sales:'🤝 営業計画（営シス連携）',cost:'💴 費用',pl:'📈 月次の損益'}[P]||'';
   var years=[]; for(var y=2026;y<=new Date().getFullYear()+1;y++) years.push(String(y));
   var head='<div class="kk-head"><h1>'+title+'</h1><span class="skp-ctl">年 <select onchange="_skPerf.year=this.value;_skPlan.year=this.value;kkRender()">'+years.map(function(y){ return '<option'+(y===Y?' selected':'')+'>'+y+'</option>'; }).join('')+'</select></span><button class="skp-btn" onclick="kkReload()">🔄 読み直す</button></div>';
   if(P==='budget'){ var box=document.createElement('div'); el.innerHTML=head+'<div id="kkBox"></div>'; if(!_soRank.data && !_soRank.loading) _soRankLoad(); _renderShienPlan(document.getElementById('kkBox'),''); return; }
@@ -1377,10 +1380,135 @@ function kkRender(){
   var R=_skRpCalc(Y);
   if(P==='result') h=_skRpResultHtml(R);
   else if(P==='roadmap') h=_skRmPageHtml(R);
+  else if(P==='cost') h=kkCostHtml(R);
+  else if(P==='pl') h=kkPlHtml(R);
   else h=kkHomeHtml(R);
   el.innerHTML=head+'<div class="skp">'+h+'</div>';
 }
 function kkReload(){ _skPerf.data=null; _skDr.data=null; _skRp.plan=null; _soRank.data=null; KK.sales=null; kkRender(); }
+// ===== 💴 費用・📈 損益（ver.20261030.09：まずは形だけ。金額は後から入れる） =====
+var KK_COST_CATS=[
+  {k:'tool', n:'🛠 ツール・システム'},
+  {k:'office', n:'🏢 事務所'},
+  {k:'out', n:'🤝 外注'},
+  {k:'ad', n:'📣 広告・営業'},
+  {k:'other', n:'📦 その他'}
+];
+var KK_COST_BILL=['月額','年額','1人あたり（月）','従量（月の見込み）'];
+var KK_COST_DEF=[
+  {cat:'tool',name:'Claude',bill:'1人あたり（月）',memo:'人数×単価（プランにより変わる）'},
+  {cat:'tool',name:'LINE公式アカウント',bill:'月額',memo:'通数で料金が変わる'},
+  {cat:'tool',name:'Supabase（データベース）',bill:'月額'},
+  {cat:'tool',name:'GitHub',bill:'月額'},
+  {cat:'tool',name:'Google Workspace',bill:'1人あたり（月）'},
+  {cat:'tool',name:'ChatWork',bill:'1人あたり（月）'},
+  {cat:'tool',name:'ドメイン・サーバー',bill:'年額'},
+  {cat:'office',name:'家賃',bill:'月額'},
+  {cat:'office',name:'光熱費・通信費',bill:'月額'},
+  {cat:'out',name:'外注（翻訳・書類など）',bill:'従量（月の見込み）'},
+  {cat:'ad',name:'Sales pass',bill:'月額'},
+  {cat:'ad',name:'テレアポ外注',bill:'従量（月の見込み）'},
+  {cat:'other',name:'その他',bill:'月額'}
+];
+async function kkCostLoad(){
+  if(KK.costLoading) return; KK.costLoading=true;
+  try{ var r=await _sb.from('settings').select('value').eq('key','kk_costs').maybeSingle(); var o=JSON.parse((r&&r.data&&r.data.value)||'null'); KK.costs=(o&&o.items)?o:null; }catch(e){ KK.costs=null; }
+  if(!KK.costs) KK.costs={items:KK_COST_DEF.map(function(d,i){ return {id:'c'+i, cat:d.cat, name:d.name, bill:d.bill, amount:'', qty:'', owner:'', pay:'', renew:'', memo:d.memo||''}; })};
+  KK.costLoading=false; kkRender();
+}
+function kkCostSave(){
+  clearTimeout(KK._costT); KK._costT=setTimeout(async function(){
+    try{ KK.costs.updated=new Date().toISOString(); KK.costs.by=currentUser||'';
+      var r=await _sb.from('settings').upsert({key:'kk_costs', value:JSON.stringify(KK.costs)},{onConflict:'key'}); if(r&&r.error) throw r.error; showToast('💾 費用を保存しました'); }
+    catch(e){ showToast('⚠️ 保存できませんでした'); }
+  },600);
+}
+// 1か月あたりの金額（未入力なら null）
+function kkCostMonthly(it){
+  var a=+it.amount; if(it.amount===''||it.amount==null||isNaN(a)) return null;
+  if(it.bill==='年額') return a/12;
+  if(it.bill==='1人あたり（月）') return a*(+it.qty||0);
+  return a;
+}
+function kkCostSet(id,k,v){ var it=(KK.costs.items||[]).filter(function(x){ return x.id===id; })[0]; if(!it) return; it[k]=v; kkCostSave(); if(k==='amount'||k==='qty'||k==='bill'||k==='cat') kkRender(); }
+function kkCostAdd(cat){ KK.costs.items.push({id:'c'+Date.now(), cat:cat, name:'', bill:'月額', amount:'', qty:'', owner:'', pay:'', renew:'', memo:''}); kkCostSave(); kkRender(); }
+function kkCostDel(id){ var it=KK.costs.items.filter(function(x){ return x.id===id; })[0]; if(!it||!confirm('「'+(it.name||'（名前なし）')+'」を消しますか？')) return; KK.costs.items=KK.costs.items.filter(function(x){ return x.id!==id; }); kkCostSave(); kkRender(); }
+function kkCostByCat(){ var o={}, filled=0, all=0; (KK.costs&&KK.costs.items||[]).forEach(function(it){ var v=kkCostMonthly(it); all++; if(v!=null){ filled++; o[it.cat]=(o[it.cat]||0)+v; } }); return {sum:o, filled:filled, all:all}; }
+function kkCostStyle(){ if(document.getElementById('kkCostCss')) return; var s=document.createElement('style'); s.id='kkCostCss';
+  s.textContent='.kkc-ban{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:10px;padding:10px 14px;font-size:12px;margin:0 0 12px;line-height:1.7;}'
+   +'.kkc-tbl input,.kkc-tbl select{width:100%;box-sizing:border-box;border:1px solid #e2e8f0;border-radius:6px;padding:4px 6px;font-size:12px;background:#fff;font-family:inherit;}'
+   +'.kkc-tbl input[type=number]{text-align:right;} .kkc-tbl td{padding:4px 6px !important;} .kkc-tbl .catrow td{text-align:left;background:#f1f5f9;font-weight:800;color:#0f172a;padding:7px 12px !important;}'
+   +'.kkc-add{font-size:11px;font-weight:700;color:#2563eb;cursor:pointer;margin-left:8px;} .kkc-del{color:#cbd5e1;cursor:pointer;font-size:13px;} .kkc-del:hover{color:#dc2626;}'
+   +'.kkc-mo{font-weight:800;color:#0f172a;text-align:right;white-space:nowrap;} .kkc-na{color:#cbd5e1;}'
+   +'.kkc-soon{display:inline-block;font-size:10px;background:#e0e7ff;color:#3730a3;border-radius:999px;padding:1px 8px;margin-left:6px;font-weight:700;}'
+   +'.kkpl-tbl td.neg{color:#dc2626;} .kkpl-tbl tr.tot td{font-weight:800;color:#0f172a;background:#f8fafc;} .kkpl-tbl td.fut{color:#94a3b8;}';
+  document.head.appendChild(s); }
+function kkCostHtml(R){
+  kkCostStyle(); if(!KK.costs){ kkCostLoad(); return kkLoading(['費用']); }
+  var esc=_skEsc, n0=function(v){ return Math.round(v||0).toLocaleString('ja-JP'); };
+  var p=_skRmOf(R), C=_skRmCalc(R,p), nowRow=(C.rows||[]).filter(function(r){ return r.ym===R.nowYm; })[0], hrNote='ロードマップより';
+  if(!nowRow){ nowRow=(C.rows||[])[0]||{cost:0,head:0}; hrNote='ロードマップ初月（'+(+String(nowRow.ym||'').slice(5)||'')+'月）の組織で計算'; }
+  var B=kkCostByCat(), tool=Object.keys(B.sum).reduce(function(a,k){ return a+B.sum[k]; },0), hr=nowRow.cost||0;
+  var h='<div class="kkc-ban">🚧 <b>まずは形だけ</b>のページです。金額は空欄のままで大丈夫。分かったものから入れていくと、月の費用と「📈 損益」に自動で反映されます。<br>人件費はロードマップの組織計画（役割ごとの月額×人数）から自動で計算しています。</div>';
+  h+='<div class="skrp-kpis">'
+    +_skRpKpi('o','月の費用（合計）',_skRpMan(tool+hr,1),'万円','人件費＋その他の費用')
+    +_skRpKpi('b','人件費（今月・計画）',_skRpMan(hr,1),'万円',(nowRow.head||0)+'名・'+hrNote)
+    +_skRpKpi('g','ツール・事務所など',_skRpMan(tool,1),'万円','入力済み '+B.filled+'／'+B.all+'項目')
+    +_skRpKpi('n','申請1件あたりの費用',R.l3App?n0((tool+hr)/R.l3App):'—','円','直近3か月の平均申請 '+n0(R.l3App)+'件で割り算')
+    +'</div>';
+  h+='<div class="skrp-sec">費用の一覧<span>入力するとすぐ保存されます</span></div>';
+  h+='<div style="overflow:auto;"><table class="skp-tbl kkc-tbl"><thead><tr><th class="l" style="padding-left:12px;min-width:170px;">項目</th><th style="min-width:120px;">支払いの形</th><th style="min-width:95px;">金額（円）</th><th style="min-width:55px;">人数</th><th style="min-width:90px;">月あたり</th><th style="min-width:80px;">担当</th><th style="min-width:90px;">支払方法</th><th style="min-width:110px;">更新日</th><th class="l" style="min-width:160px;">メモ</th><th></th></tr></thead><tbody>';
+  KK_COST_CATS.forEach(function(c){
+    var its=(KK.costs.items||[]).filter(function(x){ return x.cat===c.k; });
+    h+='<tr class="catrow"><td colspan="10">'+c.n+'　<span style="font-weight:600;color:#64748b;">月 '+(B.sum[c.k]!=null?n0(B.sum[c.k])+'円':'—')+'</span><span class="kkc-add" onclick="kkCostAdd(\''+c.k+'\')">＋ 追加</span></td></tr>';
+    its.forEach(function(it){ var mo=kkCostMonthly(it), per=it.bill==='1人あたり（月）';
+      var inp=function(k,type,ph){ return '<input'+(type?' type="'+type+'"':'')+' value="'+esc(it[k]==null?'':it[k])+'"'+(ph?' placeholder="'+ph+'"':'')+' onchange="kkCostSet(\''+it.id+'\',\''+k+'\',this.value)">'; };
+      h+='<tr class="st"><td class="l">'+inp('name','','名前')+'</td>'
+        +'<td><select onchange="kkCostSet(\''+it.id+'\',\'bill\',this.value)">'+KK_COST_BILL.map(function(b){ return '<option'+(b===it.bill?' selected':'')+'>'+b+'</option>'; }).join('')+'</select></td>'
+        +'<td>'+inp('amount','number','未入力')+'</td>'
+        +'<td>'+(per?inp('qty','number','人'):'<span class="kkc-na">—</span>')+'</td>'
+        +'<td class="kkc-mo">'+(mo==null?'<span class="kkc-na">—</span>':n0(mo)+'円')+'</td>'
+        +'<td>'+inp('owner')+'</td><td>'+inp('pay','','カード等')+'</td><td>'+inp('renew','date')+'</td><td class="l">'+inp('memo')+'</td>'
+        +'<td><span class="kkc-del" title="消す" onclick="kkCostDel(\''+it.id+'\')">✕</span></td></tr>';
+    });
+  });
+  h+='<tr class="catrow"><td colspan="10">👥 人件費　<span style="font-weight:600;color:#64748b;">月 '+n0(hr)+'円（'+(nowRow.head||0)+'名）</span><a class="kkc-add" href="javascript:kkGo(\'roadmap\')">ロードマップで役割の月額を変える →</a></td></tr>';
+  h+='</tbody></table></div>';
+  h+='<div class="skrp-sec">これから入れたい機能<span>準備中</span></div><div class="skp-note">・LINEの送信数から月のLINE料金を自動で出す<span class="kkc-soon">準備中</span><br>・Claudeの利用人数（案シスのログイン人数）から自動で人数を入れる<span class="kkc-soon">準備中</span><br>・実際に払った金額（請求書）を月ごとに入れて、計画と比べる<span class="kkc-soon">準備中</span></div>';
+  return h;
+}
+function kkPlHtml(R){
+  kkCostStyle(); if(!KK.costs){ kkCostLoad(); return kkLoading(['費用']); }
+  var n0=function(v){ return Math.round(v||0).toLocaleString('ja-JP'); }, man=function(v){ return _skRpMan(v,1); };
+  var p=_skRmOf(R), C=_skRmCalc(R,p), rowOf={}; (C.rows||[]).forEach(function(r){ rowOf[r.ym]=r; });
+  var B=kkCostByCat(), ms=R.months;
+  var r0=(C.rows||[])[0]||{}; var D=ms.map(function(m){ var fut=m>R.nowYm, rr=rowOf[m], net=fut?(rr?rr.net:R.l3Net)||0:(R.co.net[m]||0), app=fut?(rr?rr.apps:R.l3App)||0:(R.co.app[m]||0), hr=(rr?rr.cost:r0.cost)||0, cs={};
+    KK_COST_CATS.forEach(function(c){ cs[c.k]=B.sum[c.k]||0; });
+    var cost=hr+Object.keys(cs).reduce(function(a,k){ return a+cs[k]; },0);
+    return {m:m, fut:fut, net:net, app:app, hr:hr, cs:cs, cost:cost, prof:net-cost}; });
+  var tot=function(f){ return D.reduce(function(a,d){ return a+f(d); },0); };
+  var TN=tot(function(d){ return d.net; }), TC=tot(function(d){ return d.cost; }), TP=TN-TC;
+  var h='<div class="kkc-ban">🚧 <b>まずは形だけ</b>の損益です。売上は案シスの実績（純売上＝申請費用−KB）、これから先の月は見込み（<span style="color:#94a3b8;">灰色</span>：今年は直近3か月の平均、来年からはロードマップ）。費用は「💴 費用」に入れた金額と、ロードマップの人件費（今年はロードマップ初月の組織で計算）です。<br>税金・社会保険の会社負担・減価償却などはまだ入っていません。</div>';
+  h+='<div class="skrp-kpis">'
+    +_skRpKpi('g',R.Y+'年 純売上',man(TN),'万円','実績＋見込み')
+    +_skRpKpi('o',R.Y+'年 費用',man(TC),'万円','費用の入力 '+B.filled+'／'+B.all+'項目')
+    +_skRpKpi(TP<0?'o':'b',R.Y+'年 利益',man(TP),'万円',TN?'利益率 '+Math.round(TP/TN*100)+'%':'')
+    +_skRpKpi('n','申請1件あたりの費用',tot(function(d){ return d.app; })?n0(TC/tot(function(d){ return d.app; })):'—','円','年の費用÷年の申請')
+    +'</div>';
+  var row=function(lb,f,cls,fmt){ fmt=fmt||man; return '<tr class="st'+(cls?' '+cls:'')+'"><td class="l" style="padding-left:14px;white-space:nowrap;">'+lb+'</td>'+D.map(function(d){ var v=f(d); return '<td class="'+(d.fut?'fut ':'')+(v<0?'neg':'')+'">'+(v==null?'—':fmt(v))+'</td>'; }).join('')+'<td style="font-weight:800;">'+(function(){ var t=tot(function(d){ return f(d)||0; }); return fmt===n0||fmt===man?fmt(t):'—'; })()+'</td></tr>'; };
+  h+='<div class="skrp-sec">月ごとの損益（万円）<span>灰色＝これから先の見込み</span></div><div style="overflow:auto;"><table class="skp-tbl kkpl-tbl"><thead><tr><th class="l" style="padding-left:14px;">項目</th>'+ms.map(function(m){ return '<th>'+(+m.slice(5))+'月'+(m===R.nowYm?'<br><span style="font-weight:600;color:#94a3b8;">途中</span>':'')+'</th>'; }).join('')+'<th>年計</th></tr></thead><tbody>';
+  h+=row('申請件数（件）',function(d){ return d.app; },'',n0);
+  h+=row('純売上',function(d){ return d.net; },'tot');
+  h+=row('　👥 人件費',function(d){ return d.hr; });
+  KK_COST_CATS.forEach(function(c){ h+=row('　'+c.n,function(d){ return d.cs[c.k]; }); });
+  h+=row('費用 合計',function(d){ return d.cost; },'tot');
+  h+=row('利益',function(d){ return d.prof; },'tot');
+  h+=row('利益率（%）',function(d){ return d.net?Math.round(d.prof/d.net*100):null; },'',function(v){ return v+'%'; });
+  h+=row('申請1件あたりの費用（円）',function(d){ return d.app?d.cost/d.app:null; },'',function(v){ return n0(v); });
+  h+='</tbody></table></div>';
+  h+='<div class="skrp-sec">これから入れたい機能<span>準備中</span></div><div class="skp-note">・計画（予算）と実績を並べて差を見る<span class="kkc-soon">準備中</span><br>・実際に払った費用（請求書・口座の明細）を月ごとに入れる<span class="kkc-soon">準備中</span><br>・社会保険の会社負担・税金・賞与などを入れて、本当の利益に近づける<span class="kkc-soon">準備中</span></div>';
+  return h;
+}
 // ===== 🏠 総合 =====
 function kkHomeHtml(R){
   var n0=function(v){ return Math.round(v||0).toLocaleString('ja-JP'); }, p=_skRmOf(R), C=_skRmCalc(R,p), GY=String(C.GY), goal=+p.goal.apps||0;
