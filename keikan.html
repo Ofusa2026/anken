@@ -49,13 +49,13 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto
       <a href="./index.html">📋 案シス（案件管理）</a>
       <a href="./eigyo.html">🤝 営シス（営業管理）</a>
     </nav>
-    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261030.01</span></div>
+    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261030.02</span></div>
   </aside>
   <main class="kk-main" id="kkMain"><div style="padding:60px;text-align:center;color:#94a3b8;">読み込み中…</div></main>
 </div>
 <div id="toast"></div>
 <script>
-var OFUSA_VERSION='ver.20261030.01';
+var OFUSA_VERSION='ver.20261030.02';
 var SUPABASE_URL='https://ehwlgbwpycglmopiqyty.supabase.co', SUPABASE_KEY='sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}, global:{headers:{'x-ofusa-user':encodeURIComponent((function(){ try{ return localStorage.getItem('ofusa_currentUser')||''; }catch(e){ return ''; } })())}}});
 var DB_READY=true;
@@ -126,6 +126,7 @@ async function _soRankLoad(force){
       var ex=(o.extra&&typeof o.extra==='object')?o.extra:{};
       if(!r.fc && ex.forecast && typeof ex.forecast==='object') r.fc=ex.forecast;   // ver.20261024.03: 見込み（{'YYYY-MM': その月の見込み件数}）
       if(!r.split && ex.handover_split && typeof ex.handover_split==='object' && Object.keys(ex.handover_split).length) r.split=ex.handover_split;   // ver.20261024.02: 兼任の割合（例 JAM＝陳0.5・山内0.5）
+      if(Array.isArray(ex.sk_hide) && ex.sk_hide.length) r.hide=(r.hide||[]).concat(ex.sk_hide);   // ver.20261030.02: 案シスの担当機関で「✕ 外す」をした人（予算の振り分けに入れない）
       if(r.lya==null && ex.last_year_avg!=null && ex.last_year_avg!=='' && !isNaN(+ex.last_year_avg)) r.lya=+ex.last_year_avg;
     });
     var key={}; list.forEach(function(r){ key[r.name]=r; if(r.dn && !key[r.dn]) key[r.dn]=r; });
@@ -227,7 +228,7 @@ function _skPlanCalc(year){
       MSx={}; var mC={};
       Object.keys(r.mcs||{}).forEach(function(m){ MSx[m]={}; var all={}; Object.keys(r.mcs[m]).forEach(function(st){ var ks=Object.keys(r.mcs[m][st]); MSx[m][st]=ks.length; ks.forEach(function(k){ all[k]=1; }); }); mC[m]=Object.keys(all).length; });
       var sF=C.full.reduce(function(a,m){ return a+(mC[m]||0); },0);
-      o={r:{id:r.id,name:r.name,staff:r.staff,handover:r.handover,split:r.split,fc:fc,m:mC}, yearAvg:C.full.length?sF/C.full.length:0, total:o0.total};
+      o={r:{id:r.id,name:r.name,staff:r.staff,handover:r.handover,split:r.split,hide:r.hide,fc:fc,m:mC}, yearAvg:C.full.length?sF/C.full.length:0, total:o0.total};
       r=o.r;
     }
     var any=MS.some(function(m){ return has(fc[m]) || (r.m[m]||0); });
@@ -248,6 +249,7 @@ function _skPlanCalc(year){
     var byS={}, hs={}, hn=0;
     Object.keys(MSx).forEach(function(m){ Object.keys(MSx[m]).forEach(function(st){ var n=MSx[m][st]; (byS[st]=byS[st]||{})[m]=n; if(m>=START && m<nowYm){ hs[st]=(hs[st]||0)+n; hn+=n; } }); });
     var sp, kind;
+    if(r.hide && r.hide.length){ var _hk={}; r.hide.forEach(function(w){ _hk[String(w).replace(/[\s\u3000]+/g,'')]=1; }); Object.keys(hs).forEach(function(st){ if(_hk[String(st).replace(/[\s\u3000]+/g,'')]){ hn-=hs[st]; delete hs[st]; } }); }
     if(r.split){ sp=r.split; kind='split'; }
     else if(r.handover){ sp={}; sp[r.handover]=1; kind='handover'; }
     else if(hn){ sp=hs; kind='share'; }
