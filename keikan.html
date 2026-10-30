@@ -49,13 +49,13 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto
       <a href="./index.html">📋 案シス（案件管理）</a>
       <a href="./eigyo.html">🤝 営シス（営業管理）</a>
     </nav>
-    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261029.01</span></div>
+    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261030.01</span></div>
   </aside>
   <main class="kk-main" id="kkMain"><div style="padding:60px;text-align:center;color:#94a3b8;">読み込み中…</div></main>
 </div>
 <div id="toast"></div>
 <script>
-var OFUSA_VERSION='ver.20261029.01';
+var OFUSA_VERSION='ver.20261030.01';
 var SUPABASE_URL='https://ehwlgbwpycglmopiqyty.supabase.co', SUPABASE_KEY='sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}, global:{headers:{'x-ofusa-user':encodeURIComponent((function(){ try{ return localStorage.getItem('ofusa_currentUser')||''; }catch(e){ return ''; } })())}}});
 var DB_READY=true;
@@ -1287,7 +1287,7 @@ function kkHomeHtml(R){
   return h;
 }
 // ===== 🤝 営業計画（営シス連携） =====
-var KK_PIPE=['商談予定','結果待ち','確定','依頼待ち'];   // ver.20261029.01: 営シスのステータス変更に合わせる
+var KK_PIPE=['商談予定','結果待ち','依頼待ち','取引中'];   // ver.20261030.01: 営シスの確定→取引中
 async function kkSalesLoad(){
   if(KK.salesLoading) return; KK.salesLoading=true;
   try{
@@ -1315,11 +1315,11 @@ function kkSalesHtml(){
   var h='<div class="skrp-kpis">'
     +_skRpKpi('n','商談予定',n0(cnt['商談予定']),'社','')
     +_skRpKpi('b','結果待ち',n0(cnt['結果待ち']),'社','')
-    +_skRpKpi('g','確定',n0((cnt['確定']||0)+(cnt['依頼待ち']||0)),'社','うち依頼待ち '+n0(cnt['依頼待ち']||0)+'社／受注登録（eigyo_deals）'+S.deals.length+'件')
+    +_skRpKpi('g','決まった',n0((cnt['取引中']||0)+(cnt['確定']||0)+(cnt['依頼待ち']||0)),'社','うち依頼待ち '+n0(cnt['依頼待ち']||0)+'社／受注登録（eigyo_deals）'+S.deals.length+'件')
     +_skRpKpi('o','月間申請の見込みが入っている先',n0(filled),'社','開始予定月 '+withStart+'社・確度 '+withProb+'社')
     +'</div>';
   // 見込み → ロードマップへ
-  var pend=S.leads.filter(function(l){ return (l.status!=='確定' && l.status!=='依頼待ち') && (l.hr_monthly_apps||l.hr_potential_apps); });
+  var pend=S.leads.filter(function(l){ return (l.status!=='確定' && l.status!=='取引中' && l.status!=='依頼待ち') && (l.hr_monthly_apps||l.hr_potential_apps); });
   h+='<div class="skrp-sec">見込み先の申請見込み<span>営シスの「月間申請（hr_monthly_apps）」「開始予定（hr_start_date）」「確度（close_prob）」から。期待値＝月間申請×確度</span></div>';
   h+='<div style="overflow:auto;"><table class="skp-tbl"><thead><tr><th class="l" style="padding-left:12px;">見込み先</th><th>ステータス</th><th>担当</th><th>月間申請</th><th>開始予定</th><th>確度</th><th>期待値（件／月）</th><th>期待売上（万円／月）</th></tr></thead><tbody>';
   var tN=0;
@@ -1329,7 +1329,7 @@ function kkSalesHtml(){
   h+='<tr class="tot"><td class="l" style="padding-left:16px;">合計（期待値）</td><td></td><td></td><td></td><td></td><td></td><td>'+(Math.round(tN*10)/10)+'</td><td>'+_skRpMan(tN*50000,1)+'</td></tr></tbody></table></div>'
     +(pend.length?'<button class="skp-btn pri" style="margin-top:8px;" onclick="kkPushToRoadmap()">🗺 この期待値をロードマップの「申請の上乗せ」に入れる</button>':'');
   // 確定先の進捗（予定と実績）
-  var cl=S.leads.filter(function(l){ return l.status==='確定'||l.status==='依頼待ち'; });
+  var cl=S.leads.filter(function(l){ return l.status==='確定'||l.status==='取引中'||l.status==='依頼待ち'; });
   h+='<div class="skrp-sec">確定先の進捗（予定と実績）<span>実績＝案シスの依頼件数（案件の登録数・登録支援機関で照合）</span></div>';
   h+='<div style="overflow:auto;"><table class="skp-tbl"><thead><tr><th class="l" style="padding-left:12px;">契約先</th><th>予定（月）</th>'+months.map(function(m,i){ return '<th'+(i===0?' class="dv"':'')+(m===nowYm?' style="color:#1d4ed8;"':'')+'>'+(+m.slice(5))+'月</th>'; }).join('')+'<th class="dv">達成（直近3か月）</th></tr></thead><tbody>';
   var rows=cl.map(function(l){ var on=orgName[l.support_org_id]||l.name, a=byOrg[on]||byOrg[String(l.name).trim()]||{}; return {l:l, a:a, tot:months.reduce(function(s,m){ return s+(a[m]||0); },0)}; }).sort(function(x,y){ return y.tot-x.tot; });
@@ -1349,7 +1349,7 @@ function kkSalesHtml(){
 function kkPushToRoadmap(){
   var S=KK.sales; if(!S) return; var R=_skRpCalc(_skPerf.year), p=_skRmOf(R), added=0;
   p.items=(p.items||[]).filter(function(it){ return it.src!=='eigyo'; });
-  S.leads.filter(function(l){ return (l.status!=='確定' && l.status!=='依頼待ち') && (l.hr_monthly_apps||l.hr_potential_apps); }).forEach(function(l){
+  S.leads.filter(function(l){ return (l.status!=='確定' && l.status!=='取引中' && l.status!=='依頼待ち') && (l.hr_monthly_apps||l.hr_potential_apps); }).forEach(function(l){
     var m=+l.hr_monthly_apps||Math.round((+l.hr_potential_apps||0)/12), pr=(l.close_prob!=null&&l.close_prob!=='')?+l.close_prob:(l.status==='結果待ち'?50:20), ex=Math.round(m*pr/10)/10; if(!ex) return;
     var ym=String(l.hr_start_date||'').slice(0,7); if(!/^\d{4}-\d{2}$/.test(ym) || ym<p.start) ym=p.start;
     p.items.push({name:l.name+'（営シス見込み）', ym:ym, n:ex, mode:'flat', kind:'認定・変更', price:null, end:'', src:'eigyo'}); added++; });
