@@ -227,7 +227,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261029.12</div>
+      <div class="ver">ver.20261030.01</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -1796,6 +1796,7 @@ function renderDrawer(){
   +     SELF_SUPPORTS.map(function(t){return '<option'+(t===x.self_support?' selected':'')+'>'+esc(t)+'</option>';}).join('')+'</select>'
   + '</div><div style="margin-top:10px;text-align:right;"><button class="btn" onclick="saveProfile()">プロフィールを保存</button></div></div>'
 
+  + svcSectionHtml(x)
   + '<div class="sec"><h3>対応履歴を追加</h3><div class="form">'
   +   '<label>日付</label><input type="date" id="nDate" value="'+today()+'">'
   +   '<label>種別</label><select id="nKind">'+KINDS.map(function(k){return '<option>'+esc(k)+'</option>';}).join('')+'</select>'
@@ -3216,14 +3217,163 @@ function loadNotes(regNo){
       if(r.error){ box.innerHTML='<div class="sub">読み込みエラー：'+esc(r.error.message)+'</div>'; return; }
       var d = r.data||[];
       if(!d.length){ box.innerHTML='<div class="sub">まだ履歴がありません。</div>'; return; }
+      _notesById={}; d.forEach(function(n){ _notesById[n.id]=n; });
       box.innerHTML = d.map(function(n){
-        return '<div class="note"><div class="meta" style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><span>'+esc(n.note_date)+' ／ '+esc(n.kind||'')
-          + (n.author?' ／ '+esc(n.author):'')
-          + (n.status_to?' → <b>'+esc(n.status_to)+'</b>':'')
-          + '</span><span onclick="deleteNote('+n.id+')" style="cursor:pointer;color:#c53030;font-size:11px;white-space:nowrap;">×削除</span>'
-          + '</div><div class="body">'+esc(n.body)+'</div></div>';
+        return '<div class="note" id="note_'+n.id+'">'+noteViewHtml(n)+'</div>';
       }).join('');
     });
+}
+
+/* ver.20261030.01: 対応履歴を修正できるようにした（✏️編集 → その場で書き換えて保存） */
+var _notesById={};
+function noteViewHtml(n){
+  return '<div class="meta" style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><span>'+esc(n.note_date)+' ／ '+esc(n.kind||'')
+    + (n.author?' ／ '+esc(n.author):'')
+    + (n.status_to?' → <b>'+esc(n.status_to)+'</b>':'')
+    + '</span><span style="white-space:nowrap;font-size:11px;">'
+    +   '<span onclick="editNote('+n.id+')" style="cursor:pointer;color:#2b6cb0;margin-right:10px;">✏️編集</span>'
+    +   '<span onclick="deleteNote('+n.id+')" style="cursor:pointer;color:#c53030;">×削除</span></span>'
+    + '</div><div class="body">'+esc(n.body)+'</div>';
+}
+function editNote(id){
+  var n=_notesById[id], box=el('note_'+id); if(!n||!box) return;
+  var kinds=KINDS.slice(); if(n.kind && kinds.indexOf(n.kind)<0) kinds.unshift(n.kind);
+  box.innerHTML='<div class="form" style="margin:2px 0;">'
+    + '<label>日付</label><input type="date" id="neDate_'+id+'" value="'+esc(n.note_date||'')+'">'
+    + '<label>種別</label><select id="neKind_'+id+'">'+kinds.map(function(k){return '<option'+(k===n.kind?' selected':'')+'>'+esc(k)+'</option>';}).join('')+'</select>'
+    + '<label>記入者</label><input type="text" id="neAuthor_'+id+'" value="'+esc(n.author||'')+'">'
+    + '<label>内容</label><textarea id="neBody_'+id+'" style="min-height:90px;">'+esc(n.body||'')+'</textarea>'
+    + '</div><div style="margin-top:6px;text-align:right;display:flex;gap:6px;justify-content:flex-end;">'
+    + '<button class="btn btn-sm" onclick="cancelNoteEdit('+id+')">キャンセル</button>'
+    + '<button class="btn btn-sm btn-primary" onclick="saveNoteEdit('+id+')">保存</button></div>';
+}
+function cancelNoteEdit(id){ var n=_notesById[id], box=el('note_'+id); if(n&&box) box.innerHTML=noteViewHtml(n); }
+function saveNoteEdit(id){
+  var body=el('neBody_'+id).value.trim();
+  if(!body){ showMsg('dMsg','内容を入力してください','err'); return; }
+  var patch={ note_date:el('neDate_'+id).value||today(), kind:el('neKind_'+id).value, author:el('neAuthor_'+id).value.trim()||null, body:body };
+  _sb.from('eigyo_notes').update(patch).eq('id',id).then(function(r){
+    if(r.error){ showMsg('dMsg','修正に失敗しました：'+r.error.message,'err'); return; }
+    showMsg('dMsg','対応履歴を修正しました','ok');
+    if(!curLead) return;
+    var regNo=curLead.reg_no;
+    // 日付を変えた場合に備えて、最終対応日を履歴の最新日に合わせ直す
+    _sb.from('eigyo_notes').select('note_date').eq('reg_no',regNo).order('note_date',{ascending:false}).limit(1).then(function(r2){
+      var last=(r2.data&&r2.data[0]&&r2.data[0].note_date)||null;
+      if(last && last!==curLead.last_contact_date){
+        _sb.from('eigyo_leads').update({last_contact_date:last}).eq('reg_no',regNo).then(function(){ curLead.last_contact_date=last; load(); });
+      }
+    });
+    loadNotes(regNo);
+    if(typeof fillLatestNotes==='function') fillLatestNotes();
+  });
+}
+
+/* ver.20261030.01: 申請以外のサービスをチェックで選んで、案内メールを送る */
+var SVC_LIST=[
+  {k:'eigyo_tool', name:'営業ツール整備', desc:'弊社が使用している営業資料のご提供、作成アドバイス', price:'55,000円'},
+  {k:'manual',     name:'マニュアル提供', desc:'弊社独自作成の特定技能マニュアル', price:'220,000円'},
+  {k:'sns',        name:'SNS運用研修',   desc:'インドネシア、カンボジア、タイ、ベトナム、ミャンマー人スタッフ向けSNS運用研修', price:'220,000円/月'}
+];
+function svcLeadRecipients(x){
+  var list=[], seen={};
+  (x.contacts||[]).forEach(function(c){
+    var m=(c&&c.email||'').trim(); if(!/@/.test(m)||seen[m.toLowerCase()]) return;
+    seen[m.toLowerCase()]=1; list.push({email:m, name:(c.name||'').trim()});
+  });
+  var a=(x.apt_email||'').trim();
+  if(/@/.test(a) && !seen[a.toLowerCase()]) list.push({email:a, name:(x.apt_person||'').replace(/\/.*$/,'').trim()});
+  return list;
+}
+function svcSectionHtml(x){
+  var rc=svcLeadRecipients(x);
+  var cb='display:inline-flex;align-items:flex-start;gap:6px;cursor:pointer;';
+  return '<div class="sec" id="svcSec"><h3>📨 申請以外のサービスを案内する</h3>'
+    + '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;">案内したいサービスにチェック → 「案内文を作成」→ 内容を確認して送信。送信すると対応履歴に自動で記録されます。</div>'
+    + '<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">'
+    + SVC_LIST.map(function(s){
+        return '<label style="'+cb+'font-size:13px;"><input type="checkbox" class="svcpick" value="'+s.k+'" style="flex:none;width:15px;height:15px;margin:2px 0 0;padding:0;">'
+          + '<span><b>'+esc(s.name)+'</b>　'+esc(s.price)+'<br><span class="sub" style="font-size:11.5px;">'+esc(s.desc)+'</span></span></label>';
+      }).join('')
+    + '</div>'
+    + '<div style="font-size:12px;font-weight:700;color:#4a5568;margin-bottom:4px;">宛先</div>'
+    + (rc.length
+        ? '<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:10px;">'+rc.map(function(r,i){
+            return '<label style="'+cb+'font-size:12.5px;"><input type="checkbox" class="svcto" data-name="'+esc(r.name)+'" value="'+esc(r.email)+'"'+(i===0?' checked':'')+' style="flex:none;width:15px;height:15px;margin:2px 0 0;padding:0;">'
+              + '<span>'+esc(r.email)+(r.name?'（'+esc(r.name)+' 様）':'')+'</span></label>';
+          }).join('')+'</div>'
+        : '<div class="sub" style="margin-bottom:10px;color:#c53030;">メールアドレスが未登録です。「登録支援機関情報」タブの担当者欄にメールを入れてください。</div>')
+    + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">'
+    +   '<span style="font-size:12px;font-weight:700;color:#4a5568;">差出人</span>'
+    +   '<select id="svcSender" style="width:auto;"><option value="">（選択してください）</option>'+STAFF_SEED.map(function(s){return '<option'+(s===thanksSenderDefault()?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
+    +   '<button class="btn" onclick="svcBuild()">✍️ 案内文を作成</button>'
+    + '</div>'
+    + '<div id="svcCompose" style="display:none;">'
+    +   '<label style="font-size:12px;font-weight:700;color:#4a5568;">件名</label><input type="text" id="svcSubject" style="width:100%;margin:2px 0 8px;">'
+    +   '<label style="font-size:12px;font-weight:700;color:#4a5568;">本文（自由に直せます）</label><textarea id="svcBody" style="width:100%;min-height:300px;margin-top:2px;font-size:12.5px;"></textarea>'
+    +   '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:8px;">'
+    +     '<button class="btn" id="svcTestBtn" onclick="svcSendTest()">まず自分宛にテスト送信</button>'
+    +     '<button class="btn btn-primary" id="svcSendBtn" onclick="svcSend()">✉️ 送信する</button>'
+    +   '</div>'
+    + '</div></div>';
+}
+function svcPicked(){ var ks=Array.prototype.map.call(document.querySelectorAll('.svcpick:checked'),function(c){return c.value;}); return SVC_LIST.filter(function(s){return ks.indexOf(s.k)>=0;}); }
+function svcTo(){ return Array.prototype.map.call(document.querySelectorAll('.svcto:checked'),function(c){return {email:c.value,name:c.getAttribute('data-name')||''};}); }
+function svcBuild(){
+  if(!curLead) return;
+  var picks=svcPicked(); if(!picks.length){ showMsg('dMsg','案内するサービスにチェックを入れてください','err'); return; }
+  var sender=el('svcSender').value.trim();
+  try{ if(sender) localStorage.setItem('thanksSender',sender); }catch(e){}
+  var to=svcTo();
+  var person=((to[0]&&to[0].name)||curLead.apt_person||'').replace(/\/.*$/,'').replace(/[（(].*?[）)]/,'').replace(/様$/,'').trim()||'ご担当者';
+  var body=(curLead.name||'')+'\n'+person+'様\n\n'
+    + 'お世話になっております。大房行政書士法人'+(sender?'の'+sender:'')+'でございます。\n\n'
+    + '弊社では、在留資格の申請業務のほかにも、登録支援機関様の事業をサポートするサービスをご用意しております。\n'
+    + '下記のサービスについてご案内いたします。\n\n'
+    + picks.map(function(s){ return '■ '+s.name+'（'+s.price+'）\n　'+s.desc; }).join('\n\n')
+    + '\n\nご興味をお持ちいただけましたら、本メールへのご返信またはお電話にてお気軽にお問い合わせください。\n詳しい内容をご説明させていただきます。\n\n'
+    + '今後ともどうぞよろしくお願いいたします。\n\n'
+    + (sender?sender+'\n':'') + MAIL_SIGNATURE;
+  el('svcSubject').value='サービスのご案内（'+picks.map(function(s){return s.name;}).join('・')+'）｜大房行政書士法人';
+  el('svcBody').value=body;
+  el('svcCompose').style.display='block';
+}
+function svcSendTest(){
+  var sub=el('svcSubject').value.trim(), body=el('svcBody').value.trim();
+  if(!sub||!body){ showMsg('dMsg','先に「案内文を作成」を押してください','err'); return; }
+  var to=prompt('テスト送信先のメールアドレス', me||''); if(!to||!/@/.test(to)) return;
+  var btn=el('svcTestBtn'); btn.disabled=true; btn.textContent='送信中…';
+  mailSendOne(to.trim(), '【テスト】'+sub, body, [], function(ok){
+    btn.disabled=false; btn.textContent='まず自分宛にテスト送信';
+    showMsg('dMsg', ok?('テストメールを送信しました（'+to+'）'):'送信結果が「成功」で返りませんでした。受信を確認してください', ok?'ok':'err');
+  });
+}
+function svcSend(){
+  if(!curLead) return;
+  var sub=el('svcSubject').value.trim(), body=el('svcBody').value.trim(), to=svcTo(), picks=svcPicked();
+  if(!sub||!body){ showMsg('dMsg','先に「案内文を作成」を押してください','err'); return; }
+  if(!to.length){ showMsg('dMsg','宛先にチェックを入れてください','err'); return; }
+  var addrs=to.map(function(t){return t.email;});
+  if(!confirm('次の宛先に案内メールを送信します。\n\n'+addrs.join('\n')+'\n\n件名：'+sub+'\n\nよろしいですか？')) return;
+  var btn=el('svcSendBtn'); btn.disabled=true; btn.textContent='送信中…';
+  var regNo=curLead.reg_no;
+  mailSendOne(addrs, sub, body, [], function(ok){
+    btn.disabled=false; btn.textContent='✉️ 送信する';
+    if(!ok){ showMsg('dMsg','送信結果が「成功」で返りませんでした。届いていない場合はもう一度送信してください','err'); return; }
+    var sender=el('svcSender').value.trim();
+    var rec={ reg_no:regNo, note_date:today(), kind:'メール', author:sender||me||null,
+      body:'サービス案内メール送信：'+(picks.length?picks.map(function(s){return s.name;}).join('・'):sub)+'\n宛先：'+addrs.join('、'), status_to:null };
+    _sb.from('eigyo_notes').insert(rec).then(function(){
+      _sb.from('eigyo_leads').update({last_contact_date:rec.note_date}).eq('reg_no',regNo).then(function(){
+        curLead.last_contact_date=rec.note_date;
+        showMsg('dMsg','案内メールを送信し、対応履歴に記録しました','ok');
+        el('svcCompose').style.display='none';
+        Array.prototype.forEach.call(document.querySelectorAll('.svcpick:checked'),function(c){c.checked=false;});
+        loadNotes(regNo); load();
+        if(typeof fillLatestNotes==='function') fillLatestNotes();
+      });
+    });
+  });
 }
 
 function deleteNote(id){
