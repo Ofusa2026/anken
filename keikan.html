@@ -53,13 +53,13 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto
       <a href="./index.html">📋 案シス（案件管理）</a>
       <a href="./eigyo.html">🤝 営シス（営業管理）</a>
     </nav>
-    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261031.11</span></div>
+    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261031.13</span></div>
   </aside>
   <main class="kk-main" id="kkMain"><div style="padding:60px;text-align:center;color:#94a3b8;">読み込み中…</div></main>
 </div>
 <div id="toast"></div>
 <script>
-var OFUSA_VERSION='ver.20261031.11';
+var OFUSA_VERSION='ver.20261031.13';
 var SUPABASE_URL='https://ehwlgbwpycglmopiqyty.supabase.co', SUPABASE_KEY='sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}, global:{headers:{'x-ofusa-user':encodeURIComponent((function(){ try{ return localStorage.getItem('ofusa_currentUser')||''; }catch(e){ return ''; } })())}}});
 var DB_READY=true;
@@ -1388,7 +1388,7 @@ function kkRender(){
   el.innerHTML=head+'<div class="skp">'+h+'</div>';
 }
 function kkReload(){ _skPerf.data=null; _skDr.data=null; _skRp.plan=null; _soRank.data=null; KK.sales=null; kkRender(); }
-// ===== 💴 費用・📈 損益（ver.20261031.11：まずは形だけ。金額は後から入れる） =====
+// ===== 💴 費用・📈 損益（ver.20261031.13：まずは形だけ。金額は後から入れる） =====
 var KK_COST_CATS=[
   {k:'tool', n:'🛠 ツール・システム'},
   {k:'office', n:'🏢 事務所'},
@@ -1511,7 +1511,7 @@ function kkPlHtml(R){
   h+='<div class="skrp-sec">これから入れたい機能<span>準備中</span></div><div class="skp-note">・計画（予算）と実績を並べて差を見る<span class="kkc-soon">準備中</span><br>・実際に払った費用（請求書・口座の明細）を月ごとに入れる<span class="kkc-soon">準備中</span><br>・社会保険の会社負担・税金・賞与などを入れて、本当の利益に近づける<span class="kkc-soon">準備中</span></div>';
   return h;
 }
-// ===== 📋 月次経営報告（ver.20261031.11）— 社長・経営陣向けの月1回の報告。会社全体＋新規取引（営シス）の目標と実績・YTD・3か月の見込み・ギャップ・予測の当たり具合 =====
+// ===== 📋 月次経営報告（ver.20261031.13）— 社長・経営陣向けの月1回の報告。会社全体＋新規取引（営シス）の目標と実績・YTD・3か月の見込み・ギャップ・予測の当たり具合 =====
 //   settings.kk_mbr ＝ {target:{"2026":{apps,net}}, reports:{"2026-09":{points,risks,asks,actions,snap:{f:{ym:{base,commit,best,pipe}}},savedAt,by}}}
 var KK_MBR_TIER=[{k:'commit',n:'確定',d:'依頼待ち・取引中（始まる月が先）',c:'#0f766e'},{k:'best',n:'上振れ',d:'結果待ち・商談予定',c:'#2563eb'},{k:'pipe',n:'パイプライン',d:'アタック中など',c:'#94a3b8'}];
 function kkYmAdd(ym,k){ var y=+ym.slice(0,4), m=+ym.slice(5)-1+k; y+=Math.floor(m/12); m=((m%12)+12)%12; return y+'-'+String(m+1).padStart(2,'0'); }
@@ -1552,9 +1552,29 @@ function kkMbrNewPlan(){
   for(var m=1;m<=N;m++){ var rev=mNew*m*rate; acc+=rev; rows[kkYmAdd(s,m-1)]={rev:rev, acc:acc}; }
   return {start:s, end:kkYmAdd(s,N-1), rows:rows, target:P.target_revenue, months:N};
 }
-function kkMbrNewAct(){ var by={}, D={}; ((KK.mbrNew||{}).deals||[]).forEach(function(d){ D[d.id]=d; });
-  ((KK.mbrNew||{}).sales||[]).forEach(function(x){ if(!D[x.deal_id]) return; var ym=String(x.decided_at||'').slice(0,7), a=x.override_amount!=null?+x.override_amount:(+x.subtotal||0); by[ym]=(by[ym]||0)+a; D[x.deal_id]._amt=(D[x.deal_id]._amt||0)+a; D[x.deal_id]._n=(D[x.deal_id]._n||0)+1; });
+// ver.20261031.13: 呼ぶたびに実績が足し算されて2倍・3倍になっていた不具合を修正（元のデータを書き換えない）。依頼数・初回依頼日を案シスの案件から
+function kkMbrNewAct(){ var by={}, D={}, cs=((_skPerf.data||{}).cases)||[], nz=function(x){ return String(x||'').replace(/[\s　]+/g,''); };
+  ((KK.mbrNew||{}).deals||[]).forEach(function(d){ var c=Object.assign({}, d); c._amt=0; c._n=0; var nm=nz(d.company), st=String(d.start_date||'').slice(0,10), hit=cs.filter(function(x){ return nm && (nz(x.org)===nm || nz(x.company)===nm); });
+    c._req=hit.length; c._first=hit.reduce(function(a,x){ var t=String(x.created_at||'').slice(0,10); return (!a||t<a)?t:a; },''); D[d.id]=c; });
+  ((KK.mbrNew||{}).sales||[]).forEach(function(x){ if(!D[x.deal_id]) return; var ym=String(x.decided_at||'').slice(0,7), a=x.override_amount!=null?+x.override_amount:(+x.subtotal||0); by[ym]=(by[ym]||0)+a; D[x.deal_id]._amt+=a; D[x.deal_id]._n++; });
   return {by:by, deals:Object.keys(D).map(function(k){ return D[k]; })}; }
+// 伸びている取引先（依頼＝案シスに案件が登録された数、登録支援機関ごと）。基準＝その月の前3か月の平均。会社全体の伸びより伸びている先を出す
+function kkMbrGrowth(R, ym){ var cs=((_skPerf.data||{}).cases)||[], prev=[kkYmAdd(ym,-3),kkYmAdd(ym,-2),kkYmAdd(ym,-1)], O={}, first={}, newOrg={};
+  ((KK.mbrNew||{}).deals||[]).forEach(function(d){ newOrg[String(d.company||'').replace(/[\s　]+/g,'')]=1; });
+  cs.forEach(function(c){ var o=String(c.org||'').trim(); if(!o) return; var m=String(c.created_at||'').slice(0,7), k=o.replace(/[\s　]+/g,''); if(!first[k]||m<first[k]) first[k]=m; var x=O[k]=O[k]||{name:o, m:0, b:0}; if(m===ym) x.m++; if(prev.indexOf(m)>=0) x.b++; });
+  var tm=0, tb=0; Object.keys(O).forEach(function(k){ tm+=O[k].m; tb+=O[k].b/3; }); var avg=tb?tm/tb:1;
+  var minM=Object.keys(first).reduce(function(a,k){ return (!a||first[k]<a)?first[k]:a; },'');
+  var L=Object.keys(O).map(function(k){ var x=O[k]; x.base=x.b/3; x.d=x.m-x.base; x.r=x.base?x.m/x.base:null; x.isNew=!!newOrg[k] || (first[k]>=kkYmAdd(ym,-5) && first[k]>kkYmAdd(minM,1)); x.first=first[k]; return x; });
+  var NEW=L.filter(function(x){ return x.isNew && x.m>0; }).sort(function(a,b){ return b.m-a.m; });
+  var UP=L.filter(function(x){ return !x.isNew && x.base>=3 && x.r!=null && x.r>avg && x.d>=3; }).sort(function(a,b){ return b.d-a.d; });
+  var DN=L.filter(function(x){ return !x.isNew && x.base>=5 && x.r!=null && x.r<Math.min(avg,1)*0.6; }).sort(function(a,b){ return a.d-b.d; });
+  return {avg:avg, tm:tm, tb:tb, NEW:NEW, UP:UP, DN:DN}; }
+function kkMbrGrowthHtml(R, ym, big){ var G=kkMbrGrowth(R, ym), esc=_skEsc, n0=function(v){ return Math.round(v||0).toLocaleString('ja-JP'); }, f1=function(v){ return (Math.round(v*10)/10); }, mi=+ym.slice(5);
+  var t=function(title, L, kind){ var cls=big?'dk-t':'skp-tbl', st=big?' style="font-size:1.1cqw;"':' style="box-shadow:none;"'; if(!L.length) return '<div class="'+(big?'dk-c':'mbr-box')+'"><h'+(big?'5':'4')+'>'+title+'</h'+(big?'5':'4')+'><div class="'+(big?'dk-em':'skp-note')+'">該当なし</div></div>';
+    return '<div class="'+(big?'dk-c':'mbr-box')+'"'+(big?' style="background:#fff;"':'')+'><h'+(big?'5':'4')+'>'+title+'</h'+(big?'5':'4')+'><table class="'+cls+'"'+st+'><thead><tr><th class="l"'+(big?'':' style="padding-left:8px;"')+'>登録支援機関</th>'+(kind==='new'?'<th>初回依頼</th><th>'+mi+'月の依頼</th>':'<th>前3か月平均</th><th>'+mi+'月</th><th>伸び</th>')+'</tr></thead><tbody>'
+      +L.slice(0,big?6:10).map(function(x){ return '<tr'+(big?'':' class="st"')+'><td class="l"'+(big?'':' style="padding-left:8px;font-weight:700;"')+'>'+esc(x.name)+'</td>'+(kind==='new'?'<td>'+esc(String(x.first||'').replace('-','/'))+'</td><td style="font-weight:800;">'+n0(x.m)+'件</td>':'<td>'+f1(x.base)+'件</td><td style="font-weight:800;">'+n0(x.m)+'件</td><td style="font-weight:800;color:'+(x.d>0?'#0f766e':'#dc2626')+';">'+(x.d>0?'+':'')+f1(x.d)+'件（'+Math.round(x.r*100)+'%）</td>')+'</tr>'; }).join('')+'</tbody></table></div>'; };
+  var head=(big?'':'<div class="skp-note" style="margin:0 0 6px;">依頼＝案シスに案件が登録された数（登録支援機関ごと）。会社全体の'+mi+'月は前3か月平均の <b>'+Math.round(G.avg*100)+'%</b>（'+n0(G.tm)+'件／平均'+n0(G.tb)+'件）。これより伸びている既存先と、新規先（営シスの新規取引・直近6か月に初めて依頼）を出しています。</div>');
+  return head+'<div class="'+(big?'dk-g':'mbr-grid')+'"'+(big?' style="grid-template-columns:1fr 1fr;"':'')+'>'+t('🆕 新規先の依頼', G.NEW, 'new')+t('📈 平均より伸びている既存先', G.UP, 'up')+'</div>'+(!big&&G.DN.length?'<div style="margin-top:12px;">'+t('📉 大きく減っている既存先（前3か月平均の6割未満）', G.DN, 'up')+'</div>':''); }
 // 見込み：ベース（今の取引先＝直近3か月の平均）＋営シスの見込み先（確度で3段）
 function kkMbrForecast(R, months){
   var L=_skRmEigList(), base=(KK.mbr&&KK.mbr.base!=null)?+KK.mbr.base:(R.l3App||0), out={};
@@ -1577,7 +1597,7 @@ function kkMbrStyle(){ if(document.getElementById('kkMbrCss')) return; var s=doc
    +'.mbr-act button{border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;margin-left:6px;} .mbr-act button.p{background:#0f2040;color:#fff;border-color:#0f2040;}'
    +'@media print{ .kk-side,.mbr-act,.kk-head select,.skp-ctl{display:none !important;} .kk-main{padding:0 !important;} .mbr-ta{border:none;padding:0;min-height:0;} body{background:#fff;} .skrp-sec{break-after:avoid;} table{break-inside:avoid;} }';
   document.head.appendChild(s); }
-// ===== 🎞 月次経営報告のスライド形式（ver.20261031.11）— 経営会議でそのまま映す・PDFで配る16:9の資料 =====
+// ===== 🎞 月次経営報告のスライド形式（ver.20261031.13）— 経営会議でそのまま映す・PDFで配る16:9の資料 =====
 function kkMbrDeckToggle(on){ KK.mbrDeck=!!on; kkRender(); window.scrollTo(0,0); }
 function kkDeckStyle(){ if(document.getElementById('kkDeckCss')) return; var s=document.createElement('style'); s.id='kkDeckCss';
   s.textContent='.dk-bar{display:flex;gap:8px;align-items:center;margin:0 0 14px;} .dk-bar button{border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:7px 14px;font-size:12.5px;font-weight:700;cursor:pointer;} .dk-bar button.p{background:#0f2040;color:#fff;border-color:#0f2040;}'
@@ -1626,7 +1646,7 @@ function kkMbrDeckHtml(R){
   var NP=kkMbrNewPlan(), NA=kkMbrNewAct(), npAcc=0, naAcc=0; if(NP){ Object.keys(NP.rows).forEach(function(k){ if(k<=ym) npAcc=NP.rows[k].acc; }); Object.keys(NA.by).forEach(function(k){ if(k<=ym && k>=NP.start) naAcc+=NA.by[k]; }); }
   var QC=kkMbrQCalc(R, ym), Q=QC.M, q=Q[ym]||{n:0,tk:0,own:0,un:0,med:null}, qp=Q[pm]||null, H=kkMbrHead();
   var tkr=function(o){ return o&&o.n?o.tk/o.n*100:null; }, chg=function(a,b,low,unit,f){ if(a==null||b==null) return ''; var d=a-b; if(!Math.round(d*10)) return '<span class="dk-em">前月と同じ</span>'; var good=low?d<0:d>0; return '<span class="'+(good?'up':'dn')+'">前月比 '+(d>0?'+':'−')+(f?f(Math.abs(d)):n0(Math.abs(d)))+unit+'</span>'; };
-  var N=0, total=10, foot=function(){ N++; return '<div class="dk-f"><span>大房行政書士法人　月次経営報告　'+kkYmJ(ym)+'</span><span>社外秘　'+N+' / '+total+'</span></div>'; };
+  var N=0, total=11, foot=function(){ N++; return '<div class="dk-f"><span>大房行政書士法人　月次経営報告　'+kkYmJ(ym)+'</span><span>社外秘　'+N+' / '+total+'</span></div>'; };
   var S=function(kicker, head, body, cls){ return '<section class="dk-s'+(cls?' '+cls:'')+'"><div class="dk-in">'+(kicker?'<div class="dk-k">'+kicker+'</div>':'')+(head?'<div class="dk-h">'+head+'</div>':'')+body+'</div>'+foot()+'</section>'; };
   var lines=[];
   lines.push(kkYmJ(ym)+'の申請は '+n0(mApp)+'件・純売上 '+man(mNet)+'万円（前月比 '+(pApp1?(mApp>=pApp1?'+':'')+Math.round((mApp/pApp1-1)*100)+'%':'—')+'）');
@@ -1678,10 +1698,12 @@ function kkMbrDeckHtml(R){
   h+=S('RANKING','申請ポイントランキング：1位 '+(RL[0]?_skEsc(RL[0].name)+' '+(Math.round(RL[0].pt*10)/10)+'点':'—')+'　標準（月'+kkPtStd()+'点）超え '+RL.filter(function(o){ return o.pt>=o.pstd; }).length+'名',
     '<div style="flex:1;min-height:0;overflow:hidden;">'+kkMbrRankHtml(R, ym, true)+'</div>');
   // 7 新規取引
-  var dl=NA.deals.slice().sort(function(a,b){ return (b._amt||0)-(a._amt||0); }).slice(0,7);
+  var dl=NA.deals.slice().sort(function(a,b){ return (b._amt||0)-(a._amt||0)||(b._req-a._req); }).slice(0,8);
   h+=S('NEW BUSINESS','新規取引：計画 '+man(npAcc)+'万円に対して実績 '+man(naAcc)+'万円（'+(pct(naAcc,npAcc)||0)+'%）',
     '<div class="dk-g" style="grid-template-columns:1fr 1.6fr;"><div class="dk-g" style="grid-template-rows:1fr 1fr;gap:1.2cqw;"><div class="dk-c"><h5>新規取引先</h5><div class="dk-n">'+NA.deals.length+'<small>社</small></div><div class="dk-sub">'+(NP?'計画期間 '+kkYmJ(NP.start)+'〜'+kkYmJ(NP.end):'')+'</div></div><div class="dk-c"><h5>計画全体（'+(NP?NP.months:'—')+'か月）</h5><div class="dk-n">'+(NP?_skRpMan(NP.target,0):'—')+'<small>万円</small></div><div class="dk-sub">達成率 '+(NP?Math.round(naAcc/NP.target*1000)/10:0)+'%</div></div></div>'
-    +'<div class="dk-c" style="background:#fff;"><h5>取引先別の実績（上位）</h5><table class="dk-t"><thead><tr><th class="l">取引先</th><th>開始</th><th>担当</th><th>実績</th></tr></thead><tbody>'+dl.map(function(d){ return '<tr><td class="l">'+esc(d.company)+'</td><td>'+esc(String(d.start_date||'').slice(5).replace('-','/'))+'</td><td>'+esc(String(d.staff||'').split(/[、,]/)[0])+'</td><td style="font-weight:800;">'+_skRpMan(d._amt||0,1)+'万円</td></tr>'; }).join('')+'</tbody></table></div></div>');
+    +'<div class="dk-c" style="background:#fff;"><h5>取引先別の実績（上位）</h5><table class="dk-t"><thead><tr><th class="l">取引先</th><th>初回依頼</th><th>担当</th><th>依頼数</th><th>実績</th></tr></thead><tbody>'+dl.map(function(d){ return '<tr><td class="l">'+esc(d.company)+'</td><td>'+(d._first?esc(d._first.slice(5).replace('-','/')):'—')+'</td><td>'+esc(String(d.staff||'').split(/[、,]/)[0])+'</td><td>'+n0(d._req)+'件</td><td style="font-weight:800;">'+_skRpMan(d._amt||0,1)+'万円</td></tr>'; }).join('')+'</tbody></table></div></div>');
+  var GG=kkMbrGrowth(R, ym);
+  h+=S('GROWTH','伸びている取引先：既存 '+GG.UP.length+'社・新規 '+GG.NEW.length+'社（会社全体は前3か月比 '+Math.round(GG.avg*100)+'%）', '<div style="flex:1;min-height:0;overflow:hidden;">'+kkMbrGrowthHtml(R, ym, true)+'</div>');
   // 8 見込み
   var fb=fm.map(function(m){ var f=F[m]; return {l:kkYmJ(m).replace(/^\d+年/,''), v:f.base+f.commit, v2:f.best, c:'#0f766e', c2:'#93c5fd'}; });
   var cand={}; fm.forEach(function(m){ F[m].rows.forEach(function(r){ if(r.t!=='commit' && !cand[r.name]) cand[r.name]=r; }); }), CL=Object.keys(cand).map(function(k){ return cand[k]; }).sort(function(a,b){ return b.n-a.n; }).slice(0,6);
@@ -1744,10 +1766,11 @@ function kkMbrHtml(R){
   if(!NP) h+='<div class="skp-note">営シスのKPI計画が読み込めませんでした。</div>';
   else {
     h+='<div class="mbr-box" style="margin-bottom:8px;"><div style="display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;"><div>計画期間 <b>'+kkYmJ(NP.start)+'〜'+kkYmJ(NP.end)+'</b>・目標 <b>'+_skRpMan(NP.target,0)+'万円</b></div><div>'+kkYmJ(ym)+'までの計画 <b>'+man(npAcc)+'万円</b></div><div>実績 <b style="color:'+(naAcc>=npAcc?'#0f766e':'#dc2626')+';">'+man(naAcc)+'万円（'+(pct(naAcc,npAcc)||0)+'%）</b></div><div>新規取引 <b>'+NA.deals.length+'社</b></div></div><div style="margin-top:8px;">'+bar(naAcc,npAcc,NP.target)+'</div></div>';
-    h+='<div style="overflow:auto;"><table class="skp-tbl"><thead><tr><th class="l" style="padding-left:14px;">新規取引先</th><th>取引開始</th><th>担当</th><th>支援人数</th><th>依頼</th><th>実績（万円）</th></tr></thead><tbody>'
-      +NA.deals.sort(function(a,b){ return (b._amt||0)-(a._amt||0); }).map(function(d){ return '<tr class="st"><td class="l" style="padding-left:14px;font-weight:700;">'+esc(d.company)+'</td><td>'+esc(String(d.start_date||'').slice(5).replace('-','/'))+'</td><td>'+esc(d.staff||'')+'</td><td>'+(d.supporters?n0(d.supporters)+'名':'—')+'</td><td>'+n0(d._n)+'件</td><td style="font-weight:800;">'+_skRpMan(d._amt||0,1)+'</td></tr>'; }).join('')
-      +'</tbody></table></div>';
+    h+='<div style="overflow:auto;"><table class="skp-tbl"><thead><tr><th class="l" style="padding-left:14px;">新規取引先</th><th>取引開始</th><th>初回依頼</th><th>担当</th><th>依頼数</th><th>決定報告</th><th>実績（万円）</th></tr></thead><tbody>'
+      +NA.deals.sort(function(a,b){ return (b._amt||0)-(a._amt||0); }).map(function(d){ return '<tr class="st"><td class="l" style="padding-left:14px;font-weight:700;">'+esc(d.company)+'</td><td>'+esc(String(d.start_date||'').slice(5).replace('-','/'))+'</td><td>'+(d._first?esc(d._first.slice(5).replace('-','/')):'<span class="skp-z">まだ</span>')+'</td><td>'+esc(d.staff||'')+'</td><td style="font-weight:800;">'+n0(d._req)+'件</td><td>'+n0(d._n)+'件</td><td style="font-weight:800;">'+_skRpMan(d._amt||0,1)+'</td></tr>'; }).join('')
+      +'</tbody></table></div><div class="skp-note" style="margin-top:6px;">依頼数＝案シスに登録された案件の数（登録支援機関・所属機関の名前で照合）。決定報告・実績＝決定報告（売上）の件数と金額。</div>';
   }
+  h+='<div class="skrp-sec" style="margin-top:14px;">伸びている取引先（新規・既存）</div>'+kkMbrGrowthHtml(R, ym, false);
   // 4. 見込み（3か月）
   h+='<div class="skrp-sec">6. これから3か月の見込み（申請件数）<span>ベース＝今の取引先（月 <input class="mbr-base" value="'+(KK.mbr.base!=null?KK.mbr.base:'')+'" placeholder="'+n0(R.l3App)+'" style="width:60px;border:1px solid #e2e8f0;border-radius:6px;padding:2px 5px;font-size:11.5px;text-align:right;" onchange="kkMbrSetBase(this.value)">件・空欄＝直近3か月の平均）＋営シスの見込み先</span></div>';
   h+='<div style="overflow:auto;"><table class="skp-tbl"><thead><tr><th class="l" style="padding-left:14px;">区分</th>'+fm.map(function(m){ return '<th>'+kkYmJ(m)+(m===R.nowYm?'<br><span style="font-weight:600;color:#94a3b8;">途中 '+n0(R.co.app[m]||0)+'件</span>':'')+'</th>'; }).join('')+'<th class="l">見方</th></tr></thead><tbody>'
@@ -1786,7 +1809,7 @@ function kkMbrUnavoid(){ var u=KK.mbr&&KK.mbr.unavoid; return (Array.isArray(u)&
 function kkMbrSetUnavoid(v){ KK.mbr.unavoid=String(v||'').split(/[、,，\s]+/).map(function(x){ return x.trim(); }).filter(Boolean); kkMbrSave('💾 やむを得ない追完の書類を保存しました'); kkRender(); }
 function kkMbrQCalc(R, ym){
   var cs=((_skPerf.data||{}).cases)||[], T=((KK.mbrNew||{}).tsuikan)||[], byCase={}, UN=kkMbrUnavoid();
-  // ver.20261031.11: やむを得ない追完（健康診断など）は追完率から除いて別に数える。健康診断とセットの「申告書」（受診者の申告書）もやむを得ない側
+  // ver.20261031.13: やむを得ない追完（健康診断など）は追完率から除いて別に数える。健康診断とセットの「申告書」（受診者の申告書）もやむを得ない側
   T.forEach(function(t){ if(!t.lc || t.del==='true' || !/追完/.test(t.sub||'')) return; var o=byCase[t.lc]=byCase[t.lc]||{n:0, av:false, un:false, own:false, cust:false, unDocs:{}};
     o.n++; var it=(Array.isArray(t.doc_items)?t.doc_items:[]).filter(function(x){ return x&&x.doc; });
     var isUn=function(d){ return UN.some(function(u){ return u && String(d).indexOf(u)>=0; }); }, hasUn=it.some(function(x){ return isUn(x.doc); });
@@ -1806,7 +1829,7 @@ function kkMbrQCalc(R, ym){
   Object.keys(M).forEach(function(k){ M[k].med=med(M[k].lt); }); Object.keys(S).forEach(function(k){ S[k].med=med(S[k].lt); });
   return {M:M, S:S, med:med};
 }
-// ver.20261031.11: 国交省（建設）のスピードと補正率。国交省管理システムのステータス履歴（2026/5/29〜）から
+// ver.20261031.13: 国交省（建設）のスピードと補正率。国交省管理システムのステータス履歴（2026/5/29〜）から
 function kkMbrKokkoCalc(R){
   var L=((KK.mbrNew||{}).kokkoLog)||[], K=((KK.mbrNew||{}).kokko)||[], F={}, med=function(a){ if(!a.length) return null; var b=a.slice().sort(function(x,y){ return x-y; }), k=Math.floor(b.length/2); return b.length%2?b[k]:(b[k-1]+b[k])/2; };
   L.forEach(function(l){ var o=F[l.kokko_case_id]=F[l.kokko_case_id]||{}, t=l.changed_at, st=String(l.to_status||''); var put=function(k){ if(!o[k]||t<o[k]) o[k]=t; };
@@ -1869,7 +1892,7 @@ function kkMbrQualityHtml(R, ym, rep){
   h+=kkMbrKokkoHtml(R, ym);
   return h;
 }
-// ver.20261031.11: 人員（社員・パート・カンボジア）と人件費・生産性。単価は報告画面で変えられる（kk_mbr.rates）
+// ver.20261031.13: 人員（社員・パート・カンボジア）と人件費・生産性。単価は報告画面で変えられる（kk_mbr.rates）
 var KK_MBR_RATE_DEF={emp:6000000, part:1500, partH:80, kh:900, fx:150};
 function kkMbrRates(){ var r=Object.assign({}, KK_MBR_RATE_DEF, (KK.mbr&&KK.mbr.rates)||{}); return r; }
 function kkMbrSetRate(k,v){ var n=+String(v).replace(/[,\s]/g,''); if(!(n>=0)){ showToast('⚠️ 数字で入れてください'); return; } KK.mbr.rates=KK.mbr.rates||{}; KK.mbr.rates[k]=n; kkMbrSave('💾 単価を保存しました'); kkRender(); }
@@ -1883,8 +1906,8 @@ function kkMbrHead(){
   var r=kkMbrRates(); o.cost={emp:o.emp.length*r.emp/12, part:o.part.length*r.part*r.partH, kh:o.kh.length*r.kh*r.fx}; o.cost.all=o.cost.emp+o.cost.part+o.cost.kh;
   return o;
 }
-// ver.20261031.11: 社員の申請件数ランキング（申請日ベース・申請なしは除く）。標準＝1人月100件（ロードマップの1人あたり件数）
-// ver.20261031.11: 申請ポイント（人事企画シート「⭐️点数」「⭐️登録支援機関係数」より）。1件の大変さ＝種類の点数×登録支援機関の係数。標準＝2か月で30点（月15点）
+// ver.20261031.13: 社員の申請件数ランキング（申請日ベース・申請なしは除く）。標準＝1人月100件（ロードマップの1人あたり件数）
+// ver.20261031.13: 申請ポイント（人事企画シート「⭐️点数」「⭐️登録支援機関係数」より）。1件の大変さ＝種類の点数×登録支援機関の係数。標準＝2か月で30点（月15点）
 //   列：[経験無し1人目 認定,変更][経験無し2人目以降 認定,変更][経験あり1人目 認定,変更,更新][経験あり2人目以降 認定,変更,更新]
 var KK_PT_TABLE={
   '特定技能':[1,1, .5,.5, .5,.5,.25, .5,.5,.25],
@@ -1903,12 +1926,12 @@ var KK_PT_TABLE={
 var KK_PT_ORG=[['オープンケア',2],['Linola',1.5],['リノラ',1.5],['GZOK',1.25],['ランファ',1.25],['JAM',1.25],['マルヒサ',1.25],['中央キャリアネット',1.25],['エンビト',1.25],['グローバルハーモ',1.25],
   ['KMT',.5],['アイデム',.5],['アールビー',.5],['EE21',.25],['ジントル',.75],['ウォーターワン',.75],['城南会',.75],['initi',.75],['エラン',.75],['ツナガリ',.75],['繋がり',.75],['ヒューマンパワー',.75],['ファーストクラス',.75],['バンブー',.75],['エンクルー',.75],['クレイプラス',.75],['ビーワークス',.75],['スリーイー',.75],['３E',.75],['パワーシフト',.75],['さくらプランニング',.75],['エミタス',.75]];
 var KK_PT_STD=15;
-// ver.20261031.11: 申請の種類の点数も経管で編集できる（KK.mbr.points.table に上書き分だけ保存）
+// ver.20261031.13: 申請の種類の点数も経管で編集できる（KK.mbr.points.table に上書き分だけ保存）
 var KK_PT_COLS=['経験なし・1人目 認定','経験なし・1人目 変更','経験なし・2人目〜 認定','経験なし・2人目〜 変更','経験あり・1人目 認定','経験あり・1人目 変更','経験あり・1人目 更新','経験あり・2人目〜 認定','経験あり・2人目〜 変更','経験あり・2人目〜 更新'];
-// ver.20261031.11: 国交省申請のポイント（1人目1.75・2人目以降0.25）。オープンケア・アテタジャパン・Buddy Crewは中谷、それ以外は案件の担当（国交省カードにひもづく入管の案件の担当）
+// ver.20261031.13: 国交省申請のポイント（1人目1.75・2人目以降0.25）。オープンケア・アテタジャパン・Buddy Crewは中谷、それ以外は案件の担当（国交省カードにひもづく入管の案件の担当）
 function kkPtKk(){ var o=(KK.mbr&&KK.mbr.points&&KK.mbr.points.kokko)||{}; return {first:o.first!=null?+o.first:1.75, more:o.more!=null?+o.more:0.25, naka:Array.isArray(o.naka)?o.naka:['オープンケア','アテタ','Buddy'], nakaName:o.nakaName||'中谷　悠也', no:Array.isArray(o.no)?o.no:['町田','清水','村山']}; }
 function kkPtSetKk(k,v){ KK.mbr.points=KK.mbr.points||{}; var o=KK.mbr.points.kokko=KK.mbr.points.kokko||{}; if(k==='naka'||k==='no') o[k]=String(v||'').split(/[、,，\s]+/).filter(Boolean); else if(k==='nakaName') o.nakaName=String(v||'').trim(); else { var x=+v; if(!(x>=0)){ showToast('⚠️ 数字で入れてください'); return; } o[k]=x; } kkMbrSave('💾 国交省のポイント設定を保存しました'); kkRender(); }
-// ver.20261031.11: 国交省申請は、国交省管理システムで「申請済み」にした人（ステータスの履歴）に付ける。履歴が無いカードだけ、決めたルール（オープンケア等は中谷・ほかは案件担当）
+// ver.20261031.13: 国交省申請は、国交省管理システムで「申請済み」にした人（ステータスの履歴）に付ける。履歴が無いカードだけ、決めたルール（オープンケア等は中谷・ほかは案件担当）
 function kkPtFixName(n, known){ var k=String(n||'').replace(/[\s　]+/g,''); if(!k) return ''; var A={'清水星史':'清水星吏'}; if(A[k]) k=A[k]; var hit=known.filter(function(x){ return x.replace(/[\s　]+/g,'')===k; })[0]||known.filter(function(x){ return x.replace(/[\s　]+/g,'').indexOf(k)===0; })[0]; return hit||n; }
 function kkPtKokkoRows(){ var K=kkPtKk(), cs=((_skPerf.data||{}).cases)||[], byId={}, known={}; cs.forEach(function(c){ byId[c.id]=c; if(c.staff) known[c.staff]=1; }); known[K.nakaName]=1; known=Object.keys(known);
   var LOG={}; (((KK.mbrNew||{}).kokkoLog)||[]).forEach(function(l){ if(!l.staff || l.to_status!=='申請済み') return; var p=LOG[l.kokko_case_id]; if(!p || String(l.changed_at)>String(p.at)) LOG[l.kokko_case_id]={who:l.staff, at:l.changed_at}; });
@@ -1955,9 +1978,9 @@ function kkPtOrgListHtml(R, ym){
     +'<div style="max-height:320px;overflow:auto;"><table class="skp-tbl" style="box-shadow:none;"><thead><tr><th class="l" style="padding-left:8px;">登録支援機関</th><th>申請（6か月）</th><th>係数</th><th class="l">出どころ</th></tr></thead><tbody>'
     +L.map(function(o){ return '<tr class="st"'+(o.src==='none'?' style="background:#fef2f2;"':'')+'><td class="l" style="padding-left:8px;font-weight:700;">'+_skEsc(o.name)+'</td><td>'+o.k+'件</td><td><input value="'+(o.src==='none'?'':o.v)+'" placeholder="1.0" style="width:56px;border:1px solid '+(o.src==='none'?'#fca5a5':'#e2e8f0')+';border-radius:6px;padding:2px 5px;font-size:12px;text-align:right;" onchange="kkPtSetOrg(\''+_skEsc(o.n).replace(/'/g,"\\'")+'\',this.value)"></td><td class="l" style="color:'+(o.src==='none'?'#dc2626':'#64748b')+';font-size:11.5px;">'+(o.src==='set'?'経管で設定':(o.src==='sheet'?'シート':'未設定'))+'</td></tr>'; }).join('')
     +'</tbody></table></div></details>'; }
-// ver.20261031.11: 1人目＝その所属機関（企業）で一番最初に登録された案件（案件名は1人ずつのことが多いので企業で見る）。企業が空なら案件名
+// ver.20261031.13: 1人目＝その所属機関（企業）で一番最初に登録された案件（案件名は1人ずつのことが多いので企業で見る）。企業が空なら案件名
 function kkPtKey(c){ var co=kkPtNorm(c.company); return co?('co:'+co):('nm:'+String(c.name||c.id)); }
-// ver.20261031.11: 受入経験の判定（案シスの欄が空でも読み取る）。①案件名が【第2弾】以降 or 更新 → あり ②欄に「無」→ なし／「有」→ あり ③空欄：同じ企業でそれより前の案件があれば あり、無ければ なし
+// ver.20261031.13: 受入経験の判定（案シスの欄が空でも読み取る）。①案件名が【第2弾】以降 or 更新 → あり ②欄に「無」→ なし／「有」→ あり ③空欄：同じ企業でそれより前の案件があれば あり、無ければ なし
 function kkPtDan(name){ var m=String(name||'').match(/第\s*([0-9０-９]+|[一二三四五六七八九十]+)\s*弾/); if(!m) return null; var t=m[1].replace(/[０-９]/g,function(d){ return String.fromCharCode(d.charCodeAt(0)-0xFEE0); }); if(/^\d+$/.test(t)) return +t; var K={一:1,二:2,三:3,四:4,五:5,六:6,七:7,八:8,九:9,十:10}; return t.length===1?K[t]:(t[0]==='十'?10+(K[t[1]]||0):(K[t[0]]||0)*10+(K[t[2]]||0)); }
 function kkPtExp(c, firstAt){ var d=kkPtDan(c.name); if((d&&d>=2) || String(c.app_type||'')==='更新') return {v:true, why:d&&d>=2?'第'+d+'弾':'更新'};
   var a=String(c.accept_exp||'').trim(); if(/無|なし/.test(a)) return {v:false, why:'案シス'}; if(/有|あり/.test(a)) return {v:true, why:'案シス'};
@@ -2105,6 +2128,10 @@ function kkSalesHtml(){
   var orgName={}; S.orgs.forEach(function(o){ orgName[o.id]=o.name; });
   var nowYm=_soTodayYm(), months=[]; for(var i=-5;i<=0;i++) months.push(_soAddMonth(nowYm,i));
   var byOrg={}; S.cases.forEach(function(c){ var m=_soYm(c.created_at), o=String(c.org||'').trim(); if(!o) return; (byOrg[o]=byOrg[o]||{})[m]=((byOrg[o]||{})[m]||0)+1; });
+  // ver.20261031.13: 同じ案シスの登録支援機関にひもづく営シスの先が複数あるときは、案件が登録されている名前の先を優先し、ほかは数えない
+  (function(){ var nz=function(x){ return String(x||'').replace(/[\s　]+/g,''); }, G={}; S.leads.forEach(function(l){ if(!l.support_org_id) return; (G[l.support_org_id]=G[l.support_org_id]||[]).push(l); });
+    var drop={}; Object.keys(G).forEach(function(k){ var L=G[k]; if(L.length<2) return; var on=nz(orgName[k]); var keep=L.filter(function(l){ return nz(l.name)===on || byOrg[String(l.name).trim()]; })[0]||L[0]; L.forEach(function(l){ if(l!==keep) drop[l.reg_no]=1; }); });
+    S.leadsAll=S.leadsAll||S.leads; S.leads=S.leadsAll.filter(function(l){ return !drop[l.reg_no]; }); S.dropped=Object.keys(drop).length; })();
   var cnt={}; S.leads.forEach(function(l){ cnt[l.status]=(cnt[l.status]||0)+1; });
   var filled=S.leads.filter(function(l){ return l.hr_monthly_apps; }).length, withStart=S.leads.filter(function(l){ return l.hr_start_date; }).length, withProb=S.leads.filter(function(l){ return l.close_prob!=null&&l.close_prob!==''; }).length;
   var h='<div class="skrp-kpis">'
@@ -2127,9 +2154,13 @@ function kkSalesHtml(){
   var cl=S.leads.filter(function(l){ return l.status==='確定'||l.status==='取引中'||l.status==='依頼待ち'; });
   h+='<div class="skrp-sec">確定先の進捗（予定と実績）<span>実績＝案シスの依頼件数（案件の登録数・登録支援機関で照合）</span></div>';
   h+='<div style="overflow:auto;"><table class="skp-tbl"><thead><tr><th class="l" style="padding-left:12px;">契約先</th><th>予定（月）</th>'+months.map(function(m,i){ return '<th'+(i===0?' class="dv"':'')+(m===nowYm?' style="color:#1d4ed8;"':'')+'>'+(+m.slice(5))+'月</th>'; }).join('')+'<th class="dv">達成（直近3か月）</th></tr></thead><tbody>';
-  var rows=cl.map(function(l){ var on=orgName[l.support_org_id]||l.name, a=byOrg[on]||byOrg[String(l.name).trim()]||{}; return {l:l, a:a, tot:months.reduce(function(s,m){ return s+(a[m]||0); },0)}; }).sort(function(x,y){ return y.tot-x.tot; });
+  // ver.20261031.13: 同じ案シスの登録支援機関にひもづく営シスの先（登録番号ちがいの同じ会社）は1行にまとめる
+  var grp={}, rows=[]; cl.forEach(function(l){ var on=orgName[l.support_org_id]||l.name, key=l.support_org_id?('id:'+l.support_org_id):('nm:'+String(on).trim()), g=grp[key];
+    if(!g){ var a=byOrg[on]||byOrg[String(l.name).trim()]||{}; g=grp[key]={l:Object.assign({},l,{name:l.support_org_id?on:l.name}), a:a, tot:months.reduce(function(s,m){ return s+(a[m]||0); },0), n:1, names:[l.name]}; rows.push(g); }
+    else { g.n++; g.names.push(l.name); if(!(+g.l.hr_monthly_apps) && +l.hr_monthly_apps) g.l.hr_monthly_apps=l.hr_monthly_apps; } });
+  rows.sort(function(x,y){ return y.tot-x.tot; });
   rows.slice(0,60).forEach(function(r){ var plan=+r.l.hr_monthly_apps||0, l3=[months[2],months[3],months[4]].reduce(function(s,m){ return s+(r.a[m]||0); },0)/3, pc=plan?Math.round(l3/plan*100):null;
-    h+='<tr class="st"><td class="l" style="padding-left:12px;font-weight:700;color:#0f172a;">'+esc(r.l.name)+(r.l.support_org_id?'':'<span class="skp-tag">機関ID未設定</span>')+'</td><td>'+(plan?n0(plan):'<span class="skp-z">未入力</span>')+'</td>'+months.map(function(m,i){ var v=r.a[m]||0; return '<td'+(i===0?' class="dv"':'')+'>'+(v||'<span class="skp-z">·</span>')+'</td>'; }).join('')+'<td class="dv">'+(pc==null?'<span class="skp-z">—</span>':'<span class="skp-pct '+(pc>=100?'ok':pc>=60?'lo':'hi')+'">'+pc+'%</span>')+'</td></tr>'; });
+    h+='<tr class="st"><td class="l" style="padding-left:12px;font-weight:700;color:#0f172a;">'+esc(r.l.name)+(r.n>1?'<span class="skp-tag" title="'+esc(r.names.join(' ／ '))+'">営シスに'+r.n+'件</span>':'')+(r.l.support_org_id?'':'<span class="skp-tag">機関ID未設定</span>')+'</td><td>'+(plan?n0(plan):'<span class="skp-z">未入力</span>')+'</td>'+months.map(function(m,i){ var v=r.a[m]||0; return '<td'+(i===0?' class="dv"':'')+'>'+(v||'<span class="skp-z">·</span>')+'</td>'; }).join('')+'<td class="dv">'+(pc==null?'<span class="skp-z">—</span>':'<span class="skp-pct '+(pc>=100?'ok':pc>=60?'lo':'hi')+'">'+pc+'%</span>')+'</td></tr>'; });
   h+='</tbody></table></div>';
   // 営シスに足りない機能
   h+='<div class="skrp-sec">営シスに足りないもの（経営企画とつなぐために）</div><div class="kk-card" style="font-size:12.5px;line-height:1.9;color:#334155;">'
