@@ -55,13 +55,13 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto
       <a href="./index.html">📋 案シス（案件管理）</a>
       <a href="./eigyo.html">🤝 営シス（営業管理）</a>
     </nav>
-    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261102.01</span></div>
+    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261102.02</span></div>
   </aside>
   <main class="kk-main" id="kkMain"><div style="padding:60px;text-align:center;color:#94a3b8;">読み込み中…</div></main>
 </div>
 <div id="toast"></div>
 <script>
-var OFUSA_VERSION='ver.20261102.01';
+var OFUSA_VERSION='ver.20261102.02';
 var SUPABASE_URL='https://ehwlgbwpycglmopiqyty.supabase.co', SUPABASE_KEY='sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}, global:{headers:{'x-ofusa-user':encodeURIComponent((function(){ try{ return localStorage.getItem('ofusa_currentUser')||''; }catch(e){ return ''; } })())}}});
 var DB_READY=true;
@@ -2042,15 +2042,24 @@ function kkPtOrgInfo(org){ var n=kkPtNorm(org), M=(KK.mbr&&KK.mbr.points&&KK.mbr
   return {v:1, src:'none'}; }
 function kkPtOrg(org){ return kkPtOrgInfo(org).v; }
 function kkPtSetOrg(n,v){ KK.mbr.points=KK.mbr.points||{}; KK.mbr.points.org=KK.mbr.points.org||{}; if(String(v).trim()===''){ delete KK.mbr.points.org[n]; } else { var x=+v; if(!(x>=0)){ showToast('⚠️ 数字で入れてください'); return; } KK.mbr.points.org[n]=x; } kkMbrSave('💾 係数を保存しました'); kkRender(); }
+// ver.20261102.02: 係数をボタン1回で選べるように（0.5 楽〜2.0 とても大変）。検索・「未設定だけ」で絞り込み
+var KK_PT_LV=[[0.5,'楽'],[1,'普通'],[1.25,'少し大変'],[1.5,'大変'],[2,'とても大変']];
 function kkPtOrgListHtml(R, ym){
   var cs=((_skPerf.data||{}).cases)||[], since=kkYmAdd(ym,-5), O={};
   cs.forEach(function(c){ var rd=String(c.receipt_date||'').slice(0,7); if(rd<since||rd>ym||!c.org) return; var n=kkPtNorm(c.org); if(!n) return; var o=O[n]=O[n]||{n:n, name:String(c.org).trim(), k:0}; o.k++; });
   var L=Object.keys(O).map(function(k){ var o=O[k], inf=kkPtOrgInfo(o.name); o.v=inf.v; o.src=inf.src; return o; }).sort(function(a,b){ return ((a.src==='none')?0:1)-((b.src==='none')?0:1) || b.k-a.k; });
-  var un=L.filter(function(o){ return o.src==='none'; }).length;
-  return '<details'+(un?' open':'')+' style="margin-top:10px;"><summary style="cursor:pointer;font-size:12.5px;font-weight:800;color:#0f172a;">⚙️ 登録支援機関の係数（大変さ）　'+(un?'<span style="color:#dc2626;">未設定 '+un+'件</span>':'すべて設定済み')+'</summary>'
-    +'<div class="skp-note" style="margin:6px 0;">直近6か月に申請がある登録支援機関。人事企画シート「⭐️登録支援機関係数」の値が入っています。シートに無いところ（未設定＝1.0で計算）は、ここで入れてください。シートの値も上書きできます（空欄にするとシートの値に戻ります）。大変なほど大きく（オープンケア2.0・Linola1.5・普通1.0・アイデム/KMT/アールビー0.5）。</div>'
-    +'<div style="max-height:320px;overflow:auto;"><table class="skp-tbl" style="box-shadow:none;"><thead><tr><th class="l" style="padding-left:8px;">登録支援機関</th><th>申請（6か月）</th><th>係数</th><th class="l">出どころ</th></tr></thead><tbody>'
-    +L.map(function(o){ return '<tr class="st"'+(o.src==='none'?' style="background:#fef2f2;"':'')+'><td class="l" style="padding-left:8px;font-weight:700;">'+_skEsc(o.name)+'</td><td>'+o.k+'件</td><td><input value="'+(o.src==='none'?'':o.v)+'" placeholder="1.0" style="width:56px;border:1px solid '+(o.src==='none'?'#fca5a5':'#e2e8f0')+';border-radius:6px;padding:2px 5px;font-size:12px;text-align:right;" onchange="kkPtSetOrg(\''+_skEsc(o.n).replace(/'/g,"\\'")+'\',this.value)"></td><td class="l" style="color:'+(o.src==='none'?'#dc2626':'#64748b')+';font-size:11.5px;">'+(o.src==='set'?'経管で設定':(o.src==='sheet'?'シート':'未設定'))+'</td></tr>'; }).join('')
+  var un=L.filter(function(o){ return o.src==='none'; }).length, q=String(KK.ptQ||'').trim(), only=!!KK.ptUn;
+  var V=L.filter(function(o){ return (!only||o.src==='none') && (!q || o.name.indexOf(q)>=0 || o.n.indexOf(kkPtNorm(q))>=0); });
+  var esc=_skEsc, js=function(t){ return esc(t).replace(/'/g,"\\'"); };
+  var chip=function(o,lv){ var on=o.src!=='none' && Math.abs(o.v-lv[0])<1e-9; return '<button onclick="kkPtSetOrg(\''+js(o.n)+'\','+lv[0]+')" title="'+lv[1]+'" style="border:1.5px solid '+(on?'#0f766e':'#e2e8f0')+';background:'+(on?'#0f766e':'#fff')+';color:'+(on?'#fff':'#334155')+';border-radius:999px;padding:2px 9px;font-size:11.5px;font-weight:'+(on?'800':'600')+';cursor:pointer;white-space:nowrap;">'+(lv[0]%1===0?lv[0].toFixed(1):lv[0])+' '+lv[1]+'</button>'; };
+  var other=function(o){ var isLv=KK_PT_LV.some(function(lv){ return Math.abs(o.v-lv[0])<1e-9; }); return '<input value="'+(o.src!=='none'&&!isLv?o.v:'')+'" placeholder="他" title="ほかの数字にするときだけ" style="width:40px;border:1px solid #e2e8f0;border-radius:6px;padding:2px 4px;font-size:11.5px;text-align:right;" onchange="kkPtSetOrg(\''+js(o.n)+'\',this.value)">'; };
+  return '<details'+((un||KK.ptOpen)?' open':'')+' ontoggle="KK.ptOpen=this.open" style="margin-top:10px;"><summary style="cursor:pointer;font-size:12.5px;font-weight:800;color:#0f172a;">⚙️ 登録支援機関の係数（大変さ）　'+(un?'<span style="color:#dc2626;">未設定 '+un+'件</span>':'すべて設定済み')+'</summary>'
+    +'<div class="skp-note" style="margin:6px 0;">ボタンを押すだけで保存されます。<b>普通＝1.0</b>。大変なところほど右のボタン（例：オープンケア＝2.0 とても大変・Linola＝1.5 大変・アイデム/KMT/アールビー＝0.5 楽）。最初はシート「⭐️登録支援機関係数」の値が入っています。</div>'
+    +'<div style="display:flex;gap:8px;align-items:center;margin:4px 0 6px;flex-wrap:wrap;"><input value="'+esc(q)+'" placeholder="🔍 機関名で探す" onchange="KK.ptQ=this.value;kkRender()" style="border:1px solid #cbd5e1;border-radius:8px;padding:4px 8px;font-size:12px;width:180px;">'
+    +'<label style="font-size:12px;color:#334155;cursor:pointer;"><input type="checkbox"'+(only?' checked':'')+' onchange="KK.ptUn=this.checked;kkRender()"> 未設定だけ</label><span style="font-size:11.5px;color:#64748b;">'+V.length+'件</span></div>'
+    +'<div style="max-height:360px;overflow:auto;"><table class="skp-tbl" style="box-shadow:none;"><thead><tr><th class="l" style="padding-left:8px;">登録支援機関</th><th>申請（6か月）</th><th class="l">係数（押すと保存）</th><th class="l">出どころ</th></tr></thead><tbody>'
+    +(V.length?V.map(function(o){ return '<tr class="st"'+(o.src==='none'?' style="background:#fef2f2;"':'')+'><td class="l" style="padding-left:8px;font-weight:700;">'+esc(o.name)+'</td><td>'+o.k+'件</td><td class="l"><div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">'+KK_PT_LV.map(function(lv){ return chip(o,lv); }).join('')+other(o)+'</div></td>'
+      +'<td class="l" style="color:'+(o.src==='none'?'#dc2626':'#64748b')+';font-size:11.5px;white-space:nowrap;">'+(o.src==='set'?'経管で設定 <a href="javascript:kkPtSetOrg(\''+js(o.n)+'\',\'\')" title="シートの値に戻す">↺</a>':(o.src==='sheet'?'シート':'未設定（1.0で計算）'))+'</td></tr>'; }).join(''):'<tr class="st"><td colspan="4" class="l" style="padding-left:8px;color:#94a3b8;">ありません</td></tr>')
     +'</tbody></table></div></details>'; }
 // ver.20261031.16: 1人目＝その所属機関（企業）で一番最初に登録された案件（案件名は1人ずつのことが多いので企業で見る）。企業が空なら案件名
 function kkPtKey(c){ var co=kkPtNorm(c.company); return co?('co:'+co):('nm:'+String(c.name||c.id)); }
