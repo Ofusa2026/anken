@@ -230,7 +230,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261030.05</div>
+      <div class="ver">ver.20261102.02</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -2733,7 +2733,8 @@ function parseApptAny(t){
     apt_person:mp['担当者名']||'', apt_role:mp['役職']||'', apt_dept:mp['所属部署名']||'',
     apt_getter:mp['アポ獲得者']||'', apt_got_at:mp['アポ獲得日']||'',
     apt_test_closing:mp['テストクロージング']||'', apt_reason:mp['アポOKいただけた理由']||'', apt_memo:mp['備考']||'',
-    apt_env:envM?envM[1]:'', apt_email:pickClientEmail(t,website), apt_at:a?a.toISOString():null, apt_raw:t, _phones:ph.all||[], _suspects:ph.suspects||[] };
+    apt_env:envM?envM[1]:'', apt_email:pickClientEmail(t,website), apt_at:a?a.toISOString():null, apt_raw:t, _phones:ph.all||[], _suspects:ph.suspects||[],
+    acq:/【アポ獲得報告】/.test(t)?'Sales pass':'' };   // ver.20261102.01: 【アポ獲得報告】形式＝Sales pass（担当はすべて亀谷）
 }
 // ディグロス形式（■ラベル：値）
 function parseApptB(t){
@@ -2808,6 +2809,7 @@ function resolvePhones(d){
   d.tel_display = list.join(' / ');
   d.tel = list.length ? list[0].replace(/[^0-9]/g,'') : '';
 }
+var SP_STAFF='亀谷　潤';   // ver.20261102.01: Sales pass（【アポ獲得報告】）で取り込んだ会社の担当
 function apptDoImport(){
   if(!_apptParsed||!_apptParsed.name) return;
   var d=_apptParsed;
@@ -2818,11 +2820,13 @@ function apptDoImport(){
     apt_meet_sent:false, apt_meet_sent_at:null, updated_at:new Date().toISOString() };
   if(d.apt_at){ aptFields.meeting_date=d.apt_at.slice(0,10); if(!aptFields.meeting_kind) aptFields.meeting_kind='オンライン'; }
   // 既存照合：会社名 完全一致 → 電話一致
-  var finder=_sb.from('eigyo_leads').select('reg_no,name,tel,status,pref,city,address,website,contacts').eq('name', d.name);
+  if(d.acq==='Sales pass'){ aptFields.staff=SP_STAFF; }   // ver.20261102.01: Sales pass の取込は担当＝亀谷
+  var SEL='reg_no,name,tel,status,pref,city,address,website,contacts,acquisition_source,attack100,attack_nb,attack_km,attack_sg';
+  var finder=_sb.from('eigyo_leads').select(SEL).eq('name', d.name);
   finder.then(function(r){
     var hit=(r.data&&r.data.length)?r.data[0]:null;
     if(!hit && d.tel){
-      _sb.from('eigyo_leads').select('reg_no,name,tel,status,pref,city,address,website,contacts').eq('tel', d.tel).then(function(r2){
+      _sb.from('eigyo_leads').select(SEL).eq('tel', d.tel).then(function(r2){
         applyImport((r2.data&&r2.data.length)?r2.data[0]:null, d, aptFields);
       });
     } else { applyImport(hit, d, aptFields); }
@@ -2895,7 +2899,8 @@ function applyImport(hit, d, aptFields){
       }
     }
     if(hit.status==='未接触'||!hit.status) patch.status='商談予定';
-    if(!(hit.attack100||hit.attack_nb||hit.attack_km||hit.attack_sg)){ patch.attack100=true; patch.attack100_at=new Date().toISOString(); }   // ver.20261030.04: アポ取込したらパイプラインに入れる
+    if(d.acq==='Sales pass'){ if(!hit.acquisition_source||hit.acquisition_source==='（未選択）') patch.acquisition_source='Sales pass'; if(!hit.attack_km){ patch.attack_km=true; patch.attack_km_at=new Date().toISOString(); } patch.attack_nb=false; }   // ver.20261102.01: Sales pass は亀谷のアタックリストへ
+    else if(!(hit.attack100||hit.attack_nb||hit.attack_km||hit.attack_sg)){ patch.attack100=true; patch.attack100_at=new Date().toISOString(); }   // ver.20261030.04: アポ取込したらパイプラインに入れる
     if(!hit.contacts || !hit.contacts.length){ var c=apptContact(d); if(c) patch.contacts=[c]; }  // 担当者が未登録なら自動セット
     _sb.from('eigyo_leads').update(patch).eq('reg_no', hit.reg_no).then(function(u){
       if(u.error){ alert('登録に失敗しました：'+u.error.message); return; }
@@ -2907,6 +2912,7 @@ function applyImport(hit, d, aptFields){
     var rec=Object.assign({ reg_no:regNo, name:d.name, tel:(d.tel_display||d.tel)||null, address:d.address||null, website:d.website||null,
       entity_type:null, status:'商談予定', is_manual:true, source:'アポ取込', source_date:today(), attack100:true, attack100_at:new Date().toISOString(),
       contacts:c2?[c2]:[], created_at:new Date().toISOString() }, aptFields);
+    if(d.acq==='Sales pass'){ rec.acquisition_source='Sales pass'; rec.attack100=false; rec.attack100_at=null; rec.attack_km=true; rec.attack_km_at=new Date().toISOString(); }   // ver.20261102.01
     _sb.from('eigyo_leads').insert(rec).then(function(ins){
       if(ins.error){ alert('新規登録に失敗しました：'+ins.error.message); return; }
       closeApptImport(); load(); refreshApptChip(); openDrawer(regNo);
@@ -6524,8 +6530,8 @@ function loadMonthPlan(force){
     _sb.from('settings').select('value').eq('key','shien_plan_price').maybeSingle(),
     _thFetchAll(function(){ return _sb.from('support_orgs').select('id,name,kb_price,kb_prices').order('id'); }),
     _thFetchAll(function(){ return _sb.from('eigyo_leads').select('reg_no,staff,meeting_date,apt_at,first_contact_date').or('meeting_date.gte.2026-01-01,apt_at.gte.2026-01-01,first_contact_date.gte.2026-01-01').order('reg_no'); }),
-    _sb.from('eigyo_deals').select('id,start_date,supporters,staff,support_org_id'),   // ver.20261026.24
-    _thFetchAll(function(){ return _sb.from('eigyo_leads').select('reg_no,staff,status,supporter_count,expected_supporter,hr_start_date,decided_at').or('hr_start_date.not.is.null,decided_at.not.is.null').order('reg_no'); })   // ver.20261026.25: Plan・決定
+    _sb.from('eigyo_deals').select('id,start_date,supporters,staff,support_org_id,company'),   // ver.20261026.24
+    _thFetchAll(function(){ return _sb.from('eigyo_leads').select('reg_no,name,staff,status,supporter_count,expected_supporter,hr_start_date,decided_at,close_prob,lead_rank,meeting_date').or('hr_start_date.not.is.null,decided_at.not.is.null').order('reg_no'); })   // ver.20261026.25: Plan・決定
   ]).then(function(R){
     var plan=(R[0].data)||{plan_start:'2026-09-01',plan_months:12,target_revenue:0};
     var saved={}; try{ saved=JSON.parse((R[1].data&&R[1].data.value)||'{}')||{}; }catch(e){}
@@ -6595,28 +6601,61 @@ function _mpCalc(){
   var DEF={supTarget:_mpSupDefault(plan), avgSup:avgAuto, winRate:MP_DEF.winRate, meetRate:MP_DEF.meetRate};
   Object.keys(DEF).forEach(function(k){ as[k]=(s[k]!=null&&s[k]!=='')? Number(s[k]) : DEF[k]; });
   var share=(_MP.staff&&_MP.staff!=='all')? 1/MP_STAFF.length : 1;
-  var Z=function(){ return {sup:0,org:0}; };
+  var Z=function(){ return {sup:0,org:0,ls:[]}; };
   var R={}; months.forEach(function(m){ R[m]={plan:Z(),dec:Z(),act:Z(),meet:0,contact:0,apps:(act[m]||{}).apps||0,newApps:0}; });
   function at(m){ return R[m]; }
   function sp(l){ return Number(l.supporter_count)||Number(l.expected_supporter)||0; }
-  var BS={}; MP_STAFF.forEach(function(k){ BS[k]={}; months.forEach(function(m){ BS[k][m]={sup:0,org:0}; }); });   // ver.20261026.28: 担当別のPlan（絞り込みに関係なく4人分）
+  var BS={}; MP_STAFF.forEach(function(k){ BS[k]={}; months.forEach(function(m){ BS[k][m]={sup:0,org:0,ls:[]}; }); });   // ver.20261026.28: 担当別のPlan（絞り込みに関係なく4人分）
   (M.pipe||[]).forEach(function(l){
     var _pm=String(l.hr_start_date||'').slice(0,7), _k=String(l.staff||'').replace(/^[\s　]+/,''), _sk=MP_STAFF.filter(function(x){ return _k.indexOf(x)===0; })[0];
-    if(_sk && BS[_sk][_pm] && ['だめ','離脱'].indexOf(l.status)<0){ BS[_sk][_pm].sup+=sp(l); BS[_sk][_pm].org++; }
+    if(_sk && BS[_sk][_pm] && ['だめ','離脱'].indexOf(l.status)<0){ BS[_sk][_pm].sup+=sp(l); BS[_sk][_pm].org++; BS[_sk][_pm].ls.push(l); }
     if(!_mpStaffOk(l.staff)) return;
-    var pm=String(l.hr_start_date||'').slice(0,7); if(pm && at(pm) && ['だめ','離脱'].indexOf(l.status)<0){ at(pm).plan.sup+=sp(l); at(pm).plan.org++; }
-    var dm=String(l.decided_at||'').slice(0,7); if(dm && at(dm)){ at(dm).dec.sup+=sp(l); at(dm).dec.org++; }
+    var pm=String(l.hr_start_date||'').slice(0,7); if(pm && at(pm) && ['だめ','離脱'].indexOf(l.status)<0){ at(pm).plan.sup+=sp(l); at(pm).plan.org++; at(pm).plan.ls.push(l); }
+    var dm=String(l.decided_at||'').slice(0,7); if(dm && at(dm)){ at(dm).dec.sup+=sp(l); at(dm).dec.org++; at(dm).dec.ls.push(l); }
   });
-  deals.forEach(function(d){ if(!d.start_date || !_mpStaffOk(d.staff)) return; var x=at(String(d.start_date).slice(0,7)); if(!x) return; x.act.sup+=Number(d.supporters)||0; x.act.org++; });
+  deals.forEach(function(d){ if(!d.start_date || !_mpStaffOk(d.staff)) return; var x=at(String(d.start_date).slice(0,7)); if(!x) return; x.act.sup+=Number(d.supporters)||0; x.act.org++; x.act.ls.push(d); });
   (M.leads||[]).forEach(function(l){ if(!_mpStaffOk(l.staff)) return; var md=l.meeting_date || (l.apt_at? _thJst(new Date(l.apt_at).getTime()) : ''); if(md&&at(md.slice(0,7))) at(md.slice(0,7)).meet++; if(l.first_contact_date&&at(String(l.first_contact_date).slice(0,7))) at(String(l.first_contact_date).slice(0,7)).contact++; });
   var noa=M.newOrgApps||{}; Object.keys(noa).forEach(function(m){ if(!at(m)) return; var n=0; Object.keys(noa[m]).forEach(function(org){ if(_mpStaffOk((M.orgStaff||{})[org])) n+=noa[m][org]; }); at(m).newApps=n; });
   var tSup=as.supTarget*share, tOrg=as.avgSup? tSup/as.avgSup:0, tMeet=as.winRate? tOrg/(as.winRate/100):0, tCon=as.meetRate? tMeet/(as.meetRate/100):0;
   var rows=months.map(function(m){ return {m:m, fut:m>now, cur:m===now, t:{sup:tSup, org:tOrg, meet:tMeet, contact:tCon}, r:R[m]}; });
   return {months:months, rows:rows, as:as, DEF:DEF, share:share, t:{sup:tSup, org:tOrg, meet:tMeet, contact:tCon}, bs:BS, tStaff:as.supTarget/MP_STAFF.length};
 }
+// ver.20261102.01: 月別計画の Plan・決定・実績（担当別のPlan）を押すと、どの会社が何人で、ステータス・確度がどうかを一覧で出す
+function mpShowList(kind, m, staff){
+  var C=_MP.lastC; if(!C) return; var ls=[];
+  if(staff){ ls=((C.bs[staff]||{})[m]||{}).ls||[]; }
+  else { var r=(C.rows.filter(function(x){ return x.m===m; })[0]||{}).r; ls=(r&&r[kind]&&r[kind].ls)||[]; }
+  var KN={plan:'Plan（依頼開始見込み）',dec:'決定（合意した月）',act:'実績（案シスに案件が登録された月）'}[kind]||'';
+  var sp=function(l){ return kind==='act'? (Number(l.supporters)||0) : (Number(l.supporter_count)||Number(l.expected_supporter)||0); };
+  var L=ls.slice().sort(function(a,b){ return (parseInt(b.close_prob||0,10)-parseInt(a.close_prob||0,10)) || (sp(b)-sp(a)); });
+  var tot=L.reduce(function(a,l){ return a+sp(l); },0);
+  var th='padding:7px 10px;font-size:12px;text-align:left;white-space:nowrap;border-bottom:2px solid var(--line);background:#f8fafc;color:var(--muted);';
+  var td='padding:7px 10px;font-size:13px;border-bottom:1px solid #edf2f7;white-space:nowrap;';
+  var ymd=function(v){ v=String(v||'').slice(0,10); return v? (+v.slice(5,7))+'/'+(+v.slice(8,10)) : '—'; };
+  var h='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px;"><div><h2 style="margin:0;font-size:18px;color:var(--accent);">'+(+m.slice(5))+'月の'+KN+(staff?'　'+esc(staff):(_MP.staff&&_MP.staff!=='all'?'　'+esc(_MP.staff):''))+'</h2>'
+    +'<div class="sub" style="font-size:12.5px;margin-top:3px;">'+L.length+'社 ／ '+tot.toLocaleString()+'人'+(kind!=='act'?'　確度の高い順':'')+'。会社名を押すと詳細が開きます。</div></div><button class="btn btn-sm" onclick="mpCloseList()">✕ 閉じる</button></div>';
+  h+='<div style="overflow:auto;max-height:66vh;"><table style="border-collapse:collapse;width:100%;"><thead><tr><th style="'+th+'">会社</th><th style="'+th+'text-align:right;">人数</th>'
+    +(kind!=='act'?'<th style="'+th+'">ステータス</th><th style="'+th+'">確度</th><th style="'+th+'">ランク</th>':'')+'<th style="'+th+'">担当</th><th style="'+th+'">'+(kind==='plan'?'依頼開始見込み':(kind==='dec'?'決定日':'取引開始日'))+'</th>'+(kind!=='act'?'<th style="'+th+'">商談日</th>':'')+'</tr></thead><tbody>';
+  L.forEach(function(l){
+    var nm=kind==='act'?(l.company||''):(l.name||l.reg_no), reg=l.reg_no||'';
+    var pr=l.close_prob==null||l.close_prob===''?'':String(l.close_prob);
+    h+='<tr><td style="'+td+'white-space:normal;font-weight:700;">'+(reg?'<a href="javascript:void(0)" onclick="mpCloseList();openDrawer(\''+esc(reg)+'\')" style="color:var(--accent);">'+esc(nm)+'</a>':esc(nm))+'</td>'
+      +'<td style="'+td+'text-align:right;font-weight:800;">'+sp(l).toLocaleString()+'人</td>'
+      +(kind!=='act'?'<td style="'+td+'">'+esc(l.status||'—')+'</td><td style="'+td+'font-weight:800;color:'+(probColor(pr)||'#94a3b8')+';">'+(pr?pr+'%':'—')+'</td><td style="'+td+'">'+esc(l.lead_rank||'—')+'</td>':'')
+      +'<td style="'+td+'">'+esc(String(l.staff||'—').replace(/[\s　]+.*/,''))+'</td>'
+      +'<td style="'+td+'">'+ymd(kind==='plan'?l.hr_start_date:(kind==='dec'?l.decided_at:l.start_date))+'</td>'+(kind!=='act'?'<td style="'+td+'">'+ymd(l.meeting_date)+'</td>':'')+'</tr>';
+  });
+  if(!L.length) h+='<tr><td style="'+td+'color:#94a3b8;" colspan="8">ありません</td></tr>';
+  h+='</tbody></table></div>';
+  var box=el('mpListBox');
+  if(!box){ box=document.createElement('div'); box.id='mpListBox'; box.style.cssText='position:fixed;z-index:80;top:50%;left:50%;transform:translate(-50%,-50%);width:min(900px,95vw);max-height:88vh;overflow:hidden;background:#fff;border-radius:12px;padding:20px 22px;box-shadow:0 8px 40px rgba(0,0,0,.25);';
+    var ov=document.createElement('div'); ov.id='mpListOv'; ov.className='overlay on'; ov.style.zIndex='79'; ov.onclick=mpCloseList; document.body.appendChild(ov); document.body.appendChild(box); }
+  box.innerHTML=h; box.style.display='block'; el('mpListOv').style.display='block';
+}
+function mpCloseList(){ var b=el('mpListBox'), o=el('mpListOv'); if(b) b.style.display='none'; if(o) o.style.display='none'; }
 function renderMonthPlan(){
   var pane=el('monthPane'); if(!pane||!_MP.data) return;
-  var C=_mpCalc(), as=C.as, S=_MP.staff||'all';
+  var C=_mpCalc(), as=C.as, S=_MP.staff||'all'; _MP.lastC=C;
   function n1(v){ v=v||0; return v>=10? Math.round(v).toLocaleString() : (Math.round(v*10)/10).toLocaleString(); }
   function pct(a,f){ if(!f) return ''; var p=Math.round(a/f*100); return '<span style="font-size:10.5px;color:#94a3b8;font-weight:600;margin-left:4px;">'+p+'%</span>'; }
   var tot={t:{sup:0,org:0}, plan:{sup:0,org:0}, dec:{sup:0,org:0}, act:{sup:0,org:0}, tNow:{sup:0,org:0}, meet:0, contact:0, apps:0, newApps:0, tMeet:0, tCon:0};
@@ -6648,7 +6687,8 @@ function renderMonthPlan(){
           var v= L[0]==='t'? r.t[U[0]] : r.r[L[0]][U[0]];
           var cell= (L[0]==='t')? '<span style="color:#94a3b8;">'+n1(v)+'</span>' : (L[0]==='plan' ? (v?'<span style="color:#334155;font-weight:600;">'+n1(v)+'</span>':'<span style="color:#e2e8f0;">0</span>')
             : ((r.fut&&!v)?'':'<b style="color:'+(v?'#0f172a':'#cbd5e1')+';">'+n1(v)+'</b>'+(v||!r.fut?pct(v, r.t[U[0]]):'')));
-          return '<td style="padding:6px 10px;text-align:right;white-space:nowrap;font-size:12.5px;'+(r.cur?'background:#f8fafc;':'')+'">'+cell+'</td>';
+          var clk=(L[0]!=='t' && r.r[L[0]].org)?' onclick="mpShowList(\''+L[0]+'\',\''+r.m+'\',\'\')" title="クリックで会社の一覧" class="mp-clk"':'';   // ver.20261102.01
+          return '<td'+clk+' style="padding:6px 10px;text-align:right;white-space:nowrap;font-size:12.5px;'+(r.cur?'background:#f8fafc;':'')+'">'+cell+'</td>';
         }).join('')
         +'<td style="padding:6px 10px;text-align:right;white-space:nowrap;font-weight:700;font-size:12.5px;">'+(L[0]==='t'?'<span style="color:#94a3b8;">'+n1(tot.t[U[0]])+'</span>':n1(tot[L[0]][U[0]]))+'</td></tr>';
     });
@@ -6661,7 +6701,7 @@ function renderMonthPlan(){
   MP_STAFF.forEach(function(k){
     var tS=0, tO=0;
     h+='<tr style="'+(S===k?'background:#f8fafc;':'')+'"><td style="padding:8px 10px;font-weight:800;font-size:13.5px;white-space:nowrap;border-bottom:1px solid #edf2f7;"><a href="javascript:void(0)" onclick="_MP.staff=\''+k+'\';renderMonthPlan()" style="color:inherit;">'+k+'</a></td>'
-      +C.rows.map(function(r){ var v=C.bs[k][r.m]; tS+=v.sup; tO+=v.org; return '<td style="padding:8px 10px;text-align:right;white-space:nowrap;font-size:13px;border-bottom:1px solid #edf2f7;'+(r.cur?'background:#f8fafc;':'')+'">'+(v.sup?'<b style="color:#0f172a;">'+n1(v.sup)+'</b><span class="sub" style="font-size:11px;">（'+v.org+'社）</span>':'<span style="color:#e2e8f0;">0</span>')+'</td>'; }).join('')
+      +C.rows.map(function(r){ var v=C.bs[k][r.m]; tS+=v.sup; tO+=v.org; return '<td'+(v.org?' onclick="mpShowList(\'plan\',\''+r.m+'\',\''+k+'\')" title="クリックで会社の一覧" class="mp-clk"':'')+' style="padding:8px 10px;text-align:right;white-space:nowrap;font-size:13px;border-bottom:1px solid #edf2f7;'+(r.cur?'background:#f8fafc;':'')+'">'+(v.sup?'<b style="color:#0f172a;">'+n1(v.sup)+'</b><span class="sub" style="font-size:11px;">（'+v.org+'社）</span>':'<span style="color:#e2e8f0;">0</span>')+'</td>'; }).join('')
       +'<td style="padding:8px 10px;text-align:right;font-weight:800;white-space:nowrap;border-bottom:1px solid #edf2f7;">'+n1(tS)+'<span class="sub" style="font-size:11px;font-weight:400;">（'+tO+'社）</span></td>'
       +'<td style="padding:8px 10px;text-align:right;white-space:nowrap;border-bottom:1px solid #edf2f7;">'+pct(tS, C.tStaff*C.rows.length)+'</td></tr>';
   });
@@ -6677,7 +6717,7 @@ function renderMonthPlan(){
     +inp('supTarget','毎月の新規支援者数（全員）','人',C.DEF.supTarget)+inp('avgSup','1社あたり支援者数（自動＝受注の平均）','人',C.DEF.avgSup)
     +inp('winRate','商談→決定率','%',C.DEF.winRate)+inp('meetRate','接触→商談率','%',C.DEF.meetRate)
     +'<div class="sub" style="font-size:12px;">空欄は灰色の値。毎月の目標 → 社数 '+n1(C.t.org)+'社 ／ 商談 '+n1(C.t.meet)+'件 ／ 接触 '+n1(C.t.contact)+'件</div></div></details>';
-  h='<style>.mp-grid th,.mp-grid td{border-right:1px dotted #cbd5e1;border-bottom:1px dotted #cbd5e1;} .mp-grid th:last-child,.mp-grid td:last-child{border-right:none;}</style>'+h;   // ver.20261026.32: 表に薄いグレーの点線
+  h='<style>.mp-grid th,.mp-grid td{border-right:1px dotted #cbd5e1;border-bottom:1px dotted #cbd5e1;} .mp-grid th:last-child,.mp-grid td:last-child{border-right:none;} .mp-clk{cursor:pointer;} .mp-clk:hover{background:#eef2ff !important;box-shadow:inset 0 0 0 1px #a5b4fc;}</style>'+h;   // ver.20261026.32: 表に薄いグレーの点線
   pane.innerHTML=h;
 }
 /* ===== ver.20261026.24: 🧭 パイプライン（動いている案件とアタック候補）=====
