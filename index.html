@@ -6121,7 +6121,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261102.18';
+var OFUSA_VERSION = 'ver.20261103.01';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -6797,6 +6797,76 @@ var filteredTotalCount = 0;
 // Supabase初期化（CDN読み込み後に実行・リトライ付き）
 var _initRetryCount = 0;
 var _initMaxRetry = 20;
+// ===== ver.20261103.01: ログインしていない状態ではDBを読まない・書かない（裏口対策・保存が静かに消える不具合の対策） =====
+//   Supabaseへの読み書き（/rest/v1・/storage/v1）は、ログインのトークンが付いているときだけ通す。
+//   トークンが無い（ログインが切れた・まだログインしていない）ときは、
+//     ① まず自動でトークンを更新してみる（パスワード不要）
+//     ② だめなら「もう一度ログインしてください」の画面を出し、ログインできたらそのまま続きを送る（保存は消えない）
+//   ログイン画面が出ているあいだ（起動直後・ログアウト後）は、ログインが終わるまで待つ。
+var _ofusaAuthWaiters = [];
+var _ofusaAuthRefreshing = null;
+function _ofusaTokenOk(h){ var a=''; try{ a=h.get('Authorization')||''; }catch(e){} return /^Bearer\s+eyJ/.test(a); }
+function _ofusaResolveAuthWaiters(tok){ var w=_ofusaAuthWaiters; _ofusaAuthWaiters=[]; w.forEach(function(f){ try{ f(tok); }catch(e){} }); try{ var ov=document.getElementById('_ofusaReloginOv'); if(ov) ov.remove(); }catch(e){} }
+function _ofusaWaitAuth(){
+  return new Promise(function(resolve){
+    _ofusaAuthWaiters.push(resolve);
+    if(_ofusaAuthRefreshing) return;
+    _ofusaAuthRefreshing = (async function(){
+      var tok='';
+      try{ var g=await _sb.auth.getSession(); tok=(g&&g.data&&g.data.session&&g.data.session.access_token)||''; }catch(e){}
+      if(!tok){ try{ var r=await _sb.auth.refreshSession(); tok=(r&&r.data&&r.data.session&&r.data.session.access_token)||''; }catch(e){} }
+      _ofusaAuthRefreshing=null;
+      if(tok){ _ofusaResolveAuthWaiters(tok); return; }
+      // ログイン画面が出ている／自分でログアウトした → ログインが終わるのを待つ（SIGNED_IN で再開）
+      var loginShown=false; try{ loginShown=(typeof _isLoginScreenVisible==='function') && _isLoginScreenVisible(); }catch(e){}
+      if(loginShown || window._intentionalLogout || !(typeof currentUser!=='undefined' && currentUser)) return;
+      _ofusaShowRelogin();
+    })();
+  });
+}
+function _ofusaAuthFetch(input, init){
+  var url=(typeof input==='string')?input:((input&&input.url)||'');
+  if(!/\/(rest|storage)\/v1\//.test(url)) return fetch(input, init);
+  var h=new Headers((init&&init.headers)||((input&&typeof input!=='string'&&input.headers)||{}));
+  if(_ofusaTokenOk(h)) return fetch(input, init);
+  return _ofusaWaitAuth().then(function(tok){ h.set('Authorization','Bearer '+tok); return fetch(input, Object.assign({}, init||{}, {headers:h})); });
+}
+function _ofusaOnAuthEvent(ev, session){
+  if(session && session.access_token && _ofusaAuthWaiters.length) _ofusaResolveAuthWaiters(session.access_token);
+}
+// 作業中にログインが切れたとき：その場で再ログイン（ページは開いたまま・入力中の内容も消えない）
+function _ofusaShowRelogin(){
+  if(document.getElementById('_ofusaReloginOv')) return;
+  var em=''; try{ em=localStorage.getItem('ofusa_lastAuthEmail')||''; }catch(e){}
+  var ov=document.createElement('div'); ov.id='_ofusaReloginOv';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.innerHTML='<div style="background:#fff;border-radius:14px;max-width:400px;width:100%;padding:22px 24px;box-shadow:0 20px 60px rgba(0,0,0,.35);font-family:inherit;">'
+    +'<div style="font-size:17px;font-weight:800;color:#b91c1c;margin-bottom:6px;">🔑 もう一度ログインしてください</div>'
+    +'<div style="font-size:12.5px;color:#334155;line-height:1.7;margin-bottom:12px;">ログインの有効期限が切れました。ログインすると、<b>止まっていた保存・読み込みはそのまま続きます</b>（画面はこのまま・入力中の内容も消えません）。</div>'
+    +'<input id="_ofusaRlEmail" type="email" autocomplete="username" placeholder="メールアドレス" value="'+String(em).replace(/"/g,'&quot;')+'" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:14px;margin-bottom:8px;">'
+    +'<input id="_ofusaRlPass" type="password" autocomplete="current-password" placeholder="パスワード" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:14px;" onkeydown="if(event.key===\'Enter\')_ofusaDoRelogin()">'
+    +'<div id="_ofusaRlErr" style="display:none;color:#dc2626;font-size:12px;margin-top:8px;"></div>'
+    +'<button id="_ofusaRlBtn" onclick="_ofusaDoRelogin()" style="margin-top:12px;width:100%;padding:11px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:800;cursor:pointer;">ログインして続ける</button>'
+    +'<div style="font-size:11px;color:#94a3b8;margin-top:10px;">ログインした人：'+String((typeof currentUser!=='undefined'&&currentUser)||'').replace(/</g,'&lt;')+'</div></div>';
+  document.body.appendChild(ov);
+  setTimeout(function(){ try{ document.getElementById(em?'_ofusaRlPass':'_ofusaRlEmail').focus(); }catch(e){} }, 50);
+}
+function _ofusaDoRelogin(){
+  var em=(document.getElementById('_ofusaRlEmail')||{}).value||'', pw=(document.getElementById('_ofusaRlPass')||{}).value||'';
+  var er=document.getElementById('_ofusaRlErr'), bt=document.getElementById('_ofusaRlBtn');
+  em=em.trim(); if(!em||!pw){ er.textContent='メールアドレスとパスワードを入れてください'; er.style.display='block'; return; }
+  bt.disabled=true; bt.textContent='確認中…';
+  _sb.auth.signInWithPassword({email:em, password:pw}).then(function(res){
+    bt.disabled=false; bt.textContent='ログインして続ける';
+    if(res.error || !(res.data&&res.data.session)){ er.textContent='メールアドレスまたはパスワードが正しくありません'; er.style.display='block'; return; }
+    try{ localStorage.setItem('ofusa_lastAuthEmail', em); }catch(e){}
+    _ofusaResolveAuthWaiters(res.data.session.access_token);
+    try{ if(typeof _flushPendingWrites==='function') _flushPendingWrites(); }catch(e){}
+    try{ var b=document.getElementById('ofusaSysBanner'); if(b && (b.dataset.kind==='session'||b.dataset.kind==='session-warn')) b.style.display='none'; }catch(e){}
+    try{ if(typeof _initSessionWarning==='function') _initSessionWarning(); }catch(e){}
+    try{ showToast('✅ ログインしました。続きを保存・読み込みしています'); }catch(e){}
+  }).catch(function(){ bt.disabled=false; bt.textContent='ログインして続ける'; er.textContent='接続できませんでした。もう一度押してください'; er.style.display='block'; });
+}
 function initSupabase() {
   try {
     var lib = window.supabase;
@@ -6813,7 +6883,8 @@ function initSupabase() {
         global: {
           headers: {
             'x-ofusa-user': _initUserHeader
-          }
+          },
+          fetch: _ofusaAuthFetch   // ver.20261103.01: ログインしていないときはDBに出さない
         }
       });
     }
@@ -6831,6 +6902,7 @@ function initSupabase() {
         }).catch(function(){});
         _sb.auth.onAuthStateChange(function(ev, session){
           window.AUTH_READY = !!session;
+          try{ _ofusaOnAuthEvent(ev, session); }catch(e){}   // ver.20261103.01: 待っていた読み書きを再開
           if(window.AUTH_READY){ _flushPendingWrites(); try{ if(typeof loadSignedBadge==='function') loadSignedBadge(); }catch(e){} } // ver.20260905.05
         });
       }catch(e){ console.warn('auth状態の監視に失敗', e); }
@@ -7001,7 +7073,8 @@ function updateSupabaseUser(newUserName) {
         global: {
           headers: {
             'x-ofusa-user': encodedName
-          }
+          },
+          fetch: _ofusaAuthFetch   // ver.20261103.01
         }
       });
       console.log('👤 [OFUSA] Supabase client recreated with x-ofusa-user (encoded):', encodedName, '(raw:', name, ')');
@@ -8995,6 +9068,7 @@ function doAuthLogin() {
     }
     // 認証成功 → Step2へ
     var _authedEmail = email;
+    try{ localStorage.setItem('ofusa_lastAuthEmail', email); }catch(e){}   // ver.20261103.01: 再ログイン画面に出す
     document.getElementById('loginStep1').style.display = 'none';
     document.getElementById('loginStep2').style.display = '';
     // ver.20260608.23: ログイン担当者リストは端末の古いlocalStorageではなくDBのteamDataを正として作り直す。
@@ -9078,6 +9152,7 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20261103.01', date:'2026-11-03', notify:true, part:true, items:['🔑 <b>ログインが切れたまま使い続けて、保存が静かに消えてしまう</b>不具合を直しました。<br>・ログインの有効期限が切れたら、まず自動で更新します。<br>・自動で更新できないときは<b>「もう一度ログインしてください」</b>の画面が出ます。メールアドレスとパスワードを入れると、<b>止まっていた保存・読み込みがそのまま続きます</b>（画面はそのまま・入力中の内容も消えません）。<br>・ログインしていない状態では、データを読み書きしないようにしました（情報を守るため）。'] },
   { version:'ver.20261102.18', date:'2026-11-02', notify:true, part:false, items:['🧑‍🏭 <b>監理団体（技能実習）の情報</b>を登録支援機関に登録できるようにしました。<br>・登録支援機関の画面の「① 基本情報」に<b>「監理団体（技能実習）」</b>の欄を足しました（許可番号・許可の事業区分・許可年月日・有効期間・団体の区分・業種・常勤職員数）。監理団体のときだけ［＋ 入力する］から入れてください。その場で保存されます。<br>・技能実習の所属機関フォームの回答に監理団体の情報が書かれていれば、登録支援機関の<b>空いている欄にだけ</b>自動で入ります（入っている内容は変えません）。<br>・許可の有効期間（おわり）まで<b>2か月以内</b>（または過ぎた）の監理団体は、上のお知らせのところに<b>「🧑‍🏭 監理団体の許可期限」</b>と出ます。<br>・書類フォーム一覧の<b>企業アップロード</b>も、認定・変更・更新ごとに書類を出し分けるようにしました（技能実習の更新は会社の書類なし）。'] },
   { version:'ver.20261102.17', date:'2026-11-02', notify:false, part:false, items:['🛠 書類フォーム一覧の<b>人材アップロード</b>で、書類を<b>認定・変更・更新ごとに出し分け</b>られるようにしました（技能実習：結核非発病証明書は認定だけ、基礎級の合格証は変更だけ、随時3級の合格証は認定・変更、ミャンマーの説明書は更新だけ）。技能実習の行の「確認用」のリンクも、認定・変更・更新の3つに分けました。ほかの在留資格の行は変わりません。'] },
   { version:'ver.20261102.16', date:'2026-11-02', notify:true, part:false, items:['💴 「③支払完了の連絡」の文章を、<b>窓口受取の人</b>も在留カード・パスポートを<b>回収しているかどうか</b>で変えるようにしました。<br>・回収している人（窓口対応で「在留カード等 回収」を押した人）＝「お預かりしている在留カード・パスポートで、交付の手続き（窓口での受け取り）に進みます。」<br>・まだの人＝「ご案内のとおり、在留カードとパスポートをお預かりした方から交付の手続き（窓口での受け取り）に進みます。まだお預けいただいていない方は、念のためご準備をお願いします。」<br>・窓口受取（本人）の人は今までどおりです。郵送交付の人も今までどおり（受け付けて保管している人／まだの人で変わります）。'] },
@@ -63827,10 +63902,9 @@ async function renderReviewKyogikaiTab(el) {
   // field_submissionsをSupabaseから取得
   var submissions = [];
   try {
-    var res = await fetch('https://ehwlgbwpycglmopiqyty.supabase.co/rest/v1/field_submissions?order=submitted_at.desc&limit=50', {
-      headers: { 'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVod2xnYndweWNnbG1vcGlxeXR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNjU2MjgsImV4cCI6MjA4Nzk0MTYyOH0.bBWWSOEZsqQIlf2uMWmfXRL1Tn89y-WfL-7s2DX0JwI', 'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVod2xnYndweWNnbG1vcGlxeXR5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNjU2MjgsImV4cCI6MjA4Nzk0MTYyOH0.bBWWSOEZsqQIlf2uMWmfXRL1Tn89y-WfL-7s2DX0JwI' }
-    });
-    submissions = await res.json();
+    // ver.20261103.01: 古い公開キー（JWT）の直書きをやめ、ログインした接続（_sb）で読む
+    var _fsR = await _sb.from('field_submissions').select('*').order('submitted_at',{ascending:false}).limit(50);
+    submissions = (_fsR && !_fsR.error && _fsR.data) ? _fsR.data : [];
   } catch(e) { console.warn('field_submissions取得エラー:', e); }
 
   // バッジ更新
@@ -94246,10 +94320,10 @@ function _openCaseMoreMenu(caseId, anchorEl){
 // ===== 企業メールテンプレ（mail_templates）ver.20260901.09 =====
 window.mailTemplates = [];
 function loadMailTemplates(){
-  return fetch(SUPABASE_URL + '/rest/v1/mail_templates?select=*&is_active=eq.true&order=sort_order.asc,name.asc', {
-    headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY }
-  })
-  .then(function(r){ return r.ok ? r.json() : []; })
+  // ver.20261103.01: 公開キーで直接読まず、ログインした接続（_sb）で読む（接続前なら少し待つ）
+  if(typeof _sb==='undefined' || !_sb){ return new Promise(function(res){ setTimeout(function(){ res(loadMailTemplates()); }, 800); }); }
+  return _sb.from('mail_templates').select('*').eq('is_active', true).order('sort_order',{ascending:true}).order('name',{ascending:true})
+  .then(function(r){ return (r && !r.error && r.data) ? r.data : []; })
   .then(function(rows){ window.mailTemplates = rows || []; try{ _rebuildComposeTplSelect(); }catch(e){} })
   .catch(function(){ window.mailTemplates = []; });
 }
@@ -151318,6 +151392,7 @@ async function _forceRelogin(){
 }
 // ver.20260731: セッション切れバナーの実表示（自動復帰に失敗したときだけ呼ばれる）
 function _showSessionBanner(el){
+  try{ if(typeof _ofusaShowRelogin==='function' && !_isLoginScreenVisible() && !window._intentionalLogout){ _ofusaShowRelogin(); } }catch(e){}   // ver.20261103.01: 赤い帯ではなく、その場で再ログイン
   if(Date.now() < (window._sessBannerSnooze||0)) return;
   el.dataset.kind='session';
   el.style.background='#dc2626';
