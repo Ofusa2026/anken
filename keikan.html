@@ -6,6 +6,92 @@
 <title>経管｜経営企画（大房行政書士法人）</title>
 <!-- ver.20261025.01: 経管（経営企画）を新設（2026/10/25 秘密の質問 回答済で作成）。件数・売上（Result）、機関別の依頼予算、担当者別（査定）、ロードマップ・人員・組織計画、営業計画（営シス連携）。管理部のみ。データは案シス・営シスと同じDB -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+// ===== ver.20261103: ログインしていないときはDBを読まない・書かない（裏口対策）=====
+//   案シスと同じログイン（同じサイトなので、案シスでログインしていればそのまま使えます）。
+//   ログインが切れていたら自動で更新し、だめなら「ログインしてください」の画面を出して、ログイン後に続きを送ります。
+(function(){
+  var W=[], busy=null;
+  function SB(){ return window.__ofusaSb; }
+  function tokOf(r){ return (r&&r.data&&r.data.session&&r.data.session.access_token)||''; }
+  function done(tok){ var w=W; W=[]; w.forEach(function(f){ try{ f(tok); }catch(e){} }); var ov=document.getElementById('_ofusaReloginOv'); if(ov) ov.remove(); }
+  function getToken(){
+    return new Promise(function(res){
+      W.push(res);
+      if(busy) return;
+      busy=(async function(){
+        var tok='';
+        try{ tok=tokOf(await SB().auth.getSession()); }catch(e){}
+        if(!tok){ try{ tok=tokOf(await SB().auth.refreshSession()); }catch(e){} }
+        busy=null;
+        if(tok){ done(tok); return; }
+        if(!ownLoginShown()) show();
+        poll();
+      })();
+    });
+  }
+  window.__ofusaToken=getToken;
+  // ページ自身のログイン画面が出ているときは、こちらの画面は出さない（そちらでログインすれば続きが流れる）
+  function ownLoginShown(){
+    var ids=['loginView','lgBox','loginOverlay','loginScreen'];
+    for(var i=0;i<ids.length;i++){ var el=document.getElementById(ids[i]); if(el){ try{ var cs=getComputedStyle(el); if(cs.display!=='none' && cs.visibility!=='hidden') return true; }catch(e){} } }
+    return false;
+  }
+  // 待っている間は2秒ごとにログインできたかを確認（ページ自身のログイン・別タブの案シスでのログインでも再開）
+  var pollT=null;
+  function poll(){
+    if(pollT) return;
+    pollT=setInterval(async function(){
+      if(!W.length){ clearInterval(pollT); pollT=null; return; }
+      var t=''; try{ t=tokOf(await SB().auth.getSession()); }catch(e){}
+      if(t){ clearInterval(pollT); pollT=null; done(t); }
+    }, 2000);
+  }
+  // ログインした人のトークンか（公開キー・古い匿名キー（JWT）そのものは「ログインなし」とみなす）
+  function userTok(h){
+    var a=String(h.get('Authorization')||'').replace(/^Bearer\s+/,''), k=String(h.get('apikey')||'');
+    if(!/^eyJ/.test(a) || a===k) return false;
+    try{ var p=JSON.parse(atob(a.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))); return p.role!=='anon'; }catch(e){ return true; }
+  }
+  window.__ofusaAuthFetch=function(input, init){
+    var url=(typeof input==='string')?input:((input&&input.url)||'');
+    if(!/\/(rest|storage)\/v1\//.test(url)) return fetch(input, init);
+    var h=new Headers((init&&init.headers)||{});
+    if(userTok(h)) return fetch(input, init);
+    return getToken().then(function(tok){ h.set('Authorization','Bearer '+tok); return fetch(input, Object.assign({}, init||{}, {headers:h})); });
+  };
+  function show(){
+    if(document.getElementById('_ofusaReloginOv')) return;
+    if(!document.body){ document.addEventListener('DOMContentLoaded', show); return; }
+    var em=''; try{ em=localStorage.getItem('ofusa_lastAuthEmail')||''; }catch(e){}
+    var ov=document.createElement('div'); ov.id='_ofusaReloginOv';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:16px;font-family:sans-serif;';
+    ov.innerHTML='<div style="background:#fff;border-radius:14px;max-width:400px;width:100%;padding:22px 24px;box-shadow:0 20px 60px rgba(0,0,0,.35);">'
+      +'<div style="font-size:17px;font-weight:800;color:#1e3a5f;margin-bottom:6px;">🔑 ログインしてください</div>'
+      +'<div style="font-size:12.5px;color:#334155;line-height:1.7;margin-bottom:12px;">このページは社内用です。<b>案シスと同じメールアドレス・パスワード</b>でログインしてください。ログインすると、そのまま続きを読み込みます。</div>'
+      +'<input id="_ofusaRlEmail" type="email" autocomplete="username" placeholder="メールアドレス" value="'+String(em).replace(/"/g,'&quot;')+'" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:14px;margin-bottom:8px;">'
+      +'<input id="_ofusaRlPass" type="password" autocomplete="current-password" placeholder="パスワード" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:14px;" onkeydown="if(event.key===\'Enter\')__ofusaDoLogin()">'
+      +'<div id="_ofusaRlErr" style="display:none;color:#dc2626;font-size:12px;margin-top:8px;"></div>'
+      +'<button id="_ofusaRlBtn" onclick="__ofusaDoLogin()" style="margin-top:12px;width:100%;padding:11px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:800;cursor:pointer;">ログイン</button></div>';
+    document.body.appendChild(ov);
+    setTimeout(function(){ try{ document.getElementById(em?'_ofusaRlPass':'_ofusaRlEmail').focus(); }catch(e){} }, 50);
+  }
+  window.__ofusaDoLogin=function(){
+    var em=((document.getElementById('_ofusaRlEmail')||{}).value||'').trim(), pw=(document.getElementById('_ofusaRlPass')||{}).value||'';
+    var er=document.getElementById('_ofusaRlErr'), bt=document.getElementById('_ofusaRlBtn');
+    if(!em||!pw){ er.textContent='メールアドレスとパスワードを入れてください'; er.style.display='block'; return; }
+    bt.disabled=true; bt.textContent='確認中…';
+    SB().auth.signInWithPassword({email:em, password:pw}).then(function(r){
+      bt.disabled=false; bt.textContent='ログイン';
+      var tok=tokOf(r);
+      if(r.error||!tok){ er.textContent='メールアドレスまたはパスワードが正しくありません'; er.style.display='block'; return; }
+      try{ localStorage.setItem('ofusa_lastAuthEmail', em); }catch(e){}
+      done(tok);
+    }).catch(function(){ bt.disabled=false; bt.textContent='ログイン'; er.textContent='接続できませんでした。もう一度押してください'; er.style.display='block'; });
+  };
+})();
+</script>
+
 <style>
 :root{--side:#0f2040;--bg:#f1f4f8;}
 *{box-sizing:border-box;}
@@ -55,15 +141,15 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto
       <a href="./index.html">📋 案シス（案件管理）</a>
       <a href="./eigyo.html">🤝 営シス（営業管理）</a>
     </nav>
-    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261102.02</span></div>
+    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261103.01</span></div>
   </aside>
   <main class="kk-main" id="kkMain"><div style="padding:60px;text-align:center;color:#94a3b8;">読み込み中…</div></main>
 </div>
 <div id="toast"></div>
 <script>
-var OFUSA_VERSION='ver.20261102.02';
+var OFUSA_VERSION='ver.20261103.01';
 var SUPABASE_URL='https://ehwlgbwpycglmopiqyty.supabase.co', SUPABASE_KEY='sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var _sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}, global:{headers:{'x-ofusa-user':encodeURIComponent((function(){ try{ return localStorage.getItem('ofusa_currentUser')||''; }catch(e){ return ''; } })())}}});
+var _sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}, global:{headers:{'x-ofusa-user':encodeURIComponent((function(){ try{ return localStorage.getItem('ofusa_currentUser')||''; }catch(e){ return ''; } })())}, fetch:__ofusaAuthFetch}}); window.__ofusaSb=_sb;   // ver.20261103.01: ログインしていないときはDBに出さない
 var DB_READY=true;
 function _prOrgNorm(x){
   return String(x||'')

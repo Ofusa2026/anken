@@ -5,6 +5,92 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>国交省管理システム</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+// ===== ver.20261103: ログインしていないときはDBを読まない・書かない（裏口対策）=====
+//   案シスと同じログイン（同じサイトなので、案シスでログインしていればそのまま使えます）。
+//   ログインが切れていたら自動で更新し、だめなら「ログインしてください」の画面を出して、ログイン後に続きを送ります。
+(function(){
+  var W=[], busy=null;
+  function SB(){ return window.__ofusaSb; }
+  function tokOf(r){ return (r&&r.data&&r.data.session&&r.data.session.access_token)||''; }
+  function done(tok){ var w=W; W=[]; w.forEach(function(f){ try{ f(tok); }catch(e){} }); var ov=document.getElementById('_ofusaReloginOv'); if(ov) ov.remove(); }
+  function getToken(){
+    return new Promise(function(res){
+      W.push(res);
+      if(busy) return;
+      busy=(async function(){
+        var tok='';
+        try{ tok=tokOf(await SB().auth.getSession()); }catch(e){}
+        if(!tok){ try{ tok=tokOf(await SB().auth.refreshSession()); }catch(e){} }
+        busy=null;
+        if(tok){ done(tok); return; }
+        if(!ownLoginShown()) show();
+        poll();
+      })();
+    });
+  }
+  window.__ofusaToken=getToken;
+  // ページ自身のログイン画面が出ているときは、こちらの画面は出さない（そちらでログインすれば続きが流れる）
+  function ownLoginShown(){
+    var ids=['loginView','lgBox','loginOverlay','loginScreen'];
+    for(var i=0;i<ids.length;i++){ var el=document.getElementById(ids[i]); if(el){ try{ var cs=getComputedStyle(el); if(cs.display!=='none' && cs.visibility!=='hidden') return true; }catch(e){} } }
+    return false;
+  }
+  // 待っている間は2秒ごとにログインできたかを確認（ページ自身のログイン・別タブの案シスでのログインでも再開）
+  var pollT=null;
+  function poll(){
+    if(pollT) return;
+    pollT=setInterval(async function(){
+      if(!W.length){ clearInterval(pollT); pollT=null; return; }
+      var t=''; try{ t=tokOf(await SB().auth.getSession()); }catch(e){}
+      if(t){ clearInterval(pollT); pollT=null; done(t); }
+    }, 2000);
+  }
+  // ログインした人のトークンか（公開キー・古い匿名キー（JWT）そのものは「ログインなし」とみなす）
+  function userTok(h){
+    var a=String(h.get('Authorization')||'').replace(/^Bearer\s+/,''), k=String(h.get('apikey')||'');
+    if(!/^eyJ/.test(a) || a===k) return false;
+    try{ var p=JSON.parse(atob(a.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))); return p.role!=='anon'; }catch(e){ return true; }
+  }
+  window.__ofusaAuthFetch=function(input, init){
+    var url=(typeof input==='string')?input:((input&&input.url)||'');
+    if(!/\/(rest|storage)\/v1\//.test(url)) return fetch(input, init);
+    var h=new Headers((init&&init.headers)||{});
+    if(userTok(h)) return fetch(input, init);
+    return getToken().then(function(tok){ h.set('Authorization','Bearer '+tok); return fetch(input, Object.assign({}, init||{}, {headers:h})); });
+  };
+  function show(){
+    if(document.getElementById('_ofusaReloginOv')) return;
+    if(!document.body){ document.addEventListener('DOMContentLoaded', show); return; }
+    var em=''; try{ em=localStorage.getItem('ofusa_lastAuthEmail')||''; }catch(e){}
+    var ov=document.createElement('div'); ov.id='_ofusaReloginOv';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:16px;font-family:sans-serif;';
+    ov.innerHTML='<div style="background:#fff;border-radius:14px;max-width:400px;width:100%;padding:22px 24px;box-shadow:0 20px 60px rgba(0,0,0,.35);">'
+      +'<div style="font-size:17px;font-weight:800;color:#1e3a5f;margin-bottom:6px;">🔑 ログインしてください</div>'
+      +'<div style="font-size:12.5px;color:#334155;line-height:1.7;margin-bottom:12px;">このページは社内用です。<b>案シスと同じメールアドレス・パスワード</b>でログインしてください。ログインすると、そのまま続きを読み込みます。</div>'
+      +'<input id="_ofusaRlEmail" type="email" autocomplete="username" placeholder="メールアドレス" value="'+String(em).replace(/"/g,'&quot;')+'" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:14px;margin-bottom:8px;">'
+      +'<input id="_ofusaRlPass" type="password" autocomplete="current-password" placeholder="パスワード" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:14px;" onkeydown="if(event.key===\'Enter\')__ofusaDoLogin()">'
+      +'<div id="_ofusaRlErr" style="display:none;color:#dc2626;font-size:12px;margin-top:8px;"></div>'
+      +'<button id="_ofusaRlBtn" onclick="__ofusaDoLogin()" style="margin-top:12px;width:100%;padding:11px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:800;cursor:pointer;">ログイン</button></div>';
+    document.body.appendChild(ov);
+    setTimeout(function(){ try{ document.getElementById(em?'_ofusaRlPass':'_ofusaRlEmail').focus(); }catch(e){} }, 50);
+  }
+  window.__ofusaDoLogin=function(){
+    var em=((document.getElementById('_ofusaRlEmail')||{}).value||'').trim(), pw=(document.getElementById('_ofusaRlPass')||{}).value||'';
+    var er=document.getElementById('_ofusaRlErr'), bt=document.getElementById('_ofusaRlBtn');
+    if(!em||!pw){ er.textContent='メールアドレスとパスワードを入れてください'; er.style.display='block'; return; }
+    bt.disabled=true; bt.textContent='確認中…';
+    SB().auth.signInWithPassword({email:em, password:pw}).then(function(r){
+      bt.disabled=false; bt.textContent='ログイン';
+      var tok=tokOf(r);
+      if(r.error||!tok){ er.textContent='メールアドレスまたはパスワードが正しくありません'; er.style.display='block'; return; }
+      try{ localStorage.setItem('ofusa_lastAuthEmail', em); }catch(e){}
+      done(tok);
+    }).catch(function(){ bt.disabled=false; bt.textContent='ログイン'; er.textContent='接続できませんでした。もう一度押してください'; er.style.display='block'; });
+  };
+})();
+</script>
+
 <style>
 :root{
   --navy:#0f2040; --blue:#2563eb; --blue-light:#eff6ff;
@@ -301,7 +387,7 @@ body.kk-auth-off{padding-top:44px;}
     <div class="sidebar-logo">
       <div class="logo-box"><img src="data:image/jpeg;base64,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" alt="大房行政書士法人"></div>
       <div class="logo-title">国交省管理システム</div>
-      <div class="logo-ver" id="verLabel" style="cursor:pointer;text-decoration:underline dotted;" onclick="openWhatsNew()" title="クリックでアップデート履歴を表示">ver.20261102.04</div>
+      <div class="logo-ver" id="verLabel" style="cursor:pointer;text-decoration:underline dotted;" onclick="openWhatsNew()" title="クリックでアップデート履歴を表示">ver.20261103.01</div>
     </div>
     <div class="sidebar-section">メニュー</div>
     <div class="nav-item" id="nav-shinki" onclick="setView('shinki')">🆕 新規振り分け</div>
@@ -974,7 +1060,7 @@ body.kk-auth-off{padding-top:44px;}
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var TABLE = 'kokko_cases';
-var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {global:{fetch:__ofusaAuthFetch}}); window.__ofusaSb=sb;   // ver.20261103.01: ログインしていないときはDBに出さない
 
 /* ===== ver.20261030.01: 案件管理システムのログイン切れを上部の赤い帯で知らせる ===== */
 function _kkAuthBanner(show){
@@ -1031,6 +1117,13 @@ window.addEventListener('storage', function(e){ if(e && e.key && e.key.indexOf('
    新バージョン初見時に右上トースト、ver表記クリックで履歴モーダル。
    既読は localStorage 'kokko_last_seen_version' に記録。 */
 var WHATS_NEW = [
+  {
+    version: 'ver.20261103.01',
+    date: '2026-11-03',
+    items: [
+      '🔑 <b>ログインが切れたときは「ログインしてください」の画面が出る</b>ようにしました。ログインすると、止まっていた読み込み・保存がそのまま続きます（情報を守るため、ログインしていない状態ではデータを読み書きしません）。'
+    ]
+  },
   {
     version: 'ver.20261102.03',
     date: '2026-11-02',
