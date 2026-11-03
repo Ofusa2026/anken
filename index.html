@@ -6121,7 +6121,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261103.02';
+var OFUSA_VERSION = 'ver.20261104.01';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -9152,6 +9152,7 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20261104.01', date:'2026-11-04', notify:true, part:false, items:['🏛️ 申請人書類で<b>依頼日・取得日を入れたら、その書類の「国」（国交省の許可後に案内）を自動で外す</b>ようにしました（一括セット・「今日」も同じ）。所属機関の書類と同じ動きです。'] },
   { version:'ver.20261103.02', date:'2026-11-03', notify:true, part:false, items:['✅ <b>マイページの利用を承認済み</b>の所属機関・人材に「✅ マイページ承認済（日付）」の印を出すようにしました（所属機関の画面・案件の画面）。URLを公式アカウントで送れなかったときは「⚠ URL未送信」も出ます。担当者から手動で送ってください。','📝 テキスト生成：マイページ承認済みの所属機関・人材（2回目以降）は、文面の最初に<b>「マイページからご確認いただけます」とマイページのURL</b>を入れるようにしました。','⏰ 提出期限の設定に<b>「入管書類の提出期限（案件登録日から・建設以外）」</b>を追加しました（はじめは14日）。マイページの入管書類の期限はこの日数で計算されます。'] },
   { version:'ver.20261103.01', date:'2026-11-03', notify:true, part:true, items:['🔑 <b>ログインが切れたまま使い続けて、保存が静かに消えてしまう</b>不具合を直しました。<br>・ログインの有効期限が切れたら、まず自動で更新します。<br>・自動で更新できないときは<b>「もう一度ログインしてください」</b>の画面が出ます。メールアドレスとパスワードを入れると、<b>止まっていた保存・読み込みがそのまま続きます</b>（画面はそのまま・入力中の内容も消えません）。<br>・ログインしていない状態では、データを読み書きしないようにしました（情報を守るため）。'] },
   { version:'ver.20261102.18', date:'2026-11-02', notify:true, part:false, items:['🧑‍🏭 <b>監理団体（技能実習）の情報</b>を登録支援機関に登録できるようにしました。<br>・登録支援機関の画面の「① 基本情報」に<b>「監理団体（技能実習）」</b>の欄を足しました（許可番号・許可の事業区分・許可年月日・有効期間・団体の区分・業種・常勤職員数）。監理団体のときだけ［＋ 入力する］から入れてください。その場で保存されます。<br>・技能実習の所属機関フォームの回答に監理団体の情報が書かれていれば、登録支援機関の<b>空いている欄にだけ</b>自動で入ります（入っている内容は変えません）。<br>・許可の有効期間（おわり）まで<b>2か月以内</b>（または過ぎた）の監理団体は、上のお知らせのところに<b>「🧑‍🏭 監理団体の許可期限」</b>と出ます。<br>・書類フォーム一覧の<b>企業アップロード</b>も、認定・変更・更新ごとに書類を出し分けるようにしました（技能実習の更新は会社の書類なし）。'] },
@@ -41402,12 +41403,14 @@ function bulkJinzaiDocsAction(caseId, action){
       if(!bag['date::'+docName]){
         bag['req::'+docName] = today;
         _dcDel(caseId, 'skip::'+docName);
+        _pdDropKokkoOnDate(caseId, docName);   // ver.20261104.01
         changed++;
       }
     } else if(action === 'reqMissing'){
       // 未処理（不要/担当/AI/依頼日/取得日 のいずれも無い）書類だけ依頼日=今日
       if(!bag['skip::'+docName] && !bag['staff::'+docName] && !bag['ai::'+docName] && !bag['req::'+docName] && !bag['date::'+docName]){
         bag['req::'+docName] = today;
+        _pdDropKokkoOnDate(caseId, docName);   // ver.20261104.01
         changed++;
       }
     } else if(action === 'done'){
@@ -99060,14 +99063,16 @@ function bulkSetReqDate(caseId) {
   var docList = _getDocList(cas);
   if (!docList) return;
   if (!docCheck[caseId]) docCheck[caseId] = {};
+  var _kkN = 0;
   docList.forEach(function(d){
     if (!docCheck[caseId]['skip::'+d]) {
       docCheck[caseId]['req::'+d] = val;
+      if(_pdDropKokkoOnDate(caseId, d)) _kkN++;   // ver.20261104.01
     }
   });
   persistDocCheck();
   showTab('docs');
-  showToast('✅ 依頼日を一括セットしました');
+  showToast('✅ 依頼日を一括セットしました'+(_kkN?'（「国」を'+_kkN+'件外しました）':''));
 }
 
 function bulkSetGotDate(caseId) {
@@ -99078,14 +99083,16 @@ function bulkSetGotDate(caseId) {
   var docList = _getDocList(cas);
   if (!docList) return;
   if (!docCheck[caseId]) docCheck[caseId] = {};
+  var _kkN = 0;
   docList.forEach(function(d){
     if (!docCheck[caseId]['skip::'+d]) {
       docCheck[caseId]['date::'+d] = val;
+      if(_pdDropKokkoOnDate(caseId, d)) _kkN++;   // ver.20261104.01
     }
   });
   persistDocCheck();
   showTab('docs');
-  showToast('✅ 取得日を一括セットしました');
+  showToast('✅ 取得日を一括セットしました'+(_kkN?'（「国」を'+_kkN+'件外しました）':''));
 }
 
 function bulkCheckAll(caseId, type) {
@@ -102603,7 +102610,9 @@ function toggleDocCheck2(caseId, fullKey) {
 function setDocDate2(caseId, docName, value) {
   if (!docCheck[caseId] || typeof docCheck[caseId] !== 'object') docCheck[caseId] = {};
   docCheck[caseId]['date::' + docName] = value;
+  var _kk = value ? _pdDropKokkoOnDate(caseId, docName) : false;   // ver.20261104.01
   persistDocCheck();
+  if(_kk) _pdKokkoRedraw(caseId, 1);
 }
 
 // 書類不要トグル
@@ -102919,10 +102928,28 @@ function showCaseDetail(caseId, tab, keepScreen, opts) {   // ver.20261015.12: o
   }, 100);
 }
 
+// ver.20261104.01: 申請人書類に依頼日・取得日を入れたら「国」（国交省の許可後に案内）を外す（所属機関の書類と同じ動き）。外したら true
+function _pdDropKokkoOnDate(caseId, docName){
+  var b=docCheck[caseId]; if(!b || !b['kokko::'+docName]) return false;
+  _dcDel(caseId, 'kokko::'+docName);
+  return true;
+}
+function _pdKokkoRedraw(caseId, n){
+  if(!n) return;
+  showToast('🏛️ 日付を入れたので「国」を外しました'+(n>1?'（'+n+'件）':''));
+  try{
+    var m=document.getElementById('caseModal');
+    if(m && m.classList.contains('open') && typeof currentCase!=='undefined' && currentCase && currentCase.id===caseId){
+      if(typeof currentTab!=='undefined' && currentTab==='docs') setTimeout(function(){ showTab('docs'); }, 50);
+    }
+  }catch(e){}
+}
 function setPersonDocReqDate(caseId, docName, val) {
   if (!docCheck[caseId]) docCheck[caseId] = {};
   docCheck[caseId]['req::' + docName] = val;
+  var _kk = val ? _pdDropKokkoOnDate(caseId, docName) : false;   // ver.20261104.01
   persistDocCheck();
+  if(_kk) _pdKokkoRedraw(caseId, 1);
   setTimeout(updatePersonDocAlertBadge, 100);
 }
 
