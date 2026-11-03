@@ -99,7 +99,7 @@ input:focus{border-color:var(--accent);background:white;}
 </head>
 <body>
 <div class="header">
-  <div class="header-logo">OFUSA 行政書士法人 <span style="opacity:.5;font-size:9px;">ver.20260909.03</span></div>
+  <div class="header-logo">OFUSA 行政書士法人 <span style="opacity:.5;font-size:9px;">ver.20261103.01</span></div>
   <div class="header-title">雇用理由書のご確認とご署名</div>
 </div>
 <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
@@ -294,9 +294,8 @@ document.addEventListener('DOMContentLoaded',async()=>{
 
 async function loadSignRequest(token){
   try{
-    const {data,error}=await sb.from('sign_requests')
-      .select('id,case_id,status,expires_at,doc_lang,doc_type,signer_type,drive_folder_id,pdf_base64,storage_urls,sig_page,sig_x,sig_y,sig_w,sig_h,sig_positions')
-      .eq('token',token).single();
+    // ver.20261103.01: 受付係（sign_page_get）経由で、このリンクの1件だけを読む
+    const {data,error}=await sb.rpc('sign_page_get',{p_token:token});
     if(error||!data){showError('リンクが見つかりません');return;}
     // ver.20260909.03【安全ガード】このページは雇用理由書専用。特定技能（雇用条件書等）の署名リクエストは絶対に処理しない。
     if(!((data.doc_type||'').includes('雇用理由書'))){
@@ -310,13 +309,8 @@ async function loadSignRequest(token){
     driveFolderId=data.drive_folder_id||'';
     // 署名のみのためcases参照なし
     // casesテーブルから別途取得
-    try {
-      const {data:cd}=await sb.from('cases').select('applicant,company').eq('id',data.case_id).single();
-      if(cd){
-        document.getElementById('workerName').textContent=cd.applicant||'—';
-        document.getElementById('companyName').textContent=cd.company||'—';
-      }
-    } catch(ce){ console.warn('cases取得エラー:',ce); }
+    document.getElementById('workerName').textContent=data.applicant||'—';
+    document.getElementById('companyName').textContent=data.company||'—';
     var _dl=document.getElementById('docLang'); if(_dl)_dl.textContent=docLang;
     await loadPdfNoGas(data);
     goStep(1);
@@ -530,12 +524,10 @@ async function submitSign(){
       signedPdfB64 = btoa(bin);
     }
     // 3. Supabase更新（署名画像＋合成済みPDFを保存）
-    const {error}=await sb.from('sign_requests').update({
-      status:'signed',signed_at:signedAt,signer_name:name,
-      signer_card_last4:card,signature_image:sigDataUrl,
-      signed_pdf_base64: signedPdfB64
-    }).eq('id',signRequestId);
+    // ver.20261103.01: 受付係（sign_page_submit）で保存（これまでは直接更新で、保存されていなかった）
+    const {data:sv,error}=await sb.rpc('sign_page_submit',{p_token:requestToken,p_signer_name:name,p_card_last4:card,p_signature_image:sigDataUrl,p_signed_pdf_base64:signedPdfB64});
     if(error)throw error;
+    if(!sv||!sv.ok)throw new Error(sv&&sv.error==='already_signed'?'すでに署名済みです':(sv&&sv.error==='expired'?'リンクの有効期限が切れています':'保存できませんでした'));
     // 完了
     document.getElementById('completeName').textContent=name;
     document.getElementById('completeTime').textContent=new Date(signedAt).toLocaleString('ja-JP');
@@ -576,12 +568,10 @@ async function submitChange(){
   const btn=document.getElementById('btnSubmitChange');
   btn.disabled=true;btn.innerHTML='<span>送信中...</span>';
   try{
-    const {error}=await sb.from('sign_requests').update({
-      status:'change_requested',
-      change_note:note,
-      change_requested_at:new Date().toISOString()
-    }).eq('id',signRequestId);
+    // ver.20261103.01: 受付係（sign_page_change_request）で保存
+    const {data:sv,error}=await sb.rpc('sign_page_change_request',{p_token:requestToken,p_note:note});
     if(error)throw error;
+    if(!sv||!sv.ok)throw new Error('保存できませんでした');
     document.getElementById('completeChangeNote').textContent=note;
     goStep(5);
   }catch(e){
