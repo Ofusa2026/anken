@@ -141,13 +141,13 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto
       <a href="./index.html">📋 案シス（案件管理）</a>
       <a href="./eigyo.html">🤝 営シス（営業管理）</a>
     </nav>
-    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261105.01</span></div>
+    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261105.02</span></div>
   </aside>
   <main class="kk-main" id="kkMain"><div style="padding:60px;text-align:center;color:#94a3b8;">読み込み中…</div></main>
 </div>
 <div id="toast"></div>
 <script>
-var OFUSA_VERSION='ver.20261105.01';
+var OFUSA_VERSION='ver.20261105.02';
 var SUPABASE_URL='https://ehwlgbwpycglmopiqyty.supabase.co', SUPABASE_KEY='sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}, global:{headers:{'x-ofusa-user':encodeURIComponent((function(){ try{ return localStorage.getItem('ofusa_currentUser')||''; }catch(e){ return ''; } })())}, fetch:__ofusaAuthFetch}}); window.__ofusaSb=_sb;   // ver.20261103.01: ログインしていないときはDBに出さない
 var DB_READY=true;
@@ -1718,12 +1718,72 @@ function kkCapCalc(R, ym){
   var first=fut.filter(function(x){ return x.short>0; })[0]||null;
   return {std:std, mem:mem, N:N, m3:m3, rows:rows.sort(function(a,b){ return b.avg-a.avg; }), cur:bs(T,sd), avg:bs(T3,sd3), hd:hd, holdAll:holdAll, fut:fut, first:first, hire:first?kkYmAdd(first.ym,-KK_CAP_LEAD):null, joins:joins, nowYm:R.nowYm};
 }
+// ===== ver.20261105.02: 既存の伸び（年◯%・初期15%）・月ごとのPlan・今期／来期（四半期）の「目標・見込み（既存／新規）・キャパ」グラフ =====
+function kkGrowth(){ var v=KK.mbr&&KK.mbr.rates&&KK.mbr.rates.growth; return (v!=null&&v!=='')?+v:15; }
+function kkSetGrowth(v){ var n=+String(v).replace(/[%,\s]/g,''); if(!(n>=-50&&n<=300)){ showToast('⚠️ 数字（%）で入れてください'); return; } KK.mbr.rates=KK.mbr.rates||{}; KK.mbr.rates.growth=n; kkMbrSave('💾 既存の伸びを保存しました'); kkRender(); }
+function kkPlanOf(ym){ var P=(KK.mbr&&KK.mbr.plan)||{}; if(P[ym]!=null&&P[ym]!=='') return {v:+P[ym], src:'set'}; var T=(KK.mbr&&KK.mbr.target&&KK.mbr.target[ym.slice(0,4)])||{}; return T.apps?{v:T.apps/12, src:'target'}:null; }
+function kkSetPlan(ym,v){ KK.mbr.plan=KK.mbr.plan||{}; var t=String(v).replace(/[,\s]/g,''); if(t===''){ delete KK.mbr.plan[ym]; } else { var n=+t; if(!(n>=0)){ showToast('⚠️ 数字で入れてください'); return; } KK.mbr.plan[ym]=n; } kkMbrSave('💾 '+kkYmJ(ym)+'のPlanを保存しました'); kkRender(); }
+function kkQ(ym){ var y=+ym.slice(0,4), q=Math.floor((+ym.slice(5)-1)/3); return {key:y+'Q'+(q+1), start:y+'-'+String(q*3+1).padStart(2,'0'), lb:(q*3+1)+'〜'+(q*3+3)+'月'}; }
+// 今期・来期（6か月）の月ごと：実績／見込み（既存×伸び＋新規）・Plan・キャパ（人数×基準）
+function kkTermCalc(R, C){
+  var q0=kkQ(R.nowYm), ms=[]; for(var i=0;i<6;i++) ms.push(kkYmAdd(q0.start,i));
+  var F=kkMbrForecast(R, ms), joins=C.joins||[];
+  var rows=ms.map(function(m){ var f=F[m], closed=m<R.nowYm || (m===R.nowYm && kkMonthClosed(m)), act=R.co.app[m]||0, n=C.N+joins.filter(function(j){ return j.ym<=m; }).length, pl=kkPlanOf(m);
+    var base=closed?act:f.base, nC=closed?0:f.commit, nB=closed?0:f.best, tot=base+nC+nB;
+    return {ym:m, closed:closed, act:act, base:base, nC:nC, nB:nB, tot:tot, n:n, cap:n*C.std, need:Math.ceil(tot/C.std), plan:pl?pl.v:null, planSrc:pl?pl.src:'', cur:m===R.nowYm&&!closed}; });
+  var Qs=[q0.key, kkQ(kkYmAdd(q0.start,3)).key].map(function(k,i){ var L=rows.slice(i*3,i*3+3), s=function(f){ return L.reduce(function(a,r){ return a+(r[f]||0); },0); }, pl=L.every(function(r){ return r.plan!=null; })?s('plan'):null;
+    return {key:k, lb:(i?'来期':'今期')+'（'+kkQ(L[0].ym).lb+'）', tot:s('tot'), base:s('base'), nC:s('nC'), nB:s('nB'), cap:s('cap'), plan:pl, act:L.filter(function(r){ return r.closed; }).reduce(function(a,r){ return a+r.act; },0), nMax:Math.max.apply(null,L.map(function(r){ return r.n; })), needMax:Math.max.apply(null,L.map(function(r){ return r.need; })), rows:L}; });
+  return {rows:rows, Qs:Qs};
+}
+function kkTermChart(T, std, deck){
+  var W=1000, H=deck?560:280, pl=46, pr=12, pt=26, pb=40, R=T.rows, mx=1; R.forEach(function(r){ mx=Math.max(mx, r.tot, r.cap, r.plan||0); }); mx*=1.12;
+  var cw=(W-pl-pr)/R.length, bw=cw*0.5, y=function(v){ return pt+(H-pt-pb)*(1-v/mx); }, n0=function(v){ return Math.round(v||0).toLocaleString('ja-JP'); };
+  var s='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto;display:block;font-family:inherit;">';
+  for(var g=0;g<=4;g++){ var v=mx/1.12*g/4, yy=y(v); s+='<line x1="'+pl+'" x2="'+(W-pr)+'" y1="'+yy+'" y2="'+yy+'" stroke="#eef2f7"/><text x="'+(pl-6)+'" y="'+(yy+4)+'" text-anchor="end" font-size="11" fill="#94a3b8">'+n0(v)+'</text>'; }
+  // 四半期の区切り
+  s+='<line x1="'+(pl+cw*3)+'" x2="'+(pl+cw*3)+'" y1="'+(pt-14)+'" y2="'+(H-pb)+'" stroke="#cbd5e1" stroke-dasharray="4 4"/>'
+    +'<text x="'+(pl+cw*1.5)+'" y="'+(pt-12)+'" text-anchor="middle" font-size="12" font-weight="800" fill="#0f172a">今期</text><text x="'+(pl+cw*4.5)+'" y="'+(pt-12)+'" text-anchor="middle" font-size="12" font-weight="800" fill="#0f172a">来期</text>';
+  R.forEach(function(r,i){ var x=pl+cw*i+(cw-bw)/2, b=y(0), seg=function(v,c){ if(v<=0) return ''; var h=(H-pt-pb)*v/mx, t='<rect x="'+x+'" y="'+(b-h)+'" width="'+bw+'" height="'+h+'" fill="'+c+'"/>'; b-=h; return t; };
+    s+=r.closed?seg(r.act,'#0f2040'):(seg(r.base,'#93a8c8')+seg(r.nC,'#0f766e')+seg(r.nB,'#5eead4'));
+    s+='<text x="'+(x+bw/2)+'" y="'+(y(r.closed?r.act:r.tot)-5)+'" text-anchor="middle" font-size="12" font-weight="800" fill="#0f172a">'+n0(r.closed?r.act:r.tot)+'</text>';
+    s+='<text x="'+(x+bw/2)+'" y="'+(H-pb+16)+'" text-anchor="middle" font-size="12" fill="#475569">'+(+r.ym.slice(5))+'月'+(r.closed?'（実績）':(r.cur?'（途中）':''))+'</text>'
+      +'<text x="'+(x+bw/2)+'" y="'+(H-pb+31)+'" text-anchor="middle" font-size="11" fill="'+(r.need>r.n?'#dc2626':'#0f766e')+'" font-weight="700">'+r.n+'名／必要'+r.need+'名</text>'; });
+  // キャパ（人数×基準）とPlan の線
+  var line=function(key,c,dash,lab){ var pts=R.map(function(r,i){ return r[key]==null?null:[pl+cw*i+cw/2, y(r[key])]; }); var d='', on=false; pts.forEach(function(p){ if(!p){ on=false; return; } d+=(on?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1); on=true; });
+    if(!d) return ''; var last=pts.filter(Boolean).pop(); return '<path d="'+d+'" fill="none" stroke="'+c+'" stroke-width="2.5" '+(dash?'stroke-dasharray="7 5"':'')+'/>'+pts.filter(Boolean).map(function(p){ return '<circle cx="'+p[0]+'" cy="'+p[1]+'" r="3.5" fill="'+c+'"/>'; }).join('')+'<text x="'+(last[0]+8)+'" y="'+(last[1]-6)+'" font-size="11" font-weight="800" fill="'+c+'">'+lab+'</text>'; };
+  s+=line('cap','#16a34a',true,'キャパ')+line('plan','#dc2626',false,'Plan');
+  s+='</svg>';
+  var lg=function(c,t,ln){ return '<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px;"><i style="display:inline-block;width:'+(ln?'18px':'11px')+';height:'+(ln?'0':'11px')+';'+(ln?'border-top:3px '+(ln==='d'?'dashed':'solid')+' '+c:'background:'+c)+';border-radius:2px;"></i>'+t+'</span>'; };
+  return s+'<div style="font-size:'+(deck?'1cqw':'11.5px')+';color:#475569;margin-top:4px;">'+lg('#0f2040','実績')+lg('#93a8c8','既存（伸び込み）')+lg('#0f766e','新規・確定')+lg('#5eead4','新規・上振れ（確度で重み）')+lg('#dc2626','Plan','s')+lg('#16a34a','キャパ＝人数×'+std+'件','d')+'</div>';
+}
+function kkTermHtml(R, C, deck){
+  var T=kkTermCalc(R, C), n0=function(v){ return v==null?'—':Math.round(v).toLocaleString('ja-JP'); }, g=kkGrowth(), f=function(a,b){ return deck?a+'cqw':b+'px'; };
+  var judge=function(Q){ var d=Q.needMax-Q.nMax; return d>0?'<b style="color:#dc2626;">'+d+'名足りない</b>':'<b style="color:#0f766e;">足りる</b>'+(Q.cap>Q.tot?'<span style="color:#64748b;">（余力 '+n0(Q.cap-Q.tot)+'件）</span>':''); };
+  var tbl='<table class="'+(deck?'dk-t':'skp-tbl')+'"'+(deck?' style="font-size:1.05cqw;"':'')+'><thead><tr><th class="l"'+(deck?'':' style="padding-left:14px;"')+'></th>'+T.Qs.map(function(Q){ return '<th>'+Q.lb+'</th>'; }).join('')+'</tr></thead><tbody>'
+    +[['Plan（目標）',function(Q){ return Q.plan!=null?n0(Q.plan)+'件':'<span style="color:#94a3b8;">未設定</span>'; }],['見込み（実績＋見込み）',function(Q){ return '<b>'+n0(Q.tot)+'件</b>'; }],['　うち既存',function(Q){ return n0(Q.base)+'件'; }],['　うち新規（確定＋上振れ）',function(Q){ return n0(Q.nC+Q.nB)+'件'; }],['Planとの差',function(Q){ if(Q.plan==null) return '—'; var d=Q.tot-Q.plan; return '<b style="color:'+(d>=0?'#0f766e':'#dc2626')+';">'+(d>=0?'+':'')+n0(d)+'件</b>'; }],['キャパ（3か月）',function(Q){ return n0(Q.cap)+'件'; }],['人数（必要／いる）',function(Q){ return '必要'+Q.needMax+'名／いる'+Q.nMax+'名'; }],['判定',judge]]
+      .map(function(r){ return '<tr'+(deck?'':' class="st"')+'><td class="l"'+(deck?'':' style="padding-left:14px;font-weight:700;"')+'>'+r[0]+'</td>'+T.Qs.map(function(Q){ return '<td>'+r[1](Q)+'</td>'; }).join('')+'</tr>'; }).join('')+'</tbody></table>';
+  if(deck) return {T:T, html:'<div class="dk-g" style="grid-template-columns:1.55fr 1fr;"><div class="dk-c" style="background:#fff;padding:.8cqw 1cqw;">'+kkTermChart(T, C.std, true)+'</div><div class="dk-c" style="background:#fff;">'+tbl+'<div class="dk-sub" style="margin-top:.5cqw;">既存＝直近3か月平均から年'+g+'%で伸びる前提。新規＝営シスの見込み</div></div></div>'};
+  var h='<div class="mbr-box" style="margin:12px 0;"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px;"><h4 style="margin:0;">今期・来期の申請件数：Plan・見込み（既存／新規）と、今の人数のキャパ</h4><span style="flex:1"></span>'
+    +'<span style="font-size:12px;color:#475569;">既存の伸び（業界の伸び） 年 <input value="'+g+'" style="width:50px;border:1px solid #e2e8f0;border-radius:6px;padding:2px 5px;font-size:12px;text-align:right;" onchange="kkSetGrowth(this.value)"> %</span></div>'
+    +kkTermChart(T, C.std, false)+'<div style="overflow:auto;margin-top:8px;">'+tbl+'</div>';
+  // 月ごと（Planの入力つき）
+  h+='<div style="overflow:auto;margin-top:10px;"><table class="skp-tbl"><thead><tr><th class="l" style="padding-left:14px;">月</th>'+T.rows.map(function(r){ return '<th'+(r.cur?' style="background:#fef3c7;"':'')+'>'+(+r.ym.slice(5))+'月</th>'; }).join('')+'</tr></thead><tbody>'
+    +'<tr class="st"><td class="l" style="padding-left:14px;font-weight:700;">Plan（入力）</td>'+T.rows.map(function(r){ var P=(KK.mbr.plan||{})[r.ym]; return '<td><input value="'+(P!=null?P:'')+'" placeholder="'+(r.plan!=null?n0(r.plan):'未設定')+'" style="width:64px;border:1px solid #e2e8f0;border-radius:6px;padding:2px 5px;font-size:12px;text-align:right;" onchange="kkSetPlan(\''+r.ym+'\',this.value)"></td>'; }).join('')+'</tr>'
+    +'<tr class="st"><td class="l" style="padding-left:14px;">実績</td>'+T.rows.map(function(r){ return '<td>'+(r.closed||r.cur?n0(r.act)+(r.cur?'<span style="color:#94a3b8;font-size:10px;">途中</span>':''):'<span style="color:#cbd5e1;">—</span>'); }).join('')+'</tr>'
+    +'<tr class="st"><td class="l" style="padding-left:14px;">見込み（既存＋新規）</td>'+T.rows.map(function(r){ return '<td>'+(r.closed?'<span style="color:#cbd5e1;">—</span>':'<b>'+n0(r.tot)+'</b><span style="color:#94a3b8;font-size:10px;">（'+n0(r.base)+'＋'+n0(r.nC+r.nB)+'）</span>'); }).join('')+'</tr>'
+    +'<tr class="st"><td class="l" style="padding-left:14px;">Planとの差</td>'+T.rows.map(function(r){ if(r.plan==null) return '<td><span style="color:#cbd5e1;">—</span></td>'; var v=(r.closed?r.act:r.tot)-r.plan; return '<td style="font-weight:800;color:'+(v>=0?'#0f766e':'#dc2626')+';">'+(v>=0?'+':'')+n0(v)+(r.closed?'':'<span style="color:#94a3b8;font-size:10px;font-weight:600;">見込</span>')+'</td>'; }).join('')+'</tr>'
+    +'<tr class="st"><td class="l" style="padding-left:14px;">キャパ（人数×'+C.std+'件）</td>'+T.rows.map(function(r){ return '<td>'+n0(r.cap)+'<span style="color:#94a3b8;font-size:10px;">（'+r.n+'名）</span></td>'; }).join('')+'</tr>'
+    +'</tbody></table></div>';
+  h+='<div class="skp-note" style="margin-top:6px;">既存＝直近3か月平均（「6. これから3か月の見込み」のベース欄で変えられます）を、年'+g+'%（業界の伸び）で毎月少しずつ伸ばしたもの。新規＝営シスの見込み（依頼待ち・取引中＝確定／結果待ち・商談予定＝確度で重み）。Plan＝月ごとに入力。入力が無い月は年間目標の12分の1（「2. 目標と実績」で年間目標を入れると出ます）。キャパ＝書類部の人数（入社予定を含む）×1人あたり'+C.std+'件。</div></div>';
+  return {T:T, html:h};
+}
 function kkCapHtml(R, ym, deck){
   var C=kkCapCalc(R, ym), esc=_skEsc, n0=function(v){ return Math.round(v||0).toLocaleString('ja-JP'); }, M=+ym.slice(5)+'月', A=(+C.m3[0].slice(5))+'〜'+M+'の平均', std=C.std;
   if(!C.N) return '<div class="skp-note">案シスのチーム管理に書類部の社員が見つかりませんでした。</div>';
   var tb=deck?'dk-t':'skp-tbl', pl=deck?'':' style="padding-left:14px;"', tr=deck?'<tr>':'<tr class="st">';
   var nd=function(b){ var d=b.need-C.N; return '<b>'+b.need+'名</b>'+(d>0?' <span style="color:#dc2626;font-weight:800;">（'+d+'名足りない）</span>':' <span style="color:#0f766e;font-weight:800;">（'+(-d)+'名ぶん余裕）</span>'); };
   // 対象月 と 3か月平均 を並べる
+  if(deck) return kkTermHtml(R, C, true).html;   // ver.20261105.02: スライドは今期・来期のグラフ
   var h='<table class="'+tb+'"'+(deck?' style="font-size:1.3cqw;margin-bottom:1.2cqw;"':' style="margin-bottom:10px;"')+'><thead><tr><th class="l"'+pl+'></th><th>'+M+'（対象月）</th><th>'+A+'</th></tr></thead><tbody>'
     +tr+'<td class="l"'+pl+'>全体の申請件数</td><td>'+n0(C.cur.T)+'件</td><td>'+n0(C.avg.T)+'件</td></tr>'
     +tr+'<td class="l"'+pl+'>うち書類部（'+C.N+'名）</td><td>'+n0(C.cur.sd)+'件（<b>'+(C.cur.share!=null?C.cur.share:'—')+'%</b>）</td><td>'+n0(C.avg.sd)+'件（<b>'+(C.avg.share!=null?C.avg.share:'—')+'%</b>）</td></tr>'
@@ -1731,14 +1791,11 @@ function kkCapHtml(R, ym, deck){
     +tr+'<td class="l"'+pl+'>必要な人数（全体÷'+std+'件）</td><td>'+nd(C.cur)+'</td><td>'+nd(C.avg)+'</td></tr>'
     +tr+'<td class="l"'+pl+'>いる人数</td><td colspan="2" style="text-align:center;"><b>'+C.N+'名</b>'+(C.joins.length?'（ほか入社予定 '+C.joins.map(function(j){ return esc(j.name)+' '+kkYmJ(j.ym).replace(/^\d+年/,''); }).join('、')+'）':'')+'</td></tr>'
     +'</tbody></table>';
-  // これから（営シスの見込み込み）
-  var show=deck?C.fut.slice(0,6):C.fut;
-  h+='<div style="font-size:'+(deck?'1.15cqw':'12.5px')+';font-weight:800;color:#0f172a;margin:0 0 4px;">これから（営シスの見込みを足した場合）'+(C.first?'<span style="font-weight:600;color:#475569;">　→ '+kkYmJ(C.first.ym)+'から'+C.first.short+'名足りない（'+(C.hire<=C.nowYm?'採用は'+KK_CAP_LEAD+'か月前に始める前提なので、すでに採用を始める時期です':'採用は'+KK_CAP_LEAD+'か月前の'+kkYmJ(C.hire)+'ごろに開始')+'）</span>':'<span style="font-weight:600;color:#475569;">　→ 1年間は今の人数で足りる見込み</span>')+'</div>';
-  h+='<div style="overflow:auto;"><table class="'+tb+'"'+(deck?' style="font-size:1.1cqw;"':'')+'><thead><tr><th class="l"'+pl+'></th>'+show.map(function(x){ return '<th>'+kkYmJ(x.ym).replace(/^\d+年/,'')+'</th>'; }).join('')+'</tr></thead><tbody>'
-    +[['申請の見込み',function(x){ return n0(x.dB); }],['必要な人数',function(x){ return '<b>'+x.need+'名</b>'; }],['いる人数',function(x){ return x.n+'名'; }],['足りない',function(x){ return x.short?'<b style="color:#dc2626;">'+x.short+'名</b>':'<span style="color:#cbd5e1;">·</span>'; }]]
-      .map(function(r){ return tr+'<td class="l"'+(deck?'':' style="padding-left:14px;font-weight:700;"')+'>'+r[0]+'</td>'+show.map(function(x){ return '<td>'+r[1](x)+'</td>'; }).join('')+'</tr>'; }).join('')
-    +'</tbody></table></div>';
-  if(deck) return h;
+  // ver.20261105.02: これから＝今期・来期のグラフ（Plan・見込み（既存／新規）・キャパ）
+  var TM=kkTermHtml(R, C, deck);
+  if(deck) return TM.html;
+  h+=TM.html;
+
   // 担当者別
   h+='<div style="font-size:12.5px;font-weight:800;color:#0f172a;margin:12px 0 4px;">担当者別</div><div style="overflow:auto;"><table class="skp-tbl"><thead><tr><th class="l" style="padding-left:14px;">担当</th><th>'+M+'の申請</th><th>'+A+'</th><th>月'+std+'件に対して<br>（3か月平均）</th><th>持ち案件<br>（いま・進捗中）</th><th class="l" style="min-width:180px;"></th></tr></thead><tbody>'
     +C.rows.map(function(r){ var p=Math.round(r.avg/std*100), w=Math.min(100,p), c=p>=100?'#0f766e':(p>=70?'#d97706':'#94a3b8'); return '<tr class="st"><td class="l" style="padding-left:14px;font-weight:700;">'+esc(r.name)+'</td><td>'+n0(r.app)+'</td><td style="font-weight:800;">'+n0(r.avg)+'</td><td style="font-weight:800;">'+p+'%</td><td>'+n0(r.hold)+'</td><td class="l"><div class="mbr-bar"><i style="width:'+w+'%;background:'+c+';"></i></div></td></tr>'; }).join('')
@@ -2045,7 +2102,8 @@ function kkMbrGrowthHtml(R, ym, big){ var G=kkMbrGrowth(R, ym), esc=_skEsc, n0=f
 // 見込み：ベース（今の取引先＝直近3か月の平均）＋営シスの見込み先（確度で3段）
 function kkMbrForecast(R, months){
   var L=_skRmEigList(), base=(KK.mbr&&KK.mbr.base!=null)?+KK.mbr.base:(R.l3App||0), out={};
-  months.forEach(function(ym){ var o={ym:ym, base:base, commit:0, best:0, pipe:0, rows:[]};
+  var g=Math.pow(1+kkGrowth()/100,1/12), b0=(R.full&&R.full.length)?R.full[R.full.length-1]:R.nowYm, md=function(a,b){ return (+a.slice(0,4)-+b.slice(0,4))*12+(+a.slice(5)-+b.slice(5)); };   // ver.20261105.02: 既存は年◯%で伸ばす
+  months.forEach(function(ym){ var o={ym:ym, base:base*Math.pow(g,Math.max(0,md(ym,b0))), commit:0, best:0, pipe:0, rows:[]};
     L.forEach(function(l){ if(l.ym>ym) return; var t=(l.st==='依頼待ち'||l.st==='取引中')?'commit':((l.st==='結果待ち'||l.st==='商談予定')?'best':'pipe'); var v=(t==='commit')?l.n:l.n*l.w; o[t]+=v; o.rows.push({name:l.name, st:l.st, staff:l.staff, n:l.n, w:l.w, v:v, t:t, ym:l.ym}); });
     out[ym]=o; });
   return out;
@@ -2233,7 +2291,7 @@ function kkMbrDeckHtml(R){
     +'<div class="dk-sub" style="font-size:1cqw;">人件費は概算（社員 年'+_skRpMan(p0.emp,0)+'万円・パート 時給'+n0(p0.part)+'円×月'+p0.partH+'時間・カンボジア 月'+p0.kh+'ドル×'+p0.fx+'円）</div>');
   // 6a 書類部の余力と採用のタイミング（ver.20261104.05）
   var CP=kkCapCalc(R, ym);
-  h+=S('CAPACITY','書類部は今 '+CP.N+'名。必要な人数は、'+(+ym.slice(5))+'月の件数なら '+CP.cur.need+'名'+(CP.cur.need<=CP.N?'で足りる':'（'+(CP.cur.need-CP.N)+'名不足）')+'／3か月平均なら '+CP.avg.need+'名'+(CP.avg.need<=CP.N?'で足りる':'（'+(CP.avg.need-CP.N)+'名不足）'),
+  h+=S('CAPACITY',(function(){ var Tq=kkTermCalc(R, CP).Qs, t=function(Q){ var d=Q.needMax-Q.nMax; return Q.lb.replace(/（.*/,'')+'は'+(d>0?d+'名不足':'今の人数で足りる'); }; return '申請の見込みと人数：'+t(Tq[0])+'／'+t(Tq[1])+'（書類部 今'+CP.N+'名）'; })(),
     '<div style="flex:1;min-height:0;overflow:hidden;">'+kkCapHtml(R, ym, true)+'</div>');
   // 6b 申請件数ランキング
   var RL=kkMbrRank(R, ym);
