@@ -316,7 +316,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261104.01</div>
+      <div class="ver">ver.20261104.02</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -4737,6 +4737,7 @@ function exportAttackCsv(){
 /* ================= 📊 KPI（計画・実績・案シス連携） ================= */
 var KP = { plan:null, deals:[], counts:[], orgs:[], staff:'all', view:'month', editId:null };
 var KP_STAFF = ['中林　俊介','亀谷　潤'];
+var KP_HEADS = 4; // ver.20261104.02: 1人あたり目標は営業4人（大房・亀谷・中林・菅沼）で割る
 function kpShort(s){ return (s||'').split(/[\s　]/)[0]; }
 function kpYen(n){ n=Math.round(n||0); if(Math.abs(n)>=100000000){ var o=Math.floor(n/100000000), r=Math.round((n%100000000)/10000); return o+'億'+(r?r.toLocaleString()+'万':'')+'円'; } var m=n/10000; return (Math.abs(m)<100 ? (Math.round(m*10)/10) : Math.round(m)).toLocaleString()+'万円'; }
 function kpNum(n){ return Math.round(n||0).toLocaleString(); }
@@ -5387,11 +5388,11 @@ function mtRender(){
   var wd=KP.deals.filter(function(d){ var cr=d.created_at?kpS(new Date(d.created_at)):''; return inSt(d.staff) && ((d.start_date>=ws&&d.start_date<=we)||(cr>=ws&&cr<=we)); });
   var wTot=0, per={}; KP_STAFF.forEach(function(s){per[s]=0;});
   wd.forEach(function(d){ wTot+=d.supporters; per[d.staff]=(per[d.staff]||0)+d.supporters; });
-  var tgt1=MT.staff==='all'?wkT:wkT/KP_STAFF.length;
+  var tgt1=MT.staff==='all'?wkT:wkT/KP_HEADS;
   var s1='<div style="'+card+'">'+head('1','対象週の新規取引','5分','決まった・始まった取引と支援人数')
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
     + big('新規支援人数（対象週）', kpNum(wTot)+'人', '週の目標 '+kpNum(tgt1)+'人 → 達成率 '+kpPct(wTot,tgt1))
-    + (MT.staff==='all'?KP_STAFF.map(function(s){ return big(kpShort(s), kpNum(per[s])+'人', '目安 '+kpNum(wkT/KP_STAFF.length)+'人'); }).join(''):'')
+    + (MT.staff==='all'?KP_STAFF.map(function(s){ return big(kpShort(s), kpNum(per[s])+'人', '目安 '+kpNum(wkT/KP_HEADS)+'人'); }).join(''):'')
     + '</div>'
     + (wd.length?'<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;"><th style="'+th+'">担当</th><th style="'+th+'">企業名</th><th style="'+th+'">支援者数</th><th style="'+th+'">単価（認定・変更 / 更新）</th><th style="'+th+'">取引開始日</th></tr></thead><tbody>'
       + wd.map(function(d){ return '<tr style="border-bottom:1px solid var(--line);"><td style="'+td+'">'+esc(kpShort(d.staff))+'</td><td style="'+td+'"><b>'+esc(d.company)+'</b></td><td style="'+td+'">'+kpNum(d.supporters)+'人</td><td style="'+td+'">'+kpNum(d.price_nh)+' / '+kpNum(d.price_ko)+'</td><td style="'+td+'">'+esc(d.start_date)+'</td></tr>'; }).join('')+'</tbody></table>'
@@ -5403,13 +5404,13 @@ function mtRender(){
   var s2='<div style="'+card+'">'+head('2','今月の進み具合','5分','月の目標に対して残り何人か');
   if(cm){
     var done=0; KP.deals.forEach(function(d){ if(inSt(d.staff)&&d.start_date>=cm.from&&d.start_date<=cm.to) done+=d.supporters; });
-    var mT=MT.staff==='all'?cm.newP:cm.newP/KP_STAFF.length, rest=Math.max(0,mT-done);
+    var mT=MT.staff==='all'?cm.newP:cm.newP/KP_HEADS, rest=Math.max(0,mT-done);
     var from=t>cm.from?t:cm.from, remW=Math.max(1,Math.ceil(kpDays(from,cm.to)/7));
     var dm=kpD(cm.from);
     s2+='<div style="display:flex;gap:10px;flex-wrap:wrap;">'
       + big(dm.getFullYear()+'年'+(dm.getMonth()+1)+'月の新規支援人数', kpNum(done)+'人', '月の目標 '+kpNum(mT)+'人 → '+kpPct(done,mT))
       + big('残り', kpNum(rest)+'人', '月末まで約'+remW+'週')
-      + big('1週あたり必要なペース', kpNum(rest/remW)+'人/週', '通常の週目標 '+kpNum(MT.staff==='all'?wkT:wkT/KP_STAFF.length)+'人')
+      + big('1週あたり必要なペース', kpNum(rest/remW)+'人/週', '通常の週目標 '+kpNum(MT.staff==='all'?wkT:wkT/KP_HEADS)+'人')
       + '</div>';
   } else s2+='<div class="sub">計画期間外です（KPIタブの「計画の前提」を確認してください）。</div>';
   s2+='</div>';
@@ -5456,7 +5457,7 @@ function mtRender(){
     + '</div>'
     + mtAptBlock(inSt)
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
-    + big('今月の契約見込み', nxCnt+'社 ／ '+kpNum(nxSum)+'人', '月の目標 '+kpNum(MT.staff==='all'?moT:moT/KP_STAFF.length)+'人 → '+kpPct(nxSum,MT.staff==='all'?moT:moT/KP_STAFF.length))
+    + big('今月の契約見込み', nxCnt+'社 ／ '+kpNum(nxSum)+'人', '月の目標 '+kpNum(MT.staff==='all'?moT:moT/KP_HEADS)+'人 → '+kpPct(nxSum,MT.staff==='all'?moT:moT/KP_HEADS))
     + (function(){ var pot=0,wp=0,mon=0; lv.forEach(function(l){ var p=l.hr_potential_apps||0; pot+=p; mon+=(l.hr_monthly_apps||0); wp+=p*((l.close_prob||0)/100); }); return big('当社への依頼見込み（月）', kpNum(pot)+'件', '確度加味 '+(Math.round(wp*10)/10)+'件 ／ 申請ポテンシャル計 '+kpNum(mon)+'件'); })()
     + big('アタックリスト', lv.length+'社', atk==='all'?'アタックS・中林・亀谷・菅沼':(atk==='S'?'アタックS':(atk==='nb'?'アタック中林':(atk==='sg'?'菅沼案件':'アタック亀谷'))))
     + '</div>'
