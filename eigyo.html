@@ -316,7 +316,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261103.01</div>
+      <div class="ver">ver.20261104.01</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -3854,10 +3854,10 @@ var PP_STD = [
     {k:'sk_nin', label:'認定', price:150000},
     {k:'sk_hen', label:'変更', stamp:'＊別途収入印紙代金', price:150000}
   ]},
-  {sec:'技能実習', note:'※ 技能実習計画の作成・OTITへの申請は監理団体様側で対応', items:[
+  {sec:'技能実習', note:'※ 技能実習計画の作成・OTITへの申請は監理団体様側で対応', taxOpt:true, items:[
     {k:'gj_nin', label:'在留資格認定証明書交付申請費用', price:10000, visa:['技能実習'], app:'認定', off:true},
-    {k:'gj_hen', label:'在留資格変更許可申請費用', stamp:'＊別途収入印紙代金', price:30000, visa:['技能実習'], app:'変更', off:true},
-    {k:'gj_kou', label:'在留期間更新許可申請費用', stamp:'＊別途収入印紙代金', price:30000, visa:['技能実習'], app:'更新', off:true}
+    {k:'gj_hen', label:'在留資格変更許可申請費用', stamp:'＊別途収入印紙代金', price:30000, priceKanri:10000, visa:['技能実習'], app:'変更', off:true},
+    {k:'gj_kou', label:'在留期間更新許可申請費用', stamp:'＊別途収入印紙代金', price:30000, priceKanri:10000, visa:['技能実習'], app:'更新', off:true}
   ]},
   {sec:'自動車運送業（特定活動55号を挟む場合）', sub:'申請のみ', after:'※ 特定活動55号は入管窓口でしか申請できないため、東京入管以外の入管で申請が必要な場合、別途交通費が発生いたします。', items:[
     {k:'jd_nin', label:'認定', stamp:'＊別途収入印紙代金（1枚）', price:100000},
@@ -3877,7 +3877,18 @@ var PP_STD = [
 ];
 var _pp = null;   // {items:{k:{price,show}}, pushed_at, updated_at}
 function _ppStdItem(k){ var f=null; PP_STD.forEach(function(s){ s.items.forEach(function(it){ if(it.k===k) f=it; }); }); return f; }
-function _ppVal(it){ var v=(_pp.items||{})[it.k]||{}; return { price:(v.price===undefined?it.price:v.price), show:(v.show===undefined?!it.off:!!v.show) }; }
+/* ver.20261104.01: 技能実習の税書類の回収を監理団体様側で行う会社は、変更・更新の標準を1万円（税抜）＋収入印紙にする
+   proposal_prices.opts.gj_tax = 'kanri'（監理団体様で回収）／なし（大房で回収＝標準） */
+var PP_GJ_TAX_NOTE = '※ 納税関係書類（課税・納税証明書等）の回収は監理団体様側で対応';
+function _ppGjKanri(){ return !!(_pp && _pp.opts && _pp.opts.gj_tax==='kanri'); }
+function _ppStd(it){ return (it.priceKanri!=null && _ppGjKanri()) ? it.priceKanri : it.price; }
+function _ppVal(it){ var v=(_pp.items||{})[it.k]||{}; return { price:(v.price===undefined?_ppStd(it):v.price), show:(v.show===undefined?!it.off:!!v.show) }; }
+function _ppOpts(){ var o={}; if(_ppGjKanri()) o.gj_tax='kanri'; return o; }
+function ppSetGjTax(v){
+  _pp.opts = _pp.opts || {};
+  if(v==='kanri') _pp.opts.gj_tax='kanri'; else delete _pp.opts.gj_tax;
+  renderProposal();
+}
 function _ppYen(n){ return Number(n||0).toLocaleString(); }
 function _ppIncl(n){ return Math.round(Number(n||0)*1.1); }
 function openProposal(){
@@ -3896,25 +3907,31 @@ function ppSet(k, field, v){
   else { var s=String(v).replace(/[,，\s]/g,''); _pp.items[k].price = (s===''? null : (parseInt(s,10)||0)); }
   var it=_ppStdItem(k), c=el('ppIncl_'+k), val=_ppVal(it);
   if(c) c.textContent = val.price==null ? '要相談' : '税込 '+_ppYen(_ppIncl(val.price))+'円';
-  var inp=el('ppIn_'+k); if(inp) inp.style.background = (val.price!==it.price) ? '#fff7e6' : '#fff';
+  var inp=el('ppIn_'+k); if(inp) inp.style.background = (val.price!==_ppStd(it)) ? '#fff7e6' : '#fff';
 }
 function ppReset(){
   if(!confirm('この会社の提案金額を標準料金に戻しますか？（保存するまで反映されません）')) return;
-  _pp.items={}; renderProposal();
+  _pp.items={}; _pp.opts={}; renderProposal();
 }
 function renderProposal(){
   var h='', lastSec='';
   PP_STD.forEach(function(s){
     if(s.sec!==lastSec){ h+='<div style="background:#1f2a5c;color:#fff;font-weight:700;font-size:12.5px;padding:6px 10px;border-radius:6px;margin-top:12px;">'+esc(s.sec)+'</div>'; lastSec=s.sec; }
     if(s.sub) h+='<div style="font-size:11.5px;font-weight:700;color:#1f2a5c;margin:8px 2px 2px;">'+esc(s.sub)+'</div>';
+    if(s.taxOpt){ var km=_ppGjKanri();
+      h+='<div style="font-size:12px;margin:8px 2px 2px;padding:6px 8px;background:#f7fafc;border:1px solid var(--line);border-radius:6px;">'
+        +'<b>税書類の回収：</b>'
+        +'<label style="margin-left:6px;cursor:pointer;"><input type="radio" name="ppGjTax" '+(km?'':'checked')+' onchange="ppSetGjTax(\'ofusa\')"> 大房で回収（標準：変更・更新 3万円）</label>'
+        +'<label style="margin-left:10px;cursor:pointer;"><input type="radio" name="ppGjTax" '+(km?'checked':'')+' onchange="ppSetGjTax(\'kanri\')"> 監理団体様で回収（変更・更新 1万円）</label>'
+        +'</div>'; }
     h+='<table style="width:100%;font-size:12.5px;border-collapse:collapse;">';
     s.items.forEach(function(it){
-      var v=_ppVal(it), changed=(v.price!==it.price);
+      var v=_ppVal(it), sp=_ppStd(it), changed=(v.price!==sp);
       h+='<tr style="border-bottom:1px dashed #e2e8f0;">'
         +'<td style="width:28px;padding:6px 2px;"><input type="checkbox" '+(v.show?'checked':'')+' title="料金表PDFに載せる" onchange="ppSet(\''+it.k+'\',\'show\',this.checked)"></td>'
         +'<td style="padding:6px 4px;">◆ '+esc(it.label)+(it.stamp?'<div class="sub" style="font-size:10.5px;">'+esc(it.stamp)+'</div>':'')
         +  (it.visa?'<div class="sub" style="font-size:10px;color:#2b6cb0;">案シス連携：'+esc(it.visa.join('・'))+(it.app?' ／ '+esc(it.app):'')+'</div>':'')+'</td>'
-        +'<td style="width:130px;padding:6px 4px;text-align:right;"><input type="text" inputmode="numeric" id="ppIn_'+it.k+'" value="'+(v.price==null?'':v.price)+'" placeholder="要相談" oninput="ppSet(\''+it.k+'\',\'price\',this.value)" style="width:110px;padding:5px 7px;border:1px solid var(--line);border-radius:6px;text-align:right;background:'+(changed?'#fff7e6':'#fff')+';"><div class="sub" style="font-size:10px;">標準 '+(it.price==null?'要相談':_ppYen(it.price))+'</div></td>'
+        +'<td style="width:130px;padding:6px 4px;text-align:right;"><input type="text" inputmode="numeric" id="ppIn_'+it.k+'" value="'+(v.price==null?'':v.price)+'" placeholder="要相談" oninput="ppSet(\''+it.k+'\',\'price\',this.value)" style="width:110px;padding:5px 7px;border:1px solid var(--line);border-radius:6px;text-align:right;background:'+(changed?'#fff7e6':'#fff')+';"><div class="sub" style="font-size:10px;">標準 '+(sp==null?'要相談':_ppYen(sp))+'</div></td>'
         +'<td style="width:110px;padding:6px 4px;text-align:right;font-size:11px;color:#475569;" id="ppIncl_'+it.k+'">'+(v.price==null?'要相談':'税込 '+_ppYen(_ppIncl(v.price))+'円')+'</td>'
         +'</tr>';
     });
@@ -3928,7 +3945,7 @@ function renderProposal(){
 function _ppPayload(){
   var out={}; Object.keys(_pp.items||{}).forEach(function(k){
     var it=_ppStdItem(k); if(!it) return; var v=_ppVal(it), o={};
-    if(v.price!==it.price) o.price=v.price;
+    if(v.price!==_ppStd(it)) o.price=v.price;
     if(v.show!==!it.off) o.show=v.show;
     if(Object.keys(o).length) out[k]=o;
   });
@@ -3936,9 +3953,10 @@ function _ppPayload(){
 }
 function saveProposal(cb){
   if(!curLead) return;
-  var changed = JSON.stringify(_ppPayload()) !== JSON.stringify((function(){ var p=curLead.proposal_prices; if(typeof p==='string'){ try{p=JSON.parse(p);}catch(e){p=null;} } return (p&&p.items)||{}; })());
+  var _old=(function(){ var p=curLead.proposal_prices; if(typeof p==='string'){ try{p=JSON.parse(p);}catch(e){p=null;} } return p||{}; })();
+  var changed = JSON.stringify(_ppPayload()) !== JSON.stringify(_old.items||{}) || JSON.stringify(_ppOpts()) !== JSON.stringify(_old.opts||{});
   var wasPushed = !!_pp.pushed_at;
-  var rec = { items:_ppPayload(), updated_at:new Date().toISOString(), pushed_at:(changed?null:(_pp.pushed_at||null)) };
+  var rec = { items:_ppPayload(), opts:_ppOpts(), updated_at:new Date().toISOString(), pushed_at:(changed?null:(_pp.pushed_at||null)) };
   _sb.from('eigyo_leads').update({ proposal_prices:rec }).eq('reg_no', curLead.reg_no).then(function(r){
     if(r.error){ showMsg('ppMsg','保存に失敗しました：'+r.error.message,'err'); return; }
     curLead.proposal_prices=rec; _pp=JSON.parse(JSON.stringify(rec)); renderProposal();
@@ -3951,13 +3969,13 @@ function _ppOrgName(lead){
   return (o&&o.name) || lead.name || '';
 }
 function _ppRows(lead, p){
-  var rows=[], org=_ppOrgName(lead), save={items:p.items||{}};
+  var rows=[], org=_ppOrgName(lead), save={items:p.items||{}, opts:p.opts||{}};
   var bak=_pp; _pp=save;
   PP_STD.forEach(function(s){ s.items.forEach(function(it){
     if(!it.visa) return; var v=_ppVal(it); if(v.price==null || !v.show) return;
     it.visa.forEach(function(vs){ rows.push({ channel:'via', org_key:org, visa:vs, app_type:it.app, unit_price:v.price,
       stamp_price:null, stamp_count:null, billing_to:null, kb:null, variable_flag:false,
-      note:'営シス提案金額（'+lead.reg_no+'）', is_active:true, push_to_anken:true }); });
+      note:'営シス提案金額（'+lead.reg_no+'）'+((it.priceKanri!=null && save.opts.gj_tax==='kanri')?'・税書類は監理団体回収':''), is_active:true, push_to_anken:true }); });
   }); });
   _pp=bak; return rows;
 }
@@ -4054,6 +4072,7 @@ function _ppDoc(lead, jisseki){
         +(v.price==null?'<div class="price ask">要相談</div>':'<div class="price">'+_ppYen(_ppIncl(v.price))+' <span>円/人（税込）</span></div>')+'</div>';
     });
     if(s.note) body+='<div class="note">'+escHtml(s.note)+'</div>';
+    if(s.taxOpt && _ppGjKanri()) body+='<div class="note">'+escHtml(PP_GJ_TAX_NOTE)+'</div>';
     body+='</div>';
     if(s.after) body+='<div class="note">'+escHtml(s.after)+'</div>';
   });
