@@ -9153,6 +9153,7 @@ function doLogin() {
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
   { version:'ver.20261104.03', date:'2026-11-04', notify:true, part:false, items:['📄 郵送交付管理の「レターパック」で、<b>レターパックや人を選んで、手数料納付書をまとめて作れる</b>ようにしました。<br>・一覧のいちばん上の<b>［📄 手数料納付書をまとめて作る（選ぶ）］</b>を押すと、カードと名前にチェックが出ます。<b>レターパックのチェック＝その中の全員</b>、<b>名前のチェック＝その人だけ</b>（レターパックの中でも該当者だけ選べます）。<br>・<b>［📄 ◯名ぶん作る］</b>を押すと、Saysay の手数料納付書が選んだ人の分（1人1枚ずつ）並んだ状態で開きます。そのまま「🖨️ 印刷・PDF」でまとめて印刷できます。<br>・［☑ 一覧のぶんをすべて選ぶ］で、いま一覧に出ているレターパックの全員をまとめて選べます（未着・受取済・検索にそのまま従います）。一度に作れるのは100名までです。<br>・レターパック1件ずつの［📄 手数料納付書］ボタンは今までどおりです。'] },
+  { version:'ver.20261104.03', date:'2026-11-04', notify:true, part:false, items:['🗓 案内テキストを作ったら、<b>テキストに載せた書類の「依頼日」が空なら今日の日付を自動で入れる</b>ようにしました（人材・所属機関の書類どちらも）。すでに入っている依頼日は変えません。取得済み・不要・「国」（国交省の許可後に案内）の書類と、受入経験ありの会社の国交省書類は対象外です。'] },
   { version:'ver.20261104.02', date:'2026-11-04', notify:true, part:false, items:['🔑 だれかがログアウト（名前の切り替えなど）したときに、<b>ほかの人のログインまで切れてしまう</b>のを直しました。ログアウトは自分のパソコンだけに効くようになります。'] },
   { version:'ver.20261104.01', date:'2026-11-04', notify:true, part:false, items:['🏛️ 申請人書類で<b>依頼日・取得日を入れたら、その書類の「国」（国交省の許可後に案内）を自動で外す</b>ようにしました（一括セット・「今日」も同じ）。所属機関の書類と同じ動きです。'] },
   { version:'ver.20261103.02', date:'2026-11-03', notify:true, part:false, items:['✅ <b>マイページの利用を承認済み</b>の所属機関・人材に「✅ マイページ承認済（日付）」の印を出すようにしました（所属機関の画面・案件の画面）。URLを公式アカウントで送れなかったときは「⚠ URL未送信」も出ます。担当者から手動で送ってください。','📝 テキスト生成：マイページ承認済みの所属機関・人材（2回目以降）は、文面の最初に<b>「マイページからご確認いただけます」とマイページのURL</b>を入れるようにしました。','⏰ 提出期限の設定に<b>「入管書類の提出期限（案件登録日から・建設以外）」</b>を追加しました（はじめは14日）。マイページの入管書類の期限はこの日数で計算されます。'] },
@@ -115271,6 +115272,7 @@ async function _v3Generate(){
       out += '【ご用意いただく書類】\n';
       if(_coDocs.hasSlow) out += '★：取得に時間がかかるため、お早めのご準備をお願いいたします。\n';
       _coDocs.items.forEach(function(d){ out += '  - ' + d + '\n'; });
+      try{ _coAutoReqOnGenerate(co, st.appType, _coDocs.raw); }catch(e){ console.warn('[依頼日の自動記録]', e); }   // ver.20261104.03
     }
     out += '\n';
   }
@@ -115370,6 +115372,40 @@ async function _v3Generate(){
 //   建設(kokko): _kokkoDocNameMap で正式名変換、_kokkoSlowDocs 該当は ★、それ以外は □
 //                先頭に「★ 外国人就労管理システムのログインID＆パスワード」を固定追加
 //   入管(immig): 書類名そのまま □ 付与
+// ver.20261104.03: 案内テキストを作ったら、そのテキストに載せた書類のうち依頼日が空のものに今日を入れる（入っている日付は変えない）。
+//   取得済み・不要・取得日あり・「国交省の許可後に案内」は触らない。受入経験ありの会社の国交省書類は対象外。
+function _coAutoReqOnGenerate(co, appType, names){
+  if(!co || !co.id || !names || !names.length) return 0;
+  if(appType === 'kensetsu' && String(co.kokkoExperience||'') === '有') return 0;
+  if(!coDocCheck[co.id]) coDocCheck[co.id] = {};
+  var bag = coDocCheck[co.id], today = new Date(Date.now()+9*3600e3).toISOString().slice(0,10), n = 0;
+  names.forEach(function(d){
+    if(!d || bag['skip::'+d] || bag['staff::'+d] || bag['date::'+d] || bag['kokko::'+d] || bag['req::'+d]) return;
+    bag['req::'+d] = today; n++;
+  });
+  if(n){ try{ persistCoDocCheck(); }catch(e){} try{ showToast('🗓 所属機関の書類 '+n+'件の依頼日を今日（'+today.replace(/-/g,'/')+'）にしました'); }catch(e){} }
+  return n;
+}
+async function _personAutoReqOnGenerate(caseId, names){
+  if(!caseId || !names || !names.length) return 0;
+  if(!docCheck[caseId]) docCheck[caseId] = {};
+  var dc = docCheck[caseId], today = new Date(Date.now()+9*3600e3).toISOString().slice(0,10);
+  var who = (typeof currentUser!=='undefined' && currentUser) ? String(currentUser) : null, nowIso = new Date().toISOString();
+  var rows = [];
+  names.forEach(function(d){
+    if(!d || dc['skip::'+d] || dc['staff::'+d] || dc['date::'+d] || dc['kokko::'+d] || dc['req::'+d]) return;
+    rows.push({ case_id:caseId, doc_key:'req::'+d, value:today, updated_at:nowIso, updated_by:who });
+  });
+  if(!rows.length) return 0;
+  rows.forEach(function(x){ dc[x.doc_key] = today; });
+  if(DB_READY && typeof _sb!=='undefined' && _sb){
+    var r = await _sb.from('doc_check').upsert(rows, {onConflict:'case_id,doc_key'});
+    if(r && r.error){ console.warn('[依頼日の自動記録]', r.error); try{ showToast('⚠️ 依頼日の自動記録に失敗しました'); }catch(e){} return 0; }
+    rows.forEach(function(x){ try{ if(window._lastSyncedDocCheck) window._lastSyncedDocCheck[caseId+'\u0001'+x.doc_key]=today; }catch(e){} });
+  }
+  try{ showToast('🗓 人材の書類 '+rows.length+'件の依頼日を今日（'+today.replace(/-/g,'/')+'）にしました'); }catch(e){}
+  return rows.length;
+}
 function _v3BuildCoDocList(co, appType){
   if(!window._coDocTabState) window._coDocTabState = {};
   var prev = window._coDocTabState[co.id];
@@ -115378,6 +115414,7 @@ function _v3BuildCoDocList(co, appType){
   window._coDocTabState[co.id] = prev;
   var isKokko = (appType === 'kensetsu');
   var items = [];
+  var raw = [];   // ver.20261104.03: 案内した書類名（依頼日の自動記録用）
   var hasSlow = false;
   if(isKokko){
     // ver.20260821.10: A案 — ログインID/パスワード両方入力済みならログイン行を出さない
@@ -115409,6 +115446,7 @@ function _v3BuildCoDocList(co, appType){
     if(isKokko){
       var _exName = _kokkoDocNameMap[d];
       if(!_exName) return;
+      raw.push(d);
       if(_kokkoSlowDocs.indexOf(d) >= 0){
         items.push('★ ' + _exName);
         hasSlow = true;
@@ -115416,10 +115454,11 @@ function _v3BuildCoDocList(co, appType){
         items.push('□ ' + _exName);
       }
     } else {
+      raw.push(d);
       items.push('□ ' + d);
     }
   });
-  return { items: items, hasSlow: hasSlow };
+  return { items: items, hasSlow: hasSlow, raw: raw };
 }
 
 // プレビューからコピー実行 (テキストを見て問題なければコピー)
@@ -137347,6 +137386,7 @@ function generateDocText(caseId,ruleId,opts){
     '源泉徴収票': '源泉徴収票　令和6年分'
   };
   var _docListItems = [];
+  var _docListRaw = [];
   var _actualDocList = _getDocList(cas);
   if (_actualDocList && _actualDocList.length) {
     var _dc = docCheck[caseId] || {};
@@ -137357,8 +137397,11 @@ function generateDocText(caseId,ruleId,opts){
       if (_dc['staff::'+d] && _dc['staff::'+d] !== false) return;
       var _displayName = _DOCLIST_DISPLAY_MAP[d] || d;
       _docListItems.push('□ ' + _displayName);
+      _docListRaw.push(d);
     });
   }
+  // ver.20261104.03: 書類リストを載せた案内を作ったら、載せた書類の空の依頼日に今日を入れる
+  if (text.indexOf('{docList}') >= 0 && _docListRaw.length) { try{ _personAutoReqOnGenerate(caseId, _docListRaw); }catch(e){ console.warn('[依頼日の自動記録]', e); } }
   // docTextRulesの条件追加テキストも末尾に追加
   if (additions.length) _docListItems = _docListItems.concat(additions);
   text=text.replace('{docList}', _docListItems.join('\n'));
