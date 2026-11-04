@@ -141,13 +141,13 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto
       <a href="./index.html">📋 案シス（案件管理）</a>
       <a href="./eigyo.html">🤝 営シス（営業管理）</a>
     </nav>
-    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261104.06</span></div>
+    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261104.07</span></div>
   </aside>
   <main class="kk-main" id="kkMain"><div style="padding:60px;text-align:center;color:#94a3b8;">読み込み中…</div></main>
 </div>
 <div id="toast"></div>
 <script>
-var OFUSA_VERSION='ver.20261104.06';
+var OFUSA_VERSION='ver.20261104.07';
 var SUPABASE_URL='https://ehwlgbwpycglmopiqyty.supabase.co', SUPABASE_KEY='sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}, global:{headers:{'x-ofusa-user':encodeURIComponent((function(){ try{ return localStorage.getItem('ofusa_currentUser')||''; }catch(e){ return ''; } })())}, fetch:__ofusaAuthFetch}}); window.__ofusaSb=_sb;   // ver.20261103.01: ログインしていないときはDBに出さない
 var DB_READY=true;
@@ -2080,7 +2080,7 @@ function kkMbrDeckHtml(R){
   var KKC=kkMbrKokkoCalc(R), tkf=function(m){ return tkr(Q[m]); }, l3=[kkYmAdd(ym,-2),pm,ym], av=function(f){ var v=l3.map(f).filter(function(x){ return x!=null; }); return v.length?v.reduce(function(a,b){ return a+b; },0)/v.length:null; };
   var SC=[[kkBasisLabel()+'件数','件',function(m){ return R.co.app[m]||0; },n0,false,T.apps?n0(T.apps/12):'—'],['純売上','万円',function(m){ return R.co.net[m]||0; },man,false,T.net?man(T.net/12):'—'],['新規取引の売上','万円',function(m){ return NA.by[m]||0; },man,false,'—'],
     ['追完率（やむを得ないを除く）','%',tkf,function(v){ return Math.round(v*10)/10; },true,'—'],['リードタイム（中央値）','日',function(m){ var o=Q[m]; return o&&o.med!=null?o.med:null; },function(v){ return Math.round(v); },true,'—'],
-    ['国交省 企業ボール→申請','日',function(m){ var o=KKC.M[m]; return o&&o.lt1m!=null?o.lt1m:null; },function(v){ return Math.round(v); },true,'—'],['国交省 補正率','%',function(m){ var o=KKC.M[m]; return o&&o.n?o.hosei/o.n*100:null; },function(v){ return Math.round(v); },true,'—'],
+    ['国交省 企業ボール→申請','日',function(m){ var o=KKC.M[m]; return o&&o.lt1m!=null?o.lt1m:null; },function(v){ return Math.round(v); },true,'—'],['国交省 補正率','%',function(m){ var o=KKC.M[m]; return o&&o.n?o.hosei/o.n*100:null; },function(v){ return Math.round(v); },true,'—'],['国交省 補正対応','回',function(m){ var o=KKC.M[m]; return o?(o.fix||0):null; },function(v){ return Math.round(v); },false,'—'],
     ['1人あたりの申請','件',function(m){ var a=R.co.act[m]||0; return a?(R.co.app[m]||0)/a:null; },n0,false,'—'],['純売上÷人件費','倍',function(m){ return H.cost.all?(R.co.net[m]||0)/H.cost.all:null; },function(v){ return Math.round(v*10)/10; },false,'—']];
   h+=S('SCORECARD','主な指標（'+kkYmJ(ym)+'）','<table class="dk-t" style="font-size:1.55cqw;"><thead><tr><th class="l">指標</th><th>'+mi+'月</th><th>前月</th><th>前月比</th><th>3か月平均</th><th>目標（月）</th></tr></thead><tbody>'
     +SC.map(function(x){ var c=x[2](ym), p=x[2](pm), a=av(x[2]), f=x[3], d=(c!=null&&p!=null)?c-p:null, good=d==null?null:(x[4]?d<0:d>0);
@@ -2267,9 +2267,16 @@ function kkMbrKokkoCalc(R){
   K.forEach(function(k){ var f=F[k.id]||{}, ids=[]; try{ ids=Array.isArray(k.linked_case_ids)?k.linked_case_ids:(JSON.parse(k.linked_case_ids||'[]')||[]); }catch(e){}
     var am=String(k.shinsei_date||f.app||'').slice(0,7); if(am){ var o=get(am); o.n++; o.ppl+=Math.max(1,(ids||[]).length); if(f.ball&&f.app&&f.app>f.ball) o.lt1.push(d(f.ball,f.app)); if(f.hosei&&(!f.app||f.hosei>f.app)) o.hosei++; }
     if(f.done&&f.app&&f.done>f.app){ var dm=String(f.done).slice(0,7), q=get(dm); q.done++; q.lt2.push(d(f.app,f.done)); } });
-  Object.keys(M).forEach(function(m){ M[m].lt1m=med(M[m].lt1); M[m].lt2m=med(M[m].lt2); });
+  // ver.20261104.07: 補正の対応件数（「補正完了」にした回数。同じカードの同じ日は1回）・補正が来た件数（補正以外→補正可能／補正未着手）・担当者別
+  var jd=function(t){ var x=new Date(t); return isNaN(x)?String(t||'').slice(0,10):new Date(x.getTime()+9*3600000).toISOString().slice(0,10); }, prev={}, seenFix={};
+  L.slice().sort(function(a,b){ return String(a.changed_at).localeCompare(String(b.changed_at)); }).forEach(function(l){ var st=String(l.to_status||''), dd=jd(l.changed_at), m=dd.slice(0,7), was=prev[l.kokko_case_id]||'';
+    if(st==='補正完了'){ var key=l.kokko_case_id+'|'+dd; if(!seenFix[key]){ seenFix[key]=1; var o=get(m); o.fix=(o.fix||0)+1; o.fixC=o.fixC||{}; o.fixC[l.kokko_case_id]=1; var nm=String(l.staff||'（記録なし）').replace(/[\s　]+/g,''); nm=nm==='中谷'?'中谷悠也':(nm==='清水星史'?'清水星吏':nm); o.fixBy=o.fixBy||{}; o.fixBy[nm]=(o.fixBy[nm]||0)+1; } }
+    if(/^補正(可能|未着手)$/.test(st) && !/^補正(可能|未着手)$|企業確認中/.test(was)){ var q=get(m); q.came=(q.came||0)+1; }
+    prev[l.kokko_case_id]=st; });
+  Object.keys(M).forEach(function(m){ M[m].lt1m=med(M[m].lt1); M[m].lt2m=med(M[m].lt2); M[m].fixN=Object.keys(M[m].fixC||{}).length; });
+  var openH=K.filter(function(k){ return /^補正(可能|未着手)$/.test(k.status||''); }).length;
   var now=Date.now(), stuck=K.filter(function(k){ return /企業ボール/.test(k.status||'') && !/精査/.test(k.status||'') && k.status_changed_at && (now-new Date(k.status_changed_at))>30*864e5; }).length, ball=K.filter(function(k){ return /企業ボール/.test(k.status||'') && !/精査/.test(k.status||''); }).length;
-  return {M:M, stuck:stuck, ball:ball};
+  return {M:M, stuck:stuck, ball:ball, openH:openH};
 }
 function kkMbrKokkoHtml(R, ym){
   var n0=function(v){ return Math.round(v||0).toLocaleString('ja-JP'); }, KC=kkMbrKokkoCalc(R), M=KC.M, o=M[ym]||{n:0,ppl:0,hosei:0,lt1m:null,lt2m:null}, pm=M[kkYmAdd(ym,-1)]||null;
@@ -2279,13 +2286,17 @@ function kkMbrKokkoHtml(R, ym){
     +_skRpKpi('b','企業ボール→申請',o.lt1m!=null?Math.round(o.lt1m):'—','日','中央値'+(pm&&pm.lt1m!=null?'・前月 '+Math.round(pm.lt1m)+'日':''))
     +_skRpKpi('g','申請→許可',o.lt2m!=null?Math.round(o.lt2m):'—','日','中央値（この月に許可が出た '+n0(o.done)+'件）')
     +_skRpKpi(o.n&&o.hosei/o.n>0.5?'o':'g','補正率',o.n?Math.round(o.hosei/o.n*100):'—','%','この月に申請した分のうち補正が来た割合'+(ym>=kkYmAdd(R.nowYm,-1)?'<br><b style="color:#d97706;">※補正はまだ届く途中</b>':''))
-    +'</div>';
+    +_skRpKpi('b','補正対応',n0(o.fix||0),'回',n0(o.fixN||0)+'件ぶん・補正が来た '+n0(o.came||0)+'回<br>いま補正中 '+n0(KC.openH)+'件')
+    +'</div>'
+    +(o.fixBy?'<div style="font-size:12px;color:#475569;margin:-2px 0 4px;">補正対応の担当：'+Object.keys(o.fixBy).sort(function(a,b){ return o.fixBy[b]-o.fixBy[a]; }).map(function(k){ return _skEsc(k)+' <b>'+o.fixBy[k]+'</b>回'; }).join('・')+'</div>':'');
   h+='<div style="overflow:auto;margin-top:8px;"><table class="skp-tbl" style="box-shadow:none;"><thead><tr><th class="l" style="padding-left:8px;">月</th>'+ms.map(function(m){ return '<th'+(m===ym?' style="background:#fef3c7;"':'')+'>'+(+m.slice(5))+'月</th>'; }).join('')+'</tr></thead><tbody>'
     +'<tr class="st"><td class="l" style="padding-left:8px;">国交省に申請（件）</td>'+ms.map(function(m){ return '<td>'+n0(M[m].n)+'</td>'; }).join('')+'</tr>'
     +'<tr class="st"><td class="l" style="padding-left:8px;">企業ボール→申請（中央値・日）</td>'+ms.map(function(m){ return '<td>'+(M[m].lt1m!=null?Math.round(M[m].lt1m):'—')+'</td>'; }).join('')+'</tr>'
     +'<tr class="st"><td class="l" style="padding-left:8px;">申請→許可（中央値・日）</td>'+ms.map(function(m){ return '<td>'+(M[m].lt2m!=null?Math.round(M[m].lt2m):'—')+'</td>'; }).join('')+'</tr>'
     +'<tr class="st"><td class="l" style="padding-left:8px;">補正率</td>'+ms.map(function(m){ return '<td>'+(M[m].n?Math.round(M[m].hosei/M[m].n*100)+'%':'—')+'</td>'; }).join('')+'</tr>'
-    +'</tbody></table></div><div class="skp-note" style="margin-top:6px;">'+(KC.stuck?'<b style="color:#dc2626;">⚠️ 企業ボールで30日以上止まっているカード：'+KC.stuck+'枚（企業ボール全体 '+KC.ball+'枚）</b><br>':'')+'国交省管理システムのステータス履歴（2026年5月29日〜）から計算。企業ボール→申請＝「準備中(企業ボール)」になってから「申請済み」までの日数。補正率＝その月に申請したカードのうち「補正可能／補正未着手」になった割合。</div></div>';
+    +'<tr class="st"><td class="l" style="padding-left:8px;">補正が来た（回）</td>'+ms.map(function(m){ return '<td>'+n0(M[m].came||0)+'</td>'; }).join('')+'</tr>'
+    +'<tr class="st"><td class="l" style="padding-left:8px;font-weight:800;">補正対応（回）</td>'+ms.map(function(m){ return '<td style="font-weight:800;">'+n0(M[m].fix||0)+'<span style="color:#94a3b8;font-weight:600;">（'+n0(M[m].fixN||0)+'件）</span></td>'; }).join('')+'</tr>'
+    +'</tbody></table></div><div class="skp-note" style="margin-top:6px;">'+(KC.stuck?'<b style="color:#dc2626;">⚠️ 企業ボールで30日以上止まっているカード：'+KC.stuck+'枚（企業ボール全体 '+KC.ball+'枚）</b><br>':'')+'国交省管理システムのステータス履歴（2026年5月29日〜）から計算。企業ボール→申請＝「準備中(企業ボール)」になってから「申請済み」までの日数。補正率＝その月に申請したカードのうち「補正可能／補正未着手」になった割合。補正対応＝その月に「補正完了」にした回数（同じカードの同じ日は1回。2回目・3回目の補正も1回ずつ数える）、（　）はカードの件数。補正が来た＝「補正可能／補正未着手」になった回数（補正完了のあとにまた補正が来たものも1回と数える）。いま補正中＝今「補正可能／補正未着手」のカード。</div></div>';
   return h;
 }
 function kkMbrQualityHtml(R, ym, rep){
