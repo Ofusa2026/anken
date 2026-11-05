@@ -6121,7 +6121,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261105.09';
+var OFUSA_VERSION = 'ver.20261106.01';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -9157,6 +9157,7 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20261106.01', date:'2026-11-06', notify:true, part:false, items:['🛠 <b>完了した案件で「確認結果のご案内」を開いたとき、担当✓・不要の書類が【未提出書類】に出てしまう</b>のを直しました（書類チェックを読み込んでから判定します）。','🗓 書類タブの「依頼日を一括入力」で、<b>届いている書類（担当✓）の依頼日は変えない</b>ようにしました（催促の回数を正しく数えるため）。'] },
   { version:'ver.20261105.09', date:'2026-11-05', notify:true, part:false, items:['📋 申請種別が<b>「申請なし」</b>の案件（国交省申請・タイ大使館申請だけの依頼など）でも、申請人書類のタブで<b>書類回収リストを作れる</b>ようになりました。<b>「✏️ 個別編集」で書類を入れてください</b>（はじめは空です）。入れた書類は、進捗・催促・テキスト生成・アップロード画面にも使われます。留学・国籍・建設などの書類が自動で足されることはありません。'] },
   { version:'ver.20261105.08', date:'2026-11-05', notify:true, part:true, items:['🏛 <b>国交省ナンバリング</b>：「✅ 完了（ナンバリング済みへ）」を押したとき、国交省フォルダのURLがそろっていないカードは<b>「URLが入るまで国交省プレチェックには出ません」</b>と、足りないものを出すようにしました（完了にはできます）。'] },
   { version:'ver.20261105.07', date:'2026-11-05', notify:true, part:true, items:['🏛 <b>国交省プレチェック</b>：会社の国交省フォルダと、人材ごとの国交省フォルダの<b>URLがそろっているカードだけ</b>を出すようにしました。どちらかが未入力のカードは一覧に出ません（一覧のいちばん下に「URLがそろっていないため対象外」として件数と名前だけ出ます）。'] },
@@ -99478,7 +99479,9 @@ function bulkSetReqDate(caseId) {
   if (!docCheck[caseId]) docCheck[caseId] = {};
   var _kkN = 0;
   docList.forEach(function(d){
-    if (!docCheck[caseId]['skip::'+d]) {
+    var _b = docCheck[caseId];
+    // ver.20261106.01: 届いている書類（担当✓・取得日あり）と不要の書類は、依頼日を変えない（催促の回数を正しく数えるため）
+    if (!_b['skip::'+d] && !_b['staff::'+d] && !_b['date::'+d] && !_b['kokko::'+d] && !(_b[d] && _b[d]!=='false')) {
       docCheck[caseId]['req::'+d] = val;
       if(_pdDropKokkoOnDate(caseId, d)) _kkN++;   // ver.20261104.01
     }
@@ -113868,6 +113871,18 @@ function _rqRefresh(){
 // list=[{kind:'p'|'co', id, names?, label?}]  opts.auto=true で聞かずに更新（LINEで送ったとき）
 function _rqAsk(list, opts){
   opts=opts||{}; window._rqLastAt=Date.now();
+  // ver.20261106.01: 書類チェックを読み終えていない人材（完了案件など）は、読んでから判断する。所属機関は起動時の読み込みが終わるまで聞かない
+  if(!opts._loaded){
+    var _need=(list||[]).filter(function(x){ return x && x.kind!=='co' && x.id && typeof _dcIsLoaded==='function' && !_dcIsLoaded(x.id); }).map(function(x){ return x.id; });
+    if(_need.length && typeof _dcEnsureCases==='function'){
+      _dcEnsureCases(_need).then(function(){}, function(){}).then(function(){
+        var o2=Object.assign({}, opts, {_loaded:true});
+        _rqAsk((list||[]).filter(function(x){ return x && (x.kind==='co' || _dcIsLoaded(x.id)); }), o2);
+      });
+      return;
+    }
+  }
+  if(typeof DB_READY!=='undefined' && DB_READY && !window._coDocLoadedFromDB) list=(list||[]).filter(function(x){ return x && x.kind!=='co'; });
   var t=_rqToday(), md=Number(t.slice(5,7))+'/'+Number(t.slice(8,10));
   var work=[], total=0;
   (list||[]).forEach(function(x){
@@ -145251,9 +145266,16 @@ function _rsClassify(bag, ups, pat, lists, ids){
   lists.forEach(function(L){ miss[L.key]=(L.docs||[]).filter(function(d){ var k=_rsNorm(d); return !isOk(d) && !got[k] && !redoKeys[k] && !undKeys[k]; }); });
   return {redo:redo, und:und, miss:miss, all:all};
 }
-function _coResultOpen(coId, ids){
+function _coResultOpen(coId, ids, _w){
   var co=(typeof companies!=='undefined'?companies:[]).find(function(c){ return c.id===coId; });
   if(!co){ showToast('⚠️ 所属機関が見つかりません'); return; }
+  // ver.20261106.01: 所属機関の書類チェック（co_doc_check）を起動時に読み終える前は、待ってから判定する（空のまま判定しない）
+  if(typeof DB_READY!=='undefined' && DB_READY && !window._coDocLoadedFromDB){
+    _w=_w||0;
+    if(_w===0) showToast('⏳ 書類チェックを読み込み中です…');
+    if(_w<60){ setTimeout(function(){ _coResultOpen(coId, ids, _w+1); }, 500); return; }
+    showToast('⚠️ 書類チェックを読めませんでした。少し待ってからもう一度開いてください'); return;
+  }
   var go=function(){
     _sbAllRows(function(){ return _sb.from('upload_notifications').select('id,doc_label,source,created_at,drive_url').eq('company_id',coId).order('id'); }, 20000).then(function(res){   // ver.20261015.41
       var ups=((res&&res.data)||[]).filter(function(u){ return _upKindOf(u)==='company'; });
@@ -145305,9 +145327,17 @@ function _caseResultOpen(caseId, ids){
     return;
   }
   var go=function(){
+    // ver.20261106.01: 完了案件の書類チェック（doc_check）は起動時に読まないので、先に読んでから判定する
+    //   （読まずに空のまま判定すると、担当✓・不要の書類まで【未提出書類】に出てしまう）
+    var _pre=(typeof _dcIsLoaded==='function' && !_dcIsLoaded(caseId) && typeof _dcEnsureCases==='function') ? _dcEnsureCases([caseId]) : Promise.resolve(true);
+    _pre.then(function(ok){ return ok; }, function(){ return false; }).then(function(){
+    if(typeof _dcIsLoaded==='function' && !_dcIsLoaded(caseId)){
+      if(((window._dcLoading||{})[caseId] || window._dcStartupLoading) && (go._w=(go._w||0)+1) < 40){ setTimeout(go, 500); return; }   // ほかで読み込み中 → 終わるまで待つ
+      showToast('⚠️ 書類チェックを読めませんでした。少し待ってからもう一度開いてください'); return;
+    }
     _sbAllRows(function(){ return _sb.from('upload_notifications').select('id,doc_label,created_at,source,drive_url').eq('case_id',caseId).order('id'); }, 20000).then(function(res){   // ver.20261015.41
       var ups=((res&&res.data)||[]).filter(function(u){ return _upKindOf(u)==='person'; });
-      var bag=(docCheck[caseId]=docCheck[caseId]||{});
+      var bag=(docCheck[caseId]=docCheck[caseId]||{});   // 読み込みのあとで取り直す（_dcEnsureCases が作り直すため）
       var pat=(window._patrolByCase&&window._patrolByCase[caseId])||{};
       var list=(typeof _getDocList==='function'?_getDocList(c):[])||[];
       var r=_rsClassify(bag, ups, pat, [{key:'immig', docs:list}], ids);
@@ -145316,6 +145346,7 @@ function _caseResultOpen(caseId, ids){
       _coResultRender();
       _rsDetectChan(window._coResultState);   // ver.20261007.01: 送り先（KMT／LINE／Chatwork／Messenger）
       if(r.redo.length) _coResultAi();
+    });
     });
   };
   if(typeof window._patrolByCase==='undefined' && typeof _patrolLoadCache==='function'){ window._patrolByCase={}; window._patrolByCompany={}; _patrolLoadCache(go); } else { go(); }
