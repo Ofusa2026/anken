@@ -141,13 +141,13 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto
       <a href="./index.html">📋 案シス（案件管理）</a>
       <a href="./eigyo.html">🤝 営シス（営業管理）</a>
     </nav>
-    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261105.04</span></div>
+    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261105.06</span></div>
   </aside>
   <main class="kk-main" id="kkMain"><div style="padding:60px;text-align:center;color:#94a3b8;">読み込み中…</div></main>
 </div>
 <div id="toast"></div>
 <script>
-var OFUSA_VERSION='ver.20261105.04';
+var OFUSA_VERSION='ver.20261105.06';
 var SUPABASE_URL='https://ehwlgbwpycglmopiqyty.supabase.co', SUPABASE_KEY='sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}, global:{headers:{'x-ofusa-user':encodeURIComponent((function(){ try{ return localStorage.getItem('ofusa_currentUser')||''; }catch(e){ return ''; } })())}, fetch:__ofusaAuthFetch}}); window.__ofusaSb=_sb;   // ver.20261103.01: ログインしていないときはDBに出さない
 var DB_READY=true;
@@ -1714,6 +1714,22 @@ function kkGrowth(){ var v=KK.mbr&&KK.mbr.rates&&KK.mbr.rates.growth; return (v!
 function kkSetGrowth(v){ var n=+String(v).replace(/[%,\s]/g,''); if(!(n>=-50&&n<=300)){ showToast('⚠️ 数字（%）で入れてください'); return; } KK.mbr.rates=KK.mbr.rates||{}; KK.mbr.rates.growth=n; kkMbrSave('💾 既存の伸びを保存しました'); kkRender(); }
 function kkPlanOf(ym){ var P=(KK.mbr&&KK.mbr.plan)||{}; if(P[ym]!=null&&P[ym]!=='') return {v:+P[ym], src:'set'}; var T=(KK.mbr&&KK.mbr.target&&KK.mbr.target[ym.slice(0,4)])||{}; return T.apps?{v:T.apps/12, src:'target'}:null; }
 function kkSetPlan(ym,v){ KK.mbr.plan=KK.mbr.plan||{}; var t=String(v).replace(/[,\s]/g,''); if(t===''){ delete KK.mbr.plan[ym]; } else { var n=+t; if(!(n>=0)){ showToast('⚠️ 数字で入れてください'); return; } KK.mbr.plan[ym]=n; } kkMbrSave('💾 '+kkYmJ(ym)+'のPlanを保存しました'); kkRender(); }
+// ver.20261105.06: 売上のPlan（月ごと・円で保存）。入力が無い月は年間の純売上目標の12分の1
+function kkPlanNetOf(ym){ var P=(KK.mbr&&KK.mbr.planNet)||{}; if(P[ym]!=null&&P[ym]!=='') return {v:+P[ym], src:'set'}; var T=(KK.mbr&&KK.mbr.target&&KK.mbr.target[ym.slice(0,4)])||{}; return T.net?{v:T.net/12, src:'target'}:null; }
+function kkSetPlanNet(ym,v){ KK.mbr.planNet=KK.mbr.planNet||{}; var t=String(v).replace(/[,\s]/g,''); if(t===''){ delete KK.mbr.planNet[ym]; } else { var n=+t; if(!(n>=0)){ showToast('⚠️ 数字で入れてください'); return; } KK.mbr.planNet[ym]=Math.round(n*10000); } kkMbrSave('💾 '+kkYmJ(ym)+'の売上Planを保存しました'); kkRender(); }
+// ver.20261105.06: 申請件数・売上を「直前3か月の平均」と「Plan」に対して何%か
+function kkMbrVs(R, ym){ var l3=[kkYmAdd(ym,-3),kkYmAdd(ym,-2),kkYmAdd(ym,-1)], MF=(KK.mx&&!KK.mx.err&&_skPerf.data)?kkMfCalc(ym):null;
+  var mf=function(m){ return MF&&MF.by[m]?MF.by[m].amt:null; }, av=function(f){ var v=l3.map(f); return v.some(function(x){ return x==null; })?null:(v[0]+v[1]+v[2])/3; };
+  var pa=kkPlanOf(ym), pn=kkPlanNetOf(ym);
+  return [{k:'app', lb:kkBasisLabel()+'件数', u:'件', cur:R.co.app[ym]||0, avg:av(function(m){ return R.co.app[m]||0; }), plan:pa?pa.v:null},
+    {k:'net', lb:'純売上（速報）', u:'万円', cur:R.co.net[ym]||0, avg:av(function(m){ return R.co.net[m]||0; }), plan:pn?pn.v:null},
+    {k:'mf', lb:'確定売上（売上管理システム）', u:'万円', cur:mf(ym), avg:av(mf), plan:pn?pn.v:null, note:MF&&!MF.by[ym]?'CSV未取込':''}]; }
+function kkMbrVsHtml(R, ym, deck){ var V=kkMbrVs(R, ym), n0=function(v){ return Math.round(v||0).toLocaleString('ja-JP'); }, f=function(x,v){ return v==null?'—':(x.u==='件'?n0(v):_skRpMan(v,0)); };
+  var pc=function(a,b){ if(a==null||!b) return '<span style="color:#94a3b8;">—</span>'; var r=Math.round(a/b*100), c=r>=100?'#0f766e':(r>=90?'#d97706':'#dc2626'); return '<b style="color:'+c+';">'+r+'%</b>'; };
+  var cls=deck?'dk-t':'skp-tbl', l3=kkYmAdd(ym,-3).slice(5)*1+'〜'+kkYmAdd(ym,-1).slice(5)*1+'月';
+  return '<table class="'+cls+'"'+(deck?' style="font-size:1.35cqw;"':' style="box-shadow:none;"')+'><thead><tr><th class="l"'+(deck?'':' style="padding-left:10px;"')+'>'+(+ym.slice(5))+'月</th><th>実績</th><th>直前3か月の平均<br><span style="font-weight:600;">（'+l3+'）</span></th><th>平均比</th><th>Plan</th><th>Plan比</th></tr></thead><tbody>'
+    +V.map(function(x){ return '<tr'+(deck?'':' class="st"')+'><td class="l" style="font-weight:700;'+(deck?'':'padding-left:10px;')+'">'+x.lb+' <span style="color:#94a3b8;font-weight:600;">'+x.u+'</span></td><td style="font-weight:900;">'+(x.cur==null?'<span style="color:#94a3b8;font-weight:600;">'+(x.note||'—')+'</span>':f(x,x.cur))+'</td><td>'+f(x,x.avg)+'</td><td>'+pc(x.cur,x.avg)+'</td><td>'+(x.plan==null?'<span style="color:#94a3b8;">未設定</span>':f(x,x.plan))+'</td><td>'+pc(x.cur,x.plan)+'</td></tr>'; }).join('')
+    +'</tbody></table>'+(deck?'':'<div class="skp-note" style="margin-top:4px;">平均比＝実績÷直前3か月の平均。Plan＝「4-2」の月ごとのPlan（申請件数・売上）。入力が無い月は年間目標の12分の1。<b style="color:#0f766e;">100%以上</b>・<b style="color:#d97706;">90%以上</b>・<b style="color:#dc2626;">90%未満</b>。確定売上は売上管理システム（マネーフォワードのCSV）を取り込んだ月だけ出ます。</div>'); }
 function kkQ(ym){ var y=+ym.slice(0,4), q=Math.floor((+ym.slice(5)-1)/3); return {key:y+'Q'+(q+1), start:y+'-'+String(q*3+1).padStart(2,'0'), lb:(q*3+1)+'〜'+(q*3+3)+'月'}; }
 // 今期・来期（6か月）の月ごと：実績／見込み（既存×伸び＋新規）・Plan・キャパ（人数×基準）
 function kkTermCalc(R, C){
@@ -1760,6 +1776,7 @@ function kkTermHtml(R, C, deck){
   // 月ごと（Planの入力つき）
   h+='<div style="overflow:auto;margin-top:10px;"><table class="skp-tbl"><thead><tr><th class="l" style="padding-left:14px;">月</th>'+T.rows.map(function(r){ return '<th'+(r.cur?' style="background:#fef3c7;"':'')+'>'+(+r.ym.slice(5))+'月</th>'; }).join('')+'</tr></thead><tbody>'
     +'<tr class="st"><td class="l" style="padding-left:14px;font-weight:700;">Plan（入力）</td>'+T.rows.map(function(r){ var P=(KK.mbr.plan||{})[r.ym]; return '<td><input value="'+(P!=null?P:'')+'" placeholder="'+(r.plan!=null?n0(r.plan):'未設定')+'" style="width:64px;border:1px solid #e2e8f0;border-radius:6px;padding:2px 5px;font-size:12px;text-align:right;" onchange="kkSetPlan(\''+r.ym+'\',this.value)"></td>'; }).join('')+'</tr>'
+    +'<tr class="st"><td class="l" style="padding-left:14px;font-weight:700;">売上Plan（入力・万円）</td>'+T.rows.map(function(r){ var P=(KK.mbr.planNet||{})[r.ym], d=kkPlanNetOf(r.ym); return '<td><input value="'+(P!=null?Math.round(P/10000):'')+'" placeholder="'+(d?Math.round(d.v/10000).toLocaleString('ja-JP'):'未設定')+'" style="width:64px;border:1px solid #e2e8f0;border-radius:6px;padding:2px 5px;font-size:12px;text-align:right;" onchange="kkSetPlanNet(\''+r.ym+'\',this.value)"></td>'; }).join('')+'</tr>'
     +'<tr class="st"><td class="l" style="padding-left:14px;">実績</td>'+T.rows.map(function(r){ return '<td>'+(r.closed||r.cur?n0(r.act)+(r.cur?'<span style="color:#94a3b8;font-size:10px;">途中</span>':''):'<span style="color:#cbd5e1;">—</span>'); }).join('')+'</tr>'
     +'<tr class="st"><td class="l" style="padding-left:14px;">見込み（合計）</td>'+T.rows.map(function(r){ return '<td>'+(r.closed?'<span style="color:#cbd5e1;">—</span>':'<b>'+n0(r.tot)+'</b>')+'</td>'; }).join('')+'</tr>'
     +'<tr class="st"><td class="l" style="padding-left:24px;color:#64748b;">既存（今の水準）</td>'+T.rows.map(function(r){ return '<td style="color:#64748b;">'+(r.closed?'—':n0(r.b0))+'</td>'; }).join('')+'</tr>'
@@ -1881,29 +1898,36 @@ function kkTkCohort(){
   var byM={}, s2={}; apps.forEach(function(a){ var i=byId[a.cid]; if(!i || !a.cid) return; var m=a.d.slice(0,7); if(s2[a.cid+'|'+m]) return; s2[a.cid+'|'+m]=1; (byM[m]=byM[m]||[]).push({cid:a.cid, t:i.app_type||'', tk:!!tkCnt[a.cid]}); });
   return (KK.mx.coh={byM:byM, tkCnt:tkCnt, fm:fm, up:up, q:q});
 }
+// ver.20261105.05: 追完率は「確定」（月末から60日たった月）だけを出す。まだ追完が届く月（ほぼ確定・途中）は出さない
+function kkTkState(m){ var me=new Date(+m.slice(0,4), +m.slice(5,7), 0), age=Math.round((new Date(kkD(new Date()))-me)/864e5); return age>=60?'確定':(age>=30?'ほぼ確定':'途中'); }
+function kkTkFixed(ym){ if(!KK.mx || KK.mx.err || !_skPerf.data) return null; var C=kkTkCohort(), out=[];
+  for(var m='2026-03'; m<=ym; m=kkYmAdd(m,1)){ if(kkTkState(m)!=='確定') continue; var L=C.byM[m]||[], tk=L.filter(function(r){ return r.tk; }).length; out.push({m:m, n:L.length, tk:tk, rate:L.length?tk/L.length*100:null}); }
+  return out; }
 function kkTkHtml(ym, deck){
   var w=kkMxNeed(); if(w) return w; if(!_skPerf.data) return '<div class="skp-note">案件を読み込み中…</div>';
   var C=kkTkCohort(), n0=function(v){ return Math.round(v||0).toLocaleString('ja-JP'); }, esc=_skEsc, today=kkD(new Date());
   var kz=(KK.mx.kz||[{d:'2026-03-16',t:'ヒアリングフォーム開始'},{d:'2026-04-07',t:'書類アップ開始'},{d:'2026-06-01',t:'「申請(不足あり)」の記録開始'},{d:'2026-09-05',t:'書類アップのAI判定開始'},{d:'2026-10-05',t:'AI判定ルール強化（企業書類・全書類）'}]).slice().sort(function(a,b){ return a.d<b.d?-1:1; });
-  var ms=[]; for(var m=kkYmAdd(ym,-(deck?7:11)); m<=ym; m=kkYmAdd(m,1)) if(m>='2026-03') ms.push(m);
+  var ms=[]; for(var m='2026-03'; m<=ym; m=kkYmAdd(m,1)) if(kkTkState(m)==='確定') ms.push(m); ms=ms.slice(-(deck?8:12));
+  var hid=[]; for(var m2=kkYmAdd(ym,-2); m2<=ym; m2=kkYmAdd(m2,1)) if(m2>='2026-03' && kkTkState(m2)!=='確定') hid.push(+m2.slice(5)+'月');
   var agg=function(L){ var a={n:0,tk:0,times:0,multi:0,fm:0,up:0,t:{'認定':[0,0],'変更':[0,0],'更新':[0,0]}}; L.forEach(function(r){ a.n++; if(r.tk){ a.tk++; var c=C.tkCnt[r.cid]||1; a.times+=c; if(c>=2) a.multi++; } if(a.t[r.t]){ a.t[r.t][0]++; if(r.tk) a.t[r.t][1]++; } if(C.fm[r.cid]) a.fm++; if(C.up[r.cid]) a.up++; }); return a; };
   var pct=function(a,b){ return b?Math.round(a/b*100):null; }, td=function(v,st){ return '<td'+(st?' style="'+st+'"':'')+'>'+v+'</td>'; };
-  var state=function(m){ var me=new Date(+m.slice(0,4), +m.slice(5,7), 0), age=Math.round((new Date(today)-me)/864e5); return age>=60?'確定':(age>=30?'ほぼ確定':'途中'); };
+  var state=kkTkState;
   var row=function(lb,a,st,sub,kzT,sel){ var fd=st==='途中', g=fd?'color:#94a3b8;':'', p=pct(a.tk,a.n), tc=function(k){ var x=a.t[k], v=pct(x[1],x[0]); return td(v==null?'—':v+'%', g); };
     return '<tr'+(deck?'':' class="st"')+' style="'+(sub?'background:#f3f4f6;':(sel?'background:#fff7ed;':''))+'">'+'<td class="l"'+(deck?'':' style="padding-left:14px;"')+'><b>'+lb+'</b></td>'+td(n0(a.n))+td(n0(a.tk),'color:#c0390b;font-weight:800;')
       +td(p==null?'—':'<span style="display:inline-block;width:'+Math.min(60,Math.round(p*0.6))*(deck?0.6:1)+'px;height:'+(deck?'.6cqw':'8px')+';background:'+(fd?'#d1d5db':'#c0390b')+';border-radius:2px;margin-right:6px;vertical-align:middle;"></span>'+p+'%', fd?'color:#94a3b8;':'font-weight:800;')
       +td(a.tk?(a.times/a.tk).toFixed(1)+'回':'—',g)+td(a.tk?a.multi+'件':'—',g)+tc('認定')+tc('変更')+tc('更新')+td(pct(a.fm,a.n)+'%','color:#64748b;')+td(pct(a.up,a.n)+'%','color:#64748b;')
-      +'<td class="l" style="color:'+(st==='確定'?'#0f172a':'#94a3b8')+';">'+st+'</td>'+(deck?'':'<td class="l" style="font-size:11px;color:#374151;line-height:1.5;">'+(kzT||'')+'</td>')+'</tr>'; };
+      +(deck?'':'<td class="l" style="font-size:11px;color:#374151;line-height:1.5;">'+(kzT||'')+'</td>')+'</tr>'; };
   var rows='', qb=[], qs=[], qm=[];
   ms.forEach(function(m,i){ var L=C.byM[m]||[], st=state(m), kzT=kz.filter(function(k){ return String(k.d).slice(0,7)===m; }).map(function(k){ return '<b>'+(+k.d.slice(5,7))+'/'+(+k.d.slice(8,10))+'</b> '+esc(k.t||''); }).join('<br>');
     rows+=row((+m.slice(5))+'月', agg(L), st, false, kzT, m===ym);
     if(!deck){ var qq=Math.floor((+m.slice(5)-1)/3); qb=qb.concat(L); qs.push(st); qm.push(+m.slice(5)); var nq=i+1<ms.length?Math.floor((+ms[i+1].slice(5)-1)/3):-1;
       if(nq!==qq){ if(qm.length>=2 && qb.length) rows+=row(qm[0]+'〜'+qm[qm.length-1]+'月 計', agg(qb), qs.indexOf('途中')>=0?'途中':(qs.indexOf('ほぼ確定')>=0?'ほぼ確定':'確定'), true); qb=[]; qs=[]; qm=[]; } } });
-  var h='<div style="overflow:auto;"><table class="'+(deck?'dk-t':'skp-tbl')+'"'+(deck?' style="font-size:1.05cqw;"':'')+'><thead><tr><th class="l"'+(deck?'':' style="padding-left:14px;"')+'>申請月</th><th>申請</th><th>追完あり</th><th>追完率</th><th>1件あたり</th><th>2回以上</th><th>認定</th><th>変更</th><th>更新</th><th>フォーム</th><th>アップ</th><th class="l">状態</th>'+(deck?'':'<th class="l">この頃に入れた改善</th>')+'</tr></thead><tbody>'+rows+'</tbody></table></div>';
-  if(deck) return h+'<div class="dk-sub" style="margin-top:.5cqw;">追完率＝その月に申請した案件のうち追完が1通以上来た割合。状態：月末から60日以上＝確定、30日以上＝ほぼ確定、それ未満＝途中（まだ増えます）</div>';
-  return h+'<div class="skp-note" style="margin-top:6px;">管理部レポート「追完分析」の「申請月ごとの追完」と同じ計算。追完率＝その月に申請した案件のうち、追完メールが1通以上来た割合（後日届いた分も含む）。1件あたり＝追完が来た案件の平均回数。認定・変更・更新＝種類ごとの追完率。フォーム・アップ＝ヒアリングフォーム回答／書類アップがあった割合。状態：月末から60日以上＝確定、30日以上＝ほぼ確定、それ未満＝途中。追完依頼ではないお知らせ '+n0(C.q.notice)+'通は数えていません。改善の記録は管理部レポートで追加できます。</div>';
+  var h='<div style="overflow:auto;"><table class="'+(deck?'dk-t':'skp-tbl')+'"'+(deck?' style="font-size:1.05cqw;"':'')+'><thead><tr><th class="l"'+(deck?'':' style="padding-left:14px;"')+'>申請月</th><th>申請</th><th>追完あり</th><th>追完率</th><th>1件あたり</th><th>2回以上</th><th>認定</th><th>変更</th><th>更新</th><th>フォーム</th><th>アップ</th>'+(deck?'':'<th class="l">この頃に入れた改善</th>')+'</tr></thead><tbody>'+rows+'</tbody></table></div>';
+  var hidT=hid.length?hid.join('・')+'の申請はまだ追完が届く途中のため、確定してから出します。':'';
+  if(deck) return h+'<div class="dk-sub" style="margin-top:.5cqw;">追完率＝その月に申請した案件のうち追完が1通以上来た割合。月末から60日たって数が固まった月だけ出しています。'+hidT+'</div>';
+  return h+'<div class="skp-note" style="margin-top:6px;">管理部レポート「追完分析」の「申請月ごとの追完」と同じ計算。追完率＝その月に申請した案件のうち、追完メールが1通以上来た割合（後日届いた分も含む）。1件あたり＝追完が来た案件の平均回数。認定・変更・更新＝種類ごとの追完率。フォーム・アップ＝ヒアリングフォーム回答／書類アップがあった割合。月末から60日たって数が固まった月（確定）だけ出しています。'+hidT+'追完依頼ではないお知らせ '+n0(C.q.notice)+'通は数えていません。改善の記録は管理部レポートで追加できます。</div>';
 }
-function kkReload(){ KK.mx=null; KK.pipe=null; _skPerf.data=null; _skDr.data=null; _skRp.plan=null; _soRank.data=null; KK.sales=null; kkRender(); }
+function kkReload(){ KK.rem=null; KK.mx=null; KK.pipe=null; _skPerf.data=null; _skDr.data=null; _skRp.plan=null; _soRank.data=null; KK.sales=null; kkRender(); }
 // ===== 💴 費用・📈 損益（ver.20261031.16：まずは形だけ。金額は後から入れる） =====
 var KK_COST_CATS=[
   {k:'tool', n:'🛠 ツール・システム'},
@@ -2230,54 +2254,56 @@ function kkMbrDeckHtml(R){
   var NP=kkMbrNewPlan(), NA=kkMbrNewAct(), npAcc=0, naAcc=0; if(NP){ Object.keys(NP.rows).forEach(function(k){ if(k<=ym) npAcc=NP.rows[k].acc; }); Object.keys(NA.by).forEach(function(k){ if(k<=ym && k>=NP.start) naAcc+=NA.by[k]; }); }
   var QC=kkMbrQCalc(R, ym), Q=QC.M, q=Q[ym]||{n:0,tk:0,own:0,un:0,med:null}, qp=Q[pm]||null, H=kkMbrHead();
   var tkr=function(o){ return o&&o.n?o.tk/o.n*100:null; }, chg=function(a,b,low,unit,f){ if(a==null||b==null) return ''; var d=a-b; if(!Math.round(d*10)) return '<span class="dk-em">前月と同じ</span>'; var good=low?d<0:d>0; return '<span class="'+(good?'up':'dn')+'">前月比 '+(d>0?'+':'−')+(f?f(Math.abs(d)):n0(Math.abs(d)))+unit+'</span>'; };
-  var N=0, total=15, foot=function(){ N++; return '<div class="dk-f"><span>大房行政書士法人　月次経営報告　'+kkYmJ(ym)+'</span><span>社外秘　'+N+' / '+total+'</span></div>'; };
+  var PG={}, foot=function(){ return '<div class="dk-f"><span>大房行政書士法人　月次経営報告　'+kkYmJ(ym)+'</span><span>社外秘　@@PG@@ / @@TOT@@</span></div>'; };
   var S=function(kicker, head, body, cls){ return '<section class="dk-s'+(cls?' '+cls:'')+'"><div class="dk-in">'+(kicker?'<div class="dk-k">'+kicker+'</div>':'')+(head?'<div class="dk-h">'+head+'</div>':'')+body+'</div>'+foot()+'</section>'; };
   var lines=[];
   lines.push(kkYmJ(ym)+'の'+kkBasisLabel()+'は '+n0(mApp)+'件・純売上 '+man(mNet)+'万円（前月比 '+(pApp1?(mApp>=pApp1?'+':'')+Math.round((mApp/pApp1-1)*100)+'%':'—')+'）');
   lines.push('YTD（1〜'+mi+'月）は申請 '+n0(yApp)+'件・純売上 '+man(yNet)+'万円'+(rate!=null?'、目標ペースの '+rate+'%':''));
   lines.push('年間の着地見込みは '+n0(landC)+'件（確定ベース）'+(T.apps?'、目標 '+n0(T.apps)+'件に対して'+(landC>=T.apps?'届く見込み':'あと '+n0(T.apps-landC)+'件'):''));
-  if(q.n) lines.push('追完率 '+p1(tkr(q))+'（社内で防げたもの '+p1(q.own/q.n*100)+'）・リードタイム '+(q.med!=null?Math.round(q.med):'—')+'日');
+  var TF=kkTkFixed(ym)||[], tf=TF[TF.length-1]||null, tfp=TF.length>=2?TF[TF.length-2]:null;
+  if(tf||q.n) lines.push((tf?'追完率 '+p1(tf.rate)+'（'+(+tf.m.slice(5))+'月申請・確定'+(tfp&&tfp.rate!=null?'、前の月 '+p1(tfp.rate):'')+'）・':'')+'リードタイム '+(q.med!=null?Math.round(q.med):'—')+'日（'+mi+'月申請・中央値）');
   if(NP) lines.push('新規取引は計画 '+man(npAcc)+'万円に対して実績 '+man(naAcc)+'万円（'+(pct(naAcc,npAcc)||0)+'%）');
   var h='<div class="dk-bar"><button onclick="kkMbrDeckToggle(false)">← 画面に戻る</button><span style="font-size:12px;color:#64748b;">'+kkYmJ(ym)+'の報告（報告する月は画面の表示で変えられます）</span><span style="flex:1"></span><button class="p" onclick="window.print()">🖨 PDFにする・印刷</button></div><div class="dk">';
   // 1 表紙
-  h+=S('', '', '<div style="font-size:1.4cqw;letter-spacing:.2em;opacity:.7;font-weight:700;">MONTHLY BUSINESS REVIEW</div><div style="font-size:4.6cqw;font-weight:900;margin:1.2cqw 0 1.6cqw;line-height:1.2;">月次経営報告<br>'+kkYmJ(ym)+'</div><div style="font-size:1.6cqw;opacity:.85;">大房行政書士法人　書類部・営業部</div><div style="font-size:1.25cqw;opacity:.6;margin-top:3cqw;">作成 '+_fmtJst(new Date().toISOString(),false)+'　'+esc(currentUser||'')+'</div>','dk-cover');
+  PG.cover=S('', '', '<div style="font-size:1.4cqw;letter-spacing:.2em;opacity:.7;font-weight:700;">MONTHLY BUSINESS REVIEW</div><div style="font-size:4.6cqw;font-weight:900;margin:1.2cqw 0 1.6cqw;line-height:1.2;">月次経営報告<br>'+kkYmJ(ym)+'</div><div style="font-size:1.6cqw;opacity:.85;">大房行政書士法人　書類部・営業部</div><div style="font-size:1.25cqw;opacity:.6;margin-top:3cqw;">作成 '+_fmtJst(new Date().toISOString(),false)+'　'+esc(currentUser||'')+'</div>','dk-cover');
   // 2 エグゼクティブサマリー
-  h+=S('EXECUTIVE SUMMARY','結論：<span class="dk-badge dk-'+st.c+'">'+st.v+'</span>　'+(rate!=null?'YTDは目標ペースの'+rate+'%':''),
+  PG.sum=S('EXECUTIVE SUMMARY','結論：<span class="dk-badge dk-'+st.c+'">'+st.v+'</span>　'+(rate!=null?'YTDは目標ペースの'+rate+'%':''),
     '<div class="dk-g" style="grid-template-columns:1.25fr 1fr;"><div><ul class="dk-li">'+lines.map(function(x){ return '<li>'+esc(x)+'</li>'; }).join('')+'</ul></div>'
-    +'<div class="dk-c" style="background:#fffbeb;border-color:#fde68a;"><h5>今月いちばん伝えたいこと</h5><div class="dk-txt">'+(rep.points?esc(rep.points):'<span class="dk-em">（画面の「今月のポイント」に書くとここに出ます）</span>')+'</div></div></div>');
+    +'<div class="dk-c" style="background:#fffbeb;border-color:#fde68a;"><h5>今月いちばん伝えたいこと</h5><div class="dk-txt">'+(rep.points?esc(rep.points):'<span class="dk-em">（画面の「今月のポイント」に書くとここに出ます）</span>')+'</div></div></div>'
+    +'<div style="margin-top:1.2cqw;">'+kkMbrVsHtml(R, ym, true)+'</div>');
   // 3 スコアカード
-  var KKC=kkMbrKokkoCalc(R), tkf=function(m){ return tkr(Q[m]); }, l3=[kkYmAdd(ym,-2),pm,ym], av=function(f){ var v=l3.map(f).filter(function(x){ return x!=null; }); return v.length?v.reduce(function(a,b){ return a+b; },0)/v.length:null; };
+  var KKC=kkMbrKokkoCalc(R), tkf=function(m){ return kkTkState(m)==='確定'?tkr(Q[m]):null; }, l3=[kkYmAdd(ym,-2),pm,ym], av=function(f){ var v=l3.map(f).filter(function(x){ return x!=null; }); return v.length?v.reduce(function(a,b){ return a+b; },0)/v.length:null; };
   var SC=[[kkBasisLabel()+'件数','件',function(m){ return R.co.app[m]||0; },n0,false,T.apps?n0(T.apps/12):'—'],['純売上','万円',function(m){ return R.co.net[m]||0; },man,false,T.net?man(T.net/12):'—'],['新規取引の売上','万円',function(m){ return NA.by[m]||0; },man,false,'—'],
     ['追完率（やむを得ないを除く）','%',tkf,function(v){ return Math.round(v*10)/10; },true,'—'],['リードタイム（中央値）','日',function(m){ var o=Q[m]; return o&&o.med!=null?o.med:null; },function(v){ return Math.round(v); },true,'—'],
     ['国交省 企業ボール→申請','日',function(m){ var o=KKC.M[m]; return o&&o.lt1m!=null?o.lt1m:null; },function(v){ return Math.round(v); },true,'—'],['国交省 補正率','%',function(m){ var o=KKC.M[m]; return o&&o.n?o.hosei/o.n*100:null; },function(v){ return Math.round(v); },true,'—'],['国交省 補正対応','回',function(m){ var o=KKC.M[m]; return o?(o.fix||0):null; },function(v){ return Math.round(v); },false,'—'],
     ['1人あたりの申請','件',function(m){ var a=R.co.act[m]||0; return a?(R.co.app[m]||0)/a:null; },n0,false,'—'],['純売上÷人件費','倍',function(m){ return H.cost.all?(R.co.net[m]||0)/H.cost.all:null; },function(v){ return Math.round(v*10)/10; },false,'—']];
-  h+=S('SCORECARD','主な指標（'+kkYmJ(ym)+'）','<table class="dk-t" style="font-size:1.55cqw;"><thead><tr><th class="l">指標</th><th>'+mi+'月</th><th>前月</th><th>前月比</th><th>3か月平均</th><th>目標（月）</th></tr></thead><tbody>'
+  PG.score=S('SCORECARD','主な指標（'+kkYmJ(ym)+'）','<table class="dk-t" style="font-size:1.55cqw;"><thead><tr><th class="l">指標</th><th>'+mi+'月</th><th>前月</th><th>前月比</th><th>3か月平均</th><th>目標（月）</th></tr></thead><tbody>'
     +SC.map(function(x){ var c=x[2](ym), p=x[2](pm), a=av(x[2]), f=x[3], d=(c!=null&&p!=null)?c-p:null, good=d==null?null:(x[4]?d<0:d>0);
       return '<tr><td class="l" style="font-weight:700;">'+x[0]+' <span class="dk-em">'+x[1]+'</span></td><td style="font-weight:900;">'+(c==null?'—':f(c))+'</td><td>'+(p==null?'—':f(p))+'</td><td>'+(d==null||!Math.round(d*10)?'<span class="dk-em">→</span>':'<b class="'+(good?'up':'dn')+'">'+(d>0?'↑ ':'↓ ')+f(Math.abs(d))+'</b>')+'</td><td class="dk-em">'+(a==null?'—':f(a))+'</td><td class="dk-em">'+x[5]+'</td></tr>'; }).join('')
     +'<tr><td class="l" style="font-weight:700;">人員 <span class="dk-em">名</span></td><td colspan="5" class="l" style="padding-left:2cqw;">社員 <b>'+H.emp.length+'</b>　パート <b>'+H.part.length+'</b>　カンボジア <b>'+H.kh.length+'</b></td></tr></tbody></table>');
   // 4 件数・売上の推移
   var bars=R.months.filter(function(m){ return m<=ym; }).map(function(m){ return {l:(+m.slice(5))+'月', v:R.co.app[m]||0, c:m===ym?'#0f2040':'#93a8c8', hl:m===ym}; });
-  h+=S('PERFORMANCE','申請件数の推移とYTD','<div class="dk-g" style="grid-template-columns:2.2fr 1fr;"><div class="dk-c" style="background:#fff;"><h5>月別の申請件数'+(T.apps?'（赤線＝目標の月割り）':'')+'</h5><div style="height:calc(100% - 2.2cqw);">'+kkDeckBars(bars,{line:T.apps?T.apps/12:null,h:360})+'</div></div>'
+  PG.perf=S('PERFORMANCE','申請件数の推移とYTD','<div class="dk-g" style="grid-template-columns:2.2fr 1fr;"><div class="dk-c" style="background:#fff;"><h5>月別の申請件数'+(T.apps?'（赤線＝目標の月割り）':'')+'</h5><div style="height:calc(100% - 2.2cqw);">'+kkDeckBars(bars,{line:T.apps?T.apps/12:null,h:360})+'</div></div>'
     +'<div class="dk-g" style="grid-template-rows:1fr 1fr;gap:1.2cqw;"><div class="dk-c"><h5>申請（YTD）</h5><div class="dk-n">'+n0(yApp)+'<small>件</small></div><div class="dk-sub">'+(T.apps?'目標ペース '+n0(pApp)+'件 → <b class="'+(yApp>=pApp?'up':'dn')+'">'+(yApp>=pApp?'+':'')+n0(yApp-pApp)+'件</b>':'年間目標：未設定')+'</div></div>'
     +'<div class="dk-c"><h5>純売上（YTD）</h5><div class="dk-n">'+man(yNet)+'<small>万円</small></div><div class="dk-sub">'+(T.net?'目標ペース '+man(pNet)+'万円 → <b class="'+(yNet>=pNet?'up':'dn')+'">'+(yNet>=pNet?'+':'')+man(yNet-pNet)+'万円</b>':'年間目標：未設定')+'</div></div></div></div>');
   // 4b 売上（確定値）（ver.20261105.01）
   var MF=(KK.mx&&!KK.mx.err)?kkMfCalc(ym):null, mfU=MF?(MF.has?ym:MF.latest):'';
-  h+=S('CONFIRMED SALES','売上（確定値）：'+(mfU&&MF.by[mfU]?kkYmJ(mfU)+' '+_skRpMan(MF.by[mfU].amt,0)+'万円'+(MF.by[kkYmAdd(mfU,-1)]?'（前月比 '+(Math.round((MF.by[mfU].amt/MF.by[kkYmAdd(mfU,-1)].amt-1)*100))+'%）':''):'—'),
+  PG.sales=S('CONFIRMED SALES','売上（確定値）：'+(mfU&&MF.by[mfU]?kkYmJ(mfU)+' '+_skRpMan(MF.by[mfU].amt,0)+'万円'+(MF.by[kkYmAdd(mfU,-1)]?'（前月比 '+(Math.round((MF.by[mfU].amt/MF.by[kkYmAdd(mfU,-1)].amt-1)*100))+'%）':''):'—'),
     '<div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;">'+kkMfHtml(ym,true)+'</div>');
   // 5 申請のクオリティ
-  var qm=R.months.filter(function(m){ return m>=String(Y)+'-04' && m<=ym; }), qpts=qm.map(function(m){ var o=Q[m]; return {l:(+m.slice(5))+'月', v:tkr(o), u:o&&o.n?o.un/o.n*100:null}; });
+  var qm=R.months.filter(function(m){ return m>=String(Y)+'-04' && m<=ym; }), qpts=qm.map(function(m){ var o=Q[m]; var fx=kkTkState(m)==='確定'; return {l:(+m.slice(5))+'月', v:fx?tkr(o):null, u:fx&&o&&o.n?o.un/o.n*100:null}; });
   var SL=Object.keys(QC.S).map(function(k){ return QC.S[k]; }).filter(function(x){ return x.n>=10; }).sort(function(a,b){ return (a.tk/a.n)-(b.tk/b.n); });
   var best=SL.slice(0,3), worst=SL.slice(-3).reverse();
-  h+=S('QUALITY','申請のクオリティ：追完率 '+p1(tkr(q))+'　'+chg(tkr(q),tkr(qp),true,'pt',function(v){ return Math.round(v*10)/10; }),
-    '<div class="dk-g" style="grid-template-columns:1.6fr 1fr;"><div class="dk-c" style="background:#fff;"><h5>追完率の推移（赤＝やむを得ないを除く・灰＝やむを得ない）</h5><div style="height:calc(100% - 2.2cqw);">'+kkDeckLine(qpts,{unit:'%',h:330,series:[{k:'v',c:'#dc2626'},{k:'u',c:'#94a3b8'}]})+'</div></div>'
-    +'<div class="dk-g" style="grid-template-rows:auto 1fr;gap:1.2cqw;"><div class="dk-c"><h5>'+mi+'月</h5><div class="dk-sub" style="font-size:1.3cqw;color:#0f172a;">社内で防げた追完 <b>'+p1(q.n?q.own/q.n*100:null)+'</b><br>やむを得ない追完 <b>'+p1(q.n?q.un/q.n*100:null)+'</b><br>リードタイム <b>'+(q.med!=null?Math.round(q.med):'—')+'日</b> '+chg(q.med,qp&&qp.med,true,'日')+'</div></div>'
+  PG.quality=S('QUALITY','申請のクオリティ（くわしく）：やむを得ない追完・担当者別',
+    '<div class="dk-g" style="grid-template-columns:1.6fr 1fr;"><div class="dk-c" style="background:#fff;"><h5>追完率の推移（赤＝やむを得ないを除く・灰＝やむを得ない・確定した月だけ）</h5><div style="height:calc(100% - 2.2cqw);">'+kkDeckLine(qpts,{unit:'%',h:330,series:[{k:'v',c:'#dc2626'},{k:'u',c:'#94a3b8'}]})+'</div></div>'
+    +'<div class="dk-g" style="grid-template-rows:auto 1fr;gap:1.2cqw;"><div class="dk-c"><h5>'+mi+'月</h5><div class="dk-sub" style="font-size:1.3cqw;color:#0f172a;">'+(function(){ var fm2=qm.filter(function(m){ return kkTkState(m)==='確定'; }).pop(), o=fm2?Q[fm2]:null; return o&&o.n?(+fm2.slice(5))+'月申請（確定）：社内で防げた追完 <b>'+p1(o.own/o.n*100)+'</b>・やむを得ない追完 <b>'+p1(o.un/o.n*100)+'</b><br>':''; })()+'リードタイム <b>'+(q.med!=null?Math.round(q.med):'—')+'日</b> '+chg(q.med,qp&&qp.med,true,'日')+'</div></div>'
     +'<div class="dk-c"><h5>担当者別（3か月）</h5><table class="dk-t" style="font-size:1.15cqw;"><tbody>'+best.map(function(x){ return '<tr><td class="l">◎ '+esc(x.name)+'</td><td class="up" style="font-weight:800;">'+p1(x.tk/x.n*100)+'</td></tr>'; }).join('')+worst.map(function(x){ return '<tr><td class="l">△ '+esc(x.name)+'</td><td class="dn" style="font-weight:800;">'+p1(x.tk/x.n*100)+'</td></tr>'; }).join('')+'</tbody></table></div></div></div>'
     +((rep.qTopics||rep.qActions)?'<div class="dk-sub" style="margin-top:1cqw;font-size:1.25cqw;color:#0f172a;">'+(rep.qTopics?'<b>トピックス：</b>'+esc(rep.qTopics)+'　':'')+(rep.qActions?'<b>改善：</b>'+esc(rep.qActions):'')+'</div>':''));
   // 5b 追完（申請月ごと）（ver.20261105.01）
-  h+=S('RFE BY MONTH','追完（申請月ごと）：その月に申請した案件のうち、追完が来た割合','<div style="flex:1;min-height:0;overflow:hidden;">'+kkTkHtml(ym,true)+'</div>');
+  PG.rfe=S('RFE BY MONTH','追完（申請月ごと）：その月に申請した案件のうち、追完が来た割合','<div style="flex:1;min-height:0;overflow:hidden;">'+kkTkHtml(ym,true)+'</div>');
   // 6 人員と生産性
   var act=R.co.act[ym]||0, pr=act?mApp/act:null, p0=kkMbrRates(), joins=(_skRmOf(R).joins||[]).filter(function(j){ return j.ym>=R.nowYm; });
-  h+=S('PEOPLE','人員と生産性：純売上は人件費の '+(H.cost.all?(Math.round(mNet/H.cost.all*10)/10):'—')+'倍',
+  PG.people=S('PEOPLE','人員と生産性：純売上は人件費の '+(H.cost.all?(Math.round(mNet/H.cost.all*10)/10):'—')+'倍',
     '<div class="dk-g" style="grid-template-columns:repeat(4,1fr);grid-template-rows:auto 1fr;">'
     +'<div class="dk-c"><h5>社員</h5><div class="dk-n">'+H.emp.length+'<small>名</small></div></div><div class="dk-c"><h5>パート</h5><div class="dk-n">'+H.part.length+'<small>名</small></div></div><div class="dk-c"><h5>カンボジア</h5><div class="dk-n">'+H.kh.length+'<small>名</small></div></div><div class="dk-c"><h5>人件費（月・概算）</h5><div class="dk-n">'+man(H.cost.all)+'<small>万円</small></div></div>'
     +'<div class="dk-c" style="grid-column:span 2;"><h5>生産性（'+mi+'月）</h5><table class="dk-t"><tbody><tr><td class="l">申請した担当（月10件以上）</td><td><b>'+act+'名</b></td></tr><tr><td class="l">1人あたりの申請</td><td><b>'+(pr?n0(pr):'—')+'件</b></td></tr><tr><td class="l">社員1人あたりの純売上</td><td><b>'+(H.emp.length?man(mNet/H.emp.length):'—')+'万円</b></td></tr><tr><td class="l">申請1件あたりの人件費</td><td><b>'+(mApp?n0(H.cost.all/mApp):'—')+'円</b></td></tr></tbody></table></div>'
@@ -2285,33 +2311,45 @@ function kkMbrDeckHtml(R){
     +'<div class="dk-sub" style="font-size:1cqw;">人件費は概算（社員 年'+_skRpMan(p0.emp,0)+'万円・パート 時給'+n0(p0.part)+'円×月'+p0.partH+'時間・カンボジア 月'+p0.kh+'ドル×'+p0.fx+'円）</div>');
   // 6a 書類部の余力と採用のタイミング（ver.20261104.05）
   var CP=kkCapCalc(R, ym);
-  h+=S('CAPACITY',(function(){ var Tq=kkTermCalc(R, CP).Qs, t=function(Q){ var lb=Q.lb.replace(/（.*/,''); if(Q.needMax==null) return lb+'は見込み'+Math.round(Q.tot).toLocaleString('ja-JP')+'件'; var d=Q.needMax-Q.nMax; return lb+'は'+(d>0?d+'名不足':'今の人数で足りる'); }; return '申請の見込みと人数：'+t(Tq[0])+'／'+t(Tq[1])+'（書類部 今'+CP.N+'名）'; })(),
+  PG.cap=S('CAPACITY',(function(){ var Tq=kkTermCalc(R, CP).Qs, t=function(Q){ var lb=Q.lb.replace(/（.*/,''); if(Q.needMax==null) return lb+'は見込み'+Math.round(Q.tot).toLocaleString('ja-JP')+'件'; var d=Q.needMax-Q.nMax; return lb+'は'+(d>0?d+'名不足':'今の人数で足りる'); }; return '申請の見込みと人数：'+t(Tq[0])+'／'+t(Tq[1])+'（書類部 今'+CP.N+'名）'; })(),
     '<div style="flex:1;min-height:0;overflow:hidden;">'+kkCapHtml(R, ym, true)+'</div>');
   // 6b 申請件数ランキング
   var RL=kkMbrRank(R, ym);
-  h+=S('RANKING','申請ポイントランキング：1位 '+(RL[0]?_skEsc(RL[0].name)+' '+(Math.round(RL[0].pt*10)/10)+'点':'—')+'　標準（月'+kkPtStd()+'点）超え '+RL.filter(function(o){ return o.pt>=o.pstd; }).length+'名',
+  PG.rank=S('RANKING','申請ポイントランキング：1位 '+(RL[0]?_skEsc(RL[0].name)+' '+(Math.round(RL[0].pt*10)/10)+'点':'—')+'　標準（月'+kkPtStd()+'点）超え '+RL.filter(function(o){ return o.pt>=o.pstd; }).length+'名',
     '<div style="flex:1;min-height:0;overflow:hidden;">'+kkMbrRankHtml(R, ym, true)+'</div>');
   // 6c 営業パイプラインの動き（ver.20261104.02）
   var PR=KK.pipe&&!KK.pipe.err?kkPipeCalc(kkMonthRange(ym)):null;
-  h+=S('SALES PIPELINE','営業の動き（'+kkYmJ(ym)+'）：新規獲得 '+(PR?PR.won.length:'—')+'社'+(PR&&PR.wonSup?'・支援者 計'+n0(PR.wonSup)+'人':'')+(PR&&PR.wonShare!=null?'・申請の'+PR.wonShare+'%を任せてもらえる見込み':''),
+  PG.pipe=S('SALES PIPELINE','営業の動き（'+kkYmJ(ym)+'）：新規獲得 '+(PR?PR.won.length:'—')+'社'+(PR&&PR.wonSup?'・支援者 計'+n0(PR.wonSup)+'人':'')+(PR&&PR.wonShare!=null?'・申請の'+PR.wonShare+'%を任せてもらえる見込み':''),
     '<div style="flex:1;min-height:0;overflow:hidden;">'+kkPipeHtml(kkMonthRange(ym),true)+'</div>');
   // 7 新規取引
   var dl=NA.deals.slice().sort(function(a,b){ return (b._amt||0)-(a._amt||0)||(b._req-a._req); }).slice(0,8);
-  h+=S('NEW BUSINESS','新規取引：計画 '+man(npAcc)+'万円に対して実績 '+man(naAcc)+'万円（'+(pct(naAcc,npAcc)||0)+'%）',
+  PG.newbiz=S('NEW BUSINESS','新規取引：計画 '+man(npAcc)+'万円に対して実績 '+man(naAcc)+'万円（'+(pct(naAcc,npAcc)||0)+'%）',
     '<div class="dk-g" style="grid-template-columns:1fr 1.6fr;"><div class="dk-g" style="grid-template-rows:1fr 1fr;gap:1.2cqw;"><div class="dk-c"><h5>新規取引先</h5><div class="dk-n">'+NA.deals.length+'<small>社</small></div><div class="dk-sub">'+(NP?'計画期間 '+kkYmJ(NP.start)+'〜'+kkYmJ(NP.end):'')+'</div></div><div class="dk-c"><h5>計画全体（'+(NP?NP.months:'—')+'か月）</h5><div class="dk-n">'+(NP?_skRpMan(NP.target,0):'—')+'<small>万円</small></div><div class="dk-sub">達成率 '+(NP?Math.round(naAcc/NP.target*1000)/10:0)+'%</div></div></div>'
     +'<div class="dk-c" style="background:#fff;"><h5>取引先別の実績（上位）</h5><table class="dk-t"><thead><tr><th class="l">取引先</th><th>初回依頼</th><th>担当</th><th>依頼数</th><th>実績</th></tr></thead><tbody>'+dl.map(function(d){ return '<tr><td class="l">'+esc(d.company)+'</td><td>'+(d._first?esc(d._first.slice(5).replace('-','/')):'—')+'</td><td>'+esc(String(d.staff||'').split(/[、,]/)[0])+'</td><td>'+n0(d._req)+'件</td><td style="font-weight:800;">'+_skRpMan(d._amt||0,1)+'万円</td></tr>'; }).join('')+'</tbody></table></div></div>');
   var GG=kkMbrGrowth(R, ym);
-  h+=S('GROWTH','伸びている取引先：既存 '+GG.UP.length+'社・新規 '+GG.NEW.length+'社（会社全体は前3か月比 '+Math.round(GG.avg*100)+'%）', '<div style="flex:1;min-height:0;overflow:hidden;">'+kkMbrGrowthHtml(R, ym, true)+'</div>');
+  PG.growth=S('GROWTH','伸びている取引先：既存 '+GG.UP.length+'社・新規 '+GG.NEW.length+'社（会社全体は前3か月比 '+Math.round(GG.avg*100)+'%）', '<div style="flex:1;min-height:0;overflow:hidden;">'+kkMbrGrowthHtml(R, ym, true)+'</div>');
   // 8 見込み
   var fb=fm.map(function(m){ var f=F[m]; return {l:kkYmJ(m).replace(/^\d+年/,''), v:f.base+f.commit, v2:f.best, c:'#0f766e', c2:'#93c5fd'}; });
   var cand={}; fm.forEach(function(m){ F[m].rows.forEach(function(r){ if(r.t!=='commit' && !cand[r.name]) cand[r.name]=r; }); }), CL=Object.keys(cand).map(function(k){ return cand[k]; }).sort(function(a,b){ return b.n-a.n; }).slice(0,6);
-  h+=S('FORECAST','これから3か月の見込み：確定ベースで月 '+n0(F[fm[1]].base+F[fm[1]].commit)+'件（'+kkYmJ(fm[1]).replace(/^\d+年/,'')+'）',
+  PG.forecast=S('FORECAST','これから3か月の見込み：確定ベースで月 '+n0(F[fm[1]].base+F[fm[1]].commit)+'件（'+kkYmJ(fm[1]).replace(/^\d+年/,'')+'）',
     '<div class="dk-g" style="grid-template-columns:1.5fr 1fr;"><div class="dk-c" style="background:#fff;"><h5>申請件数の見込み（緑＝確定ベース・青＝上振れ'+(T.apps?'・赤線＝目標':'')+'）</h5><div style="height:calc(100% - 2.2cqw);">'+kkDeckBars(fb,{line:T.apps?T.apps/12:null,h:360})+'</div></div>'
     +'<div class="dk-c"><h5>確度を上げたい見込み先</h5>'+(CL.length?'<table class="dk-t" style="font-size:1.15cqw;"><tbody>'+CL.map(function(r){ return '<tr><td class="l">'+esc(r.name)+'</td><td class="dk-em">'+esc(r.st)+'</td><td style="font-weight:800;">月'+n0(r.n)+'件</td></tr>'; }).join('')+'</tbody></table>':'<div class="dk-em">営シスに見込み（月の件数・開始月）が入った先がありません</div>')+'<div class="dk-sub">ベース＝今の取引先 月'+n0(F[fm[0]].base)+'件</div></div></div>');
   // 9 リスク・お願い・打ち手
   var box=function(t,v,bg){ return '<div class="dk-c" style="'+(bg||'')+'"><h5>'+t+'</h5><div class="dk-txt">'+(v?esc(v):'<span class="dk-em">（画面で記入するとここに出ます）</span>')+'</div></div>'; };
-  h+=S('RISKS & ASKS','リスク・お願いしたいこと・来月の打ち手','<div class="dk-g" style="grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;">'+box('⚠️ リスク',rep.risks)+box('🙏 社長・経営陣にお願いしたいこと',rep.asks,'background:#eff6ff;border-color:#bfdbfe;')+'<div style="grid-column:span 2;">'+box('🎯 来月の打ち手（だれが・何を・いつまでに）',rep.actions,'height:100%;box-sizing:border-box;')+'</div></div>');
-  return h+'</div>';
+  PG.risks=S('RISKS & ASKS','リスク・お願いしたいこと・来月の打ち手','<div class="dk-g" style="grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;">'+box('⚠️ リスク',rep.risks)+box('🙏 社長・経営陣にお願いしたいこと',rep.asks,'background:#eff6ff;border-color:#bfdbfe;')+'<div style="grid-column:span 2;">'+box('🎯 来月の打ち手（だれが・何を・いつまでに）',rep.actions,'height:100%;box-sizing:border-box;')+'</div></div>');
+  // ver.20261105.05: 品質の推移（追完率は確定した月だけ・リードタイムは毎月）
+  var ltM=R.months.filter(function(m){ return m>=String(Y)+'-04' && m<=ym; }), ltB=ltM.map(function(m){ var o=Q[m]; return {l:(+m.slice(5))+'月', v:o&&o.med!=null?Math.round(o.med):0, c:m===ym?'#0f2040':'#93a8c8', hl:m===ym}; });
+  var tkP=TF.slice(-8).map(function(x){ var o=Q[x.m]; return {l:(+x.m.slice(5))+'月', v:x.rate, u:o&&o.n?tkr(o):null}; });
+  var hid=[]; for(var m3=kkYmAdd(ym,-2); m3<=ym; m3=kkYmAdd(m3,1)) if(kkTkState(m3)!=='確定') hid.push(+m3.slice(5)+'月');
+  var ltp=Q[pm]&&Q[pm].med!=null?Q[pm].med:null;
+  PG.qtrend=S('QUALITY TREND','品質の推移：'+(tf?'追完率 '+p1(tf.rate)+'（'+(+tf.m.slice(5))+'月申請）・':'')+'リードタイム '+(q.med!=null?Math.round(q.med)+'日':'—')+'（'+mi+'月）',
+    '<div class="dk-g" style="grid-template-columns:1fr 1fr;"><div class="dk-c" style="background:#fff;"><h5>追完率（申請した月ごと・確定した月だけ）　'+(tf&&tfp&&tfp.rate!=null?chg(tf.rate,tfp.rate,true,'pt',function(v){ return Math.round(v*10)/10; }):'')+'</h5><div class="dk-em" style="font-size:1cqw;">赤＝全体　灰＝やむを得ない追完（健康診断など）を除く</div><div style="height:calc(100% - 4cqw);">'+(tkP.length?kkDeckLine(tkP,{unit:'%',h:330,series:[{k:'u',c:'#94a3b8',label:false},{k:'v',c:'#c0390b'}]}):'<div class="dk-em">確定した月がまだありません</div>')+'</div></div>'
+    +'<div class="dk-c" style="background:#fff;"><h5>リードタイム（依頼の登録→申請・中央値）　'+chg(q.med,ltp,true,'日')+'</h5><div style="height:calc(100% - 2.2cqw);">'+kkDeckBars(ltB,{h:330,fmt:function(v){ return Math.round(v)+'日'; }})+'</div></div></div>'
+    +'<div class="dk-sub" style="margin-top:.8cqw;">追完率＝その月に申請した案件のうち、入管から追完が1通以上来た割合（管理部レポートと同じ）。追完は申請から数週間後に届くので、月末から60日たって数が固まった月だけ出しています'+(hid.length?'（'+hid.join('・')+'はまだ出しません）':'')+'。リードタイム＝案シスに依頼を登録した日から申請した日まで（その月に申請した案件の中央値）。</div>');
+  PG.ref=S('','','<div style="font-size:1.4cqw;letter-spacing:.2em;opacity:.7;font-weight:700;">APPENDIX</div><div style="font-size:4cqw;font-weight:900;margin:1.2cqw 0 1.6cqw;">参考資料</div><div style="font-size:1.4cqw;opacity:.85;line-height:1.9;">主な指標／件数の推移／売上（確定値）／申請のクオリティ（くわしく）／追完（申請月ごと）<br>人員と生産性／申請ポイントランキング／新規取引／伸びている取引先／これから3か月の見込み／リスク・お願い</div>','dk-cover');
+  var ORD=['cover','sum','cap','qtrend','pipe','ref','score','perf','sales','quality','rfe','people','rank','newbiz','growth','forecast','risks'];
+  var body=ORD.map(function(k){ return PG[k]||''; }).join(''), pg=0; body=body.replace(/@@PG@@/g,function(){ return ++pg; }).replace(/@@TOT@@/g,pg);
+  return h+body+'</div>';
 }
 function kkMbrMonthHtml(R){
   kkMbrStyle(); if(!KK.mx && !KK.mxLoading) kkMxLoad(); if(!KK.mbr){ kkMbrLoad(); return kkLoading(['報告']); }
@@ -2339,9 +2377,11 @@ function kkMbrMonthHtml(R){
   lines.push(kkYmJ(ym)+'の'+kkBasisLabel()+'は <b>'+n0(mApp)+'件</b>・純売上 <b>'+man(mNet)+'万円</b>（前月比 '+(pmApp?(mApp>=pmApp?'+':'')+Math.round((mApp/pmApp-1)*100)+'%':'—')+'）。');
   lines.push('1月〜'+mi+'月（YTD）は申請 <b>'+n0(yApp)+'件</b>・純売上 <b>'+man(yNet)+'万円</b>'+(T.apps||T.net?'、年間目標の <b>'+(pct(T.net?yNet:yApp, T.net||T.apps)||0)+'%</b>':'')+'。');
   lines.push('年間の着地見込みは <b>'+n0(landC)+'件</b>（確定ベース）〜 <b>'+n0(landB)+'件</b>（上振れ込み）'+(T.apps?'、目標 '+n0(T.apps)+'件に対して <b>'+(landC>=T.apps?'届く見込み':'あと '+n0(T.apps-landC)+'件')+'</b>':'')+'。');
-  var Qc=(kkMbrQCalc(R, ym).M[ym])||null; if(Qc&&Qc.n) lines.push('申請のクオリティは、追完率 <b>'+(Math.round(Qc.tk/Qc.n*1000)/10)+'%</b>（うち社内で防げたもの '+(Math.round(Qc.own/Qc.n*1000)/10)+'%・ほかに健康診断などやむを得ない追完 '+(Math.round(Qc.un/Qc.n*1000)/10)+'%）・リードタイム（依頼→申請）中央値 <b>'+(Qc.med!=null?Math.round(Qc.med):'—')+'日</b>'+(ym>=kkYmAdd(R.nowYm,-1)?'（追完はまだ届く途中）':'')+'。');
+  var QcM=kkMbrQCalc(R, ym).M, Qc=QcM[ym]||null, TFc=kkTkFixed(ym)||[], tfc=TFc[TFc.length-1]||null, Qf=tfc?QcM[tfc.m]:null;
+  if(tfc||(Qc&&Qc.n)) lines.push('申請のクオリティは、'+(tfc?'追完率 <b>'+(Math.round(tfc.rate*10)/10)+'%</b>（'+(+tfc.m.slice(5))+'月申請・確定'+(Qf&&Qf.n?'、やむを得ないを除くと '+(Math.round(Qf.tk/Qf.n*1000)/10)+'%・うち社内で防げたもの '+(Math.round(Qf.own/Qf.n*1000)/10)+'%':'')+'）・':'')+'リードタイム（依頼→申請）中央値 <b>'+(Qc&&Qc.med!=null?Math.round(Qc.med):'—')+'日</b>（'+(+ym.slice(5))+'月申請）。');
   if(NP) lines.push('新規取引（営シス）は計画 '+man(npAcc)+'万円に対して実績 <b>'+man(naAcc)+'万円</b>（'+(pct(naAcc,npAcc)||0)+'%）。');
-  h+='<div class="skrp-sec">1. 結論</div><div class="mbr-hero"><div class="mbr-badge '+st.c+'"><div class="l">'+kkYmJ(ym)+'の評価</div><div class="v">'+st.v+'</div><div class="s">'+st.s+'</div></div><div class="mbr-sum">'+lines.map(function(x){ return '・'+x; }).join('<br>')+'</div></div>';
+  h+='<div class="skrp-sec">1. 結論</div><div class="mbr-hero"><div class="mbr-badge '+st.c+'"><div class="l">'+kkYmJ(ym)+'の評価</div><div class="v">'+st.v+'</div><div class="s">'+st.s+'</div></div><div class="mbr-sum">'+lines.map(function(x){ return '・'+x; }).join('<br>')+'</div></div>'
+    +'<div class="mbr-box" style="margin-top:10px;"><h4>申請件数・売上：直前3か月の平均とPlanに対して</h4>'+kkMbrVsHtml(R, ym, false)+'</div>';
   h+='<div class="mbr-box" style="margin-bottom:6px;"><h4>今月のポイント（社長に一番伝えたいこと）</h4><textarea class="mbr-ta" placeholder="例：9月は過去最高の1,450件。アイデム・KMTの更新が集中。10月は反動で落ちる見込み。" onchange="kkMbrSetText(\''+ym+'\',\'points\',this.value)">'+esc(rep.points||'')+'</textarea></div>';
   h+='<div class="skrp-sec">スコアカード<span>主な指標を1枚で（↑↓＝前月より良い／悪い）</span></div>'+kkMbrScoreHtml(R, ym, T);
   // 2. YTD（会社全体）
@@ -2479,22 +2519,23 @@ function kkMbrKokkoHtml(R, ym){
 function kkMbrQualityHtml(R, ym, rep){
   var esc=_skEsc, n0=function(v){ return Math.round(v||0).toLocaleString('ja-JP'); }, Q=kkMbrQCalc(R, ym), pc=function(a,b){ return b?(Math.round(a/b*1000)/10)+'%':'—'; };
   var ms=R.months.filter(function(m){ return m>=String(R.Y)+'-04' && m<=ym; }), cur=Q.M[ym]||{n:0,lt:[],tk:0,own:0,cust:0,med:null}, prev=Q.M[kkYmAdd(ym,-1)]||null;
-  var fresh=function(m){ return m>=kkYmAdd(R.nowYm,-1); }; // 追完・補正は申請から数週間後に届く
+  var fresh=function(m){ return kkTkState(m)!=='確定'; }; // ver.20261105.05: 追完は月末から60日たった月（確定）だけ出す
+  var fxL=ms.filter(function(m){ return !fresh(m); }), fxM=fxL[fxL.length-1]||null, fx=fxM?(Q.M[fxM]||{n:0,tk:0,own:0,un:0}):{n:0,tk:0,own:0,un:0}, fxP=fxL.length>=2?Q.M[fxL[fxL.length-2]]:null;
   var cmp=function(a,b,lowGood,unit){ if(a==null||b==null) return ''; var d=Math.round((a-b)*10)/10; if(!d) return '<span style="color:#64748b;">前月と同じ</span>'; var good=lowGood?d<0:d>0; return '<span style="color:'+(good?'#0f766e':'#dc2626')+';font-weight:700;">前月比 '+(d>0?'+':'')+d+unit+'</span>'; };
   var rate=function(o){ return o&&o.n?o.tk/o.n*100:null; }, own=function(o){ return o&&o.n?o.own/o.n*100:null; };
   var h='<div class="skrp-kpis">'
     +_skRpKpi('n',kkYmJ(ym)+'の申請',n0(cur.n),'件',prev?cmp(cur.n,prev.n,false,'件'):'')
     +_skRpKpi('b','リードタイム（依頼→申請）',cur.med!=null?Math.round(cur.med):'—','日','中央値・'+(prev&&prev.med!=null?cmp(cur.med,prev.med,true,'日'):''))
-    +_skRpKpi(rate(cur)>15?'o':'g','追完率（やむを得ないものを除く）',rate(cur)!=null?(Math.round(rate(cur)*10)/10):'—','%',n0(cur.tk)+'件に追完・ほかに やむを得ない '+n0(cur.un)+'件'+(fresh(ym)?'<br><b style="color:#d97706;">※この月はまだ追完が届く途中</b>':(prev?'・'+cmp(rate(cur),rate(prev),true,'pt'):'')))
-    +_skRpKpi(own(cur)>5?'o':'g','うち社内で防げた追完',own(cur)!=null?(Math.round(own(cur)*10)/10):'—','%',n0(cur.own)+'件（書類の作成ミス・記入漏れなど）')
+    +_skRpKpi(rate(fx)>15?'o':'g','追完率（やむを得ないものを除く）'+(fxM?'・'+(+fxM.slice(5))+'月申請（確定）':''),rate(fx)!=null?(Math.round(rate(fx)*10)/10):'—','%',fxM?n0(fx.tk)+'件に追完・ほかに やむを得ない '+n0(fx.un)+'件'+(fxP?'・'+cmp(rate(fx),rate(fxP),true,'pt'):''):'確定した月がまだありません')
+    +_skRpKpi(own(fx)>5?'o':'g','うち社内で防げた追完'+(fxM?'（'+(+fxM.slice(5))+'月）':''),own(fx)!=null?(Math.round(own(fx)*10)/10):'—','%',fxM?n0(fx.own)+'件（書類の作成ミス・記入漏れなど）':'')
     +'</div>';
-  h+='<div style="overflow:auto;"><table class="skp-tbl"><thead><tr><th class="l" style="padding-left:14px;">申請した月</th>'+ms.map(function(m){ return '<th'+(m===ym?' style="background:#fef3c7;"':'')+'>'+(+m.slice(5))+'月'+(fresh(m)?'<br><span style="font-weight:600;color:#d97706;">途中</span>':'')+'</th>'; }).join('')+'</tr></thead><tbody>'
+  h+='<div style="overflow:auto;"><table class="skp-tbl"><thead><tr><th class="l" style="padding-left:14px;">申請した月</th>'+ms.map(function(m){ return '<th'+(m===ym?' style="background:#fef3c7;"':'')+'>'+(+m.slice(5))+'月</th>'; }).join('')+'</tr></thead><tbody>'
     +'<tr class="st"><td class="l" style="padding-left:14px;">申請件数</td>'+ms.map(function(m){ return '<td>'+n0((Q.M[m]||{}).n)+'</td>'; }).join('')+'</tr>'
     +'<tr class="st"><td class="l" style="padding-left:14px;">リードタイム（中央値・日）</td>'+ms.map(function(m){ var o=Q.M[m]; return '<td>'+(o&&o.med!=null?Math.round(o.med):'—')+'</td>'; }).join('')+'</tr>'
-    +'<tr class="st grp"><td class="l" style="padding-left:14px;font-weight:800;">追完率（やむを得ないを除く）</td>'+ms.map(function(m){ var o=Q.M[m]; return '<td style="font-weight:800;">'+(o?pc(o.tk,o.n):'—')+'</td>'; }).join('')+'</tr>'
-    +'<tr class="st"><td class="l" style="padding-left:14px;">　お客様の書類が原因</td>'+ms.map(function(m){ var o=Q.M[m]; return '<td>'+(o?pc(o.cust,o.n):'—')+'</td>'; }).join('')+'</tr>'
-    +'<tr class="st"><td class="l" style="padding-left:14px;">　社内で防げたもの</td>'+ms.map(function(m){ var o=Q.M[m]; return '<td style="color:#dc2626;">'+(o?pc(o.own,o.n):'—')+'</td>'; }).join('')+'</tr>'
-    +'<tr class="st"><td class="l" style="padding-left:14px;color:#64748b;">（別）やむを得ない追完<span class="skp-tag">'+_skEsc(kkMbrUnavoid().join('・'))+'</span></td>'+ms.map(function(m){ var o=Q.M[m]; return '<td style="color:#64748b;">'+(o?pc(o.un,o.n):'—')+'</td>'; }).join('')+'</tr>'
+    +'<tr class="st grp"><td class="l" style="padding-left:14px;font-weight:800;">追完率（やむを得ないを除く）</td>'+ms.map(function(m){ var o=Q.M[m]; if(fresh(m)) return '<td style="color:#cbd5e1;">—</td>'; return '<td style="font-weight:800;">'+(o?pc(o.tk,o.n):'—')+'</td>'; }).join('')+'</tr>'
+    +'<tr class="st"><td class="l" style="padding-left:14px;">　お客様の書類が原因</td>'+ms.map(function(m){ var o=Q.M[m]; if(fresh(m)) return '<td style="color:#cbd5e1;">—</td>'; return '<td>'+(o?pc(o.cust,o.n):'—')+'</td>'; }).join('')+'</tr>'
+    +'<tr class="st"><td class="l" style="padding-left:14px;">　社内で防げたもの</td>'+ms.map(function(m){ var o=Q.M[m]; if(fresh(m)) return '<td style="color:#cbd5e1;">—</td>'; return '<td style="color:#dc2626;">'+(o?pc(o.own,o.n):'—')+'</td>'; }).join('')+'</tr>'
+    +'<tr class="st"><td class="l" style="padding-left:14px;color:#64748b;">（別）やむを得ない追完<span class="skp-tag">'+_skEsc(kkMbrUnavoid().join('・'))+'</span></td>'+ms.map(function(m){ var o=Q.M[m]; if(fresh(m)) return '<td style="color:#cbd5e1;">—</td>'; return '<td style="color:#64748b;">'+(o?pc(o.un,o.n):'—')+'</td>'; }).join('')+'</tr>'
     +'</tbody></table></div>';
   // 追完の多い書類（この月に届いた追完）
   var D={}; (((KK.mbrNew||{}).tsuikan)||[]).forEach(function(t){ if(!/追完/.test(t.sub||'') || String(t.dt||'').slice(0,7)!==ym) return; var its=(Array.isArray(t.doc_items)?t.doc_items:[]), UNL=kkMbrUnavoid(), isU=function(d){ return UNL.some(function(u){ return String(d).indexOf(u)>=0; }); }, hu=its.some(function(x){ return x&&isU(x.doc); }); its.forEach(function(x){ if(!x||!x.doc) return; var w=(isU(x.doc)||(hu&&/申告書/.test(x.doc)))?'やむを得ない':(x.who||''); var k=x.doc+'｜'+w; D[k]=(D[k]||0)+1; }); });
@@ -2505,7 +2546,7 @@ function kkMbrQualityHtml(R, ym, rep){
   h+='<div class="mbr-box" style="margin-top:12px;"><h4>担当者別の追完率（'+kkYmJ(kkYmAdd(ym,-2))+'〜'+kkYmJ(ym)+'に申請・10件以上・追完率の高い順）</h4>'+(SL.length?'<div style="overflow:auto;"><table class="skp-tbl" style="box-shadow:none;"><thead><tr><th class="l" style="padding-left:8px;">担当</th><th>3か月の申請</th><th>追完率</th><th>社内で防げた</th><th style="color:#64748b;">やむを得ない</th><th>'+(+ym.slice(5))+'月の申請</th><th>'+(+ym.slice(5))+'月の追完率</th><th>LT（中央値）</th></tr></thead><tbody>'+SL.map(function(x){ var r=x.tk/x.n*100, o=x.own/x.n*100, mr=x.mn?x.mtk/x.mn*100:null, bar=function(v,c){ return '<span style="display:inline-block;width:46px;height:6px;background:#eef2f7;border-radius:99px;vertical-align:middle;margin-right:6px;overflow:hidden;"><i style="display:block;height:100%;width:'+Math.min(100,v)+'%;background:'+c+';"></i></span>'; }; return '<tr class="st"><td class="l" style="padding-left:8px;font-weight:700;">'+esc(x.name)+'</td><td>'+n0(x.n)+'</td><td style="font-weight:800;color:'+(r>=30?'#dc2626':(r>=20?'#d97706':'#0f766e'))+';">'+bar(r,r>=30?'#dc2626':(r>=20?'#d97706':'#0f766e'))+pc(x.tk,x.n)+'</td><td style="color:'+(o>=10?'#dc2626':'#64748b')+';">'+pc(x.own,x.n)+'</td><td style="color:#64748b;">'+pc(x.un,x.n)+'</td><td>'+n0(x.mn)+'</td><td>'+(mr==null?'—':pc(x.mtk,x.mn))+'</td><td>'+(x.med!=null?Math.round(x.med)+'日':'—')+'</td></tr>'; }).join('')+'</tbody></table></div>':'<div class="skp-note">データがありません</div>')+'<div class="skp-note" style="margin-top:6px;">色：追完率 30%以上＝赤・20%以上＝黄。「社内で防げた」10%以上＝赤。担当は今の案件の担当者で数えています（引継ぎ後の案件は引き継いだ人に入ります）。</div></div>';
   h+='<div class="mbr-grid" style="margin-top:12px;"><div class="mbr-box"><h4>📰 トピックス</h4><textarea class="mbr-ta" placeholder="例：健康診断の再検査による追完が多発。協議会の加入証の期限切れも目立つ。" onchange="kkMbrSetText(\''+ym+'\',\'qTopics\',this.value)">'+esc(rep.qTopics||'')+'</textarea></div>'
     +'<div class="mbr-box"><h4>🔧 改善点・やること</h4><textarea class="mbr-ta" placeholder="例：ヒアリングフォームで健康診断の受診日をチェック必須に（町田・11月中）" onchange="kkMbrSetText(\''+ym+'\',\'qActions\',this.value)">'+esc(rep.qActions||'')+'</textarea></div></div>';
-  h+='<div class="skp-note" style="margin-top:6px;">リードタイム＝案シスに依頼を登録した日から申請日まで。追完率＝その月に申請した案件のうち、入管から追完依頼メールが届いた割合（追完メールの取込は2026年4月から）。追完は申請から数週間後に届くので、直近の月は数字がまだ増えます。「社内で防げたもの」＝追完の仕分けで対応者が「社内」の項目があるもの。<br>やむを得ない追完＝下の書類だけの追完（例：健康診断の再検査。セットで来る「受診者の申告書」も含む）。追完率からは除き、別に数えます。<span class="mbr-act">書類：<input value="'+_skEsc(kkMbrUnavoid().join('、'))+'" style="width:180px;border:1px solid #e2e8f0;border-radius:6px;padding:2px 6px;font-size:11.5px;" onchange="kkMbrSetUnavoid(this.value)">（、区切り）</span></div>';
+  h+='<div class="skp-note" style="margin-top:6px;">リードタイム＝案シスに依頼を登録した日から申請日まで。追完率＝その月に申請した案件のうち、入管から追完依頼メールが届いた割合（追完メールの取込は2026年4月から）。追完は申請から数週間後に届くので、月末から60日たって数が固まった月だけ追完率を出しています（それより新しい月は「—」）。「社内で防げたもの」＝追完の仕分けで対応者が「社内」の項目があるもの。<br>やむを得ない追完＝下の書類だけの追完（例：健康診断の再検査。セットで来る「受診者の申告書」も含む）。追完率からは除き、別に数えます。<span class="mbr-act">書類：<input value="'+_skEsc(kkMbrUnavoid().join('、'))+'" style="width:180px;border:1px solid #e2e8f0;border-radius:6px;padding:2px 6px;font-size:11.5px;" onchange="kkMbrSetUnavoid(this.value)">（、区切り）</span></div>';
   h+=kkMbrKokkoHtml(R, ym);
   return h;
 }
@@ -2587,22 +2628,60 @@ function kkPtOrg(org){ return kkPtOrgInfo(org).v; }
 function kkPtSetOrg(n,v){ KK.mbr.points=KK.mbr.points||{}; KK.mbr.points.org=KK.mbr.points.org||{}; if(String(v).trim()===''){ delete KK.mbr.points.org[n]; } else { var x=+v; if(!(x>=0)){ showToast('⚠️ 数字で入れてください'); return; } KK.mbr.points.org[n]=x; } kkMbrSave('💾 係数を保存しました'); kkRender(); }
 // ver.20261102.02: 係数をボタン1回で選べるように（0.5 楽〜2.0 とても大変）。検索・「未設定だけ」で絞り込み
 var KK_PT_LV=[[0.5,'楽'],[1,'普通'],[1.25,'少し大変'],[1.5,'大変'],[2,'とても大変']];
+// ver.20261105.05: 催促の回数（signwait_reminders・2026/9/14〜。書類／ヒアリングフォーム／サイン返送、LINE・Chatwork・手動。送れなかった分は除く）を登録支援機関ごとに。係数（大変さ）を決める材料
+var KK_REM_FROM='2026-09-14', KK_REREQ_FROM='2026-06-01';
+async function kkRemLoad(){ if(KK.remLoading) return; KK.remLoading=true;
+  try{ var q=await Promise.all([
+      _soFetchAll(function(){ return _sb.from('signwait_reminders').select('id,case_id,kind,status').eq('status','ok').order('id',{ascending:true}); }),
+      _soFetchAll(function(){ return _sb.from('doc_rereq_log').select('id,kind,ref_id,new_date').order('id',{ascending:true}); }).catch(function(e){ console.error('[kkRereq]',e); return []; }),
+      _soFetchAll(function(){ return _sb.from('companies').select('id,support_org_name').order('id',{ascending:true}); }).catch(function(e){ console.error('[kkRereqCo]',e); return []; }) ]);
+    KK.rem=q[0]||[]; KK.rereq=q[1]||[]; KK.remCo=q[2]||[]; }catch(e){ console.error('[kkRem]',e); KK.rem=[]; KK.rereq=[]; KK.remCo=[]; }
+  KK.remLoading=false; kkRender(); }
+function kkRemByOrg(){ if(!KK.rem) return null; var cs=((_skPerf.data||{}).cases)||[], byId={}, O={}; cs.forEach(function(c){ byId[c.id]=c; });
+  var g=function(org){ var n=kkPtNorm(org); if(!n) return null; return O[n]=O[n]||{docs:0,hearing:0,sign:0,tot:0,cases:{},req:0}; };
+  KK.rem.forEach(function(r){ var c=byId[r.case_id]; if(!c) return; var o=g(c.org); if(!o) return; var k=r.kind==='docs'?'docs':(r.kind==='hearing'?'hearing':(r.kind==='signwait'?'sign':null)); if(!k) return; o[k]++; o.tot++; o.cases[r.case_id]=1; });
+  cs.forEach(function(c){ var t=_krJst(c.created_at); if(!t||t<KK_REM_FROM) return; var o=O[kkPtNorm(c.org)]; if(o) o.req++; });
+  // ver.20261105.06: 書類依頼日が後から新しい日付に更新された回数（＝催促。doc_rereq_log・6/1〜）。人材＝6/1以降に登録された案件の分÷その案件数、企業＝企業書類の更新回数と会社数
+  var gr=function(org){ var n=kkPtNorm(org); if(!n) return null; return O[n]=O[n]||{docs:0,hearing:0,sign:0,tot:0,cases:{},req:0}; };
+  cs.forEach(function(c){ var t=_krJst(c.created_at); if(!t||t<KK_REREQ_FROM) return; var o=gr(c.org); if(o) o.rqN=(o.rqN||0)+1; });
+  var co={}; (KK.remCo||[]).forEach(function(c){ co[String(c.id)]=c.support_org_name; });
+  (KK.rereq||[]).forEach(function(r){ if(r.kind==='p'){ var c=byId[r.ref_id]; if(!c) return; var t=_krJst(c.created_at); if(!t||t<KK_REREQ_FROM) return; var o=gr(c.org); if(o) o.rqP=(o.rqP||0)+1; }
+    else { var o2=gr(co[String(r.ref_id)]); if(!o2) return; o2.rqC=(o2.rqC||0)+1; o2.rqCo=o2.rqCo||{}; o2.rqCo[r.ref_id]=1; } });
+  return O; }
+// ver.20261105.06: 大変さの目安（登録支援機関ごと）。入管＝依頼の登録→申請の日数（中央値）、国交省＝企業ボール→申請の日数（中央値）と補正対応の回数
+function kkOrgHard(ym){ var cs=((_skPerf.data||{}).cases)||[], since=kkYmAdd(ym,-5), O={}, med=function(a){ if(!a.length) return null; var b=a.slice().sort(function(x,y){ return x-y; }), k=Math.floor(b.length/2); return b.length%2?b[k]:(b[k-1]+b[k])/2; };
+  var g=function(n){ return O[n]=O[n]||{lt:[], kn:0, kApp:0, ball:[], fix:0}; };
+  cs.forEach(function(c){ var rd=String(c.receipt_date||''); if(!/^\d{4}-\d\d-\d\d/.test(rd) || rd.slice(0,7)<since || rd.slice(0,7)>ym || !c.created_at || String(c.app_type||'')==='申請なし') return; var n=kkPtNorm(c.org); if(!n) return;
+    var lt=Math.round((new Date(rd.slice(0,10)+'T00:00:00+09:00')-new Date(c.created_at))/864e5); if(lt>=0&&lt<=365) g(n).lt.push(lt); });
+  var NW=KK.mbrNew; if(NW && NW.kokko){ var F={}, days={};
+    (NW.kokkoLog||[]).forEach(function(l){ var f=F[l.kokko_case_id]=F[l.kokko_case_id]||{}, t=l.changed_at, st=String(l.to_status||'');
+      if(/企業ボール/.test(st)&&!/精査/.test(st)&&(!f.ball||t<f.ball)) f.ball=t; if(st==='申請済み'&&(!f.app||t<f.app)) f.app=t;
+      if(st==='補正完了'){ var d=_krJst(t); if(!days[l.kokko_case_id+'|'+d]){ days[l.kokko_case_id+'|'+d]=1; f.fix=(f.fix||0)+1; } } });
+    NW.kokko.forEach(function(k){ var n=kkPtNorm(k.support_org); if(!n) return; var o=g(n), f=F[k.id]||{}; o.kn++; if(f.app){ o.kApp++; if(f.ball&&f.app>f.ball) o.ball.push((new Date(f.app)-new Date(f.ball))/864e5); } o.fix+=f.fix||0; }); }
+  Object.keys(O).forEach(function(n){ var o=O[n]; o.ltM=med(o.lt); o.ballM=med(o.ball); });
+  return {O:O, kk:!!(NW&&NW.kokko)}; }
 function kkPtOrgListHtml(R, ym){
   var cs=((_skPerf.data||{}).cases)||[], since=kkYmAdd(ym,-5), O={};
   cs.forEach(function(c){ var rd=String(c.receipt_date||'').slice(0,7); if(rd<since||rd>ym||!c.org) return; var n=kkPtNorm(c.org); if(!n) return; var o=O[n]=O[n]||{n:n, name:String(c.org).trim(), k:0}; o.k++; });
-  var L=Object.keys(O).map(function(k){ var o=O[k], inf=kkPtOrgInfo(o.name); o.v=inf.v; o.src=inf.src; return o; }).sort(function(a,b){ return ((a.src==='none')?0:1)-((b.src==='none')?0:1) || b.k-a.k; });
+  if(!KK.rem) kkRemLoad(); var RM=kkRemByOrg()||{}, HD=kkOrgHard(ym), HO=HD.O;
+  cs.forEach(function(c){ var n=kkPtNorm(c.org); if(n && RM[n] && !O[n]) O[n]={n:n, name:String(c.org).trim(), k:0}; });   // 申請が無くても催促がある先は出す
+  var L=Object.keys(O).map(function(k){ var o=O[k], inf=kkPtOrgInfo(o.name), r=RM[k]; o.v=inf.v; o.src=inf.src; o.rm=r||null; o.per=r?(r.tot/Math.max(1,r.req||Object.keys(r.cases).length)):0; o.rq=r&&r.rqN?(r.rqP||0)/r.rqN:null; o.rqC=r?(r.rqC||0):0; o.rqCoN=r&&r.rqCo?Object.keys(r.rqCo).length:0; o.hd=HO[k]||null; return o; })
+    .sort(KK.ptSort==='rq'?function(a,b){ var sa=a.rm&&a.rm.rqN>=10?0:1, sb=b.rm&&b.rm.rqN>=10?0:1; return sa-sb || (b.rq||0)-(a.rq||0); }:KK.ptSort==='rqc'?function(a,b){ return b.rqC-a.rqC; }:KK.ptSort==='kk'?function(a,b){ return (b.hd?b.hd.kn:0)-(a.hd?a.hd.kn:0) || (b.hd&&b.hd.ballM||0)-(a.hd&&a.hd.ballM||0); }:KK.ptSort==='lt'?function(a,b){ var sa=a.hd&&a.hd.lt.length>=10?0:1, sb=b.hd&&b.hd.lt.length>=10?0:1; return sa-sb || (b.hd&&b.hd.ltM||0)-(a.hd&&a.hd.ltM||0); }:KK.ptSort==='rem'?function(a,b){ var sa=a.rm&&a.rm.req>=5?0:1, sb=b.rm&&b.rm.req>=5?0:1; return sa-sb || b.per-a.per || (b.rm?b.rm.tot:0)-(a.rm?a.rm.tot:0); }:function(a,b){ return ((a.src==='none')?0:1)-((b.src==='none')?0:1) || b.k-a.k; });
   var un=L.filter(function(o){ return o.src==='none'; }).length, q=String(KK.ptQ||'').trim(), only=!!KK.ptUn;
   var V=L.filter(function(o){ return (!only||o.src==='none') && (!q || o.name.indexOf(q)>=0 || o.n.indexOf(kkPtNorm(q))>=0); });
   var esc=_skEsc, js=function(t){ return esc(t).replace(/'/g,"\\'"); };
   var chip=function(o,lv){ var on=o.src!=='none' && Math.abs(o.v-lv[0])<1e-9; return '<button onclick="kkPtSetOrg(\''+js(o.n)+'\','+lv[0]+')" title="'+lv[1]+'" style="border:1.5px solid '+(on?'#0f766e':'#e2e8f0')+';background:'+(on?'#0f766e':'#fff')+';color:'+(on?'#fff':'#334155')+';border-radius:999px;padding:2px 9px;font-size:11.5px;font-weight:'+(on?'800':'600')+';cursor:pointer;white-space:nowrap;">'+(lv[0]%1===0?lv[0].toFixed(1):lv[0])+' '+lv[1]+'</button>'; };
   var other=function(o){ var isLv=KK_PT_LV.some(function(lv){ return Math.abs(o.v-lv[0])<1e-9; }); return '<input value="'+(o.src!=='none'&&!isLv?o.v:'')+'" placeholder="他" title="ほかの数字にするときだけ" style="width:40px;border:1px solid #e2e8f0;border-radius:6px;padding:2px 4px;font-size:11.5px;text-align:right;" onchange="kkPtSetOrg(\''+js(o.n)+'\',this.value)">'; };
   return '<details'+((un||KK.ptOpen)?' open':'')+' ontoggle="KK.ptOpen=this.open" style="margin-top:10px;"><summary style="cursor:pointer;font-size:12.5px;font-weight:800;color:#0f172a;">⚙️ 登録支援機関の係数（大変さ）　'+(un?'<span style="color:#dc2626;">未設定 '+un+'件</span>':'すべて設定済み')+'</summary>'
-    +'<div class="skp-note" style="margin:6px 0;">ボタンを押すだけで保存されます。<b>普通＝1.0</b>。大変なところほど右のボタン（例：オープンケア＝2.0 とても大変・Linola＝1.5 大変・アイデム/KMT/アールビー＝0.5 楽）。最初はシート「⭐️登録支援機関係数」の値が入っています。</div>'
+    +'<div class="skp-note" style="margin:6px 0;">ボタンを押すだけで保存されます。<b>普通＝1.0</b>。大変なところほど右のボタン（例：オープンケア＝2.0 とても大変・Linola＝1.5 大変・アイデム/KMT/アールビー＝0.5 楽）。最初はシート「⭐️登録支援機関係数」の値が入っています。<br>催促＝案シスから送った催促の回数（'+(+KK_REM_FROM.slice(5,7))+'/'+(+KK_REM_FROM.slice(8))+'〜・書類／ヒアリングフォーム／サイン返送、LINE・Chatwork・手動。送れなかった分は除く）。1件あたり＝催促の合計÷その期間に登録された案件の数。<b style="color:#dc2626;">2回以上</b>・<b style="color:#d97706;">1回以上</b>は書類が集まりにくい先＝大変さの目安です（「催促の多い順」では、その期間の案件が5件未満の先は下に回します）。<br>書類の再依頼＝書類依頼日を後から新しい日付に更新した回数（＝催促。催促ボタン・手入力・LINE送信どれでも数えます。同じ人・同じ日は1回）。人材＝'+(+KK_REREQ_FROM.slice(5,7))+'/'+(+KK_REREQ_FROM.slice(8))+'以降に登録された案件の再依頼の合計÷その案件数（<b style="color:#dc2626;">2回以上</b>・<b style="color:#d97706;">1.5回以上</b>）。企業＝企業書類の依頼日を更新した回数（会社数）。<br>入管 依頼→申請＝直近6か月に申請した案件の、案シスに依頼を登録した日から申請日までの日数（中央値。<b style="color:#dc2626;">50日以上</b>・<b style="color:#d97706;">40日以上</b>）。</div>'
     +'<div style="display:flex;gap:8px;align-items:center;margin:4px 0 6px;flex-wrap:wrap;"><input value="'+esc(q)+'" placeholder="🔍 機関名で探す" onchange="KK.ptQ=this.value;kkRender()" style="border:1px solid #cbd5e1;border-radius:8px;padding:4px 8px;font-size:12px;width:180px;">'
-    +'<label style="font-size:12px;color:#334155;cursor:pointer;"><input type="checkbox"'+(only?' checked':'')+' onchange="KK.ptUn=this.checked;kkRender()"> 未設定だけ</label><span style="font-size:11.5px;color:#64748b;">'+V.length+'件</span></div>'
-    +'<div style="max-height:360px;overflow:auto;"><table class="skp-tbl" style="box-shadow:none;"><thead><tr><th class="l" style="padding-left:8px;">登録支援機関</th><th>申請（6か月）</th><th class="l">係数（押すと保存）</th><th class="l">出どころ</th></tr></thead><tbody>'
-    +(V.length?V.map(function(o){ return '<tr class="st"'+(o.src==='none'?' style="background:#fef2f2;"':'')+'><td class="l" style="padding-left:8px;font-weight:700;">'+esc(o.name)+'</td><td>'+o.k+'件</td><td class="l"><div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;">'+KK_PT_LV.map(function(lv){ return chip(o,lv); }).join('')+other(o)+'</div></td>'
-      +'<td class="l" style="color:'+(o.src==='none'?'#dc2626':'#64748b')+';font-size:11.5px;white-space:nowrap;">'+(o.src==='set'?'経管で設定 <a href="javascript:kkPtSetOrg(\''+js(o.n)+'\',\'\')" title="シートの値に戻す">↺</a>':(o.src==='sheet'?'シート':'未設定（1.0で計算）'))+'</td></tr>'; }).join(''):'<tr class="st"><td colspan="4" class="l" style="padding-left:8px;color:#94a3b8;">ありません</td></tr>')
+    +'<label style="font-size:12px;color:#334155;cursor:pointer;"><input type="checkbox"'+(only?' checked':'')+' onchange="KK.ptUn=this.checked;kkRender()"> 未設定だけ</label>'
+    +'<select onchange="KK.ptSort=this.value;kkRender()" style="font-size:12px;border:1px solid #cbd5e1;border-radius:8px;padding:3px 6px;"><option value=""'+(KK.ptSort!=='rem'?' selected':'')+'>並び：未設定→申請の多い順</option><option value="rq"'+(KK.ptSort==='rq'?' selected':'')+'>並び：人材書類の再依頼が多い順（1件あたり）</option><option value="rqc"'+(KK.ptSort==='rqc'?' selected':'')+'>並び：企業書類の再依頼が多い順</option><option value="rem"'+(KK.ptSort==='rem'?' selected':'')+'>並び：催促ボタンの多い順（1件あたり）</option><option value="lt"'+(KK.ptSort==='lt'?' selected':'')+'>並び：入管 依頼→申請の日数が長い順</option></select><span style="font-size:11.5px;color:#64748b;">'+V.length+'件</span></div>'
+    +'<div style="max-height:360px;overflow:auto;"><table class="skp-tbl" style="box-shadow:none;"><thead><tr><th class="l" style="padding-left:8px;">登録支援機関</th><th>申請（6か月）</th><th>入管<br>依頼→申請</th><th>書類の再依頼（'+(+KK_REREQ_FROM.slice(5,7))+'/'+(+KK_REREQ_FROM.slice(8))+'〜）<br><span style="font-weight:600;">人材 1件あたり／企業</span></th><th>催促ボタン（'+(+KK_REM_FROM.slice(5,7))+'/'+(+KK_REM_FROM.slice(8))+'〜）<br><span style="font-weight:600;">書類／ヒアリング／サイン</span></th><th class="l">係数（押すと保存）</th><th class="l">出どころ</th></tr></thead><tbody>'
+    +(V.length?V.map(function(o){ return '<tr class="st"'+(o.src==='none'?' style="background:#fef2f2;"':'')+'><td class="l" style="padding-left:8px;font-weight:700;">'+esc(o.name)+'</td><td>'+o.k+'件</td>'+(function(){ var x=o.hd; if(!x||x.ltM==null) return '<td style="color:#cbd5e1;">—</td>'; var c=x.ltM>=50?'#dc2626':(x.ltM>=40?'#d97706':'#0f766e'); return '<td style="font-weight:800;color:'+c+';" title="'+x.lt.length+'件の中央値">'+Math.round(x.ltM)+'日</td>'; })()
+      +(function(){ if(!KK.rem) return '<td style="color:#94a3b8;">…</td>'; var r=o.rm; if(!r||(!r.rqN&&!o.rqC)) return '<td style="color:#cbd5e1;">—</td>'; var c=o.rq==null?'#64748b':(o.rq>=2?'#dc2626':(o.rq>=1.5?'#d97706':'#0f766e')); return '<td><b style="color:'+c+';" title="人材書類の依頼日を更新した回数 '+(r.rqP||0)+'回 ÷ '+(+KK_REREQ_FROM.slice(5,7))+'/'+(+KK_REREQ_FROM.slice(8))+'以降に登録された案件 '+(r.rqN||0)+'件">'+(o.rq==null?'—':(Math.round(o.rq*10)/10)+'回')+'</b>／<b style="color:'+(o.rqC>=50?'#dc2626':(o.rqC>=20?'#d97706':'#334155'))+';">'+o.rqC+'回</b><span style="color:#64748b;font-size:11px;">（'+o.rqCoN+'社）</span></td>'; })()
++(function(){ var r=o.rm; if(!KK.rem) return '<td style="color:#94a3b8;">…</td>'; if(!r||!r.tot) return '<td style="color:#cbd5e1;">0</td>'; var c=o.per>=2?'#dc2626':(o.per>=1?'#d97706':'#0f766e'); return '<td style="white-space:nowrap;"><b>'+r.tot+'回</b><span style="color:#64748b;font-size:11px;">（'+r.docs+'／'+r.hearing+'／'+r.sign+'）</span> <b style="color:'+c+';" title="催促の合計÷'+(+KK_REM_FROM.slice(5,7))+'/'+(+KK_REM_FROM.slice(8))+'以降に案シスへ登録された案件（'+r.req+'件）">1件'+(Math.round(o.per*10)/10)+'回</b></td>'; })()+'<td class="l"><div style="display:flex;gap:4px;align-items:center;flex-wrap:nowrap;">'+KK_PT_LV.map(function(lv){ return chip(o,lv); }).join('')+other(o)+'</div></td>'
+      +'<td class="l" style="color:'+(o.src==='none'?'#dc2626':'#64748b')+';font-size:11.5px;white-space:nowrap;">'+(o.src==='set'?'経管で設定 <a href="javascript:kkPtSetOrg(\''+js(o.n)+'\',\'\')" title="シートの値に戻す">↺</a>':(o.src==='sheet'?'シート':'未設定（1.0で計算）'))+'</td></tr>'; }).join(''):'<tr class="st"><td colspan="7" class="l" style="padding-left:8px;color:#94a3b8;">ありません</td></tr>')
     +'</tbody></table></div></details>'; }
 // ver.20261031.16: 1人目＝その所属機関（企業）で一番最初に登録された案件（案件名は1人ずつのことが多いので企業で見る）。企業が空なら案件名
 function kkPtKey(c){ var co=kkPtNorm(c.company); return co?('co:'+co):('nm:'+String(c.name||c.id)); }
