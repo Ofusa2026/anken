@@ -6121,7 +6121,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261106.01';
+var OFUSA_VERSION = 'ver.20261106.02';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -9157,6 +9157,7 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20261106.02', date:'2026-11-06', notify:true, part:false, items:['🗓 テキスト生成の<b>「📋 コピー」を押したら、必ず「書類依頼日を今日に更新しますか？」と聞く</b>ようにしました（テキスト生成のときに「更新しない」を押していても、コピーでもう一度聞きます）。まだ届いていない書類がすでに今日の依頼日になっているときは、「すでに今日です」とお知らせします。'] },
   { version:'ver.20261106.01', date:'2026-11-06', notify:true, part:false, items:['🛠 <b>完了した案件で「確認結果のご案内」を開いたとき、担当✓・不要の書類が【未提出書類】に出てしまう</b>のを直しました（書類チェックを読み込んでから判定します）。','🗓 書類タブの「依頼日を一括入力」で、<b>届いている書類（担当✓）の依頼日は変えない</b>ようにしました（催促の回数を正しく数えるため）。'] },
   { version:'ver.20261105.09', date:'2026-11-05', notify:true, part:false, items:['📋 申請種別が<b>「申請なし」</b>の案件（国交省申請・タイ大使館申請だけの依頼など）でも、申請人書類のタブで<b>書類回収リストを作れる</b>ようになりました。<b>「✏️ 個別編集」で書類を入れてください</b>（はじめは空です）。入れた書類は、進捗・催促・テキスト生成・アップロード画面にも使われます。留学・国籍・建設などの書類が自動で足されることはありません。'] },
   { version:'ver.20261105.08', date:'2026-11-05', notify:true, part:true, items:['🏛 <b>国交省ナンバリング</b>：「✅ 完了（ナンバリング済みへ）」を押したとき、国交省フォルダのURLがそろっていないカードは<b>「URLが入るまで国交省プレチェックには出ません」</b>と、足りないものを出すようにしました（完了にはできます）。'] },
@@ -113884,17 +113885,23 @@ function _rqAsk(list, opts){
   }
   if(typeof DB_READY!=='undefined' && DB_READY && !window._coDocLoadedFromDB) list=(list||[]).filter(function(x){ return x && x.kind!=='co'; });
   var t=_rqToday(), md=Number(t.slice(5,7))+'/'+Number(t.slice(8,10));
-  var work=[], total=0;
+  var work=[], total=0, already=0;
   (list||[]).forEach(function(x){
     if(!x || !x.id) return;
     var bag=_rqBag(x.kind, x.id);
-    var docs=_rqTargets(x.kind, x.id, x.names).filter(function(d){ return String(bag['req::'+d]||'').slice(0,10)!==t; });
+    var all=_rqTargets(x.kind, x.id, x.names);
+    var docs=all.filter(function(d){ return String(bag['req::'+d]||'').slice(0,10)!==t; });
+    already+=all.length-docs.length;
     if(docs.length){ work.push({kind:x.kind, id:x.id, docs:docs, label:x.label||''}); total+=docs.length; }
   });
-  if(!total) return;   // その日にもう更新している（または届いていない書類が無い）
+  if(!total){   // その日にもう更新している（または届いていない書類が無い）
+    // ver.20261106.02: コピーのボタンから呼んだときは、出ない理由をトーストで知らせる
+    if(opts.explain && already){ try{ showToast('🗓 まだ届いていない書類の依頼日は、すでに今日（'+md+'）です'); }catch(e){} }
+    return;
+  }
   // ver.20261105.05: 「更新しない」を押した相手には、10分間は聞き直さない（テキスト生成→コピーで2回出ないように）
   var _dk=work.map(function(w){ return w.kind+':'+w.id; }).sort().join('|'), _dc=(window._rqDeclined=window._rqDeclined||{});
-  if(!opts.auto && _dc[_dk] && Date.now()-_dc[_dk] < 10*60*1000) return;
+  if(!opts.auto && opts.soft && _dc[_dk] && Date.now()-_dc[_dk] < 10*60*1000) return;   // ver.20261106.02: コピーのボタンからは必ず聞く（テキスト生成・自動検知のときだけ控える）
   var run=function(){
     var n=0; work.forEach(function(w){ n+=_rqApply(w.kind, w.id, w.docs); });
     if(n){ try{ showToast('🗓 書類依頼日を今日（'+md+'）に更新しました（'+n+'点）'); }catch(e){} _rqRefresh(); }
@@ -113946,7 +113953,7 @@ function _rqOnCopy(t){
     setTimeout(function(){
       if((window._rqLastAt||0) >= at-3000) return;     // ボタン側で聞いた（コピーの前後3秒）
       if(document.getElementById('_rqAskModal')) return;
-      var list=_rqCtxFromScreen(t); if(list && list.length) _rqAsk(list);
+      var list=_rqCtxFromScreen(t); if(list && list.length) _rqAsk(list, {soft:true});
     }, 1200);
   }catch(e){}
 }
@@ -116323,23 +116330,23 @@ function generateCoDocText(coId, ruleId) {
   var res = document.getElementById('coDocTextResult');
   if (!res) return;
   try{ _rqSetCtx('coDocTextResult', [{kind:'co', id:coId}]); }catch(e){}   // ver.20261105.04
-  try{ _coDocTextAskReq(coId); }catch(e){}   // ver.20261105.05: テキスト生成のボタンを押したときにも聞く
+  try{ _coDocTextAskReq(coId, {soft:true}); }catch(e){}   // ver.20261105.05: テキスト生成のボタンを押したときにも聞く
   res.style.display = 'block';
   res.innerHTML = '<div style="font-size:11px;font-weight:700;color:#059669;margin-bottom:8px;">✅ 生成完了</div>'
     + '<textarea readonly style="width:100%;padding:12px;border:1.5px solid #d1fae5;border-radius:10px;font-size:12px;line-height:1.8;background:#f0fdf4;resize:vertical;box-sizing:border-box;min-height:200px;">'
     + esc(text) + '</textarea>'
-    + '<button onclick="var t=this.previousSibling;t.select();document.execCommand(\'copy\');showToast(\'✅ コピーしました\');_coDocTextAskReq(\''+coId+'\')" style="margin-top:8px;padding:8px 20px;background:#059669;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;width:100%;">📋 コピー</button>';
+    + '<button onclick="var t=this.previousSibling;t.select();document.execCommand(\'copy\');showToast(\'✅ コピーしました\');_coDocTextAskReq(\''+coId+'\',{explain:true})" style="margin-top:8px;padding:8px 20px;background:#059669;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;width:100%;">📋 コピー</button>';
 }
 
 // ver.20261105.04: 所属機関の「テキスト生成」でコピーしたら、まだ届いていない書類の依頼日を今日にするか聞く
 //   書類は開いているタブ（入管／国交省）の書類リストから。建設で受入経験ありの会社の国交省書類は対象外
-function _coDocTextAskReq(coId){
+function _coDocTextAskReq(coId, opts){
   try{
     var co=(companies||[]).find(function(x){ return x.id===coId; }); if(!co) return;
     var isKokko=((window._coDocTabState||{})[coId]==='kokko');
     if(isKokko && String(co.kokkoExperience||'')==='有') return;
     var docs=isKokko ? ((typeof _getCoKokkoDocs==='function')?(_getCoKokkoDocs(co)||[]):[]) : ((typeof _getCoDocList==='function')?(_getCoDocList(co)||[]):[]);
-    if(docs.length) _rqAsk([{kind:'co', id:coId, names:docs}]);
+    if(docs.length) _rqAsk([{kind:'co', id:coId, names:docs}], opts||{});
   }catch(e){ console.warn('[依頼日の確認]', e); }
 }
 // ver.20260701: JAIM案内テキスト生成モーダル
@@ -137927,7 +137934,7 @@ function generateDocText(caseId,ruleId,opts){
   // ver.20261104.03: 書類リストを載せた案内を作ったら、載せた書類の空の依頼日に今日を入れる
   if (text.indexOf('{docList}') >= 0 && _docListRaw.length) { try{ _personAutoReqOnGenerate(caseId, _docListRaw); }catch(e){ console.warn('[依頼日の自動記録]', e); } }
   try{ _rqSetCtx('docTextOutput', [{kind:'p', id:caseId, names:(_docListRaw&&_docListRaw.length)?_docListRaw:null}]); }catch(e){}   // ver.20261105.04
-  try{ setTimeout(function(){ _rqAsk([{kind:'p', id:caseId, names:(_docListRaw&&_docListRaw.length)?_docListRaw:null}]); }, 600); }catch(e){}   // ver.20261105.05: テキスト生成のボタンを押したときにも聞く
+  try{ setTimeout(function(){ _rqAsk([{kind:'p', id:caseId, names:(_docListRaw&&_docListRaw.length)?_docListRaw:null}], {soft:true}); }, 600); }catch(e){}   // ver.20261105.05: テキスト生成のボタンを押したときにも聞く
   // docTextRulesの条件追加テキストも末尾に追加
   if (additions.length) _docListItems = _docListItems.concat(additions);
   text=text.replace('{docList}', _docListItems.join('\n'));
@@ -138014,7 +138021,7 @@ function generateDocText(caseId,ruleId,opts){
     _copyBtn.style.cssText = 'flex:1;padding:8px;background:#2563eb;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;';
     _copyBtn.textContent = '📋 コピー';
     _copyBtn.onclick = function(){ var t=document.getElementById('docTextOutput');t.select();document.execCommand('copy');showToast('📋 コピーしました');
-      try{ window._rqDeclined && Object.keys(window._rqDeclined).forEach(function(k){ if(k==='p:'+caseId) delete window._rqDeclined[k]; }); _rqAsk([{kind:'p', id:caseId, names:(_docListRaw&&_docListRaw.length)?_docListRaw:null}]); }catch(e){} };   // ver.20261105.05: コピーしたら依頼日を今日にするか聞く
+      try{ window._rqDeclined && Object.keys(window._rqDeclined).forEach(function(k){ if(k==='p:'+caseId) delete window._rqDeclined[k]; }); _rqAsk([{kind:'p', id:caseId, names:(_docListRaw&&_docListRaw.length)?_docListRaw:null}], {explain:true}); }catch(e){} };   // ver.20261105.05: コピーしたら依頼日を今日にするか聞く
     _btnRow.appendChild(_copyBtn);
     // ver.20260706.12: 生成テキストをLINE送信キューに追加（翻訳後のテキストもそのまま追加可能）
     var _lqBtn = document.createElement('button');
