@@ -6121,7 +6121,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261106.02';
+var OFUSA_VERSION = 'ver.20261106.03';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -9157,6 +9157,7 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20261106.03', date:'2026-11-06', notify:true, part:false, items:['🏗 所属機関アラートの<b>「国交省書類収集」に、書類が全部そろった会社（取得日・担当✓・不要）が出たままになる</b>のを直しました。まだ届いていない国交省書類がある会社だけを出します。'] },
   { version:'ver.20261106.02', date:'2026-11-06', notify:true, part:false, items:['🗓 テキスト生成の<b>「📋 コピー」を押したら、必ず「書類依頼日を今日に更新しますか？」と聞く</b>ようにしました（テキスト生成のときに「更新しない」を押していても、コピーでもう一度聞きます）。まだ届いていない書類がすでに今日の依頼日になっているときは、「すでに今日です」とお知らせします。'] },
   { version:'ver.20261106.01', date:'2026-11-06', notify:true, part:false, items:['🛠 <b>完了した案件で「確認結果のご案内」を開いたとき、担当✓・不要の書類が【未提出書類】に出てしまう</b>のを直しました（書類チェックを読み込んでから判定します）。','🗓 書類タブの「依頼日を一括入力」で、<b>届いている書類（担当✓）の依頼日は変えない</b>ようにしました（催促の回数を正しく数えるため）。'] },
   { version:'ver.20261105.09', date:'2026-11-05', notify:true, part:false, items:['📋 申請種別が<b>「申請なし」</b>の案件（国交省申請・タイ大使館申請だけの依頼など）でも、申請人書類のタブで<b>書類回収リストを作れる</b>ようになりました。<b>「✏️ 個別編集」で書類を入れてください</b>（はじめは空です）。入れた書類は、進捗・催促・テキスト生成・アップロード画面にも使われます。留学・国籍・建設などの書類が自動で足されることはありません。'] },
@@ -112705,10 +112706,17 @@ function _switchCoDocView(view){
 // ver.20260710.12: 国交省書類収集リストの描画（在留期限-5ヶ月を締切とした収集アラート）
 function _getKokkoDocCollectTargets(){
   if(typeof cData==='undefined') return [];
-  var out=[];
+  var out=[], _miss={};
+  // ver.20261106.03: 国交省書類がもう全部そろっている会社（取得日・担当✓・不要）は出さない
+  var _coHasMissing=function(c){
+    var co=(typeof _caseCompany==='function')?_caseCompany(c):null;
+    if(!co || typeof _coKokkoMissingDocs!=='function') return true;   // 会社が分からないときは今までどおり出す
+    if(!(co.id in _miss)){ try{ _miss[co.id]=(_coKokkoMissingDocs(co)||[]).length>0; }catch(e){ _miss[co.id]=true; } }
+    return _miss[co.id];
+  };
   cData.forEach(function(c){
     var st = (typeof _kokkoDocCollectStatus==='function') ? _kokkoDocCollectStatus(c) : null;
-    if(st && !st.snoozed){ out.push({c:c, st:st}); }
+    if(st && !st.snoozed && _coHasMissing(c)){ out.push({c:c, st:st}); }
   });
   // 締切が近い/超過が大きい順（daysToDue 昇順）
   out.sort(function(a,b){ return a.st.daysToDue - b.st.daysToDue; });
