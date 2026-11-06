@@ -316,7 +316,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261106.01</div>
+      <div class="ver">ver.20261106.02</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -1752,6 +1752,7 @@ function renderDrawer(){
   +   (x.apt_reschedule ? '<div class="span2" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;"><button class="btn" onclick="copyRemindMail(curLead.reg_no)">📧 日程催促文をコピー</button><button class="btn btn-primary" onclick="reschedFollowed(curLead.reg_no)">✅ フォロー実施（履歴記録）</button></div>' : '')
   +   '<label class="span2" style="margin:8px 0 -2px;font-weight:700;color:#2b6cb0;">📄 御礼メール（商談後・資料PDF添付）</label>'
   +   '<label>差出人（担当者名）</label><select id="eThanksSender" class="span2"><option value="">（選択してください）</option>'+STAFF_SEED.map(function(s){return '<option'+(s===thanksSenderDefault()?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
+  +   '<label class="span2" style="display:inline-flex;align-items:center;justify-content:flex-start;gap:6px;width:auto;font-size:12.5px;color:#4a5568;cursor:pointer;"><input type="checkbox" id="eThanksKanri" '+(_isKanriLead(x)?'checked':'')+' style="flex:none;margin:0;padding:0;width:15px;height:15px;"> 監理団体向け（技能実習の料金案内を御礼文に入れる）</label>'
   +   '<div class="span2" style="display:flex;gap:8px;flex-wrap:wrap;">'
   +     '<button class="btn" onclick="copyThanksMsg()">📄 御礼文をコピー</button>'
   +     (x.thanks_sent
@@ -2398,17 +2399,34 @@ function markThanksSent(flag){
 function thanksSenderDefault(){ try{ return localStorage.getItem('thanksSender')||''; }catch(e){ return ''; } }
 /* ver.20261029.11: 提案金額が通常料金と違う会社は、御礼文にその説明を入れる（税込で表示） */
 var PP_SEC_SHORT={'特定技能1号・特定技能2号':'特定技能','技能実習':'技能実習','自動車運送業（特定活動55号を挟む場合）':'自動車運送業','技術・人文知識・国際業務':'技人国','その他在留資格':''};
-function _ppDiffLines(lead){
+function _ppDiffLines(lead, skipGj){
   var p=lead&&lead.proposal_prices; if(typeof p==='string'){ try{p=JSON.parse(p);}catch(e){p=null;} }
   if(!p||!p.items) return [];
   var out=[], fmt=function(n){ return n==null?'要相談':_ppYen(_ppIncl(n))+'円'; };
-  PP_STD.forEach(function(sct){ sct.items.forEach(function(it){
+  PP_STD.forEach(function(sct){ if(skipGj && sct.sec==='技能実習') return; sct.items.forEach(function(it){
     var v=p.items[it.k]||{}; if(v.price===undefined || v.price===it.price) return;
     var show=(v.show===undefined?!it.off:!!v.show); if(!show) return;
     var head=(sct.sub&&sct.sub.indexOf('人材紹介')===0)?'人材紹介＋申請（特定技能1号）':(PP_SEC_SHORT[sct.sec]||'');
     out.push('・'+(head?head+' ':'')+it.label+'：通常 '+fmt(it.price)+' → '+fmt(v.price)+(it.stamp?'（'+it.stamp.replace(/^＊/,'')+'）':''));
   }); });
   return out;
+}
+/* ver.20261106.02: 監理団体向けの御礼文に、技能実習の料金案内を入れる（料金表PDFは通常料金のまま）
+   ・提案金額で技能実習の金額を変えていればその金額、なければ通常料金（税込で表示）
+   ・納税関係書類を監理団体様で回収する場合は、変更・更新を1万円（税抜）＋収入印紙で受ける
+   ・技能実習計画の作成・OTIT申請は大房では受けない */
+var GJ_KANRI_TAX_PRICE = 10000;
+function _isKanriLead(lead){ return /組合/.test(String((lead&&lead.name)||'')); }
+function _ppGjMailBlock(lead){
+  var p=lead&&lead.proposal_prices; if(typeof p==='string'){ try{p=JSON.parse(p);}catch(e){p=null;} }
+  var items=(p&&p.items)||{}, sec=PP_STD.filter(function(x){ return x.sec==='技能実習'; })[0]; if(!sec) return '';
+  var fmt=function(n){ return n==null?'要相談':_ppYen(_ppIncl(n))+'円'; };
+  var short={gj_nin:'在留資格認定証明書交付申請', gj_hen:'在留資格変更許可申請', gj_kou:'在留期間更新許可申請'};
+  var lines=sec.items.map(function(it){ var v=items[it.k]||{}; var pr=(v.price===undefined?it.price:v.price);
+    return '・'+(short[it.k]||it.label)+'：'+fmt(pr)+(it.stamp?'（'+it.stamp.replace(/^＊/,'')+'）':''); });
+  return '\n▼技能実習の申請費用について（税込）\n\n'+lines.join('\n')+'\n\n'
+    + 'なお、納税関係書類（課税・納税証明書等）の回収を監理団体様側でご対応いただける場合、在留資格変更・在留期間更新は '+fmt(GJ_KANRI_TAX_PRICE)+'（別途収入印紙代金）にてお受けいたします。\n\n'
+    + '※ 技能実習計画の作成・外国人技能実習機構（OTIT）への認定申請は、監理団体様側でご対応をお願いいたします（当法人では承っておりません）。\n';
 }
 function copyThanksMsg(){
   if(!curLead) return;
@@ -2431,7 +2449,8 @@ function copyThanksMsg(){
       + svcPicks.map(function(sv){ return '■ '+sv.name+'（'+sv.price+'）\n　'+sv.desc; }).join('\n\n')
       + '\n\nご興味をお持ちいただけましたら、お気軽にお問い合わせください。\n') : '';
   var pledgeNote = hasPledge ? '\n監査サービスをご希望の場合は、上記の監査対応サービス誓約書にご署名をしていただく必要がございます。\n' : '';
-  var pd=_ppDiffLines(curLead);
+  var kanri=!!(el('eThanksKanri')&&el('eThanksKanri').checked);
+  var pd=_ppDiffLines(curLead, kanri);
   var priceNote = pd.length ? ('\nなお、料金につきましては、貴社向けに下記のとおり通常料金から変更してご提案させていただいております（税込）。\n\n'
       + pd.join('\n')+'\n\n上記以外は通常料金となります。'+(ownPrice?'下記の共有資料にある貴社向けの料金表もあわせてご確認ください。':'添付の料金表もあわせてご確認ください。')+'\n') : '';
   var body='件名：本日の御礼（大房行政書士法人）\n\n'
@@ -2441,6 +2460,7 @@ function copyThanksMsg(){
     + '本日使用した資料を添付いたします。\n'
     + 'ご不明な点やご相談などございましたら、お気軽にご連絡ください。\n'
     + priceNote
+    + (kanri?_ppGjMailBlock(curLead):'')
     + links
     + pledgeNote
     + svcNote
@@ -3861,10 +3881,10 @@ var PP_STD = [
     {k:'sk_nin', label:'認定', price:150000},
     {k:'sk_hen', label:'変更', stamp:'＊別途収入印紙代金', price:150000}
   ]},
-  {sec:'技能実習', note:'※ 技能実習計画の作成・OTITへの申請は監理団体様側で対応', taxOpt:true, items:[
+  {sec:'技能実習', note:'※ 技能実習計画の作成・OTITへの申請は監理団体様側で対応', items:[
     {k:'gj_nin', label:'在留資格認定証明書交付申請費用', price:10000, visa:['技能実習'], app:'認定', off:true},
-    {k:'gj_hen', label:'在留資格変更許可申請費用', stamp:'＊別途収入印紙代金', price:30000, priceKanri:10000, visa:['技能実習'], app:'変更', off:true},
-    {k:'gj_kou', label:'在留期間更新許可申請費用', stamp:'＊別途収入印紙代金', price:30000, priceKanri:10000, visa:['技能実習'], app:'更新', off:true}
+    {k:'gj_hen', label:'在留資格変更許可申請費用', stamp:'＊別途収入印紙代金', price:30000, visa:['技能実習'], app:'変更', off:true},
+    {k:'gj_kou', label:'在留期間更新許可申請費用', stamp:'＊別途収入印紙代金', price:30000, visa:['技能実習'], app:'更新', off:true}
   ]},
   {sec:'自動車運送業（特定活動55号を挟む場合）', sub:'申請のみ', after:'※ 特定活動55号は入管窓口でしか申請できないため、東京入管以外の入管で申請が必要な場合、別途交通費が発生いたします。', items:[
     {k:'jd_nin', label:'認定', stamp:'＊別途収入印紙代金（1枚）', price:100000},
@@ -3884,18 +3904,8 @@ var PP_STD = [
 ];
 var _pp = null;   // {items:{k:{price,show}}, pushed_at, updated_at}
 function _ppStdItem(k){ var f=null; PP_STD.forEach(function(s){ s.items.forEach(function(it){ if(it.k===k) f=it; }); }); return f; }
-/* ver.20261104.01: 技能実習の税書類の回収を監理団体様側で行う会社は、変更・更新の標準を1万円（税抜）＋収入印紙にする
-   proposal_prices.opts.gj_tax = 'kanri'（監理団体様で回収）／なし（大房で回収＝標準） */
-var PP_GJ_TAX_NOTE = '※ 納税関係書類（課税・納税証明書等）の回収は監理団体様側で対応';
-function _ppGjKanri(){ return !!(_pp && _pp.opts && _pp.opts.gj_tax==='kanri'); }
-function _ppStd(it){ return (it.priceKanri!=null && _ppGjKanri()) ? it.priceKanri : it.price; }
+function _ppStd(it){ return it.price; }
 function _ppVal(it){ var v=(_pp.items||{})[it.k]||{}; return { price:(v.price===undefined?_ppStd(it):v.price), show:(v.show===undefined?!it.off:!!v.show) }; }
-function _ppOpts(){ var o={}; if(_ppGjKanri()) o.gj_tax='kanri'; return o; }
-function ppSetGjTax(v){
-  _pp.opts = _pp.opts || {};
-  if(v==='kanri') _pp.opts.gj_tax='kanri'; else delete _pp.opts.gj_tax;
-  renderProposal();
-}
 function _ppYen(n){ return Number(n||0).toLocaleString(); }
 function _ppIncl(n){ return Math.round(Number(n||0)*1.1); }
 function openProposal(){
@@ -3918,19 +3928,13 @@ function ppSet(k, field, v){
 }
 function ppReset(){
   if(!confirm('この会社の提案金額を標準料金に戻しますか？（保存するまで反映されません）')) return;
-  _pp.items={}; _pp.opts={}; renderProposal();
+  _pp.items={}; renderProposal();
 }
 function renderProposal(){
   var h='', lastSec='';
   PP_STD.forEach(function(s){
     if(s.sec!==lastSec){ h+='<div style="background:#1f2a5c;color:#fff;font-weight:700;font-size:12.5px;padding:6px 10px;border-radius:6px;margin-top:12px;">'+esc(s.sec)+'</div>'; lastSec=s.sec; }
     if(s.sub) h+='<div style="font-size:11.5px;font-weight:700;color:#1f2a5c;margin:8px 2px 2px;">'+esc(s.sub)+'</div>';
-    if(s.taxOpt){ var km=_ppGjKanri();
-      h+='<div style="font-size:12px;margin:8px 2px 2px;padding:6px 8px;background:#f7fafc;border:1px solid var(--line);border-radius:6px;">'
-        +'<b>税書類の回収：</b>'
-        +'<label style="margin-left:6px;cursor:pointer;"><input type="radio" name="ppGjTax" '+(km?'':'checked')+' onchange="ppSetGjTax(\'ofusa\')"> 大房で回収（標準：変更・更新 3万円）</label>'
-        +'<label style="margin-left:10px;cursor:pointer;"><input type="radio" name="ppGjTax" '+(km?'checked':'')+' onchange="ppSetGjTax(\'kanri\')"> 監理団体様で回収（変更・更新 1万円）</label>'
-        +'</div>'; }
     h+='<table style="width:100%;font-size:12.5px;border-collapse:collapse;">';
     s.items.forEach(function(it){
       var v=_ppVal(it), sp=_ppStd(it), changed=(v.price!==sp);
@@ -3961,9 +3965,9 @@ function _ppPayload(){
 function saveProposal(cb){
   if(!curLead) return;
   var _old=(function(){ var p=curLead.proposal_prices; if(typeof p==='string'){ try{p=JSON.parse(p);}catch(e){p=null;} } return p||{}; })();
-  var changed = JSON.stringify(_ppPayload()) !== JSON.stringify(_old.items||{}) || JSON.stringify(_ppOpts()) !== JSON.stringify(_old.opts||{});
+  var changed = JSON.stringify(_ppPayload()) !== JSON.stringify(_old.items||{});
   var wasPushed = !!_pp.pushed_at;
-  var rec = { items:_ppPayload(), opts:_ppOpts(), updated_at:new Date().toISOString(), pushed_at:(changed?null:(_pp.pushed_at||null)) };
+  var rec = { items:_ppPayload(), updated_at:new Date().toISOString(), pushed_at:(changed?null:(_pp.pushed_at||null)) };
   _sb.from('eigyo_leads').update({ proposal_prices:rec }).eq('reg_no', curLead.reg_no).then(function(r){
     if(r.error){ showMsg('ppMsg','保存に失敗しました：'+r.error.message,'err'); return; }
     curLead.proposal_prices=rec; _pp=JSON.parse(JSON.stringify(rec)); renderProposal();
@@ -3976,13 +3980,13 @@ function _ppOrgName(lead){
   return (o&&o.name) || lead.name || '';
 }
 function _ppRows(lead, p){
-  var rows=[], org=_ppOrgName(lead), save={items:p.items||{}, opts:p.opts||{}};
+  var rows=[], org=_ppOrgName(lead), save={items:p.items||{}};
   var bak=_pp; _pp=save;
   PP_STD.forEach(function(s){ s.items.forEach(function(it){
     if(!it.visa) return; var v=_ppVal(it); if(v.price==null || !v.show) return;
     it.visa.forEach(function(vs){ rows.push({ channel:'via', org_key:org, visa:vs, app_type:it.app, unit_price:v.price,
       stamp_price:null, stamp_count:null, billing_to:null, kb:null, variable_flag:false,
-      note:'営シス提案金額（'+lead.reg_no+'）'+((it.priceKanri!=null && save.opts.gj_tax==='kanri')?'・税書類は監理団体回収':''), is_active:true, push_to_anken:true }); });
+      note:'営シス提案金額（'+lead.reg_no+'）', is_active:true, push_to_anken:true }); });
   }); });
   _pp=bak; return rows;
 }
@@ -4079,7 +4083,6 @@ function _ppDoc(lead, jisseki){
         +(v.price==null?'<div class="price ask">要相談</div>':'<div class="price">'+_ppYen(_ppIncl(v.price))+' <span>円/人（税込）</span></div>')+'</div>';
     });
     if(s.note) body+='<div class="note">'+escHtml(s.note)+'</div>';
-    if(s.taxOpt && _ppGjKanri()) body+='<div class="note">'+escHtml(PP_GJ_TAX_NOTE)+'</div>';
     body+='</div>';
     if(s.after) body+='<div class="note">'+escHtml(s.after)+'</div>';
   });
