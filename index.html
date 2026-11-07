@@ -1278,6 +1278,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <button onclick="_openQuietWindowRequest()" style="margin-top:4px;width:100%;font-size:11px;color:#cbd5e1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:4px;cursor:pointer;font-weight:700;">🔕 静音枠を申請 <span id="quietRemainBadge" style="display:none;background:rgba(255,255,255,.15);color:#a5f3fc;border-radius:8px;padding:0 6px;font-size:9px;font-weight:800;margin-left:4px;">残り2回</span></button>
     <button onclick="openMyTasks()" style="margin-top:4px;width:100%;font-size:11px;color:#cbd5e1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:4px;cursor:pointer;font-weight:700;">✏️ 個人タスク</button>
     <button id="sidebarAdminBtn" onclick="openAdmin()" style="display:none;margin-top:4px;width:100%;font-size:11px;color:#cbd5e1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:4px;cursor:pointer;font-weight:700;">⚙️ 管理者設定</button>
+    <button id="sidebarLoginAcctBtn" onclick="openLoginAcctAdmin()" style="display:none;margin-top:4px;width:100%;font-size:11px;color:#cbd5e1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:4px;cursor:pointer;font-weight:700;">🔐 ログインアカウント</button>
     <button id="sidebarTrashBtn" onclick="openTrashScreen()" style="display:none;margin-top:4px;width:100%;font-size:11px;color:#fca5a5;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.18);border-radius:6px;padding:4px;cursor:pointer;font-weight:700;">🗑️ ゴミ箱</button>
     <button onclick="openFormTrash()" style="margin-top:4px;width:100%;font-size:11px;color:#fca5a5;background:rgba(239,68,68,.06);border:1px solid rgba(239,68,68,.18);border-radius:6px;padding:4px;cursor:pointer;font-weight:700;">🗑 フォーム回答 ゴミ箱</button>
   </div>
@@ -5695,6 +5696,7 @@ details[open] > ._upDocSummary::before { content: '▼ '; }
       <button onclick="closeAdmin()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--gray-400);">×</button>
     </div>
     <div class="admin-body">
+      <button onclick="openLoginAcctAdmin()" style="width:100%;margin-bottom:14px;padding:10px;background:#0f766e;color:white;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">🔐 職員のログインアカウント（作成・再設定）</button>
       <div style="font-size:14px;font-weight:800;color:var(--navy);margin-bottom:12px;">👤 ユーザー・パスワード管理</div>
       <div id="adminContent"></div>
       <hr style="margin:20px 0;border:none;border-top:1px solid var(--gray-200);">
@@ -6121,7 +6123,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261107.02';
+var OFUSA_VERSION = 'ver.20261107.04';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -9144,6 +9146,17 @@ function _applyLoginUserEmailFilter(_authedEmail) {
           if (denied) opt.remove();
         });
       }
+      // ver.20261107.04: 共有アドレス（mail@）は「アドレスがない人」用。自分のログインアカウントを作った人は名前の一覧から外す
+      //   （アカウントがまだない人は、作るまでは今までどおり mail@ から選べる）
+      try{
+        if(String(_authedEmail||'').trim().toLowerCase()==='mail@gyosei-cambo.com' && typeof _laCall==='function'){
+          _laCall({ action:'account_emails' }).then(function(d){
+            var have={}; (d.emails||[]).forEach(function(e){ have[String(e).toLowerCase()]=1; });
+            var byName={}; (typeof USERS!=='undefined'?USERS:[]).forEach(function(u){ if(u && u.name) byName[u.name]=String(u.email||'').trim().toLowerCase(); });
+            Array.from(sel.options).forEach(function(opt){ if(!opt.value) return; var em=byName[opt.value]; if(em && have[em]) opt.remove(); });
+          }).catch(function(e){ console.warn('mail@ name filter:', e && e.message); });
+        }
+      }catch(e){}
       // ver.20261107.01: 自分だけになったら自動で選ぶ
       try{ var _real=Array.from(sel.options).filter(function(o){ return o.value; }); if(_allowedKeywords && _real.length===1){ sel.value=_real[0].value;
         // ver.20261107.02: 自分のアドレスでログインした人は、名前を選ぶ画面を出さずにそのまま本人としてログインする
@@ -9168,6 +9181,8 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20261107.04', date:'2026-11-07', notify:true, part:false, items:['🔐 <b>ログインが職員ごとのアドレスになります。</b>はじめてログインしたとき（またはパスワードを再設定されたとき）は、最初に<b>自分のパスワードを設定する画面</b>が出ます。','忘れたときや、ほかの人のアカウントを使う必要があるときは、町田か宮澤に連絡してください（再設定します）。'] },
+  { version:'ver.20261107.03', date:'2026-11-07', notify:false, part:false, items:['🔐 管理者向け：<b>職員のログインアカウントを案シスの画面から作成</b>できるようにしました（管理者設定／サイドバーの「ログインアカウント作成」）。'] },
   { version:'ver.20261107.02', date:'2026-11-07', notify:true, part:false, items:['🔐 <b>自分のメールアドレスでログインすると、名前を選ぶ画面を出さずにそのまま本人としてログイン</b>します。共有アドレス（mail@）のときは今までどおり名前を選びます。'] },
   { version:'ver.20261107.01', date:'2026-11-07', notify:true, part:false, items:['🔐 <b>自分のメールアドレスでログイン</b>できるようになりました（職員一覧にメールが入っている人）。自分のアドレスでログインすると、担当者は自分だけが出て自動で選ばれます。共有アドレス（mail@）でのログインも今までどおり使えます。'] },
   { version:'ver.20261106.13', date:'2026-11-06', notify:true, part:false, items:['🪪 <b>預かり証の画面から送る文の1行目が「申請人名＋様」になりました</b>：同じグループに何人もいると、預かり証を開かないとだれの分か分からなかったため、「お世話になっております。」の代わりに「TRAN QUANG SAM様」のように名前を入れます（申請後・申請前のどちらの文も）。名前が登録されていない案件は今までどおりです'] },
@@ -13729,6 +13744,11 @@ function completeLogin(userName, user) {
   if(dispRole) dispRole.textContent = user.team || '';
   var adminBtn = document.getElementById('sidebarAdminBtn');
   if (adminBtn) adminBtn.style.display = user.isAdmin ? 'block' : 'none';
+  // ver.20261107.03〜04: ログインアカウント作成ボタン（管理者・町田・宮澤・大房）。実際に作れるかはサーバー側でログイン中のアドレスを確認する
+  var _laBtn = document.getElementById('sidebarLoginAcctBtn');
+  if (_laBtn) _laBtn.style.display = (user.isAdmin || /町田|宮澤|大房/.test(userName||'')) ? 'block' : 'none';
+  // ver.20261107.04: 作成・再設定されたあとの初回は、最初に自分のパスワードを設定する
+  try{ setTimeout(function(){ if(typeof checkMustChangePassword==='function') checkMustChangePassword(); }, 800); }catch(e){}
   var trashBtn = document.getElementById('sidebarTrashBtn');
   if (trashBtn) trashBtn.style.display = user.isAdmin ? 'block' : 'none';
   var teamNav = document.getElementById('nav-team');
@@ -58565,6 +58585,160 @@ function moveTeamMember(fromTi,mi,toTarget){
   persistTeamData();syncUsersFromTeamData();persistUsers();rebuildLoginSelect();renderTeamChart();showToast('↪ '+member.name+' を移動しました');
 }
 function closeMore(){ document.getElementById('moreMenu').style.display='none'; }
+
+// ===== ver.20261107.03〜04: 職員のログインアカウント作成・再設定（Supabase Auth） =====
+// サーバー（staff-login-admin）が、ログイン中のアドレスが管理者（町田・宮澤・大房）か、相手が職員一覧のアドレスかを確認して処理する。
+// パスワードはこの画面で入力したものをそのまま送るだけで、どこにも保存しない。
+// 作成・再設定された人は、次にログインしたとき最初に自分のパスワードを設定する（mail@ の共有アカウントは除く）。
+var _laRows = [];
+var _LA_SHARED = 'mail@gyosei-cambo.com';
+function _laEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function _laModal(){
+  var m=document.getElementById('loginAcctModal');
+  if(m) return m;
+  m=document.createElement('div');
+  m.id='loginAcctModal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:10050;display:flex;align-items:center;justify-content:center;padding:16px;';
+  m.innerHTML='<div style="background:white;border-radius:14px;width:min(680px,100%);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,.25);">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #e5e7eb;"><div style="font-size:15px;font-weight:800;color:#0f172a;">🔐 職員のログインアカウント</div><button onclick="closeLoginAcctAdmin()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#9ca3af;">×</button></div>'
+    +'<div style="padding:14px 18px;border-bottom:1px solid #f1f5f9;background:#f8fafc;">'
+    +'<div style="font-size:11px;color:#64748b;margin-bottom:8px;line-height:1.6;">仮のパスワードを入れて「作成」または「再設定」を押してください（8文字以上）。<br>作成・再設定された人は、次にログインしたとき<b>最初に自分のパスワードを設定</b>します。共有アドレス（mail@）は設定画面を出しません。</div>'
+    +'<div style="display:flex;gap:6px;align-items:center;"><input id="laPass" type="password" autocomplete="new-password" placeholder="仮のパスワード" style="flex:1;padding:8px 10px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:13px;font-family:monospace;">'
+    +'<button onclick="var p=document.getElementById(\'laPass\');p.type=p.type===\'password\'?\'text\':\'password\';" title="表示/非表示" style="padding:7px 10px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;cursor:pointer;">👁️</button>'
+    +'<button id="laBulkBtn" onclick="loginAcctCreateAll()" style="padding:8px 12px;background:#0f766e;color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">未作成をまとめて作成</button></div>'
+    +'</div>'
+    +'<div id="laBody" style="overflow:auto;padding:6px 18px 16px;font-size:13px;">読み込み中…</div>'
+    +'</div>';
+  m.addEventListener('click',function(e){ if(e.target===m) closeLoginAcctAdmin(); });
+  document.body.appendChild(m);
+  return m;
+}
+function closeLoginAcctAdmin(){ var m=document.getElementById('loginAcctModal'); if(m){ var p=document.getElementById('laPass'); if(p) p.value=''; m.style.display='none'; } }
+async function _laCall(body){
+  if(!_sb) throw new Error('接続できません');
+  var r=await _sb.functions.invoke('staff-login-admin',{ body: body });
+  var d=r && r.data;
+  if((!d || typeof d!=='object') && r && r.error && r.error.context && typeof r.error.context.json==='function'){ try{ d=await r.error.context.json(); }catch(e){} }
+  if(!d || !d.ok) throw new Error((d && d.error) || (r && r.error && r.error.message) || '失敗しました');
+  return d;
+}
+async function openLoginAcctAdmin(){
+  var m=_laModal(); m.style.display='flex';
+  var b=document.getElementById('laBody'); if(b) b.innerHTML='読み込み中…';
+  try{
+    var d=await _laCall({ action:'list' });
+    var _seen={};
+    _laRows=(d.rows||[]).filter(function(r){ var k=String(r.email||'').toLowerCase(); if(!k||_seen[k]) return false; _seen[k]=1; return true; }).sort(function(a,b){ return (a.has_account===b.has_account)?0:(a.has_account?1:-1); });
+    window._laIsAdmin=!!d.is_admin;
+    _laRender();
+  }catch(e){ if(b) b.innerHTML='<div style="color:#dc2626;padding:10px 0;">⚠️ '+_laEsc(e.message)+'</div>'; }
+}
+function _laRender(){
+  var b=document.getElementById('laBody'); if(!b) return;
+  if(!_laRows.length){ b.innerHTML='<div style="color:#64748b;padding:10px 0;">職員一覧にメールアドレスが登録された人がいません。</div>'; return; }
+  var miss=_laRows.filter(function(r){ return !r.has_account; }).length;
+  var h='<div style="font-size:11px;color:#64748b;margin:8px 0;">未作成 <b style="color:#b45309;">'+miss+'</b>人 ／ 作成済み '+(_laRows.length-miss)+'人'
+    +(window._laIsAdmin?'':'　<span style="color:#b45309;">※ 共有アドレス（mail@）では、町田のアカウント作成だけできます（作成後は使えなくなります）</span>')+'</div>';
+  _laRows.forEach(function(r,i){
+    var btnStyle='flex:0 0 auto;padding:5px 12px;background:white;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;';
+    h+='<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid #f1f5f9;">'
+      +'<div style="flex:0 0 150px;font-weight:600;">'+_laEsc(r.name)+'</div>'
+      +'<div style="flex:1;font-family:monospace;font-size:12px;color:#334155;word-break:break-all;">'+_laEsc(r.email)+'</div>'
+      +(r.has_account
+        ? '<span style="flex:0 0 auto;font-size:11px;font-weight:700;color:#16a34a;">✅ 作成済み</span>'
+          +(window._laIsAdmin?'<button id="laBtn'+i+'" onclick="loginAcctReset('+i+')" style="'+btnStyle+'color:#b45309;border:1.5px solid #f59e0b;">再設定</button>':'')
+        : '<button id="laBtn'+i+'" onclick="loginAcctCreate('+i+')" style="'+btnStyle+'color:#0f766e;border:1.5px solid #0f766e;">作成</button>')
+      +'</div>';
+  });
+  b.innerHTML=h;
+}
+function _laPass(){
+  var p=(document.getElementById('laPass')||{}).value||'';
+  if(p.length<8){ showToast('⚠️ 仮のパスワードを8文字以上で入れてください','warning'); return null; }
+  return p;
+}
+async function loginAcctCreate(i, silent){
+  var r=_laRows[i]; if(!r || r.has_account) return true;
+  var p=_laPass(); if(p===null) return false;
+  var btn=document.getElementById('laBtn'+i); if(btn){ btn.disabled=true; btn.textContent='作成中…'; }
+  try{
+    await _laCall({ action:'create', email:r.email, password:p });
+    r.has_account=true;
+    if(!silent){ _laRender(); showToast('✅ '+r.name+' さんのアカウントを作成しました'); }
+    return true;
+  }catch(e){
+    if(btn){ btn.disabled=false; btn.textContent='作成'; }
+    showToast('❌ '+r.name+'：'+e.message,'error');
+    return false;
+  }
+}
+async function loginAcctReset(i){
+  var r=_laRows[i]; if(!r) return;
+  var p=_laPass(); if(p===null) return;
+  var shared=String(r.email).toLowerCase()===_LA_SHARED;
+  var msg=r.name+'（'+r.email+'）のパスワードを、入力したパスワードに再設定します。\n'
+    +(shared?'共有アドレスなので、ログインする人全員に新しいパスワードを伝えてください。':'次にログインしたとき、本人に自分のパスワードを設定してもらいます。')+'\nよろしいですか？';
+  if(!confirm(msg)) return;
+  var btn=document.getElementById('laBtn'+i); if(btn){ btn.disabled=true; btn.textContent='再設定中…'; }
+  try{
+    await _laCall({ action:'reset', email:r.email, password:p, force: !shared });
+    showToast('✅ '+r.name+' のパスワードを再設定しました');
+  }catch(e){ showToast('❌ '+r.name+'：'+e.message,'error'); }
+  if(btn){ btn.disabled=false; btn.textContent='再設定'; }
+}
+async function loginAcctCreateAll(){
+  var p=_laPass(); if(p===null) return;
+  var targets=[]; _laRows.forEach(function(r,i){ if(!r.has_account) targets.push(i); });
+  if(!targets.length){ showToast('未作成の人はいません'); return; }
+  if(!confirm(targets.length+'人のアカウントを、入力した仮のパスワードで作成します。\n各自、次にログインしたときに自分のパスワードを設定します。よろしいですか？')) return;
+  var bb=document.getElementById('laBulkBtn'); if(bb){ bb.disabled=true; bb.textContent='作成中…'; }
+  var ok=0, ng=0;
+  for(var k=0;k<targets.length;k++){ if(await loginAcctCreate(targets[k], true)) ok++; else ng++; }
+  if(bb){ bb.disabled=false; bb.textContent='未作成をまとめて作成'; }
+  _laRender();
+  showToast((ng?'⚠️ ':'✅ ')+'作成 '+ok+'人'+(ng?' ／ 失敗 '+ng+'人':''), ng?'warning':undefined);
+}
+
+// ===== ver.20261107.04: 作成・再設定されたあとの初回ログインで、最初に自分のパスワードを設定する =====
+async function checkMustChangePassword(){
+  try{
+    if(!_sb || !_sb.auth) return;
+    var s=await _sb.auth.getSession(); if(!s || !s.data || !s.data.session) return;
+    var d=await _laCall({ action:'status' });
+    if(d && d.must_change) _pwSetupOpen(d.email);
+  }catch(e){ console.warn('checkMustChangePassword:', e && e.message); }
+}
+function _pwSetupOpen(email){
+  if(document.getElementById('pwSetupModal')) return;
+  var m=document.createElement('div');
+  m.id='pwSetupModal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:10100;display:flex;align-items:center;justify-content:center;padding:16px;';
+  var inp='width:100%;box-sizing:border-box;padding:10px 12px;border:1.5px solid #cbd5e1;border-radius:8px;font-size:14px;font-family:monospace;margin-top:4px;';
+  m.innerHTML='<div style="background:white;border-radius:14px;width:min(420px,100%);padding:22px 22px 18px;box-shadow:0 20px 50px rgba(0,0,0,.3);">'
+    +'<div style="font-size:16px;font-weight:800;color:#0f172a;margin-bottom:6px;">🔐 パスワードを設定してください</div>'
+    +'<div style="font-size:12px;color:#64748b;line-height:1.7;margin-bottom:14px;">'+_laEsc(email||'')+'<br>仮のパスワードでログインしています。<b>自分だけのパスワード</b>を決めて設定してください（8文字以上）。設定するまで案シスは使えません。</div>'
+    +'<label style="font-size:12px;font-weight:700;color:#334155;">新しいパスワード<input id="pwNew1" type="password" autocomplete="new-password" style="'+inp+'"></label>'
+    +'<label style="display:block;margin-top:10px;font-size:12px;font-weight:700;color:#334155;">もう一度入力<input id="pwNew2" type="password" autocomplete="new-password" style="'+inp+'"></label>'
+    +'<div id="pwSetupErr" style="display:none;color:#dc2626;font-size:12px;margin-top:8px;"></div>'
+    +'<button id="pwSetupBtn" onclick="_pwSetupSave()" style="margin-top:14px;width:100%;padding:11px;background:#0f766e;color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">設定する</button>'
+    +'<div style="font-size:11px;color:#94a3b8;margin-top:10px;line-height:1.6;">忘れたときや、ほかの人のアカウントを使う必要があるときは、町田か宮澤に連絡してください。</div>'
+    +'</div>';
+  document.body.appendChild(m);
+  setTimeout(function(){ var a=document.getElementById('pwNew1'); if(a) a.focus(); },50);
+}
+async function _pwSetupSave(){
+  var a=(document.getElementById('pwNew1')||{}).value||'', b=(document.getElementById('pwNew2')||{}).value||'';
+  var err=document.getElementById('pwSetupErr');
+  function show(t){ if(err){ err.textContent=t; err.style.display='block'; } }
+  if(a.length<8) return show('8文字以上にしてください');
+  if(a!==b) return show('2回の入力が一致しません');
+  var btn=document.getElementById('pwSetupBtn'); if(btn){ btn.disabled=true; btn.textContent='設定中…'; }
+  try{
+    await _laCall({ action:'set_own', password:a });
+    var m=document.getElementById('pwSetupModal'); if(m) m.remove();
+    showToast('✅ パスワードを設定しました。次回からこのパスワードでログインしてください');
+  }catch(e){ show(e.message); if(btn){ btn.disabled=false; btn.textContent='設定する'; } }
+}
 
 function openAdmin() {
   var m=document.getElementById('adminModal'); if(m) m.classList.add('open');
