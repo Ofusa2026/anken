@@ -6129,7 +6129,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261108.06';
+var OFUSA_VERSION = 'ver.20261108.07';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -9187,6 +9187,7 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20261108.07', date:'2026-11-09', notify:true, part:false, items:['📂 書類収集の一覧：<b>今の在留資格が特定活動の案件は「🛂 入管書類」に出さない</b>ようにしました（入管書類はまだ集めないため）','🏛️ 「国交省書類」の一覧は、<b>案件登録から30日以上たっても国交省書類がそろっていない会社</b>（建設の申請前の案件・登録の古い順）にしました'] },
   { version:'ver.20261108.06', date:'2026-11-08', notify:true, part:false, items:['🔎 書類収集の企業書類に<b>「企業名で探して、取り方の案内文を作る」</b>を付けました。会社を選んで、案内する書類に<b>自分でチェック</b>を入れると案内文ができます（入管の4書類＋国交省の書類）','⏰ 一覧は<b>在留期限まで30日以下の申請前の案件があり、書類がそろっていない会社</b>だけにしました（期限の近い順・担当で絞れる）。🛂 入管書類／🏛️ 国交省書類で切り替え'] },
   { version:'ver.20261108.05', date:'2026-11-08', notify:true, part:false, items:['📂 書類収集の「⏳ 出てこない企業書類」を見やすくしました：<b>担当で絞る</b>／<b>残りの多い順</b>／書類ごとに<b>どこで取れるか</b>（税務署・役所・年金・労働局）を表示','📋 <b>「案内文をコピー」</b>ボタンで、その会社の住所に合わせた取り方の案内文をすぐコピーできます（送ったら「📨 送った」）','🧾 書類収集で<b>【申請人】課税・納税</b>も操作できるようにしました（パートの方ご依頼と同じもの）。年金・国保の枠は外しました','📖 <b>書類の取り方辞典</b>：大房で扱う書類が、どこで・どうやって・いくらで取れるかを一覧に（書類収集の上のタブ。検索・参考ページつき）'] },
   { version:'ver.20261108.04', date:'2026-11-08', notify:true, part:false, items:['📂 サイドバーに<b>「書類収集」</b>を作りました。企業書類（法人税・法人住民税・社保・労働保険）と年金・国保の<b>委任状の作業は社員が行う</b>ので、パートの方ご依頼から移しました（今月の経費もここ）','📝 所属機関の<b>「テキスト生成」</b>にも、まだ出ていない法人税・法人住民税・社保・労働保険の<b>取る場所・取り方</b>が入るようにしました（会社の住所に合わせた送り先・手数料。いらないときはチェックを外す）','🔗 取り方の案内文に、書類ごとの<b>参考ページ（各機関のホームページのURL）</b>を入れました','※案内文の最後に「各機関のホームページの情報をもとにしています。お送りの前に最新の内容をご確認ください」の一文が入ります'] },
@@ -163151,29 +163152,55 @@ function _ininStaffShort(s){ s = String(s||'').trim(); return s ? s.split(/[\s�
 // ver.20261108.06: 在留期限が近い案件（30日以下）がある会社だけ。申請前の案件だけを見る
 var ININ_EXPIRY_DAYS = 30;
 var ININ_AFTER_APPLY_RE = /完了|審査中|交付|受取|申請済|他社申請|許可済|却下|取り?下げ|不許可|要追完/;
-function _ininCoExpiryMap(){
+// kind: 'nyukan'＝特定活動の案件は入れない（入管書類はまだ集めない）／'kokko'＝国交省書類を集める案件（特定活動を含む）だけ
+function _ininCoExpiryMap(kind){
   var m = {}, today = _ininToday();
   (typeof cData!=='undefined' ? cData : []).forEach(function(c){
     if(!c || !c.expire || ININ_AFTER_APPLY_RE.test(String(c.status||''))) return;
+    // ver.20261108.07: 今の在留資格が特定活動（建設の特活→特定技能1号）の案件は、入管書類はまだ集めない
+    var _p = (typeof personData!=='undefined' && personData[c.id]) ? personData[c.id] : {};
+    var cur = String(_p.residenceStatus || _p.residence_status || c.currentStatus || '');
+    if(kind==='nyukan' && cur.indexOf('特定活動')>=0) return;
+    var kst = null;
     if(typeof _partEx82==='function' && _partEx82(c)) return;
     var co = (typeof _caseCompany==='function') ? _caseCompany(c) : null; if(!co) return;
     var d = String(c.expire).slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
     var left = Math.floor((Date.parse(d+'T00:00:00Z') - Date.parse(today+'T00:00:00Z'))/86400000);
+    if(kst){ var dd = kst.due; d = dd.getFullYear()+'-'+('0'+(dd.getMonth()+1)).slice(-2)+'-'+('0'+dd.getDate()).slice(-2); left = kst.stage==='overdue' ? -kst.overdueDays : kst.daysToDue; }   // 国交省は「書類の締切（在留期限の5か月前）」で見る
     if(left > ININ_EXPIRY_DAYS) return;
     var nm = (typeof getDisplayName==='function') ? getDisplayName(c) : (c.applicant||'');
-    var x = m[co.id] = m[co.id] || { co:co, left:left, date:d, name:nm, n:0 };
-    x.n++; if(left < x.left){ x.left = left; x.date = d; x.name = nm; }
+    var x = m[co.id] = m[co.id] || { co:co, left:left, date:d, name:nm, n:0, kokko:!!kst };
+    x.n++; if(left < x.left){ x.left = left; x.date = d; x.name = nm; x.kokko = !!kst; }
+  });
+  return m;
+}
+// ver.20261108.07: 国交省書類は「案件登録から30日以上たった建設の申請前の案件」から出す
+var ININ_KOKKO_REG_DAYS = 30;
+function _ininCoRegMap(){
+  var m = {}, today = _ininToday();
+  (typeof cData!=='undefined' ? cData : []).forEach(function(c){
+    if(!c || ININ_AFTER_APPLY_RE.test(String(c.status||''))) return;
+    if(typeof _partEx82==='function' && _partEx82(c)) return;
+    if(typeof _isKensetsuCase==='function' && !_isKensetsuCase(c)) return;
+    var cr = String(c.createdAt||c.created_at||'').slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(cr)) return;
+    var age = Math.floor((Date.parse(today+'T00:00:00Z') - Date.parse(cr+'T00:00:00Z'))/86400000);
+    if(age < ININ_KOKKO_REG_DAYS) return;
+    var co = (typeof _caseCompany==='function') ? _caseCompany(c) : null; if(!co) return;
+    var nm = (typeof getDisplayName==='function') ? getDisplayName(c) : (c.applicant||'');
+    var x = m[co.id] = m[co.id] || { co:co, age:age, date:cr, name:nm, n:0, reg:true };
+    x.n++; if(age > x.age){ x.age = age; x.date = cr; x.name = nm; }
   });
   return m;
 }
 function _ininExpBadge(e){
+  if(e.reg) return '<span title="'+_ininEsc(e.name+'（ほか申請前の案件 '+(e.n-1)+'件）')+'" style="font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:6px;background:'+(e.age>=60?'#fef2f2':'#fff7ed')+';color:'+(e.age>=60?'#b91c1c':'#c2410c')+';border:1px solid '+(e.age>=60?'#fecaca':'#fed7aa')+';white-space:nowrap;">📅 登録から'+e.age+'日（'+_ininMd(e.date)+'）'+_ininEsc(e.name)+(e.n>1?' ほか'+(e.n-1)+'名':'')+'</span>';
   var col = e.left<0 ? ['#fef2f2','#b91c1c','#fecaca'] : e.left<=14 ? ['#fff7ed','#c2410c','#fed7aa'] : ['#fefce8','#a16207','#fde68a'];
-  return '<span title="'+_ininEsc(e.name+'（ほか申請前の案件 '+(e.n-1)+'件）')+'" style="font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:6px;background:'+col[0]+';color:'+col[1]+';border:1px solid '+col[2]+';white-space:nowrap;">⏰ '+(e.left<0?'期限切れ '+(-e.left)+'日':'あと'+e.left+'日')+'（'+_ininMd(e.date)+'）'+_ininEsc(e.name)+(e.n>1?' ほか'+(e.n-1)+'名':'')+'</span>';
+  return '<span title="'+_ininEsc(e.name+'（ほか申請前の案件 '+(e.n-1)+'件）')+'" style="font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:6px;background:'+col[0]+';color:'+col[1]+';border:1px solid '+col[2]+';white-space:nowrap;">⏰ '+(e.kokko?'国交省締切 ':'')+(e.left<0?(e.kokko?'過ぎて ':'期限切れ ')+(-e.left)+'日':'あと'+e.left+'日')+'（'+_ininMd(e.date)+'）'+_ininEsc(e.name)+(e.n>1?' ほか'+(e.n-1)+'名':'')+'</span>';
 }
 // 入管の4書類：まだ集まっていない × 在留期限30日以下
 function _ininStaleGroups(){
   if(typeof coDocCheck==='undefined') return [];
-  var em = _ininCoExpiryMap(), out = [];
+  var em = _ininCoExpiryMap('nyukan'), out = [];
   Object.keys(em).forEach(function(cid){
     var e = em[cid], dc = coDocCheck[cid] || {}, items = [];
     var list = []; try{ list = (typeof _getCoDocList==='function') ? (_getCoDocList(e.co)||[]) : []; }catch(er){}
@@ -163197,8 +163224,9 @@ function _ininListHtml(kind){
   var list = sf ? all.filter(function(x){ return x.staff===sf; }) : all;
   var h = '<div style="border:1px solid #e2e8f0;border-radius:9px;background:#fff;">';
   h += '<div style="display:flex;align-items:center;gap:8px;padding:9px 12px;flex-wrap:wrap;border-bottom:1px solid #f1f5f9;">'
-    + '<span style="font-size:13px;font-weight:800;color:#0f2040;">⏰ 在留期限が近いのに'+(kind==='kokko'?'国交省':'入管')+'書類がそろっていない会社 '+list.length+'社</span>'
-    + '<span style="font-size:10.5px;color:#64748b;">申請前の案件で、在留期限まで'+ININ_EXPIRY_DAYS+'日以下・期限の近い順</span></div>';
+    + (kind==='kokko'
+      ? '<span style="font-size:13px;font-weight:800;color:#0f2040;">📅 案件登録から'+ININ_KOKKO_REG_DAYS+'日以上たっても国交省書類がそろっていない会社 '+list.length+'社</span><span style="font-size:10.5px;color:#64748b;">建設の申請前の案件・登録の古い順（国交省の受入経験ありの会社は出さない）</span></div>'
+      : '<span style="font-size:13px;font-weight:800;color:#0f2040;">⏰ 在留期限が近いのに入管書類がそろっていない会社 '+list.length+'社</span><span style="font-size:10.5px;color:#64748b;">申請前の案件で、在留期限まで'+ININ_EXPIRY_DAYS+'日以下・期限の近い順（今が特定活動の案件は入れない）</span></div>');
   var chip = function(v, lab, on){ return '<button onclick="window._inin.'+fk+'=\''+_ininJs(v)+'\';_ininShushuPaint();" style="font-size:11px;font-weight:800;padding:3px 11px;border-radius:99px;cursor:pointer;border:1px solid '+(on?'#1e3a5f':'#e2e8f0')+';background:'+(on?'#1e3a5f':'#f1f5f9')+';color:'+(on?'#fff':'#1e3a5f')+';white-space:nowrap;">'+lab+'</button>'; };
   if(all.length) h += '<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;padding:8px 12px 4px;"><span style="font-size:10.5px;color:#94a3b8;font-weight:700;">担当で絞る</span>'+chip('', 'すべて '+all.length, !sf)+Object.keys(cnt).sort(function(a,b){ return cnt[b]-cnt[a]; }).map(function(n){ return chip(n, _ininEsc(n)+' '+cnt[n], sf===n); }).join('')+'</div>';
   if(!list.length) h += '<div style="font-size:11.5px;color:#94a3b8;padding:10px 12px;">ありません。</div>';
@@ -163281,7 +163309,7 @@ function _ininDictItem(id){ var hit=null; ININ_DICT.forEach(function(G){ G.items
 function _ininKkShort(n){ return String(n||'').replace(/^\s*\d+[\.．]\s*/,'').replace(/同等の技能を有する日本人と同等額以上の報酬であることの説明書/,'同等報酬説明書'); }
 function _ininKkGroups(){
   if(typeof _coKokkoMissingDocs!=='function' || typeof coDocCheck==='undefined') return [];
-  var em = _ininCoExpiryMap(), out = [];
+  var em = _ininCoRegMap(), out = [];
   Object.keys(em).forEach(function(cid){
     var e = em[cid], dc = coDocCheck[cid] || {};
     if(String(e.co.kokkoExperience||'')==='有') return;   // 受入経験ありの会社は国交省書類なし
@@ -163289,7 +163317,7 @@ function _ininKkGroups(){
     if(!items.length) return;
     out.push({ co:e.co, exp:e, items:items, staff:_ininStaffShort(e.co.ofusaStaff)||'（担当なし）', stage:(items.some(function(i){ return !i.guide; })?2:2.5) });
   });
-  return out.sort(function(a,b){ return a.exp.left-b.exp.left || b.items.length-a.items.length; });
+  return out.sort(function(a,b){ return b.exp.age-a.exp.age || b.items.length-a.items.length; });   // 登録から長い順
 }
 function _ininKkHtml(){
   var I = window._inin, all = _ininKkGroups();
