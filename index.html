@@ -6266,7 +6266,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261109.25';
+var OFUSA_VERSION = 'ver.20261109.26';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -9324,6 +9324,7 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20261109.26', date:'2026-11-09', notify:true, part:false, items:['✅ <b>取り方の案内文</b>の各書類に<b>「✅ 提出済み」「⏳ 未提出」</b>が出るようにしました（国交省の書類も入管の書類と同じ）。会社画面の書類で<b>チェック（👤担当・🤖AI）が付いているもの</b>が提出済みです','📝 案内した書類は「📝 11/08 案内」、依頼中は「依頼 11/05（4日）」、不要にした書類は「— 不要」と出ます。タブと列の見出しに<b>提出済みの数</b>も出ます'] },
   { version:'ver.20261109.25', date:'2026-11-09', notify:true, part:false, items:['🗂 <b>取り方の案内文（国交省の書類）</b>を3列のボードにしました：「大房で取れる・作れる」「大房がサポート」「会社にお願いする」。列の右上の「まとめて選ぶ」で、その列の書類をまとめて選ぶ／外すができます'] },
   { version:'ver.20261109.24', date:'2026-11-09', notify:true, part:false, items:['🕐 <b>登録支援機関</b>：対応時間（曜日別）の時刻と「なし」が隣の曜日に重なっていたのを直しました（「なし」は「休み」と表示）','⚠ 申請に要る項目（登録番号・住所・支援責任者・対応時間・相談方法・緊急時対応・支援の適正性など）が抜けている登録支援機関を開くと、「対応が必要です」と抜けている項目が出ます。支援機関への依頼文もコピーできます','🏢 左のメニュー「登録支援機関」と一覧に「⚠ 件数／未入力N」が出ます（直近180日に案件がある機関だけ）'] },
   { version:'ver.20261109.23', date:'2026-11-09', notify:true, part:false, items:['📝 <b>取り方の案内文</b>：上のボタンで「🛂 入管の書類」と「🏛️ 国交省の書類」を切りかえます。案内文・画像は、えらんだ方の書類だけになります','🏛️ 国交省の書類は「大房で取れる・作れる」「大房がサポート」「会社にお願いする」の3つに分けて並べ、大房でできることを各書類のカードの中に書きました'] },
@@ -163434,7 +163435,8 @@ function _ininToday(){ return new Date(Date.now()+9*3600e3).toISOString().slice(
 function _ininDaysSince(d){ d=String(d||'').slice(0,10); if(!d) return null; return Math.floor((new Date(_ininToday()+'T00:00:00Z') - new Date(d+'T00:00:00Z'))/86400000); }
 function _ininMd(d){ d=String(d||'').slice(0,10); return d ? (+d.slice(5,7))+'/'+(+d.slice(8,10)) : ''; }
 function _ininCoById(id){ return (typeof companies!=='undefined' ? companies : []).find(function(x){ return x && x.id===id; }) || null; }
-function _ininDocDone(dc, dn){ return !!(dc['skip::'+dn] || dc['staff::'+dn] || dc['date::'+dn]); }
+function _ininDocDone(dc, dn){ return !!(dc['skip::'+dn] || _ininDocSubmitted(dc, dn)); }
+function _ininDocSubmitted(dc, dn){ return !!(dc['staff::'+dn] || dc['ai::'+dn] || dc['date::'+dn]); }   // ver.20261109.26: 提出済み＝会社画面の書類チェック（👤担当・🤖AI）か取得日あり
 
 /* --- 住所に合わせた窓口（会社向けの案内用） --- */
 function _ininPick(list){ if(!list || !list.length) return null; var t2=list.filter(function(r){ return r.lv===2; }); return { r:(t2[0]||list[0]), many:list.length>1 && !t2.length }; }
@@ -163729,8 +163731,14 @@ function _ininGuideKkDocs(coId){
   var G = window._inin && window._inin.guide, dz = (G && G.coId===coId && G.daiko) || {};
   return list.map(function(dn){ var di = _ininKkDictId(dn), m = dz[dn]; var C0 = ININ_KK_CAN[di]; if(!m && C0 && ININ_DAIKO[di]){ var _def = C0.pick ? 'input' : C0.lv[0]; if(ININ_DAIKO[di][_def]) m = _def; } /* ver.20261109.18: 申請直前までサポートがメイン */ return { dn:dn, dict:di, daiko:(ININ_DAIKO[di] && ININ_DAIKO[di][m]) ? m : '' }; });
 }
-function _ininGuideDocState(dc, dn){
-  return _ininDocDone(dc, dn) ? '✅ 済み' : dc['daiko::'+dn] ? '🏢 大房で取得中' : dc['guide::'+dn] ? '📝 '+_ininMd(dc['guide::'+dn])+' 案内済み' : dc['req::'+dn] ? '依頼 '+_ininMd(dc['req::'+dn])+'（'+_ininDaysSince(dc['req::'+dn])+'日）' : '';
+function _ininGuideDocState(dc, dn){   // ver.20261109.26: 「済み」は提出済みの意味だけ。不要を分け、何もなければ「未提出」
+  if(_ininDocSubmitted(dc, dn)) return '✅ 提出済み';
+  if(dc['skip::'+dn]) return '— 不要';
+  return dc['daiko::'+dn] ? '🏢 大房で取得中' : dc['guide::'+dn] ? '📝 '+_ininMd(dc['guide::'+dn])+' 案内' : dc['req::'+dn] ? '依頼 '+_ininMd(dc['req::'+dn])+'（'+_ininDaysSince(dc['req::'+dn])+'日）' : '⏳ 未提出';
+}
+function _ininStPill(st){   // ver.20261109.26: 済み＝緑／未提出＝赤／不要＝グレー／依頼・案内・取得中＝黄
+  var c = /^✅/.test(st) ? ['#047857','#ecfdf5','#a7f3d0'] : /^⏳/.test(st) ? ['#b91c1c','#fef2f2','#fecaca'] : /^—/.test(st) ? ['#64748b','#f1f5f9','#e2e8f0'] : ['#b45309','#fffbeb','#fde68a'];
+  return '<span style="margin-left:auto;font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:6px;white-space:nowrap;color:'+c[0]+';background:'+c[1]+';border:1px solid '+c[2]+';">'+_ininEsc(st)+'</span>';
 }
 function _ininGuideRender(){
   var b = document.getElementById('_ininGuideBody'); if(!b) return;
@@ -163747,14 +163755,15 @@ function _ininGuideRender(){
   var ctx = G.ctx, dc = (typeof coDocCheck!=='undefined' && coDocCheck[G.coId]) || {};
   h += '<div style="font-size:11px;color:#64748b;">本店の住所：'+_ininEsc(ctx.coAddr||'（未登録）')+'</div>';
   var kks = _ininGuideKkDocs(G.coId), KOK = G.cat==='kokko';
+  var _kkOk = kks.filter(function(k){ return _ininDocSubmitted(dc, k.dn); }).length;   // ver.20261109.26: 提出済みの数（不要は入れない）
   var tab = function(k, lab){ var on = (G.cat===k); return '<button onclick="window._inin.guide.cat=\''+k+'\';_ininGuideRender()" style="flex:1;font-size:13px;font-weight:800;padding:9px 10px;border-radius:10px;cursor:pointer;border:2px solid '+(on?'#1e3a5f':'#e2e8f0')+';background:'+(on?'#1e3a5f':'#fff')+';color:'+(on?'#fff':'#475569')+';">'+lab+'</button>'; };
-  h += '<div style="display:flex;gap:8px;">'+tab('nyukan','🛂 入管の書類')+tab('kokko','🏛️ 国交省の書類'+(kks.length?'（'+kks.length+'）':''))+'</div>';
+  h += '<div style="display:flex;gap:8px;">'+tab('nyukan','🛂 入管の書類')+tab('kokko','🏛️ 国交省の書類'+(kks.length?'（提出済み '+_kkOk+'／'+kks.length+'）':''))+'</div>';
   h += '<div style="font-size:11px;font-weight:800;color:#065f46;">② 案内する書類にチェックを入れる <span style="font-weight:400;color:#64748b;">（'+(KOK?'国交省':'入管')+'の書類だけの案内文になります）</span></div>';
   var row = function(on, onch, title, sub, st, extra){
     return '<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid '+(on?'#6ee7b7':'#e2e8f0')+';background:'+(on?'#f0fdf4':'#fff')+';border-radius:8px;cursor:pointer;font-size:12px;">'
       + '<input type="checkbox" '+(on?'checked':'')+' onchange="'+onch+'">'
       + '<b style="color:#0f2040;">'+_ininEsc(title)+'</b>'+(sub?'<span style="font-size:10.5px;color:#64748b;">→ '+sub+'</span>':'')
-      + '<span style="margin-left:auto;font-size:10.5px;font-weight:800;color:#475569;white-space:nowrap;">'+_ininEsc(st)+'</span></label>'+(extra||'');
+      + (st ? _ininStPill(st) : '')+'</label>'+(extra||'');
   };
   var warn = [];
   if(!KOK){
@@ -163782,7 +163791,7 @@ function _ininGuideRender(){
         var nOn = list.filter(function(k){ return G.selK[k.dn]; }).length, all = list.length && nOn===list.length;
         h += '<div style="background:#fff;border:1px solid #e2e8f0;border-top:4px solid '+g[2]+';border-radius:12px;overflow:hidden;">'
           + '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid #e2e8f0;">'
-          + '<span style="width:9px;height:9px;border-radius:50%;background:'+g[2]+';"></span><b style="font-size:13.5px;color:#0f172a;">'+g[1]+'</b><span style="font-size:11.5px;color:#64748b;">'+list.length+'点</span>'
+          + '<span style="width:9px;height:9px;border-radius:50%;background:'+g[2]+';"></span><b style="font-size:13.5px;color:#0f172a;">'+g[1]+'</b><span style="font-size:11.5px;color:#64748b;">'+list.length+'点'+(list.length?'・提出済み '+list.filter(function(k){ return _ininDocSubmitted(dc, k.dn); }).length:'')+'</span>'
           + (list.length ? '<label style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:'+g[2]+';cursor:pointer;white-space:nowrap;"><input type="checkbox" '+(all?'checked':'')+' data-ind="'+(nOn && !all ? 1 : 0)+'" onchange="_ininKkGroupSel(\''+g[0]+'\',this.checked)">まとめて選ぶ</label>' : '')
           + '</div>';
         if(!list.length) h += '<div style="font-size:11.5px;color:#94a3b8;padding:14px 12px;">ありません</div>';
@@ -163812,13 +163821,13 @@ function _ininKkCard(k, dc, g){   // ver.20261109.25: 3列ボード用のカー�
   var G = window._inin.guide, on = !!G.selK[k.dn], it = k.dict ? _ininDictItem(k.dict) : null, C = _ininCanOf(k.dict);
   var js = "'"+_ininJs(k.dn).replace(/"/g,'&quot;')+"'", col = g ? g[2] : '#334155';
   var where = it ? it.w[0][0] : '大房で作成';
-  var st = _ininGuideDocState(dc, k.dn), stDone = /済/.test(st);
+  var st = _ininGuideDocState(dc, k.dn);
   var h = '<div style="padding:10px 12px;border-bottom:1px solid #f1f5f9;background:'+(on?(g?g[3]:'#f0fdf4'):'#fff')+';">';
   h += '<label style="display:flex;align-items:flex-start;gap:9px;cursor:pointer;">'
     + '<input type="checkbox" '+(on?'checked':'')+' onchange="window._inin.guide.selK['+js+']=this.checked;_ininGuideRender()" style="width:16px;height:16px;margin-top:2px;flex-shrink:0;">'
     + '<div style="flex:1;min-width:0;">'
     + '<div style="display:flex;align-items:flex-start;gap:6px;"><b style="font-size:13px;color:#0f172a;line-height:1.4;">'+_ininEsc(_ininKkShort(k.dn))+'</b>'
-    + (st ? '<span style="margin-left:auto;font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:6px;white-space:nowrap;color:'+(stDone?'#047857':'#b45309')+';background:'+(stDone?'#ecfdf5':'#fffbeb')+';">'+_ininEsc(st)+'</span>' : '') + '</div>'
+    + (st ? _ininStPill(st) : '') + '</div>'
     + '<div style="font-size:11px;color:#64748b;margin-top:2px;">取る所：'+_ininEsc(where)+'</div>';
   if(C){
     var L = ININ_LV[C.lv[0]];
