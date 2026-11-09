@@ -6129,7 +6129,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261109.05';
+var OFUSA_VERSION = 'ver.20261109.06';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -9187,6 +9187,7 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20261109.06', date:'2026-11-09', notify:true, part:false, items:['📈 レポートの<b>処理量トレンド（直近6ヶ月）</b>に、申請・審査完了・COE認定それぞれの<b>6ヶ月平均</b>を点線と数字で出しました（凡例にも平均）'] },
   { version:'ver.20261109.05', date:'2026-11-09', notify:true, part:false, items:['📮 取り方の案内文・画像の最後を「取れた証明書は<b>マイページにアップロード</b>（大房へ郵送は不要）」に直しました','🖼 取り方の案内を<b>1枚の画像</b>にできるようにしました（送り先・封筒に入れるもの・窓口・手数料・<b>QRで申請書が開ける</b>）。書類収集の「📝 案内文」→「🖼 画像にする」、会社画面のテキスト生成→「🖼 画像で」。📋 コピーでLINE・メールに貼れます'] },
   { version:'ver.20261109.04', date:'2026-11-09', notify:true, part:false, items:['✍ <b>経歴書の入力URL</b>：会社画面の書類（国交省）の「11. 経歴書」の<b>「✍ 入力URL」</b>で、会社に送る案内文つきのURLをコピーできます。開くと経歴書の入力画面がすぐ出ます（書類収集の案内文にもこのURLが入ります）'] },
   { version:'ver.20261109.03', date:'2026-11-09', notify:true, part:false, items:['✍ 国交省の<b>「11. 経歴書」</b>は、会社が国交省書類のアップロードページで質問に答えるとPDFができて、そのまま提出できるようになりました。書類収集の案内文・取り方辞典もその案内に変えました'] },
@@ -37932,8 +37933,10 @@ function _krTrendSvg(months, series){
   var colors={'申請':'#111827','審査完了':'#9ca3af','COE認定':'#dc2626'};
   var max=1; names.forEach(function(n){ series[n].forEach(function(v){ if(v>max) max=v; }); });
   max=Math.ceil(max*1.12); // ラベル分の余白
-  var W=1160,H=240,padL=44,padR=30,padB=28,padT=16;
+  var W=1160,H=240,padL=44,padR=96,padB=28,padT=16;   // ver.20261109.06: 右に平均の数字を出すので余白を広げた
   function X(i){ return padL+20+((W-padL-padR-40)/(months.length-1))*i; }
+  // ver.20261109.06: グラフの期間（直近6ヶ月）の平均
+  var avg={}; names.forEach(function(n){ var a=series[n]; avg[n]=a.length?Math.round(a.reduce(function(x,y){ return x+y; },0)/a.length):0; });
   function Y(v){ return padT+(H-padT-padB)*(1-v/max); }
   var svg='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto;margin-top:10px;">';
   [0,0.25,0.5,0.75,1].forEach(function(f){
@@ -37943,6 +37946,14 @@ function _krTrendSvg(months, series){
   });
   months.forEach(function(mm,i){
     svg+='<text x="'+X(i)+'" y="'+(H-8)+'" font-size="11" fill="#6b7280" text-anchor="middle">'+parseInt(mm.slice(5),10)+'月</text>';
+  });
+  // 平均の点線（右はしに「平均 ○」）。ラベルが重ならないよう上下にずらす
+  var _avY={}, _ord=names.slice().sort(function(a,b){ return avg[b]-avg[a]; }), _lastY=-99;
+  _ord.forEach(function(n){ var y=Y(avg[n]); if(y-_lastY<13) y=_lastY+13; _avY[n]=y; _lastY=y; });
+  names.forEach(function(n){
+    var y=Y(avg[n]);
+    svg+='<line x1="'+padL+'" y1="'+y+'" x2="'+(W-padR+4)+'" y2="'+y+'" stroke="'+colors[n]+'" stroke-width="1.2" stroke-dasharray="5 4" opacity="0.55"/>'
+       +'<text x="'+(W-padR+8)+'" y="'+(_avY[n]+3.5)+'" font-size="10.5" font-weight="700" fill="'+colors[n]+'">平均 '+avg[n]+'</text>';
   });
   names.forEach(function(n){
     var pts=series[n].map(function(v,i){ return X(i)+','+Y(v); }).join(' ');
@@ -37956,8 +37967,8 @@ function _krTrendSvg(months, series){
   });
   svg+='</svg>';
   var legend='<div style="display:flex;gap:16px;margin-top:2px;">'+names.map(function(n){
-    return '<span style="font-size:10px;color:#6b7280;"><span style="display:inline-block;width:14px;height:3px;background:'+colors[n]+';border-radius:2px;margin-right:5px;vertical-align:middle;"></span>'+n+'</span>';
-  }).join('')+'</div>';
+    return '<span style="font-size:10px;color:#6b7280;"><span style="display:inline-block;width:14px;height:3px;background:'+colors[n]+';border-radius:2px;margin-right:5px;vertical-align:middle;"></span>'+n+'（6ヶ月平均 <b style="color:'+colors[n]+';">'+avg[n]+'</b>）</span>';
+  }).join('')+'<span style="font-size:10px;color:#9ca3af;">点線＝6ヶ月平均</span></div>';
   return svg+legend;
 }
 // ===== ver.20260720.05: ⏱審査期間タブ（申請 → 審査完了） =====
