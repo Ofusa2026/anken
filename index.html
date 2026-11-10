@@ -6283,7 +6283,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261110.04';
+var OFUSA_VERSION = 'ver.20261110.05';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -9341,6 +9341,7 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20261110.05', date:'2026-11-10', notify:true, part:false, items:['🐛 追完で<b>①区分を押しても確認済にならないことがあった</b>のを直しました（区分を保存するときに、いっしょに確認済も入れるようにしました）'] },
   { version:'ver.20261110.04', date:'2026-11-10', notify:true, part:false, items:['📘 <b>📂 書類収集の右の空きスペースに「使い方」</b>を出しました（①依頼 → ②取り方の案内 → ③大房で取る、書類を作るボタン、書類の右のボタンの意味、タブの見方）。画面が狭いときは出ません','🔎 <b>くわしい使い方</b>（企業を検索 → 書類にチェック → コピー → 送った → 届いたら👤）と<b>大房で取るときの手順</b>も載せています'] },
   { version:'ver.20261110.03', date:'2026-11-10', notify:true, part:false, items:['🔁 <b>配信で送れなかった宛先だけ、あとから送り直せる</b>ようにしました。［🕒 予約一覧］→「送信済み」で「一部失敗」「失敗」になっている配信に［🔁 失敗した宛先だけ再送］が出ます。メールやほかの公式アカウントで届いている機関は、はじめはチェックを外してあります。', '⚠️ 送れなかった理由を、やさしい言葉で出すようにしました（例：「LINEの今月の送信上限に達したため送れませんでした」）。', '📊 送信結果で、同じメールアドレスが先の機関にも登録されていて重ねて送らなかったものを「重複のため送らず」として分けて数えるようにしました（失敗ではありません）。', '📬 <b>O-Linkに載せたお知らせを、どの登録支援機関が見たか</b>分かるようにしました。［🕒 予約一覧］→「送信済み」と［📤 履歴］の O-Link の行に「既読 ◯／◯機関」が出て、押すと見た機関・まだ見ていない機関が分かります（予約を使わずに送ったお知らせも見られます。11/10から記録。大房の職員が開いたときは数えません）。'] },
   { version:'ver.20261110.02', date:'2026-11-10', notify:true, part:false, items:['⚠️ 追完で<b>①区分をもう押しているのに「確認済にする」が残っていたカード</b>を、自動で確認済にしました（区分を押すと確認済になる仕組みより前に押したもの）。これからも区分を押せばそのまま確認済になります'] },
@@ -152983,14 +152984,21 @@ function tsuikanTriSetKubun(mid, k){
   m._triKubun=k;
   if(k==='対応不要'){ delete m._triDue; delete m._triDueManual; }   // ver.20261002.04: 対応不要は期限なし
   else if(!m._triDueManual) m._triDue=_tsuikanTriDefaultDue(m, k);   // 手で直していなければ区分に合わせて期限を入れ直す
-  try{ persistOneTsuikanMail(m); }catch(e){}
-  _tsSyncAutoReq(m);   // ver.20260925.25
+  // ver.20261106.05: 区分を選んだら、そのまま確認済にする
+  // ver.20261110.05: 確認済を「保存の前」に入れる（後ろの描き直しで止まると確認済にならなかった）
+  var _newDone=!m._done;
+  if(_newDone){ m._done=true; m._doneDate=new Date(Date.now()+9*3600e3).toISOString().slice(0,10); }
+  try{ persistOneTsuikanMail(m); }catch(e){ console.warn('[追完の保存]', e); }
+  try{ _tsSyncAutoReq(m); }catch(e){}   // ver.20260925.25
   try{ if(m.linkedCase && typeof logCaseAction==='function') logCaseAction(m.linkedCase,'tsuikan_triage','⚠️ 追完：'+(k==='自社完結'?'自社完結':(k==='対応不要'?'対応不要':'所属機関・申請人案内'))+(k==='対応不要'?'':('／追完期限 '+m._triDue))); }catch(e){}
-  if(typeof renderTsuikanMails==='function') renderTsuikanMails();
+  if(_newDone){
+    try{ gasGmailPost('markRead',{id:m.id}).catch(function(){}); }catch(e){}
+    try{ var _mc=JSON.parse(localStorage.getItem('ofusa_movedMailIds')||'{}'); _mc[m.id]={t:Date.now()}; localStorage.setItem('ofusa_movedMailIds',JSON.stringify(_mc)); if(DB_READY) _sb.from('settings').upsert({key:'moved_mail_ids',value:JSON.stringify(_mc)},{onConflict:'key'}).then(function(){}); }catch(e){}
+  }
+  try{ if(typeof renderTsuikanMails==='function') renderTsuikanMails(); }catch(e){ console.warn('[追完の描き直し]', e); }
   try{ if(typeof renderPartTask==='function') renderPartTask(); }catch(e){}
-  _tsRefreshCaseTab(m);
-  // ver.20261106.05: 区分（自社完結／所属機関・申請人案内／対応不要）を選んだら、そのまま確認済にする（「確認済にする」を押す手間をなくす）
-  if(!m._done){ try{ tsuikanTriConfirm(mid); showToast('✅ '+(k==='自社完結'?'自社完結':(k==='対応不要'?'対応不要':'所属機関・申請人案内'))+'として確認済にしました'); }catch(e){} }
+  try{ _tsRefreshCaseTab(m); }catch(e){}
+  try{ showToast('✅ '+(k==='自社完結'?'自社完結':(k==='対応不要'?'対応不要':'所属機関・申請人案内'))+(_newDone?'として確認済にしました':'に変えました')); }catch(e){}
 }
 // ver.20261110.02: 区分を押したのに確認済になっていない追完（区分→自動で確認済 の前に押したもの）を、読み込み時に確認済にする
 function _tsAutoConfirmKubun(){
