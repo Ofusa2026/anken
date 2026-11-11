@@ -316,7 +316,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261111.01</div>
+      <div class="ver">ver.20261111.02</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -342,6 +342,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div class="sb-group">リマインド</div>
     <div class="nav-item" id="apptChip" onclick="toggleApptOnly()" style="display:none;color:#f87171;">🔴 Meet未送信 <span class="badge" style="background:rgba(239,68,68,.16);color:#f87171;" id="apptChipN">0</span></div>
     <div class="nav-item" id="noDateChip" onclick="toggleNoDateOnly()" style="display:none;color:#fbbf24;">📅 日程未入力 <span class="badge" style="background:rgba(245,158,11,.16);color:#fbbf24;" id="noDateChipN">0</span></div>
+    <div class="nav-item" id="transChip" onclick="toggleTransOnly()" style="display:none;color:#fcd34d;">📝 スプレッド転記未 <span class="badge" style="background:rgba(214,158,46,.16);color:#fcd34d;" id="transChipN">0</span></div>
     <div class="nav-item" id="thanksChip" onclick="toggleThanksOnly()" style="display:none;color:#7dd3fc;">📄 御礼未送信 <span class="badge" style="background:rgba(59,130,246,.16);color:#7dd3fc;" id="thanksChipN">0</span></div>
     <div class="sb-group">資料・出力</div>
     <div class="nav-item" onclick="openShareList()">📤 共有リスト</div>
@@ -1395,6 +1396,7 @@ function buildQuery(forCount){
   else if(_kz==='no') q = q.or('is_client.is.null,is_client.eq.false').or('status.is.null,status.neq.取引中');
   if(apptOnly){ q = q.not('apt_at','is',null).eq('apt_meet_sent', false).eq('status','商談予定').or('meeting_kind.is.null,meeting_kind.neq.訪問'); }
   if(noDateOnly){ q = q.eq('status','商談予定').is('apt_at',null).is('meeting_date',null).eq('apt_reschedule',false); }   // ver.20261106.03
+  if(transOnly){ q = q.not('apt_at','is',null).lt('apt_at', new Date().toISOString()).eq('transcribed', false).eq('apt_reschedule', false).eq('acquisition_source','Sales pass'); }   // ver.20261111.02: セールスパス案件でスプレッド転記がまだの会社
   if(thanksOnly){ q = q.not('apt_at','is',null).lt('apt_at', new Date().toISOString()).eq('thanks_sent', false).eq('apt_reschedule', false); }
   q = applyExclusions(q);
 
@@ -2321,13 +2323,16 @@ function remindToast(msg){
 var apptOnly = false;
 var thanksOnly = false;
 var noDateOnly = false;   // ver.20261106.03: 商談予定なのに日程が入っていない会社
-function toggleApptOnly(){ apptOnly = !apptOnly; if(apptOnly){ thanksOnly=false; noDateOnly=false; } page=0; syncChipStyles(); load(); }
-function toggleThanksOnly(){ thanksOnly = !thanksOnly; if(thanksOnly){ apptOnly=false; noDateOnly=false; } page=0; syncChipStyles(); load(); }
-function toggleNoDateOnly(){ noDateOnly = !noDateOnly; if(noDateOnly){ apptOnly=false; thanksOnly=false; } page=0; syncChipStyles(); load(); }
+var transOnly = false;   // ver.20261111.02: セールスパス案件でスプレッド転記がまだの会社
+function toggleApptOnly(){ apptOnly = !apptOnly; if(apptOnly){ thanksOnly=false; noDateOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
+function toggleThanksOnly(){ thanksOnly = !thanksOnly; if(thanksOnly){ apptOnly=false; noDateOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
+function toggleNoDateOnly(){ noDateOnly = !noDateOnly; if(noDateOnly){ apptOnly=false; thanksOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
+function toggleTransOnly(){ transOnly = !transOnly; if(transOnly){ apptOnly=false; thanksOnly=false; noDateOnly=false; } page=0; syncChipStyles(); load(); }
 function syncChipStyles(){
   var a=el('apptChip'); if(a){ a.style.background=apptOnly?'#c53030':'#fff5f5'; a.style.color=apptOnly?'#fff':'#c53030'; }
   var t=el('thanksChip'); if(t){ t.style.background=thanksOnly?'#2b6cb0':'#ebf8ff'; t.style.color=thanksOnly?'#fff':'#2b6cb0'; }
   var n=el('noDateChip'); if(n){ n.style.background=noDateOnly?'#b7791f':'#fffbeb'; n.style.color=noDateOnly?'#fff':'#b7791f'; }
+  var tr=el('transChip'); if(tr){ tr.style.background=transOnly?'#b7791f':'#fffbeb'; tr.style.color=transOnly?'#fff':'#b7791f'; }
 }
 function toLocalDT(iso){ try{ var d=new Date(iso); var p=function(n){return('0'+n).slice(-2);}; return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes()); }catch(e){ return ''; } }
 function apptCell(x){
@@ -2342,6 +2347,10 @@ function apptCell(x){
   return esc(s)+'<div><span class="apt-chip apt-pending'+(soon?' apt-soon':'')+'">🔴Meet未送信</span></div>';
 }
 function refreshApptChip(){
+  _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).not('apt_at','is',null).lt('apt_at',new Date().toISOString()).eq('transcribed',false).eq('apt_reschedule',false).eq('acquisition_source','Sales pass').then(function(r){
+    var n=r.count||0, c=el('transChip'); if(!c) return;
+    el('transChipN').textContent=n; c.style.display = n>0 ? '' : (transOnly?'':'none');
+  });
   _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).eq('status','商談予定').is('apt_at',null).is('meeting_date',null).eq('apt_reschedule',false).then(function(r){
     var n=r.count||0, c=el('noDateChip'); if(!c) return;
     el('noDateChipN').textContent=n; c.style.display = n>0 ? '' : (noDateOnly?'':'none');
@@ -2545,7 +2554,7 @@ function markTranscribed(flag){
   var patch = flag ? {transcribed:true, transcribed_at:new Date().toISOString()} : {transcribed:false, transcribed_at:null};
   _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
     if(r.error){ showMsg('dMsg','更新に失敗しました：'+r.error.message,'err'); return; }
-    curLead.transcribed=flag; showMsg('dMsg', flag?'転記済みにしました':'未転記に戻しました','ok');
+    curLead.transcribed=flag; showMsg('dMsg', flag?'転記済みにしました':'未転記に戻しました','ok'); try{ refreshApptChip(); }catch(e){}
     openDrawer(curLead.reg_no); load(); refreshApptChip(); checkTranscribeReminder();
   });
 }
