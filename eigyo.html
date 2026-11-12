@@ -331,7 +331,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261112.02</div>
+      <div class="ver">ver.20261112.04</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -5289,6 +5289,23 @@ function mtSave(){
   _sb.from('eigyo_weekly_mtg').upsert({ week_start:MT.week, data:MT.data, updated_by:me||null, updated_at:new Date().toISOString() })
     .then(function(r){ if(r.error) alert('保存エラー：'+r.error.message); else autosaveToast('保存しました'); });
 }
+// ver.20261112.04: 直近8週の実施状況（記録がない週は「未実施」）。押すとその週を開く
+function mtRenderHistory(){
+  var box=el('mtHist'); if(!box) return;
+  var cur=kpMon(kpToday()), weeks=[];
+  for(var i=1;i<=8;i++){ var w=kpAddD(cur,-7*i); if(w>='2026-09-21') weeks.push(w); }
+  if(!weeks.length) return;
+  _sb.from('eigyo_weekly_mtg').select('week_start,data').in('week_start',weeks).then(function(r){
+    if(r.error||!el('mtHist')) return;
+    var has={}; (r.data||[]).forEach(function(x){ if(x.data && Object.keys(x.data).some(function(k){ var v=x.data[k]; return v && (typeof v!=='object' || Object.keys(v).length); })) has[x.week_start]=true; });
+    el('mtHist').innerHTML='<span class="sub" style="font-size:11px;align-self:center;">実施記録：</span>'+weeks.slice().reverse().map(function(w){
+      var d=kpD(w), on=w===MT.week, ok=!!has[w];
+      return '<button class="btn btn-sm" onclick="MT.week=\''+w+'\';mtLoad();" title="'+mtLabel(w)+'" style="font-size:11px;padding:2px 7px;'
+        + (ok?'background:#f0fff4;color:#276749;border-color:#9ae6b4;':'background:#fff5f5;color:#c53030;border-color:#feb2b2;')
+        + (on?'outline:2px solid var(--accent);outline-offset:1px;':'')+'">'+(d.getMonth()+1)+'/'+d.getDate()+(ok?' ✓':' 未実施')+'</button>';
+    }).join('');
+  });
+}
 function mtSet(path,val){ // path例: 'actions.中林　俊介'
   var p=path.split('.'), o=MT.data;
   for(var i=0;i<p.length-1;i++){ if(!o[p[i]]||typeof o[p[i]]!=='object') o[p[i]]={}; o=o[p[i]]; }
@@ -5509,13 +5526,14 @@ function mtRender(){
 
   var staffBtns=['all'].concat(KP_STAFF).map(function(s){ var on=MT.staff===s; return '<button class="btn btn-sm" style="'+(on?'background:var(--accent);color:#fff;':'')+'" onclick="MT.staff=\''+s+'\';mtRender();">'+(s==='all'?'全員':kpShort(s))+'</button>'; }).join(' ');
   var header='<div style="'+card+'display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">'
-    + '<div><h2 style="margin:0;font-size:18px;color:var(--accent);">🗓 週次Mtg</h2><div class="sub" style="font-size:12px;">対象週：<b>'+mtLabel(ws)+'</b>（この週の結果をふり返り、翌週のアクションを決めます）</div></div>'
+    + '<div><h2 style="margin:0;font-size:18px;color:var(--accent);">🗓 週次Mtg</h2><div id="mtHist" style="display:flex;gap:4px;flex-wrap:wrap;margin:4px 0 2px;"></div><div class="sub" style="font-size:12px;">対象週：<b>'+mtLabel(ws)+'</b>（この週の結果をふり返り、翌週のアクションを決めます）</div></div>'
     + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><button class="btn btn-sm" onclick="MT.week=kpAddD(MT.week,-7);mtLoad();">◀ 前の週</button><button class="btn btn-sm" onclick="MT.week=mtWeekDefault();mtLoad();">直近の週</button><button class="btn btn-sm" onclick="MT.week=kpAddD(MT.week,7);mtLoad();">次の週 ▶</button><span style="margin-left:10px;">'+staffBtns+'</span></div></div>';
 
   // ⓪ 前回決めたことの確認（前週に登録したカードの進捗をカンバン風に表示）
   var s0='<div style="'+card+'">'+head('0','前回決めたことの確認','3分','先週のMtgで決めたこと（カード）ができたか。状態を動かせます')
     + '<div style="margin-bottom:14px;padding-bottom:12px;border-bottom:1px dashed var(--line);"><b style="font-size:14px;">📢 共有事項</b><span class="sub" style="font-size:12px;margin-left:8px;">— 今週のMtgで全員に伝えたいこと（自動保存）</span>'
     + '<textarea rows="4" placeholder="例：10/27は商談4件（F.Assist・関西技術・MATSU・CareEarth）／セミナー参加者の架電状況 など" style="width:100%;margin-top:6px;font-size:13px;" onchange="mtSet(\'share\',this.value)">'+esc(MT.data.share||'')+'</textarea></div>'
+    + (MT.data.memo?'<div class="sub" style="font-size:12px;margin:-6px 0 12px;white-space:pre-wrap;">旧・全体メモ：'+esc(MT.data.memo)+'</div>':'')
     + '<div id="prevWeekTodos" class="sub" style="font-size:13px;">読み込み中…</div>'+'</div>';
 
   // ① 先週の新規取引（開始日または登録日が対象週）
@@ -5554,6 +5572,9 @@ function mtRender(){
   var dl=KP.deals.filter(function(d){return inSt(d.staff);}).map(function(d){ return {d:d, st:mtDealStat(d)}; })
     .sort(function(a,b){ return (b.st.warn-a.st.warn) || ((a.st.a.nh+a.st.a.ko)/(a.st.enh+a.st.eko||1) - (b.st.a.nh+b.st.a.ko)/(b.st.enh+b.st.eko||1)); });
   var nWarn=dl.filter(function(x){return x.st.warn;}).length;
+  // ver.20261112.03: ふだんは⚠の取引とメモがある取引だけ出す（順調な取引は畳む）
+  var dlShow = MT.showAllDeals ? dl : dl.filter(function(x){ return x.st.warn || dn[x.d.id]; });
+  var dlHide = dl.length - dlShow.length;
   var aW=kpActual(ws,we), eW=kpExpect(ws,we);
   var s3='<div style="'+card+'">'+head('3','依頼が想定どおり来ているか','10分','⚠の取引は原因と対応を決めてメモ')
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
@@ -5562,12 +5583,14 @@ function mtRender(){
     + big('依頼が少ない取引', nWarn+'社', '取引開始30日以上で想定の70%未満')
     + '</div>'
     + (dl.length?'<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;"><th style="'+th+'">担当</th><th style="'+th+'">企業名</th><th style="'+th+'">支援者数</th><th style="'+th+'">経過</th><th style="'+th+'">依頼 想定<br><span style="font-weight:400;font-size:9px;"><span style="color:#2b6cb0;">●</span>変更/認定(上) <span style="color:#276749;">●</span>更新(下)</span></th><th style="'+th+'">依頼 実績<br><span style="font-weight:400;font-size:9px;"><span style="color:#2b6cb0;">●</span>変更/認定(上) <span style="color:#276749;">●</span>更新(下)</span></th><th style="'+th+'">対想定</th><th style="'+th+'">原因・対応メモ（この週）</th></tr></thead><tbody>'
-      + dl.map(function(x){ var d=x.d, st=x.st;
+      + dlShow.map(function(x){ var d=x.d, st=x.st;
           return '<tr style="border-bottom:1px solid var(--line);'+(st.warn?'background:#fff5f5;':'')+'"><td style="'+td+'">'+esc(kpShort(d.staff))+'</td><td style="'+td+'"><b>'+esc(d.company)+'</b>'+(st.warn?' <span style="color:#c53030;font-size:11px;">⚠ 依頼が少ない</span>':'')+(d.support_org_id?'':' <span style="color:#c53030;font-size:11px;">⚠ 案シス未連携</span>')+'</td>'
             + '<td style="'+td+'">'+kpNum(d.supporters)+'人</td><td style="'+td+'">'+st.days+'日</td>'
             + '<td style="'+td+'">'+kpNhKo(st.enh,st.eko)+'</td><td style="'+td+'font-weight:600;">'+kpNhKo(st.a.nh,st.a.ko)+'</td>'
             + '<td style="'+td+'">'+(st.days<14?'<span class="sub">様子見</span>':kpPct(st.a.nh+st.a.ko,st.enh+st.eko))+'</td>'
             + '<td style="'+td+'"><input value="'+esc(dn[d.id]||'')+'" placeholder="例：他の行政書士と併用。窓口担当に依頼ルートを確認" style="width:100%;min-width:220px;font-size:12px;" onchange="mtSet(\'deal_notes.'+d.id+'\',this.value)"></td></tr>'; }).join('')+'</tbody></table>'
+      + (dlShow.length?'':'<div class="sub" style="font-size:13px;padding:8px 4px;">⚠の取引はありません。</div>')
+      + ((dlHide>0||MT.showAllDeals)?'<div style="margin-top:8px;"><button class="btn btn-sm" onclick="MT.showAllDeals=!MT.showAllDeals;mtRender();">'+(MT.showAllDeals?'▲ 問題のある取引だけ表示':'▼ ほか'+dlHide+'社は順調（全部表示）')+'</button></div>':'')
       : '<div class="sub" style="font-size:13px;">まだ取引がありません。</div>')
     + '<div class="sub" style="font-size:11px;margin-top:6px;">依頼 想定・実績は、上段＝変更/認定（青）・下段＝更新（緑）の件数（取引開始〜今日）。依頼が少ない順に並んでいます。</div></div>';
 
@@ -5584,6 +5607,8 @@ function mtRender(){
     })
     .sort(function(a,b){ return (nx[b.reg_no]?1:0)-(nx[a.reg_no]?1:0) || String(a.status).localeCompare(String(b.status)) || String(a.name).localeCompare(String(b.name)); });
   var nxSum=0, nxCnt=0; lv.forEach(function(l){ if(nx[l.reg_no]){ nxCnt++; nxSum+=(l.expected_supporter||l.supporter_count||0); } });
+  // ver.20261112.03: 表はふだん「見込みチェック済み・確度50%以上・商談予定」だけ出す
+  var lvT = MT.showAllAtk ? lv : lv.filter(function(l){ return nx[l.reg_no] || (l.close_prob||0)>=50 || l.status==='商談予定'; });
   function atkBtn(k,label){ return '<button class="btn btn-sm" onclick="mtSetAtk(\''+k+'\')" style="'+(atk===k?'background:var(--accent);color:#fff;border-color:var(--accent);':'')+'">'+label+'</button>'; }
   var s4='<div style="'+card+'">'+head('4','今月の見込み（'+parseInt(mKey.slice(5),10)+'月）','5分','アタックリストの中から今月契約できそうな会社にチェック')
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">'
@@ -5595,22 +5620,22 @@ function mtRender(){
     + (function(){ var pot=0,wp=0,mon=0; lv.forEach(function(l){ var p=l.hr_potential_apps||0; pot+=p; mon+=(l.hr_monthly_apps||0); wp+=p*((l.close_prob||0)/100); }); return big('当社への依頼見込み（月）', kpNum(pot)+'件', '確度加味 '+(Math.round(wp*10)/10)+'件 ／ 申請ポテンシャル計 '+kpNum(mon)+'件'); })()
     + big('アタックリスト', lv.length+'社', atk==='all'?'アタックS・中林・亀谷・菅沼':(atk==='S'?'アタックS':(atk==='nb'?'アタック中林':(atk==='sg'?'菅沼案件':'アタック亀谷'))))
     + '</div>'
-    + (lv.length?'<div style="overflow-x:auto;max-height:420px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;position:sticky;top:0;background:#fff;"><th style="'+th+'">今月見込み</th><th style="'+th+'">企業名</th><th style="'+th+'">ステータス</th><th style="'+th+'">ランク</th><th style="'+th+'">担当</th><th style="'+th+'">支援者数</th><th style="'+th+'">確度</th><th style="'+th+'" title="支援者数に対して月に何件申請が出るか">月の申請<br>ポテンシャル</th><th style="'+th+'" title="そのうち当社に依頼いただけそうな件数">当社への<br>依頼見込み</th><th style="'+th+'">最新の対応履歴</th><th style="'+th+'">今後の動き方</th><th style="'+th+'">ネクスト<br>アクション</th></tr></thead><tbody>'
-      + lv.map(function(l){ var on=!!nx[l.reg_no];
+    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span class="sub" style="font-size:12px;">'+(MT.showAllAtk?'全'+lv.length+'社を表示中':'見込みチェック済み・確度50%以上・商談予定の '+lvT.length+'社を表示中（全'+lv.length+'社）')+'</span>'
+    +   '<button class="btn btn-sm" onclick="MT.showAllAtk=!MT.showAllAtk;mtRender();">'+(MT.showAllAtk?'▲ 絞り込む':'▼ 全部表示')+'</button></div>'
+    + (lvT.length?'<div style="overflow-x:auto;max-height:420px;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr style="border-bottom:2px solid var(--line);color:var(--muted);font-size:12px;position:sticky;top:0;background:#fff;"><th style="'+th+'">今月見込み</th><th style="'+th+'">企業名</th><th style="'+th+'">ステータス</th><th style="'+th+'">ランク</th><th style="'+th+'">担当</th><th style="'+th+'">支援者数</th><th style="'+th+'">確度</th><th style="'+th+'">最新の対応履歴</th><th style="'+th+'">今後の動き方</th><th style="'+th+'">ネクスト<br>アクション</th></tr></thead><tbody>'
+      + lvT.map(function(l){ var on=!!nx[l.reg_no];
           return '<tr style="border-bottom:1px solid var(--line);'+(on?'background:#f0fff4;':'')+'"><td style="'+td+'text-align:center;"><input type="checkbox" '+(on?'checked':'')+' onchange="mtMonthCheck(\''+esc(l.reg_no)+'\',this.checked)" style="width:16px;height:16px;"></td>'
             + '<td style="'+td+'"><a href="javascript:void(0)" onclick="openDrawer(\''+esc(l.reg_no)+'\')" style="color:var(--accent);font-weight:600;">'+esc(l.name)+'</a>'+(l.attack100?' <span style="font-size:11px;">🎯S</span>':'')+(l.attack_nb?' <span style="font-size:11px;">🎯中林</span>':'')+(l.attack_km?' <span style="font-size:11px;">🎯亀谷</span>':'')+(l.attack_sg?' <span style="font-size:11px;">🎯菅沼</span>':'')+'</td>'
             + '<td style="'+td+'"><span class="badge b-'+esc(l.status)+'">'+esc(l.status)+'</span></td><td style="'+td+'">'+(l.lead_rank&&l.lead_rank!=='（未評価）'?'<b>'+esc(l.lead_rank)+'</b>':'—')+'</td>'
             + '<td style="'+td+'">'+esc(kpShort(l.staff||'')||'—')+'</td><td style="'+td+'">'+(l.supporter_count!=null?kpNum(l.supporter_count)+'人':'—')+'</td>'
             + '<td style="'+td+'min-width:78px;">'+mtProbSel(l)+'</td>'
-            + '<td style="'+td+'min-width:70px;">'+mtNumIn(l,'hr_monthly_apps')+'</td>'
-            + '<td style="'+td+'min-width:70px;">'+mtNumIn(l,'hr_potential_apps')+'</td>'
             + '<td class="sub mt-latest-note" data-reg="'+esc(l.reg_no)+'" style="'+td+'font-size:12px;min-width:240px;max-width:380px;">…</td>'
             + '<td style="'+td+'min-width:280px;"><textarea rows="2" placeholder="今後の動き方を入力（自動保存）" onchange="mtInline(\''+esc(l.reg_no)+'\',\'next_plan\',this.value.trim()||null,this)" style="width:100%;min-width:260px;box-sizing:border-box;font-size:12px;padding:5px 7px;border:1px solid var(--line);border-radius:6px;resize:vertical;line-height:1.5;font-family:inherit;">'+esc(l.next_plan||'')+'</textarea></td>'
             + '<td style="'+td+'min-width:150px;"><div style="display:flex;flex-direction:column;gap:4px;">'
             +   '<select onchange="mtInline(\''+esc(l.reg_no)+'\',\'next_action_kind\',this.value||null,this)" style="font-size:12px;padding:3px 4px;border:1px solid var(--line);border-radius:4px;"><option value="">（種類）</option>'+NEXT_KINDS.map(function(k){ return '<option'+(k===(l.next_action_kind||'')?' selected':'')+'>'+esc(k)+'</option>'; }).join('')+'</select>'
             +   '<input type="date" value="'+esc(l.next_action_date||'')+'" onchange="mtInline(\''+esc(l.reg_no)+'\',\'next_action_date\',this.value||null,this)" style="font-size:12px;padding:3px 4px;border:1px solid var(--line);border-radius:4px;'+(l.next_action_date&&l.next_action_date<new Date().toISOString().slice(0,10)?'color:#c53030;font-weight:700;':'')+'">'
             + '</div></td></tr>'; }).join('')+'</tbody></table></div>'
-      : '<div class="sub" style="font-size:13px;">アタックリストに会社がありません。</div>')
+      : '<div class="sub" style="font-size:13px;">'+(lv.length?'条件に合う会社はありません。「全部表示」で全社を見られます。':'アタックリストに会社がありません。')+'</div>')
     + '<div class="sub" style="font-size:11px;margin-top:6px;">見込み人数は「想定支援者数」を優先し、未入力なら「支援者数」で計算します。チェックは月単位で保存され、同じ月の間は毎週のMtgで引き継がれます。</div></div>';
 
   // ⑤ 今週やること（担当ごとに1件ずつ入力→タスク(カンバン)のToDoに追加）
@@ -5627,9 +5652,42 @@ function mtRender(){
           + '</div>';
       }).join('')
     + '</div>'
-    + '<div style="margin-top:12px;"><b style="font-size:13px;">全体メモ</b><textarea rows="3" style="width:100%;margin-top:4px;font-size:13px;" onchange="mtSet(\'memo\',this.value)">'+esc(MT.data.memo||'')+'</textarea></div></div>';
+    + '</div>';   // ver.20261112.03: 全体メモは⓪の「共有事項」に一本化
 
-  box.innerHTML=header+s0+s1+s2+s3+s4+s5;
+  // ver.20261112.03: いちばん上に今週の4つの数字（開いてすぐ良い週か悪い週か分かるように）
+  function topCard(label,val,sub,ok){ var c=ok===true?'#38a169':(ok===false?'#e53e3e':'#a0aec0');
+    return '<div style="flex:1;min-width:170px;background:#fff;border-radius:10px;padding:10px 14px;box-shadow:0 2px 6px rgba(0,0,0,.04);border-top:4px solid '+c+';">'
+      + '<div class="sub" style="font-size:11.5px;">'+label+'</div><div style="font-size:24px;font-weight:800;color:#1a202c;line-height:1.3;">'+val+'</div>'
+      + (sub?'<div class="sub" style="font-size:11.5px;">'+sub+'</div>':'')+'</div>'; }
+  var ALLT = MT.staff==='all';
+  var top='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">'
+    + topCard('① 新規支援人数（対象週）', kpNum(wTot)+'人', ALLT?'週の目標 '+kpNum(wkT)+'人（'+kpPct(wTot,wkT)+'）':'', ALLT?(wTot>=wkT):null)
+    + topCard('② 今月の進み具合', (typeof done==='number'?kpNum(done)+'人':'—'), (ALLT&&typeof mT==='number')?'月の目標 '+kpNum(mT)+'人（'+kpPct(done,mT)+'）':'', (ALLT&&typeof mT==='number')?(done>=mT*Math.max(0,Math.min(1,kpDays(cm.from,t)/kpDays(cm.from,cm.to)))):null)
+    + topCard('③ 依頼が少ない取引', nWarn+'社', '取引開始30日以上で想定の70%未満', nWarn===0)
+    + topCard('④ 今月の契約見込み', nxCnt+'社 ／ '+kpNum(nxSum)+'人', ALLT?'月の目標 '+kpNum(moT)+'人（'+kpPct(nxSum,moT)+'）':'', ALLT?(nxSum>=moT):null)
+    + '</div>';
+  // ver.20261112.04: Mtg前の準備状況（担当ごと）。自動チェック＋「準備OK」ボタン（週次Mtgの記録にだけ保存）
+  var prepD=MT.data.prep||{}, td0=kpToday();
+  var prep='<div style="'+card+'padding:12px 18px;"><div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px;"><b style="font-size:14px;">📝 Mtg前の準備</b><span class="sub" style="font-size:12px;">前日までに各自で済ませ、終わったら「準備OK」を押してください</span></div>'
+    + '<div style="display:flex;gap:12px;flex-wrap:wrap;">'
+    + KP_STAFF.filter(inSt).map(function(sf){
+        var sh=kpShort(sf), done=!!prepD[sf];
+        var zero=wd.filter(function(d){ return d.staff===sf && !(d.supporters>0); }).length;
+        var over=(MT.leads||[]).filter(function(l){ return kpShort(l.staff||'')===sh && l.next_action_date && l.next_action_date<td0; }).length;
+        var chk=(MT.leads||[]).filter(function(l){ return kpShort(l.staff||'')===sh && nx[l.reg_no]; }).length;
+        function it(ok,txt){ return '<div style="font-size:12.5px;margin:2px 0;color:'+(ok?'#276749':'#c53030')+';">'+(ok?'✓ ':'✗ ')+txt+'</div>'; }
+        return '<div style="flex:1;min-width:260px;border:1px solid '+(done?'#9ae6b4':'var(--line)')+';background:'+(done?'#f0fff4':'#fff')+';border-radius:8px;padding:8px 12px;">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;"><b>'+esc(sh)+'</b>'
+          +   '<button class="btn btn-sm'+(done?'':' btn-primary')+'" onclick="mtSet(\'prep.'+sf+'\','+(done?'null':'new Date().toISOString()')+');mtRender();">'+(done?'✓ 準備OK（取消）':'準備OK')+'</button></div>'
+          + it(zero===0, zero===0?'対象週の新規取引に支援者数が入っている':'支援者数が0人の新規取引が'+zero+'件（KPIタブで入力）')
+          + it(chk>0, chk>0?'今月の見込みに'+chk+'社チェック済み':'今月の見込みにまだチェックがない（④）')
+          + it(over===0, over===0?'期限切れのネクストアクションなし':'期限切れのネクストアクションが'+over+'件（④）')
+          + (done?'<div class="sub" style="font-size:11px;margin-top:2px;">準備OK：'+esc(fmtMD(prepD[sf],true))+'</div>':'')
+          + '</div>';
+      }).join('')
+    + '</div></div>';
+  box.innerHTML=header+top+prep+s0+s1+s2+s3+s4+s5;
+  mtRenderHistory();
   renderWeekTodos();
   renderPrevWeekTodos();
   fillLatestNotes();
