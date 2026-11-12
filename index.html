@@ -6529,7 +6529,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261112.15';
+var OFUSA_VERSION = 'ver.20261112.16';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -9588,6 +9588,7 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20261112.16', date:'2026-11-12', notify:true, part:false, items:['✨ 登録支援機関の<b>「支援計画書から読み取る」</b>の確認画面を見やすくしました：読み取れたのに「（未入力）」と出ていた項目を、<b>「＋入れる」「✓ 入力済みと同じ」「入力済みのまま（今の値／計画書の値）」「計画書に書かれていない」</b>に分けて出します','🎯 読み取りの精度を上げました：PDFから<b>日本語の文字だけを取り出して</b>AIに一緒に渡します（ミャンマー語などの訳の行がまざって読み落としていたため）。Ⅱ欄（所属機関）とⅢ欄（登録支援機関）の取りちがえも防ぎます（登録番号の「－」のちがいは同じとして扱う。長い計画書でも途中で切れないように）'] },
   { version:'ver.20261112.15', date:'2026-11-12', notify:true, part:false, items:[
     '📄 預かり証の「郵送紐付け＆案内文」の画面からも、<b>手数料納付書</b>を作れるようにしました。［この人だけ］と、選んでいるレターパックに2名以上いるときは［このレターパックの全員（◯名）］が出ます'
   ]},
@@ -78671,10 +78672,22 @@ function _showSupportImportPreview(orgId, respId, resp, opt){
   var h='<div style="font-size:14px;font-weight:900;color:var(--navy);margin-bottom:10px;">'+(opt.title||'📥 ヒアリング回答の取込プレビュー')+'</div>';
   h+='<div style="max-height:52vh;overflow:auto;border:1px solid var(--gray-200);border-radius:8px;">';
   h+='<table style="width:100%;border-collapse:collapse;font-size:12px;">';
-  rows.forEach(function(rw,i){ h+='<tr style="background:'+(i%2?'#f8fafc':'white')+';"><td style="padding:6px 10px;font-weight:700;color:var(--gray-400);white-space:nowrap;border-bottom:1px solid #eef2f7;">'+rw[0]+'</td><td style="padding:6px 10px;border-bottom:1px solid #eef2f7;">'+_soImpFmt(rw[1])+'</td></tr>'; });
+  // ver.20261112.03: 支援計画書のAI読み取りでは、入れない項目も「入力済みと同じ」「入力済み（上書きしない）」「計画書に書かれていない」を分けて出す
+  var _ST=opt.stat||null, _RK=['name','nameKana','nameEn','corpNo','empInsNo','regNo','regDate','zip','pref','city','addressDetail','addressEn','tel','repName','repNameKana','repNameEn','languages','supportManagerName','supportManagerKana','supportManagerTitle','supportManagerTitleEn','supportProperness','supportLanguages','regularMeeting','implSchedules','housingPolicy','supporterCount','supportStaffCount','jjName'];
+  var _NA={corpNo:1,empInsNo:1,regularMeeting:1,implSchedules:1,housingPolicy:1,jjName:1};   // 支援計画書には載っていない項目
+  var _cell=function(k, v){
+    var empty=(v==null||v===''||(typeof v==='object'&&!Object.keys(v).length));
+    if(!_ST) return _soImpFmt(v);
+    if(!empty) return '<span style="display:inline-block;font-size:10px;font-weight:800;color:#15803d;background:#dcfce7;border-radius:4px;padding:0 5px;margin-right:6px;">＋入れる</span>'+_soImpFmt(v);
+    var x=_ST[k];
+    if(x&&x.st==='same') return '<span style="color:#64748b;">✓ 入力済みと同じ</span><span style="color:#94a3b8;">（'+esc(x.cur)+'）</span>';
+    if(x&&x.st==='keep') return '<span style="color:#b45309;font-weight:700;">入力済みのまま</span><span style="color:#94a3b8;">（今：'+esc(x.cur||'入力済み')+(typeof x.plan==='string'?' ／ 計画書：'+esc(x.plan):'')+'）</span>';
+    return '<span style="color:#cbd5e1;">'+(_NA[k]?'（計画書には載らない項目）':'（計画書に書かれていない）')+'</span>';
+  };
+  rows.forEach(function(rw,i){ h+='<tr style="background:'+(i%2?'#f8fafc':'white')+';"><td style="padding:6px 10px;font-weight:700;color:var(--gray-400);white-space:nowrap;border-bottom:1px solid #eef2f7;">'+rw[0]+'</td><td style="padding:6px 10px;border-bottom:1px solid #eef2f7;">'+_cell(_RK[i], rw[1])+'</td></tr>'; });
   var hrs=resp.supportHours||{}; var hd={mon:'月',tue:'火',wed:'水',thu:'木',fri:'金',sat:'土',sun:'日',hol:'祝'}; var hstr=[];
   Object.keys(hd).forEach(function(d){ var x=hrs[d]||{}; if(x.from||x.to) hstr.push(hd[d]+' '+(x.from||'')+'〜'+(x.to||'')); });
-  h+='<tr><td style="padding:6px 10px;font-weight:700;color:var(--gray-400);border-bottom:1px solid #eef2f7;">対応時間</td><td style="padding:6px 10px;border-bottom:1px solid #eef2f7;">'+(hstr.length?esc(hstr.join(' / ')):'<span style="color:#cbd5e1;">（未入力）</span>')+'</td></tr>';
+  h+='<tr><td style="padding:6px 10px;font-weight:700;color:var(--gray-400);border-bottom:1px solid #eef2f7;">対応時間</td><td style="padding:6px 10px;border-bottom:1px solid #eef2f7;">'+(hstr.length?esc(hstr.join(' / ')):(_ST&&_ST.supportHours?'<span style="color:#b45309;font-weight:700;">入力済みのまま</span><span style="color:#94a3b8;">（計画書にも記載あり）</span>':'<span style="color:#cbd5e1;">（未入力）</span>'))+'</td></tr>';
   function methStr(m){ m=m||{}; var a=[]; if(m.f2f)a.push('面談'); if(m.tel)a.push('電話'); if(m.mail)a.push('メール'); if(m.other)a.push(m.other); return a.length?esc(a.join('、')):'<span style="color:#cbd5e1;">（未入力）</span>'; }
   h+='<tr><td style="padding:6px 10px;font-weight:700;color:var(--gray-400);border-bottom:1px solid #eef2f7;">相談方法</td><td style="padding:6px 10px;border-bottom:1px solid #eef2f7;">'+methStr(resp.consultMethods)+'</td></tr>';
   h+='<tr><td style="padding:6px 10px;font-weight:700;color:var(--gray-400);border-bottom:1px solid #eef2f7;">緊急時対応</td><td style="padding:6px 10px;border-bottom:1px solid #eef2f7;">'+methStr(resp.emergencyContact)+'</td></tr>';
@@ -78828,8 +78841,33 @@ function _soPlanToBlock(file, name){   // PDF→document、画像→（大きけ
     rd.readAsDataURL(file);
   });
 }
+// ver.20261112.12: PDFの文字を取り出し、外国語（ミャンマー語など）の行を除いた日本語だけのテキストもAIに渡す（訳の行がまざって読み落としていたため）
+function _soPlanJpText(file, name){
+  var nm=String(name||file.name||'').toLowerCase(), isPdf=(file.type||'').toLowerCase()==='application/pdf'||/\.pdf$/.test(nm);
+  if(!isPdf || typeof _lcpPdfLib!=='function') return Promise.resolve('');
+  return _lcpPdfLib().then(function(ok){
+    if(!ok) return '';
+    return file.arrayBuffer().then(function(buf){ return pdfjsLib.getDocument({data:buf}).promise; }).then(async function(pdf){
+      var out=[], FOREIGN=/[\u0900-\u0DFF\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF\u1800-\u18AF\uAA60-\uAA7F\uA9E0-\uA9FF]+/g;
+      for(var i=1;i<=pdf.numPages;i++){
+        var pg=await pdf.getPage(i), tc=await pg.getTextContent(), rows={};
+        tc.items.forEach(function(it){ if(!it.str) return; var y=Math.round(it.transform[5]/3)*3; (rows[y]=rows[y]||[]).push({x:it.transform[4], t:it.str}); });
+        var lines=Object.keys(rows).map(Number).sort(function(a,b){ return b-a; }).map(function(y){ return rows[y].sort(function(a,b){ return a.x-b.x; }).map(function(r){ return r.t; }).join(' '); })
+          .map(function(l){ return l.replace(FOREIGN,'').replace(/[ \t\u3000]+/g,' ').trim(); })
+          .filter(function(l){ return l.length>1 && /[\u3040-\u30ff\u4e00-\u9fff0-9A-Za-z]/.test(l); });
+        if(lines.length) out.push('--- '+i+'ページ ---\n'+lines.join('\n'));
+      }
+      return out.join('\n').slice(0, 60000);
+    });
+  }).catch(function(e){ console.warn('[支援計画書の文字取り出し]', e); return ''; });
+}
 var _SO_PLAN_PROMPT = [
   'これは日本の「1号特定技能外国人支援計画書（参考様式第1-17号）」です。全ページを読み、登録支援機関の情報だけを次のJSONで返してください。JSON以外は書かないこと。',
+  '【読み方のコツ】この様式は日本語の下に外国語（ミャンマー語・ベトナム語・英語など）の訳が1行ずつはさまっています。外国語の行は読み飛ばし、日本語の項目名とその右の記入値だけを見てください。',
+  '【Ⅲ 登録支援機関 欄の並び】１ 登録番号（例 24登－009735）／２ 登録年月日／３ 氏名又は名称（上に（ふりがな）、名称の下の行に英語名が書かれていることが多い）／４ 住所（〒・住所・（電話））／５ 代表者の氏名（上に（ふりがな）、下に英字氏名）／６ 支援を行う事務所の所在地／７ 支援業務を行う体制の概要（支援責任者の（ふりがな）・氏名・英字氏名・役職と英語の役職、支援を行っている1号特定技能外国人数「○名」、支援担当者数「○名」、支援の適正性を確保していることの有無）。',
+  '【注意】Ⅱ欄（特定技能所属機関）にも「支援業務を行う体制の概要」「支援責任者」の欄がありますが、そこは所属機関が自社で支援するときだけ書く欄です。必ずⅢ欄（登録支援機関）の値を使うこと。',
+  '【PDFの文字】画像のほかに、PDFから取り出した日本語だけの文字（外国語の行は取り除き済み）を付けています。番号・住所・氏名などの正確な文字はこちらを優先し、□/☑の印やレイアウトは画像で確かめてください。',
+  '【Ⅳ 支援の内容】６ 相談又は苦情への対応：ア 相談方法・緊急時対応（□/☑）、イ 対応時間（平日・土曜・日曜・祝日ごとに「9時～21時」など）、ウ 実施言語。',
   '{',
   ' "found": true,                       // Ⅲ 登録支援機関 欄が記入されていれば true（所属機関が自社支援で Ⅲ が空欄なら false）',
   ' "name":"", "nameKana":"(ひらがな)", "nameEn":"",',
@@ -78852,17 +78890,22 @@ var _SO_PLAN_PROMPT = [
   '2. 相談方法・緊急時対応は ■・☑・✓・〇 など印が付いている項目だけ true にする。□（印なし）は、横に電話番号やメールが書いてあっても false。印が付いた項目の番号・アドレスだけ telNo・mailAddr に入れる。「その他」に印があって中身が空なら other は ""。',
   '3. 支援対象者（外国人）・特定技能所属機関（雇用する会社）・支援内容の欄は読まない。登録支援機関（Ⅲ）と、相談・苦情対応（Ⅳ）の対応時間・方法・言語だけ。',
   '4. 時刻は24時間の「H:MM」（例 10時00分→10:00、18時30分→18:30）。平日がまとめて書かれていれば mon〜fri に同じ時刻を入れる。',
-  '5. 住所は都道府県・市区町村・それ以降に分ける。全角英数字は半角にする。'
+  '5. 住所は都道府県・市区町村・それ以降に分ける。全角英数字は半角にする。登録番号の「－」は半角の「-」にする（例 24登-009735）。',
+  '6. 項目名と値の行が少しずれていても、同じ欄の中にある値を拾う。空欄は空文字。',
+  '7. 対応時間で「平日」と書かれていれば mon〜fri に同じ時刻を入れる。「9時～21時」は from "9:00"・to "21:00"。'
 ].join('\n');
 function _soPlanRead(orgId, file, name){
   var apiKey=(typeof getApiKey==='function')?getApiKey():'';
   if(!apiKey){ _soPlanStatus('❌ AIのAPIキーが設定されていません（設定画面で入力してください）','#b91c1c'); return; }
   _soPlanStatus('⏳ AIが支援計画書を読んでいます…（20〜60秒ほど）');
-  _soPlanToBlock(file, name).then(function(block){
+  Promise.all([_soPlanToBlock(file, name), _soPlanJpText(file, name)]).then(function(rs){
+    var block=rs[0], jp=rs[1], content=[block];
+    if(jp) content.push({type:'text', text:'【PDFから取り出した日本語の文字（外国語の行は除去済み）】\n'+jp});
+    content.push({type:'text', text:_SO_PLAN_PROMPT});
     return fetch('https://api.anthropic.com/v1/messages', {
       method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:4000, messages:[{role:'user', content:[block, {type:'text', text:_SO_PLAN_PROMPT}]}] })
+      body:JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:8000, messages:[{role:'user', content:content}] })   // ver.20261112.03: 長い計画書でも途中で切れないよう 8000 に
     });
   }).then(function(res){
     return res.json().then(function(j){ if(!res.ok) throw new Error((j&&j.error&&j.error.message)||('HTTP '+res.status)); return j; });
@@ -78908,19 +78951,22 @@ function _soPlanPreview(orgId, resp, fileName){
   var o=(supportOrgs||[]).find(function(x){return x.id===orgId;}); if(!o) return;
   var ex=(o.extra&&typeof o.extra==='object')?o.extra:{};
   var has=function(v){ return v && typeof v==='object' && Object.keys(v).length>0; };
-  var keep=[], fill={};
+  var keep=[], fill={}, stat={};   // ver.20261112.03: stat＝項目ごとの「入力済みと同じ／入力済み（上書きしない）」
+  var _nz=function(x){ return String(x==null?'':x).normalize('NFKC').replace(/[\s\u3000]/g,'').replace(/[‐－―−–—]/g,'-').toLowerCase(); };
   Object.keys(resp).forEach(function(k){
     var v=resp[k];
-    if(k==='supportHours'||k==='consultMethods'||k==='emergencyContact'){ if(has(ex[k])) keep.push([k, '（入力済み）']); else fill[k]=v; return; }
+    if(k==='supportHours'||k==='consultMethods'||k==='emergencyContact'){ if(has(ex[k])){ keep.push([k, '（入力済み）']); stat[k]={st:'keep', plan:v}; } else fill[k]=v; return; }
     if(k==='attachments'){ var a={}; var oa=(o.attachments&&typeof o.attachments==='object')?o.attachments:{};
       Object.keys(v).forEach(function(kk){ if(Array.isArray(oa[kk])&&oa[kk].length) keep.push([kk,'（入力済み）']); else a[kk]=v[kk]; });
       if(Object.keys(a).length) fill.attachments=a; return; }
     if(k==='offices'){ if(Array.isArray(o.offices)&&o.offices.length) keep.push([k,'（入力済み）']); else fill[k]=v; return; }
     var cur=_soPlanCurrent(o,k);
-    if(cur && cur!==String(v)) keep.push([k, cur+' ／ 計画書：'+v]); else if(!cur) fill[k]=v;
+    if(!cur) fill[k]=v;
+    else if(_nz(cur)===_nz(v)) stat[k]={st:'same', cur:cur};
+    else { keep.push([k, cur+' ／ 計画書：'+v]); stat[k]={st:'keep', cur:cur, plan:String(v)}; }
   });
   window._soPlanPending={orgId:orgId, resp:fill, keep:keep, file:fileName};
-  _showSupportImportPreview(orgId, null, fill, {title:'✨ 支援計画書から読み取った内容', note:'📄 '+fileName+'<br>空欄の項目だけに入れます。<b>すでに入っている項目は上書きしません</b>。'+(keep.length?'<br><span style="color:#b45309;">上書きしなかった項目：'+keep.map(function(x){ return esc(_SO_PLAN_LABEL[x[0]]||x[0])+'（'+esc(x[1])+'）'; }).join('、')+'</span>':''), okLabel:'この内容で反映する', toast:'✅ 支援計画書から読み取った内容を反映しました'});
+  _showSupportImportPreview(orgId, null, fill, {stat:stat, title:'✨ 支援計画書から読み取った内容', note:'📄 '+fileName+'<br>空欄の項目だけに入れます。<b>すでに入っている項目は上書きしません</b>。'+(keep.length?'<br><span style="color:#b45309;">上書きしなかった項目：'+keep.map(function(x){ return esc(_SO_PLAN_LABEL[x[0]]||x[0])+'（'+esc(x[1])+'）'; }).join('、')+'</span>':''), okLabel:'この内容で反映する', toast:'✅ 支援計画書から読み取った内容を反映しました'});
 }
 var _SO_PLAN_LABEL={name:'登録支援機関名',nameKana:'ふりがな',nameEn:'英語名',regNo:'登録番号',regDate:'登録年月日',zip:'郵便番号',pref:'都道府県',city:'市区町村',addressDetail:'町名丁目番地号等',addressEn:'英語住所',tel:'電話番号',repName:'代表者',repNameKana:'代表者ふりがな',repNameEn:'英語代表者名',languages:'対応可能言語',supportLanguages:'実施言語',supportManagerName:'支援責任者',supportManagerKana:'支援責任者ふりがな',supportManagerTitle:'支援責任者役職',supportManagerTitleEn:'支援責任者役職（英語）',supporterCount:'支援者数',supportStaffCount:'支援担当者数',supportProperness:'支援の適正性',supportHours:'対応時間',consultMethods:'相談方法',emergencyContact:'緊急時対応',offices:'支援事業所',support_staff:'支援担当者名簿',interpreters:'通訳者名簿'};
 function issueOrgViewUrl(orgId, orgName) {
