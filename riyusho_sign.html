@@ -99,7 +99,7 @@ input:focus{border-color:var(--accent);background:white;}
 </head>
 <body>
 <div class="header">
-  <div class="header-logo">OFUSA 行政書士法人 <span style="opacity:.5;font-size:9px;">ver.20261103.01</span></div>
+  <div class="header-logo">OFUSA 行政書士法人 <span style="opacity:.5;font-size:9px;">ver.20261112.01</span></div>
   <div class="header-title">雇用理由書のご確認とご署名</div>
 </div>
 <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
@@ -199,7 +199,7 @@ input:focus{border-color:var(--accent);background:white;}
       </div>
     </div>
     <div class="notice"><strong>注意：</strong>署名は書類の署名欄に合成されてDriveに保存されます。</div>
-    <button class="btn-primary" id="btnToStep3" onclick="goStep(3)" disabled>本人確認へ進む →</button>
+    <button class="btn-primary" id="btnToStep3" onclick="if(_sigRequire())goStep(3)" disabled>本人確認へ進む →</button>
     </div><!-- /signBlock -->
     <div class="section" id="changeBlock" style="display:none">
       <div class="section-label">変更してほしい箇所</div>
@@ -282,7 +282,7 @@ let pdfDoc=null,currentPage=1,totalPages=0;
 let canvas,ctx,isDrawing=false,hasDrawn=false;
 
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-console.log('%c OFUSA riyusho_sign.html ver.20260909.03 ', 'background:#1a1a2e;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
+console.log('%c OFUSA riyusho_sign.html ver.20261112.01 ', 'background:#1a1a2e;color:#fff;font-weight:bold;font-size:13px;border-radius:4px;padding:2px 6px;');
 
 // ===== 初期化 =====
 document.addEventListener('DOMContentLoaded',async()=>{
@@ -414,19 +414,59 @@ function changePage(d){
 }
 
 // ===== 署名キャンバス =====
+// ver.20261112.01: 「戻る」で署名画面に戻ったとき、書いた署名が消えて空白のまま送れてしまっていた。
+//   ① initCanvas はもう一度呼ばれても、いまの署名を写し取ってから大きさを合わせ直し、描き戻す（消さない）
+//   ② 先へ進む・送信の直前に、署名欄に本当に線があるかを _sigHasInk() で見る（hasDrawn だけを信じない）
 function initCanvas(){
   canvas=document.getElementById('signCanvas');
   const dpr=window.devicePixelRatio||1;
   const rect=canvas.getBoundingClientRect();
-  canvas.width=rect.width*dpr;canvas.height=180*dpr;
-  ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);
-  ctx.strokeStyle='#1a1a2e';ctx.lineWidth=2.5;ctx.lineCap='round';ctx.lineJoin='round';
-  canvas.addEventListener('touchstart',onTS,{passive:false});
-  canvas.addEventListener('touchmove', onTM,{passive:false});
-  canvas.addEventListener('touchend',  onTE);
-  canvas.addEventListener('mousedown', onMD);
-  canvas.addEventListener('mousemove', onMM);
-  canvas.addEventListener('mouseup',   onMU);
+  if(!rect.width) return;   // 見えていないときは触らない（幅0で作り直すと消える）
+  let snap=null;
+  if(ctx && hasDrawn && canvas.width && canvas.height){
+    try{ snap=document.createElement('canvas'); snap.width=canvas.width; snap.height=canvas.height; snap.getContext('2d').drawImage(canvas,0,0); }catch(e){ snap=null; }
+  }
+  const nw=Math.round(rect.width*dpr), nh=Math.round(180*dpr);
+  if(canvas.width!==nw || canvas.height!==nh || !ctx){
+    canvas.width=nw;canvas.height=nh;
+    ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);
+    ctx.strokeStyle='#1a1a2e';ctx.lineWidth=2.5;ctx.lineCap='round';ctx.lineJoin='round';
+    if(snap){
+      ctx.save(); ctx.setTransform(1,0,0,1,0,0);
+      const sc=Math.min(canvas.width/snap.width, canvas.height/snap.height);
+      ctx.drawImage(snap,0,0,snap.width*sc,snap.height*sc);
+      ctx.restore();
+    }
+  }
+  _sigSyncUi();
+  if(!canvas._sigBound){
+    canvas._sigBound=true;   // 何度呼ばれても、なぞる処理は1回だけ付ける
+    canvas.addEventListener('touchstart',onTS,{passive:false});
+    canvas.addEventListener('touchmove', onTM,{passive:false});
+    canvas.addEventListener('touchend',  onTE);
+    canvas.addEventListener('mousedown', onMD);
+    canvas.addEventListener('mousemove', onMM);
+    canvas.addEventListener('mouseup',   onMU);
+  }
+}
+// 署名欄に線があるか（透明でない点が1つでもあれば true）
+function _sigHasInk(){
+  if(!canvas||!ctx||!canvas.width||!canvas.height) return false;
+  try{ const d=ctx.getImageData(0,0,canvas.width,canvas.height).data; for(let i=3;i<d.length;i+=4){ if(d[i]>0) return true; } return false; }
+  catch(e){ return !!hasDrawn; }
+}
+// 線の有無に合わせて「進む」ボタンと「ここに指でサイン」をそろえる
+function _sigSyncUi(){
+  const ink=_sigHasInk(); hasDrawn=ink;
+  const b=document.getElementById('btnToStep3'); if(b) b.disabled=!ink;
+  const g=document.getElementById('signGuide'); if(g) g.classList.toggle('hidden', ink);
+  return ink;
+}
+// 署名が消えているときは知らせて署名欄に戻す
+function _sigRequire(){
+  if(_sigSyncUi()) return true;
+  alert('署名が入っていません。署名欄にもう一度サインしてください。');
+  return false;
 }
 function gp(e){const r=canvas.getBoundingClientRect(),t=e.touches?e.touches[0]:e;return{x:t.clientX-r.left,y:t.clientY-r.top};}
 function sd(e){isDrawing=true;const p=gp(e);ctx.beginPath();ctx.moveTo(p.x,p.y);document.getElementById('signGuide').classList.add('hidden');}
@@ -504,7 +544,7 @@ async function submitSign(){
   const name=document.getElementById('inputName').value.trim();
   const card='';
   if(!name){alert('氏名を入力してください');return;}
-  if(!hasDrawn){alert('署名してください');return;}
+  if(!hasDrawn||!_sigHasInk()){ hasDrawn=false; alert('署名が入っていません。前の画面に戻って、署名欄にもう一度サインしてください。'); goStep(2); return; }   // ver.20261112.01
   const btn=document.getElementById('btnSubmit');
   btn.disabled=true;btn.innerHTML='<span>処理中...</span>';
   const signedAt=new Date().toISOString();
