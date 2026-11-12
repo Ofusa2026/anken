@@ -331,7 +331,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261112.05</div>
+      <div class="ver">ver.20261112.06</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -5289,6 +5289,54 @@ function mtSave(){
   _sb.from('eigyo_weekly_mtg').upsert({ week_start:MT.week, data:MT.data, updated_by:me||null, updated_at:new Date().toISOString() })
     .then(function(r){ if(r.error) alert('保存エラー：'+r.error.message); else autosaveToast('保存しました'); });
 }
+// ver.20261112.06: 先の数字（接触→商談→新規取引）を週の目安と並べる。目安はKPIの週目標人数から逆算
+function mtRenderLead(o){
+  var ws=o.ws, we=o.we, from=kpAddD(ws,-28), prevE=kpAddD(ws,-1);
+  var isoA=new Date(from+'T00:00:00+09:00').toISOString(), isoB=new Date(kpAddD(we,1)+'T00:00:00+09:00').toISOString();
+  Promise.all([
+    _sb.from('eigyo_leads').select('reg_no,staff,first_contact_date,meeting_date,apt_at,apt_reschedule')
+      .or('and(first_contact_date.gte.'+from+',first_contact_date.lte.'+we+'),and(meeting_date.gte.'+from+',meeting_date.lte.'+we+'),and(apt_at.gte.'+isoA+',apt_at.lt.'+isoB+')'),
+    _sb.from('settings').select('value').eq('key','eigyo_month_plan').maybeSingle()
+  ]).then(function(R){
+    var box=el('mtLead'); if(!box) return;
+    if(R[0].error){ box.innerHTML='<span class="sub">先の数字の読み込みエラー：'+esc(R[0].error.message)+'</span>'; return; }
+    var sv={}; try{ sv=JSON.parse((R[1].data&&R[1].data.value)||'{}')||{}; }catch(e){}
+    var win=(parseFloat(sv.winRate)||MP_DEF.winRate)/100, meet=(parseFloat(sv.meetRate)||MP_DEF.meetRate)/100;
+    var ls=(R[0].data||[]).filter(function(l){ return MT.staff==='all' || l.staff===MT.staff; });
+    function cnt(a,b){ var c=0,m=0; ls.forEach(function(l){
+        if(l.first_contact_date && l.first_contact_date>=a && l.first_contact_date<=b) c++;
+        var md=l.meeting_date || (l.apt_at? kpS(new Date(l.apt_at)) : '');
+        if(md && md>=a && md<=b && !l.apt_reschedule) m++; }); return {c:c,m:m}; }
+    var W=cnt(ws,we), P4=cnt(from,prevE);
+    var dl=(KP.deals||[]).filter(function(d){ return o.inSt(d.staff); });
+    var d4=dl.filter(function(d){ return d.start_date>=from && d.start_date<=prevE; }).length;
+    var withP=(KP.deals||[]).filter(function(d){ return d.supporters>0; });
+    var avg=withP.length? withP.reduce(function(s,d){return s+d.supporters;},0)/withP.length : 0;
+    var ALL=MT.staff==='all';
+    var tDeal=(ALL&&avg)? o.wkT/avg : null, tMeet=tDeal!=null? tDeal/win : null, tCon=tMeet!=null? tMeet/meet : null;
+    function r1(v){ return v==null?'—':(Math.round(v*10)/10); }
+    function cell(label,val,tgt,avg4){ var ok=tgt==null?null:(val>=tgt); var c=ok===true?'#38a169':(ok===false?'#e53e3e':'#a0aec0');
+      return '<div style="flex:1;min-width:170px;background:#f7fafc;border-radius:8px;padding:8px 12px;border-left:4px solid '+c+';">'
+        + '<div class="sub" style="font-size:11.5px;">'+label+'</div><div style="font-size:20px;font-weight:800;">'+kpNum(val)+'件</div>'
+        + '<div class="sub" style="font-size:11px;">'+(tgt!=null?'週の目安 '+r1(tgt)+'件 ／ ':'')+'直近4週平均 '+r1(avg4/4)+'件</div></div>'; }
+    box.innerHTML='<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px;"><b style="font-size:14px;">📈 先の数字（対象週）</b><span class="sub" style="font-size:12px;">結果（支援人数）より先に動く数字。ここが目安を下回ると、2〜3週後の結果が足りなくなります</span></div>'
+      + '<div style="display:flex;gap:10px;flex-wrap:wrap;">'
+      + cell('接触（初回接触日）', W.c, tCon, P4.c)
+      + cell('商談（商談日）', W.m, tMeet, P4.m)
+      + cell('新規取引', o.wdCnt, tDeal, d4)
+      + '</div>'
+      + '<div class="sub" style="font-size:11px;margin-top:6px;">'+(ALL? (avg?'目安＝週の目標'+kpNum(o.wkT)+'人 ÷ 1社平均'+r1(avg)+'人 ＝ 取引'+r1(tDeal)+'社 → ÷成約率'+Math.round(win*100)+'% ＝ 商談 → ÷商談率'+Math.round(meet*100)+'% ＝ 接触（率は月別計画の前提）':'支援者数が入った取引がないため、目安は出せません') : '担当別のときは目安を出しません')+'</div>';
+    // 自動記録：直近の週を全員表示で開いたときだけ。値が変わったときだけ保存（過去の週は上書きしない）
+    if(o.isCurW && ALL){
+      var sn=Object.assign({}, o.snapNow, {contact:W.c, meeting:W.m, deals:o.wdCnt});
+      var old=o.SN||{}, changed=Object.keys(sn).some(function(k){ return old[k]!==sn[k]; });
+      if(changed){ sn.at=new Date().toISOString(); MT.data.snap=sn;
+        _sb.from('eigyo_weekly_mtg').upsert({ week_start:MT.week, data:MT.data, updated_by:me||null, updated_at:new Date().toISOString() }).then(function(){}); }
+    } else if(o.SN && o.SN.contact!=null){
+      box.innerHTML+='<div style="font-size:11px;color:#805ad5;margin-top:4px;">Mtg時点（'+esc(fmtMD(o.SN.at))+' 記録）：接触 '+o.SN.contact+'件 ／ 商談 '+o.SN.meeting+'件 ／ 新規取引 '+o.SN.deals+'件</div>';
+    }
+  });
+}
 function mtJump(k){ var t=el('mtSec'+k); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); }
 // ver.20261112.04: 直近8週の実施状況（記録がない週は「未実施」）。押すとその週を開く
 function mtRenderHistory(){
@@ -5298,12 +5346,12 @@ function mtRenderHistory(){
   if(!weeks.length) return;
   _sb.from('eigyo_weekly_mtg').select('week_start,data').in('week_start',weeks).then(function(r){
     if(r.error||!el('mtHist')) return;
-    var has={}; (r.data||[]).forEach(function(x){ if(x.data && Object.keys(x.data).some(function(k){ var v=x.data[k]; return v && (typeof v!=='object' || Object.keys(v).length); })) has[x.week_start]=true; });
+    var has={}, snapOnly={}; (r.data||[]).forEach(function(x){ if(!x.data) return; if(Object.keys(x.data).some(function(k){ if(k==='snap') return false; var v=x.data[k]; return v && (typeof v!=='object' || Object.keys(v).length); })) has[x.week_start]=true; else if(x.data.snap) snapOnly[x.week_start]=true; });
     el('mtHist').innerHTML='<span class="sub" style="font-size:11px;align-self:center;">実施記録：</span>'+weeks.slice().reverse().map(function(w){
       var d=kpD(w), on=w===MT.week, ok=!!has[w];
       return '<button class="btn btn-sm" onclick="MT.week=\''+w+'\';mtLoad();" title="'+mtLabel(w)+'" style="font-size:11px;padding:2px 7px;'
-        + (ok?'background:#f0fff4;color:#276749;border-color:#9ae6b4;':'background:#fff5f5;color:#c53030;border-color:#feb2b2;')
-        + (on?'outline:2px solid var(--accent);outline-offset:1px;':'')+'">'+(d.getMonth()+1)+'/'+d.getDate()+(ok?' ✓':' 未実施')+'</button>';
+        + (ok?'background:#f0fff4;color:#276749;border-color:#9ae6b4;':(snapOnly[w]?'background:#f7fafc;color:#718096;border-color:#cbd5e0;':'background:#fff5f5;color:#c53030;border-color:#feb2b2;'))
+        + (on?'outline:2px solid var(--accent);outline-offset:1px;':'')+'">'+(d.getMonth()+1)+'/'+d.getDate()+(ok?' ✓':(snapOnly[w]?' 数字のみ':' 未実施'))+'</button>';
     }).join('');
   });
 }
@@ -5404,13 +5452,21 @@ function mtSetAtk(k){ MT.atk=k; mtRender(); }
 // 今週やること → タスク(カンバン)のToDo列に追加
 function addWeekTodo(assignee){
   var inp=el('wkTodo_'+assignee); if(!inp) return;
-  var t=(inp.value||'').trim(); if(!t) return;
+  var t=(inp.value||'').trim();
+  // ver.20261112.06: 週次Mtgの⑤は、やること・対象の会社・期限を必須にする（タスク画面の追加は今までどおり）
+  var co=((el('wkTodoCo_'+assignee)||{}).value||'').trim(), due=((el('wkTodoDue_'+assignee)||{}).value||'');
+  var miss=[]; if(!t) miss.push('やること'); if(!co) miss.push('対象の会社'); if(!due) miss.push('期限');
+  var er=el('wkTodoErr_'+assignee);
+  if(miss.length){ if(er){ er.textContent='未入力：'+miss.join('・'); er.style.display='block'; } return; }
+  if(er) er.style.display='none';
+  t='［'+co+'］'+t+'（〜'+fmtMD(due)+'）';
   var asg = assignee==='共通'?'共通':assignee;
   _sb.from('eigyo_kanban').select('ord').eq('lane','todo').order('ord',{ascending:false}).limit(1).then(function(r){
     var maxOrd=(r.data&&r.data[0]&&r.data[0].ord)||0;
     _sb.from('eigyo_kanban').insert({title:t, lane:'todo', mtg_status:'todo', assignee:asg, ord:maxOrd+1, week_start:MT.week}).then(function(ins){
       if(ins.error){ alert('追加失敗：'+ins.error.message); return; }
-      inp.value=''; autosaveToast('✓ タスクのToDoに追加しました'); renderWeekTodos();
+      inp.value=''; if(el('wkTodoCo_'+assignee)) el('wkTodoCo_'+assignee).value=''; if(el('wkTodoDue_'+assignee)) el('wkTodoDue_'+assignee).value='';
+      autosaveToast('✓ タスクのToDoに追加しました'); renderWeekTodos();
     });
   });
 }
@@ -5646,13 +5702,25 @@ function mtRender(){
         return '<div style="flex:1;min-width:240px;">'
           + '<div style="font-weight:700;font-size:13px;margin-bottom:6px;color:'+(a==='中林'?'#3182ce':(a==='亀谷'?'#38a169':'#718096'))+';">'+esc(a)+'</div>'
           + '<div style="display:flex;gap:6px;margin-bottom:8px;">'
-          +   '<textarea id="wkTodo_'+a+'" placeholder="やることを入力（Enterで改行／「＋追加」で保存）" rows="2" style="flex:1;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;resize:vertical;"></textarea>'
-          +   '<button class="btn btn-sm btn-primary" onclick="addWeekTodo(\''+a+'\')">＋追加</button>'
+          +   '<div style="flex:1;display:flex;flex-direction:column;gap:4px;">'
+          +     '<textarea id="wkTodo_'+a+'" placeholder="やること（必須）" rows="2" style="font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;resize:vertical;"></textarea>'
+          +     '<div style="display:flex;gap:4px;">'
+          +       '<input id="wkTodoCo_'+a+'" list="mtCoList" placeholder="対象の会社（必須）／社内" style="flex:1;min-width:0;font-size:12px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;">'
+          +       '<input id="wkTodoDue_'+a+'" type="date" title="期限（必須）" style="font-size:12px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;">'
+          +     '</div>'
+          +     '<div id="wkTodoErr_'+a+'" style="display:none;color:#c53030;font-size:11.5px;"></div>'
+          +   '</div>'
+          +   '<button class="btn btn-sm btn-primary" style="align-self:flex-start;" onclick="addWeekTodo(\''+a+'\')">＋追加</button>'
           + '</div>'
           + '<div id="wkTodoList_'+a+'" class="sub" style="font-size:12px;">—</div>'
           + '</div>';
       }).join('')
     + '</div>'
+    + '<datalist id="mtCoList"><option value="社内・全体">'+(function(){ var seen={}, out=[];
+        (MT.leads||[]).concat(MT.apts||[]).forEach(function(l){ if(l.name&&!seen[l.name]){ seen[l.name]=1; out.push(l.name); } });
+        (KP.deals||[]).forEach(function(d){ if(d.company&&!seen[d.company]){ seen[d.company]=1; out.push(d.company); } });
+        return out.map(function(n){ return '<option value="'+esc(n)+'">'; }).join(''); })()+'</datalist>'
+    + '<div class="sub" style="font-size:11px;margin-top:6px;">やること・対象の会社・期限はすべて必須です（会社に関係ないものは「社内・全体」）。タスク画面には「［会社名］やること（〜期限）」の形で入ります。</div>'
     + '</div>';   // ver.20261112.03: 全体メモは⓪の「共有事項」に一本化
 
   // ver.20261112.03: いちばん上に今週の4つの数字（開いてすぐ良い週か悪い週か分かるように）
@@ -5661,11 +5729,15 @@ function mtRender(){
       + '<div class="sub" style="font-size:11.5px;">'+label+'</div><div style="font-size:24px;font-weight:800;color:#1a202c;line-height:1.3;">'+val+'</div>'
       + (sub?'<div class="sub" style="font-size:11.5px;">'+sub+'</div>':'')+'</div>'; }
   var ALLT = MT.staff==='all';
+  // ver.20261112.06: 数字の自動記録（直近の週を全員表示で開いたときだけ保存。過去の週は上書きしない）
+  var isCurW = (MT.week===mtWeekDefault()), SN=MT.data.snap||null;
+  var snapNow={wTot:wTot, wkT:Math.round(wkT), done:(typeof done==='number'?done:null), mT:(typeof mT==='number'?mT:null), nWarn:nWarn, nxCnt:nxCnt, nxSum:nxSum};
+  function snapSub(k,unit){ if(isCurW||!SN||SN[k]==null) return ''; return '<div style="font-size:11px;color:#805ad5;margin-top:2px;">Mtg時点：'+kpNum(SN[k])+unit+'（'+esc(fmtMD(SN.at))+' 記録）</div>'; }
   var top='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">'
-    + topCard('① 新規支援人数（対象週）', kpNum(wTot)+'人', ALLT?'週の目標 '+kpNum(wkT)+'人（'+kpPct(wTot,wkT)+'）':'', ALLT?(wTot>=wkT):null)
-    + topCard('② 今月の進み具合', (typeof done==='number'?kpNum(done)+'人':'—'), (ALLT&&typeof mT==='number')?'月の目標 '+kpNum(mT)+'人（'+kpPct(done,mT)+'）':'', (ALLT&&typeof mT==='number')?(done>=mT*Math.max(0,Math.min(1,kpDays(cm.from,t)/kpDays(cm.from,cm.to)))):null)
-    + topCard('③ 依頼が少ない取引', nWarn+'社', '取引開始30日以上で想定の70%未満', nWarn===0)
-    + topCard('④ 今月の契約見込み', nxCnt+'社 ／ '+kpNum(nxSum)+'人', ALLT?'月の目標 '+kpNum(moT)+'人（'+kpPct(nxSum,moT)+'）':'', ALLT?(nxSum>=moT):null)
+    + topCard('① 新規支援人数（対象週）', kpNum(wTot)+'人', (ALLT?'週の目標 '+kpNum(wkT)+'人（'+kpPct(wTot,wkT)+'）':'')+snapSub('wTot','人'), ALLT?(wTot>=wkT):null)
+    + topCard('② 今月の進み具合', (typeof done==='number'?kpNum(done)+'人':'—'), (ALLT&&typeof mT==='number')?'月の目標 '+kpNum(mT)+'人（'+kpPct(done,mT)+'）'+snapSub('done','人'):snapSub('done','人'), (ALLT&&typeof mT==='number')?(done>=mT*Math.max(0,Math.min(1,kpDays(cm.from,t)/kpDays(cm.from,cm.to)))):null)
+    + topCard('③ 依頼が少ない取引', nWarn+'社', '取引開始30日以上で想定の70%未満'+snapSub('nWarn','社'), nWarn===0)
+    + topCard('④ 今月の契約見込み', nxCnt+'社 ／ '+kpNum(nxSum)+'人', ALLT?'月の目標 '+kpNum(moT)+'人（'+kpPct(nxSum,moT)+'）'+snapSub('nxSum','人'):snapSub('nxSum','人'), ALLT?(nxSum>=moT):null)
     + '</div>';
   // ver.20261112.04: Mtg前の準備状況（担当ごと）。自動チェック＋「準備OK」ボタン（週次Mtgの記録にだけ保存）
   var prepD=MT.data.prep||{}, td0=kpToday();
@@ -5694,7 +5766,9 @@ function mtRender(){
     + '</div>';
   top='<div id="mtSecTop" style="scroll-margin-top:64px;"></div>'+top;
   prep='<div id="mtSecPrep" style="scroll-margin-top:64px;"></div>'+prep;
-  box.innerHTML=header+jump+top+prep+s0+s1+s2+s3+s4+s5;
+  var lead='<div id="mtLead" style="'+card+'padding:12px 18px;"><span class="sub">先の数字を読み込み中…</span></div>';
+  box.innerHTML=header+jump+top+lead+prep+s0+s1+s2+s3+s4+s5;
+  mtRenderLead({ws:ws, we:we, wkT:wkT, wdCnt:wd.length, isCurW:isCurW, SN:SN, snapNow:snapNow, inSt:inSt});
   mtRenderHistory();
   renderWeekTodos();
   renderPrevWeekTodos();
