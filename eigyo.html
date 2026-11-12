@@ -110,6 +110,11 @@ body{
 .container{max-width:1500px;margin:0 auto;}
 .sidebar{position:fixed;left:0;top:0;bottom:0;width:220px;background:#0f2040;color:#fff;padding:0 0 20px;overflow-y:auto;z-index:100;}
 .sidebar .sb-logo{padding:20px 18px 14px;font-size:15px;font-weight:700;color:#fff;}
+.sidebar .sb-group{cursor:pointer;user-select:none;display:flex;justify-content:space-between;align-items:center;padding-right:16px !important;}
+.sidebar .sb-group:hover{color:#94a3b8;}
+.sidebar .sb-group::after{content:'▾';font-size:10px;opacity:.7;}
+.sidebar .sb-group.folded::after{content:'▸';}
+.sidebar .nav-item.sb-fold{display:none !important;}
 .sidebar .sb-group{padding:12px 18px 4px;font-size:10px;color:#475569;font-weight:700;letter-spacing:1px;}
 .sidebar .nav-item{display:flex;align-items:center;gap:9px;width:auto;text-align:left;margin:1px 8px;padding:9px 14px;color:#94a3b8;font-size:13px;cursor:pointer;border:none;background:transparent;border-radius:6px;text-decoration:none;}
 .sidebar .nav-item:hover{background:rgba(255,255,255,.10);color:#fff;}
@@ -331,7 +336,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261112.07</div>
+      <div class="ver">ver.20261112.08</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -348,7 +353,6 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div class="nav-item" data-main="mtg" onclick="openMtgTab()">🗓 週次Mtg</div>
     <div class="nav-item" data-main="kanban" onclick="openKanban()">🗂 タスク</div>
     <div class="nav-item" data-main="seminar" onclick="openSeminar()">🎓 セミナー</div>
-    <div class="nav-item" data-main="materials" onclick="openCommonMaterials()">📎 資料ライブラリ</div>
     <div class="sb-group">操作</div>
     <div class="nav-item" onclick="openNew()">＋ 新規登録</div>
     <div class="nav-item" onclick="openApptImport()">📥 アポ取込</div>
@@ -360,10 +364,11 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div class="nav-item" id="transChip" onclick="toggleTransOnly()" style="display:none;color:#fcd34d;">📝 スプレッド転記未 <span class="badge" style="background:rgba(214,158,46,.16);color:#fcd34d;" id="transChipN">0</span></div>
     <div class="nav-item" id="thanksChip" onclick="toggleThanksOnly()" style="display:none;color:#7dd3fc;">📄 御礼未送信 <span class="badge" style="background:rgba(59,130,246,.16);color:#7dd3fc;" id="thanksChipN">0</span></div>
     <div class="sb-group">資料・出力</div>
+    <div class="nav-item" data-main="materials" onclick="openCommonMaterials()">📎 資料ライブラリ</div>
     <div class="nav-item" onclick="openShareList()">📤 共有リスト</div>
     <div class="nav-item" onclick="openQuoteList()">🗂 見積書履歴</div>
     <div class="nav-item" onclick="exportCsv()">⬇ 表示中をCSV</div>
-    <div class="nav-item" onclick="el('csvFile').click()">📥 CSV取込</div>
+    <div class="nav-item" onclick="el('csvFile').click()" title="入管の登録簿CSVを読み込み、登録番号が同じ会社を上書きします（管理用）">📥 CSV取込（登録簿・管理用）</div>
     <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="importCsv(this)">
     <div class="sb-group">その他</div>
     <div class="nav-item" onclick="load()">↻ 再読込</div>
@@ -5340,6 +5345,19 @@ function mtRenderLead(o){
     }
   });
 }
+// ver.20261112.08: サイドバーのグループ名を押すと開閉（人ごとにブラウザに記憶。初期は「資料・出力」「その他」を閉じる）
+function sbInitFold(){
+  var groups=document.querySelectorAll('.sidebar .sb-group'); if(!groups.length) return;
+  var st=null; try{ st=JSON.parse(localStorage.getItem('eigyo_sb_fold')||'null'); }catch(e){}
+  if(!st) st={'資料・出力':true,'その他':true};
+  function items(g){ var a=[], n=g.nextElementSibling; while(n && !n.classList.contains('sb-group')){ if(n.classList.contains('nav-item')) a.push(n); n=n.nextElementSibling; } return a; }
+  function apply(g,fold){ g.classList.toggle('folded',fold); items(g).forEach(function(it){ it.classList.toggle('sb-fold',fold); }); }
+  Array.prototype.forEach.call(groups,function(g){
+    var k=g.textContent.trim(); apply(g,!!st[k]);
+    g.onclick=function(){ var f=!g.classList.contains('folded'); apply(g,f); st[k]=f; try{ localStorage.setItem('eigyo_sb_fold',JSON.stringify(st)); }catch(e){} };
+  });
+}
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',sbInitFold); else sbInitFold();
 function mtJump(k){ var t=el('mtSec'+k); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); }
 // ver.20261112.04: 直近8週の実施状況（記録がない週は「未実施」）。押すとその週を開く
 function mtRenderHistory(){
