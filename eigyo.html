@@ -336,7 +336,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261112.10</div>
+      <div class="ver">ver.20261112.11</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -743,11 +743,21 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
 <div id="mailBox" style="display:none;position:fixed;z-index:64;top:50%;left:50%;transform:translate(-50%,-50%);
      width:min(680px,96vw);max-height:90vh;overflow:auto;background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 8px 30px rgba(0,0,0,.2);">
   <h2 style="margin:0 0 4px;font-size:18px;color:var(--accent);">✉️ メール配信</h2>
-  <p style="margin:0 0 14px;font-size:12px;color:var(--muted);">大房行政書士法人名義で送信します。宛名（○○御中）と大房行政書士法人の定型署名は自動で付きます。チェックを外した会社には送信されません。</p>
+  <p style="margin:0 0 14px;font-size:12px;color:var(--muted);">大房行政書士法人名義で送信します。宛名（担当者名があれば「会社名＋〇〇様」、なければ「会社名 御中」）と大房行政書士法人の定型署名は自動で付きます。チェックを外した会社には送信されません。</p>
 
   <div class="form" style="grid-template-columns:1fr;">
     <label style="font-weight:700;">配信先ステータス（複数選択可）</label>
     <div id="mailStatusBoxes" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px;"></div>
+
+    <label style="font-weight:700;">商談日で絞り込み</label>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
+      <select id="mailMeetFilter" onchange="mailRefreshRecipients()" style="padding:6px 8px;border:1px solid var(--line);border-radius:7px;">
+        <option value="">指定なし</option>
+        <option value="before">料金改定（2026/9/1）より前に商談した会社</option>
+        <option value="after">料金改定（2026/9/1）以降に商談した会社</option>
+      </select>
+      <span class="sub" style="font-size:11.5px;">ステータスを選ばずにこれだけ選ぶと、取引中・だめ・離脱以外の全ステータスが対象です</span>
+    </div>
 
     <label style="font-weight:700;">会社を検索して追加（機関名・登録番号）</label>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:2px;">
@@ -758,11 +768,18 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
 
     <div id="mailRecipInfo" style="background:#f7fafc;border-radius:8px;padding:10px 12px;margin-bottom:6px;"></div>
 
+    <label style="font-weight:700;">文面のひな形</label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button type="button" class="btn btn-sm" onclick="mailUseTpl('price')">📄 料金改定＋RSOのご案内（9/1より前に商談した会社向け）</button>
+      <button type="button" class="btn btn-sm" onclick="mailUseTpl('rso')">🧩 RSOのご案内（9/1以降に商談した会社向け）</button>
+    </div>
+
     <label style="font-weight:700;">件名</label>
     <input type="text" id="mailSubject" placeholder="例：登録支援機関向けセミナーのご案内">
 
     <label style="font-weight:700;">本文</label>
     <textarea id="mailBody" placeholder="本文を入力してください。冒頭の宛名と末尾の署名は自動で付きます。" style="min-height:180px;"></textarea>
+    <div class="sub" style="font-size:11.5px;margin-top:-4px;">宛名は自動で付きます：担当者名が営シスに入っている会社は「会社名＋〇〇様」、入っていない会社は「会社名 御中」。本文に {会社名} と書くと、1社ずつ会社名に置き換わります。</div>
 
     <label style="font-weight:700;">添付ファイル</label>
     <div style="display:flex;flex-direction:column;gap:8px;">
@@ -6548,7 +6565,7 @@ function openMailModal(){
       + '<input type="checkbox" class="mailStatusCb" value="'+esc(s)+'" onchange="mailRefreshRecipients()"> '+esc(s)+'</label>';
   }).join('');
   el('mailStatusBoxes').innerHTML = boxes;
-  el('mailSubject').value=''; el('mailBody').value=''; el('mailTestTo').value=(me||'');
+  el('mailSubject').value=''; el('mailBody').value=''; el('mailTestTo').value=(me||''); if(el('mailMeetFilter')) el('mailMeetFilter').value='';
   mailClearPdf(); mailClearImg();
   _mailCandStatus=[]; _mailCandExtra=[]; _mailExcluded={};
   el('mailSearchQ').value=''; el('mailSearchResults').style.display='none'; el('mailSearchResults').innerHTML='';
@@ -6560,18 +6577,59 @@ function mailSelectedStatuses(){ return Array.prototype.map.call(document.queryS
 
 function mailLeadEmails(x){
   var emails=[]; (x.contacts||[]).forEach(function(c){ if(c&&c.email&&/@/.test(c.email)) emails.push(c.email.trim()); });
+  if(!emails.length && x.apt_email && /@/.test(x.apt_email)) emails.push(String(x.apt_email).trim());   // ver.20261112.11: 担当者が未登録ならアポのメール
   return emails;
 }
+// ver.20261112.11: 宛名に使う担当者名（担当者の1人目→アポの先方担当者）。「様」や役職のかっこは外す
+function mailLeadPerson(x){
+  var c=(x.contacts||[]).filter(function(c){ return c&&c.name; })[0];
+  var n=(c&&c.name)||x.apt_person||'';
+  return String(n).replace(/\/.*$/,'').replace(/[（(].*?[）)]/g,'').replace(/様\s*$/,'').trim();
+}
+var MAIL_TPL={
+  price:{ sub:'申請費用のご案内とお打ち合わせのお願い（大房行政書士法人）',
+    body:'お世話になっております。大房行政書士法人の〇〇でございます。\n\n'
+      +'当法人の申請費用やサービスの内容が新しくなりましたので、あらためてご案内させてください。\n以下の費用は1人あたりの金額となります。\n\n'
+      +'▼特定技能（1号・2号）の申請費用（税込）\n・在留資格認定証明書交付申請：55,000円\n・在留資格変更許可申請：55,000円（別途収入印紙代金）\n・在留期間更新許可申請：33,000円（別途収入印紙代金）\n・建設業国交省申請費用：33,000円\n\n'
+      +'▼技能実習の申請費用（税込）\n・在留資格認定証明書交付申請：11,000円\n・在留資格変更許可申請：33,000円（別途収入印紙代金）\n・在留期間更新許可申請：33,000円（別途収入印紙代金）\n'
+      +'納税関係書類の回収を貴社でご対応いただける場合、変更・更新は11,000円（別途収入印紙代金）でお受けいたします。\n'
+      +'※技能実習計画の作成・外国人技能実習機構（OTIT）への認定申請は、貴社でご対応をお願いいたします。\n\n'
+      +'また、登録支援機関さま向けに支援管理システム「RSO」を当法人で開発いたしました。定期面談や相談の記録、監査で求められる帳簿、在留期限や届出の期限を、まとめて管理できます。\n'
+      +'特定技能の申請を全件当法人にご依頼いただいている登録支援機関さまは、無料でご利用いただけます。\n\n'
+      +'つきましては、RSOの画面もご覧いただきながら、あらためて30分ほどオンラインにてお打ち合わせのお時間をいただけないでしょうか。\n'
+      +'ご都合のよい日時をいくつかお知らせいただけましたら、こちらで調整いたします。\n\n'
+      +'引き続きよろしくお願いいたします。' },
+  rso:{ sub:'支援管理システム「RSO」のご案内（大房行政書士法人）',
+    body:'お世話になっております。大房行政書士法人の〇〇でございます。\n先日はお打ち合わせのお時間をいただき、ありがとうございました。\n\n'
+      +'このたび、登録支援機関さま向けの支援管理システム「RSO」を当法人で開発いたしましたので、ご案内させてください。\n\n'
+      +'・定期面談や相談の記録を、その場で入力・保存\n・監査で求められる帳簿を、まとめて出力\n・在留期限や届出の期限を一覧で確認し、漏れを防止\n\n'
+      +'特定技能の申請を全件当法人にご依頼いただいている登録支援機関さまは、無料でご利用いただけます。\n\n'
+      +'実際の画面をご覧いただきながら、オンラインにて30分ほどでご説明いたします。ご興味がございましたら、ご都合のよい日時をお知らせください。\n\n'
+      +'引き続きよろしくお願いいたします。' }
+};
+function mailUseTpl(k){
+  var t=MAIL_TPL[k]; if(!t) return;
+  if((el('mailSubject').value.trim()||el('mailBody').value.trim()) && !confirm('今入っている件名と本文を、ひな形で置き換えますか？')) return;
+  el('mailSubject').value=t.sub; el('mailBody').value=t.body;
+  var mf=el('mailMeetFilter'); if(mf && !mf.value){ mf.value=(k==='price'?'before':'after'); mailRefreshRecipients(); }
+  alert('ひな形を入れました。本文の「〇〇」を差出人の名前に直してから送ってください。');
+}
 function mailRefreshRecipients(){
-  var sts=mailSelectedStatuses();
-  if(!sts.length){ _mailCandStatus=[]; mailRenderRecipients(); return; }
+  var sts=mailSelectedStatuses(), mf=(el('mailMeetFilter')&&el('mailMeetFilter').value)||'';
+  if(!sts.length && !mf){ _mailCandStatus=[]; mailRenderRecipients(); return; }
   el('mailRecipInfo').innerHTML='<span class="sub">集計中…</span>';
-  _sb.from('eigyo_leads').select('reg_no,name,contacts,no_mail').in('status',sts).then(function(r){
+  // ver.20261112.11: 商談日（アポ日時）で料金改定の前・後に分けられるように
+  var q=_sb.from('eigyo_leads').select('reg_no,name,contacts,no_mail,apt_email,apt_person');
+  if(sts.length) q=q.in('status',sts); else q=q.not('status','in','("取引中","だめ","離脱")');
+  var CUT='2026-09-01', CUTI='2026-09-01T00:00:00+09:00';
+  if(mf==='before') q=q.or('meeting_date.lt.'+CUT+',and(meeting_date.is.null,apt_at.lt.'+CUTI+')');
+  if(mf==='after')  q=q.or('meeting_date.gte.'+CUT+',and(meeting_date.is.null,apt_at.gte.'+CUTI+')');
+  q.then(function(r){
     var rows=(r.data)||[],recips=[];
     rows.forEach(function(x){
       if(x.no_mail) return;   // メール配信不要は除外
       var emails=mailLeadEmails(x);
-      if(emails.length) recips.push({reg_no:x.reg_no,name:x.name,emails:emails});
+      if(emails.length) recips.push({reg_no:x.reg_no,name:x.name,emails:emails,person:mailLeadPerson(x)});
     });
     _mailCandStatus=recips;
     mailRenderRecipients();
@@ -6632,9 +6690,9 @@ function mailSearchLeads(){
   box.style.display='block'; box.innerHTML='<span class="sub">検索中…</span>';
   var orParts=searchOrParts(kw, ['reg_no','name']);
   if(!orParts.length){ box.innerHTML='<span class="sub">検索語が無効です。</span>'; return; }
-  _sb.from('eigyo_leads').select('reg_no,name,status,contacts,no_mail').or(orParts.join(',')).limit(15).then(function(r){
+  _sb.from('eigyo_leads').select('reg_no,name,status,contacts,no_mail,apt_email,apt_person').or(orParts.join(',')).limit(15).then(function(r){
     var rows=(r.data)||[];
-    _mailSearchHits=rows.map(function(x){ return {reg_no:x.reg_no,name:x.name,status:x.status,emails:mailLeadEmails(x),no_mail:!!x.no_mail}; });
+    _mailSearchHits=rows.map(function(x){ return {reg_no:x.reg_no,name:x.name,status:x.status,emails:mailLeadEmails(x),no_mail:!!x.no_mail,person:mailLeadPerson(x)}; });
     if(!_mailSearchHits.length){ box.innerHTML='<span class="sub">該当なし。別の言葉で検索してください。</span>'; return; }
     box.innerHTML=_mailSearchHits.map(function(p,i){
       if(p.no_mail){
@@ -6656,7 +6714,7 @@ function mailAddLead(i){
   delete _mailExcluded[p.reg_no];
   var dup=_mailCandExtra.some(function(x){return x.reg_no===p.reg_no;})
        || _mailCandStatus.some(function(x){return x.reg_no===p.reg_no;});
-  if(!dup) _mailCandExtra.push({reg_no:p.reg_no,name:p.name,emails:p.emails});
+  if(!dup) _mailCandExtra.push({reg_no:p.reg_no,name:p.name,emails:p.emails,person:p.person||''});
   mailRenderRecipients();
 }
 
@@ -6681,9 +6739,10 @@ function mailBuildAttachments(){
   if(_mailImgB64)a.push({filename:_mailImgName||'画像',data:_mailImgB64});
   return a;
 }
-function mailBuildBody(orgName){
-  return orgName+' 御中\n\n'
-    + el('mailBody').value.trim()
+function mailBuildBody(orgName, person){
+  var head = person ? (orgName+'\n'+person+'様') : (orgName+' 御中');   // ver.20261112.11: 担当者名があれば「〇〇様」
+  return head+'\n\n'
+    + el('mailBody').value.trim().replace(/\{会社名\}/g, orgName)
     + '\n\n\n' + MAIL_SIGNATURE;
 }
 
@@ -6702,7 +6761,8 @@ function mailSendTest(){
   if(!sub||!bodyRaw){ alert('件名と本文を入力してください'); return; }
   if(!/@/.test(to)){ alert('テスト送信先メールを入力してください'); return; }
   var btn=el('mailTestBtn'); btn.disabled=true; btn.textContent='送信中…';
-  mailSendOne(to, '【テスト】'+sub, mailBuildBody('（テスト送信）'), mailBuildAttachments(), function(ok){
+  var _f=mailCurrentRecipients()[0];   // テストは1社目の宛名で、差し込み後の見た目を確かめる
+  mailSendOne(to, '【テスト】'+sub, mailBuildBody(_f?_f.name:'（テスト送信）', _f?_f.person:''), mailBuildAttachments(), function(ok){
     btn.disabled=false; btn.textContent='まず自分宛にテスト送信';
     if(ok){ alert('テストメールを送信しました。\n'+to+' の受信をご確認ください。\n\n届いていれば「本配信する」で全社に送れます。'); }
     else { alert('送信結果が「成功」で返りませんでした。\nGAS側の応答を確認してください。\n（届いているのに失敗表示の場合もあります。まず受信 boxを確認してください）'); }
@@ -6732,7 +6792,7 @@ function mailSend(){
     }
     var p=_sendList[i];
     btn.textContent='送信中… ('+(i+1)+'/'+_sendList.length+')';
-    mailSendOne(p.emails, sub, mailBuildBody(p.name), atts, function(ok){
+    mailSendOne(p.emails, sub, mailBuildBody(p.name, p.person), atts, function(ok){
       if(ok) okCount++; else ngCount++;
       i++; setTimeout(next, 300);
     });
