@@ -344,7 +344,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261112.12</div>
+      <div class="ver">ver.20261112.13</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -1973,6 +1973,9 @@ function renderDrawer(){
   + '</div><div style="margin-top:10px;text-align:right;"><button class="btn" onclick="saveProfile()">プロフィールを保存</button></div></div>'
 
   // ver.20261102.03: 「申請以外のサービスを案内する」は御礼メールの「別途サービス」と重複するため表示しない
+  // ver.20261112.13: この会社あてのフォローメール（過去の対応履歴を見ながら書いて、そのまま送る）
+  + '<div class="sec" id="fuSec"><h3 style="display:flex;justify-content:space-between;align-items:center;">✉️ フォローメール'
+  +   '<button class="btn btn-sm" id="fuToggle" onclick="fuOpen()">メールを作る</button></h3><div id="fuBody" style="display:none;"></div></div>'
   + '<div class="sec"><h3>対応履歴を追加</h3><div class="form">'
   +   '<label>日付</label><input type="date" id="nDate" value="'+today()+'">'
   +   '<label>種別</label><select id="nKind">'+KINDS.map(function(k){return '<option>'+esc(k)+'</option>';}).join('')+'</select>'
@@ -3772,6 +3775,79 @@ function _noteAutoFlush(){
       _noteToast('📝 入力中の対応履歴を自動で追加しました（'+name+'）');
       if(curLead && curLead.reg_no===reg){ curLead.last_contact_date=rec.note_date; loadNotes(reg); }
       load(); if(typeof fillLatestNotes==='function') fillLatestNotes();
+    });
+  });
+}
+/* ===== ver.20261112.13: 会社ページからのフォローメール ===== */
+function fuStaffShort(n){ return String(n||'').split(/[\s　]/)[0]; }
+function fuOpen(){
+  var x=curLead; if(!x) return;
+  var box=el('fuBody'), bt=el('fuToggle');
+  if(box.style.display==='block'){ box.style.display='none'; bt.textContent='メールを作る'; return; }
+  var emails=[]; (x.contacts||[]).forEach(function(c){ if(c&&c.email&&/@/.test(c.email)) emails.push({e:String(c.email).trim(), n:c.name||''}); });
+  if(x.apt_email && /@/.test(x.apt_email) && !emails.some(function(o){return o.e===String(x.apt_email).trim();})) emails.push({e:String(x.apt_email).trim(), n:x.apt_person||''});
+  var md=x.meeting_date || (x.apt_at? kpS(new Date(x.apt_at)) : '');
+  var tplDef = (md && md>='2026-09-01') ? 'rso' : 'price';
+  var sender = thanksSenderDefault() || x.staff || '';
+  box.innerHTML = (x.no_mail?'<div style="background:#fff5f5;color:#c53030;border-radius:6px;padding:6px 10px;font-size:12px;margin-bottom:8px;">この会社は「メール配信不要」になっています。送る前に確かめてください。</div>':'')
+    + '<div class="form" style="grid-template-columns:110px 1fr;">'
+    + '<label>宛先</label><div>'+(emails.length? emails.map(function(o,i){ return '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text);"><input type="checkbox" class="fuTo" value="'+esc(o.e)+'" '+(i===0?'checked':'')+' style="width:15px;height:15px;flex:none;margin:0;"> '+esc(o.e)+(o.n?' <span class="sub">（'+esc(o.n)+'）</span>':'')+'</label>'; }).join('')
+        : '<span style="color:#c53030;font-size:12px;">メールアドレスが登録されていません。「登録支援機関情報」タブの担当者にメールを入れてください。</span>')+'</div>'
+    + '<label>宛名の担当者</label><div style="display:flex;gap:6px;align-items:center;"><input type="text" id="fuPerson" value="'+esc(mailLeadPerson(x))+'" placeholder="空なら「会社名 御中」" style="flex:1;"><span class="sub" style="font-size:11.5px;">様</span></div>'
+    + '<label>差出人</label><select id="fuSender">'+STAFF_SEED.map(function(s){ return '<option'+(s===sender?' selected':'')+'>'+esc(s)+'</option>'; }).join('')+'</select>'
+    + '<label>ひな形</label><div style="display:flex;gap:6px;flex-wrap:wrap;">'
+    +   '<button type="button" class="btn btn-sm'+(tplDef==='price'?' btn-primary':'')+'" onclick="fuTpl(\'price\')">料金改定＋RSO</button>'
+    +   '<button type="button" class="btn btn-sm'+(tplDef==='rso'?' btn-primary':'')+'" onclick="fuTpl(\'rso\')">RSOのご案内</button>'
+    +   '<button type="button" class="btn btn-sm" onclick="fuTpl(\'\')">白紙</button>'
+    +   '<span class="sub" style="font-size:11.5px;align-self:center;">'+(md?'商談日 '+esc(fmtMD(md))+(tplDef==='rso'?'（料金改定後）':'（料金改定前）'):'商談日の記録なし')+'</span></div>'
+    + '<label>件名</label><input type="text" id="fuSub">'
+    + '<label>本文</label><div><textarea id="fuText" style="min-height:260px;width:100%;"></textarea>'
+    +   '<div class="sub" style="font-size:11.5px;">冒頭の宛名と末尾の署名は自動で付きます。下の「対応履歴」を見ながら、この会社向けに一言足してから送るのがおすすめです。</div></div>'
+    + '<label>次の連絡</label><select id="fuNext"><option value="7">1週間後</option><option value="14" selected>2週間後</option><option value="30">1か月後</option><option value="90">3か月後</option><option value="">入れない</option></select>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;">'
+    +   '<button class="btn" id="fuTestBtn" onclick="fuSend(true)">自分宛にテスト送信</button>'
+    +   '<button class="btn btn-primary" id="fuSendBtn" onclick="fuSend(false)">この会社に送信する</button></div>';
+  box.style.display='block'; bt.textContent='閉じる';
+  fuTpl(tplDef, true);
+}
+function fuTpl(k, silent){
+  var sub=el('fuSub'), tx=el('fuText'); if(!sub||!tx) return;
+  if(!silent && (sub.value.trim()||tx.value.trim()) && !confirm('今の件名と本文を、ひな形で置き換えますか？')) return;
+  var t=MAIL_TPL[k], nm=fuStaffShort(el('fuSender')&&el('fuSender').value)||'〇〇';
+  sub.value = t ? t.sub : '';
+  tx.value  = t ? t.body.replace(/〇〇/g, nm) : 'お世話になっております。大房行政書士法人の'+nm+'でございます。\n\n\n\n引き続きよろしくお願いいたします。';
+}
+function fuSend(isTest){
+  var x=curLead; if(!x) return;
+  var to=Array.prototype.map.call(document.querySelectorAll('.fuTo:checked'),function(c){return c.value;});
+  var sub=(el('fuSub').value||'').trim(), body=(el('fuText').value||'').trim();
+  if(!sub||!body){ alert('件名と本文を入れてください'); return; }
+  if(/〇〇/.test(body) && !confirm('本文に「〇〇」が残っています。このまま送りますか？')) return;
+  var person=(el('fuPerson').value||'').replace(/様\s*$/,'').trim();
+  var full=(person ? (x.name+'\n'+person+'様') : (x.name+' 御中'))+'\n\n'+body.replace(/\{会社名\}/g, x.name)+'\n\n\n'+MAIL_SIGNATURE;
+  if(isTest){
+    var me1=(me||''); if(!/@/.test(me1)){ me1=prompt('テストを送るメールアドレス','')||''; } if(!/@/.test(me1)) return;
+    var tb=el('fuTestBtn'); tb.disabled=true; tb.textContent='送信中…';
+    mailSendOne(me1, '【テスト】'+sub, full, [], function(ok){ tb.disabled=false; tb.textContent='自分宛にテスト送信'; alert(ok?('テストメールを送りました（'+me1+'）。見た目を確かめてください。'):'送信結果が「成功」で返りませんでした。受信箱を確認してください。'); });
+    return;
+  }
+  if(!to.length){ alert('宛先を選んでください'); return; }
+  if(!confirm(x.name+'（'+to.join('、')+'）に送信します。よろしいですか？')) return;
+  var btn=el('fuSendBtn'); btn.disabled=true; btn.textContent='送信中…';
+  var reg=x.reg_no, sender=el('fuSender').value, nd=el('fuNext').value;
+  mailSendOne(to, sub, full, [], function(ok){
+    btn.disabled=false; btn.textContent='この会社に送信する';
+    if(!ok){ alert('送信結果が「成功」で返りませんでした。\n送信済みフォルダを確かめてから、必要ならもう一度送ってください。（履歴には残していません）'); return; }
+    var note={reg_no:reg, note_date:kpToday(), kind:'メール', author:sender||null, body:'フォローメール送信：'+sub+'\n（宛先：'+to.join('、')+'）\n\n'+body};
+    _sb.from('eigyo_notes').insert(note).then(function(){
+      var patch={last_contact_date:kpToday(), updated_at:new Date().toISOString()};
+      if(nd){ patch.next_action_date=kpAddD(kpToday(), parseInt(nd,10)); if(!x.next_action_kind) patch.next_action_kind='電話'; patch.next_action='フォローメールの返信確認'; }
+      _sb.from('eigyo_leads').update(patch).eq('reg_no',reg).then(function(){
+        if(curLead && curLead.reg_no===reg){ Object.assign(curLead,patch); el('fuBody').style.display='none'; el('fuToggle').textContent='メールを作る'; loadNotes(reg); }
+        showMsg('dMsg','メールを送り、対応履歴に残しました'+(nd?'（次の連絡：'+fmtMD(patch.next_action_date)+'）':''),'ok');
+        load();
+      });
     });
   });
 }
