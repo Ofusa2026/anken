@@ -331,7 +331,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261112.06</div>
+      <div class="ver">ver.20261112.07</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -1838,7 +1838,9 @@ function renderDrawer(){
   +   '<label>案件担当者</label><div><select id="eCaseStaff" onchange="saveCaseStaff(curLead.reg_no,this.value,curLead.support_org_id,function(){ curLead.case_staff=el(\'eCaseStaff\').value||null; _PL.data=null; })">'+csOptions(x.case_staff||'')+'</select><div class="sub" style="font-size:11.5px;margin-top:2px;">案シスで書類を担当する人（営業担当とは別）。案シスの登録支援機関と紐づいていれば、案シスの担当も変わります</div></div>'
   +   '<label>担当者</label><select id="eStaff"><option value="">（未設定）</option>'
   +     staffOptions.map(function(s){return '<option'+(s===x.staff?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'
-  +   '<input type="hidden" id="eDocMethod" value="'+esc(x.doc_method||'')+'"><input type="hidden" id="eFirstDate" value="'+esc(x.first_contact_date||'')+'">'
+  +   '<input type="hidden" id="eDocMethod" value="'+esc(x.doc_method||'')+'">'
+  // ver.20261112.07: 初回接触日を直せるように表示（自動で入った日付がずれていたら直す）
+  +   '<label>初回接触日</label><input type="date" id="eFirstDate" value="'+esc(x.first_contact_date||'')+'" title="ステータスを未接触から変えた日・アポ取込日・セミナー開催日が自動で入ります">'
   +   '<label>経路</label><select id="eFirstKind"><option value="">（未選択）</option>'
   +       FIRST_KINDS.map(function(t){return '<option'+(t===x.first_contact_kind?' selected':'')+'>'+esc(t)+'</option>';}).join('')
   +     (x.first_contact_kind&&FIRST_KINDS.indexOf(x.first_contact_kind)<0?'<option selected>'+esc(x.first_contact_kind)+'</option>':'')+'</select>'
@@ -3058,7 +3060,7 @@ function apptDoImport(){
   if(d.apt_at){ aptFields.meeting_date=d.apt_at.slice(0,10); }
   // 既存照合：会社名 完全一致 → 電話一致
   if(d.acq==='Sales pass'){ aptFields.staff=SP_STAFF; }   // ver.20261102.01: Sales pass の取込は担当＝亀谷
-  var SEL='reg_no,name,tel,status,pref,city,address,website,contacts,acquisition_source,attack100,attack_nb,attack_km,attack_sg';
+  var SEL='reg_no,name,tel,status,pref,city,address,website,contacts,acquisition_source,attack100,attack_nb,attack_km,attack_sg,first_contact_date,first_contact_kind';
   var finder=_sb.from('eigyo_leads').select(SEL).eq('name', d.name);
   finder.then(function(r){
     var hit=(r.data&&r.data.length)?r.data[0]:null;
@@ -3136,6 +3138,7 @@ function applyImport(hit, d, aptFields){
       }
     }
     if(hit.status==='未接触'||!hit.status) patch.status='商談予定';
+    if(!hit.first_contact_date){ patch.first_contact_date=today(); if(!hit.first_contact_kind) patch.first_contact_kind='テレアポ（外注）'; }   // ver.20261112.07: アポ取込＝外注テレアポで接触
     if(d.acq==='Sales pass'){ if(!hit.acquisition_source||hit.acquisition_source==='（未選択）') patch.acquisition_source='Sales pass'; if(!hit.attack_km){ patch.attack_km=true; patch.attack_km_at=new Date().toISOString(); } patch.attack_nb=false; if(!hit.first_contact_kind) patch.first_contact_kind='テレアポ（外注）'; }   // ver.20261102.01: Sales pass は亀谷のアタックリストへ／ver.20261111.03: 経路はテレアポ（外注）
     else if(!(hit.attack100||hit.attack_nb||hit.attack_km||hit.attack_sg)){ patch.attack100=true; patch.attack100_at=new Date().toISOString(); }   // ver.20261030.04: アポ取込したらパイプラインに入れる
     if(!hit.contacts || !hit.contacts.length){ var c=apptContact(d); if(c) patch.contacts=[c]; }  // 担当者が未登録なら自動セット
@@ -3147,7 +3150,7 @@ function applyImport(hit, d, aptFields){
     var regNo='M-'+today().replace(/-/g,'')+'-'+String(Date.now()).slice(-6);
     var c2=apptContact(d);
     var rec=Object.assign({ reg_no:regNo, name:d.name, tel:(d.tel_display||d.tel)||null, address:d.address||null, website:d.website||null,
-      entity_type:null, status:'商談予定', is_manual:true, source:'アポ取込', source_date:today(), attack100:true, attack100_at:new Date().toISOString(),
+      entity_type:null, status:'商談予定', is_manual:true, source:'アポ取込', source_date:today(), first_contact_date:today(), first_contact_kind:'テレアポ（外注）', attack100:true, attack100_at:new Date().toISOString(),
       contacts:c2?[c2]:[], created_at:new Date().toISOString() }, aptFields);
     if(d.acq==='Sales pass'){ rec.acquisition_source='Sales pass'; rec.attack100=false; rec.attack100_at=null; rec.attack_km=true; rec.attack_km_at=new Date().toISOString(); rec.first_contact_kind='テレアポ（外注）'; }   // ver.20261102.01／ver.20261111.03: 経路はテレアポ（外注）
     _sb.from('eigyo_leads').insert(rec).then(function(ins){
