@@ -6529,7 +6529,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261112.16';
+var OFUSA_VERSION = 'ver.20261112.17';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -9588,6 +9588,7 @@ function doLogin() {
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
 var WHATS_NEW = [
+  { version:'ver.20261112.17', date:'2026-11-12', notify:true, part:false, items:['✨ 「支援計画書から読み取る」を、<b>ベトナム語・インドネシア語・ネパール語・英語</b>などの計画書でも読めるように見直しました：支援責任者が<b>「別紙参照」</b>のときは<b>別紙の支援責任者名簿</b>から読み取り、支援責任者・支援担当者・通訳者の<b>名簿も全員</b>取り込みます','英語名・英語住所・英字の代表者名は英語欄に入れます。「⽀援」「⻄」のような崩れた文字もふつうの漢字に直してから読みます。自社支援の計画書（Ⅲ欄が空欄）は「登録支援機関が書かれていない」と出します'] },
   { version:'ver.20261112.16', date:'2026-11-12', notify:true, part:false, items:['✨ 登録支援機関の<b>「支援計画書から読み取る」</b>の確認画面を見やすくしました：読み取れたのに「（未入力）」と出ていた項目を、<b>「＋入れる」「✓ 入力済みと同じ」「入力済みのまま（今の値／計画書の値）」「計画書に書かれていない」</b>に分けて出します','🎯 読み取りの精度を上げました：PDFから<b>日本語の文字だけを取り出して</b>AIに一緒に渡します（ミャンマー語などの訳の行がまざって読み落としていたため）。Ⅱ欄（所属機関）とⅢ欄（登録支援機関）の取りちがえも防ぎます（登録番号の「－」のちがいは同じとして扱う。長い計画書でも途中で切れないように）'] },
   { version:'ver.20261112.15', date:'2026-11-12', notify:true, part:false, items:[
     '📄 預かり証の「郵送紐付け＆案内文」の画面からも、<b>手数料納付書</b>を作れるようにしました。［この人だけ］と、選んでいるレターパックに2名以上いるときは［このレターパックの全員（◯名）］が出ます'
@@ -78853,7 +78854,7 @@ function _soPlanJpText(file, name){
         var pg=await pdf.getPage(i), tc=await pg.getTextContent(), rows={};
         tc.items.forEach(function(it){ if(!it.str) return; var y=Math.round(it.transform[5]/3)*3; (rows[y]=rows[y]||[]).push({x:it.transform[4], t:it.str}); });
         var lines=Object.keys(rows).map(Number).sort(function(a,b){ return b-a; }).map(function(y){ return rows[y].sort(function(a,b){ return a.x-b.x; }).map(function(r){ return r.t; }).join(' '); })
-          .map(function(l){ return l.replace(FOREIGN,'').replace(/[ \t\u3000]+/g,' ').trim(); })
+          .map(function(l){ return l.normalize('NFKC').replace(FOREIGN,'').replace(/[ \t\u3000]+/g,' ').trim(); })   // ver.20261112.17: NFKC で「⽀援」「⻄」などの部首文字をふつうの漢字に
           .filter(function(l){ return l.length>1 && /[\u3040-\u30ff\u4e00-\u9fff0-9A-Za-z]/.test(l); });
         if(lines.length) out.push('--- '+i+'ページ ---\n'+lines.join('\n'));
       }
@@ -78882,8 +78883,9 @@ var _SO_PLAN_PROMPT = [
   ' "supportHours": {"mon":{"from":"10:00","to":"18:30"},"tue":{},"wed":{},"thu":{},"fri":{},"sat":{},"sun":{},"hol":{}},   // 相談・苦情の対応時間。対応しない曜日は {"none":true}。書かれていなければ {}',
   ' "consultMethods": {"f2f":false,"tel":false,"telNo":"","mail":false,"mailAddr":"","other":""},   // 相談方法',
   ' "emergencyContact": {"f2f":false,"tel":false,"telNo":"","mail":false,"mailAddr":"","other":""}, // 緊急時対応',
-  ' "staff":[{"name":"","title":"","nameEn":"","titleEn":"","tel":""}],      // 支援担当者の名簿（別紙が付いていれば）。無ければ []',
-  ' "interpreters":[{"name":"","kana":"","language":""}]                    // 通訳者の名簿（別紙が付いていれば）。無ければ []',
+  ' "managers":[{"name":"","nameEn":"","title":"","titleEn":""}],          // 別紙「支援責任者名簿」の全員。無ければ []',
+  ' "staff":[{"name":"","title":"","nameEn":"","titleEn":"","tel":""}],      // 別紙「支援担当者名簿」の全員。無ければ []',
+  ' "interpreters":[{"name":"","kana":"","nameEn":"","language":"","affiliation":""}]   // 別紙「通訳者名簿」の全員。無ければ []',
   '}',
   '厳守：',
   '1. 書かれていないことは空文字・空配列にする。推測で埋めない。',
@@ -78892,6 +78894,10 @@ var _SO_PLAN_PROMPT = [
   '4. 時刻は24時間の「H:MM」（例 10時00分→10:00、18時30分→18:30）。平日がまとめて書かれていれば mon〜fri に同じ時刻を入れる。',
   '5. 住所は都道府県・市区町村・それ以降に分ける。全角英数字は半角にする。登録番号の「－」は半角の「-」にする（例 24登-009735）。',
   '6. 項目名と値の行が少しずれていても、同じ欄の中にある値を拾う。空欄は空文字。',
+  '8. 支援責任者の欄が「別紙参照」のときは、最後のほうにある「別紙（支援責任者・支援担当者・通訳者）」の支援責任者名簿の1人目を supportManagerName / supportManagerTitle などに入れ、名簿の全員を managers に入れる。支援担当者名簿・通訳者名簿も同じく全員を staff・interpreters に入れる（No.・見出しの行は入れない）。',
+  '9. 英語・ベトナム語・インドネシア語などの訳の行はラテン文字なので、日本語の行と見分けて読み飛ばす。ただし英語名（例 Max Co., Ltd.）・英語住所・英字の代表者名は値なので nameEn・addressEn・repNameEn に入れる。',
+  '10. 対応時間が「0時～0時」「24時間」と書かれていれば from "0:00"・to "24:00" にする。',
+  '11. Ⅲ欄が空欄（所属機関が自社で支援する計画書）なら found を false にし、Ⅱ欄の値は返さない。',
   '7. 対応時間で「平日」と書かれていれば mon〜fri に同じ時刻を入れる。「9時～21時」は from "9:00"・to "21:00"。'
 ].join('\n');
 function _soPlanRead(orgId, file, name){
@@ -78933,11 +78939,17 @@ function _soPlanToResp(x){   // AIの結果 → ヒアリング回答と同じ�
   var of=x.office;
   if(of && (s(of.addressDetail)||s(of.city))) r.offices=[{officeName:'支援を行う事務所', officeZip:s(of.zip), officePref:s(of.pref), officeCity:s(of.city), officeAddressDetail:s(of.addressDetail), officeAddressEn:s(of.addressEn), officeTel:s(of.tel)}];
   var att={};
+  var mg=(Array.isArray(x.managers)?x.managers:[]).filter(function(p){ return p && s(p.name); });   // ver.20261112.17: 別紙の支援責任者名簿
+  if(mg.length){
+    att.support_managers=mg.map(function(p){ return {name:s(p.name), title:s(p.title), name_en:s(p.nameEn), title_en:s(p.titleEn)}; });
+    if(!r.supportManagerName || /別紙/.test(r.supportManagerName)){ r.supportManagerName=s(mg[0].name); if(s(mg[0].title)) r.supportManagerTitle=s(mg[0].title); if(s(mg[0].titleEn)) r.supportManagerTitleEn=s(mg[0].titleEn); }
+  }
+  ['supportManagerName','supportManagerKana','supportManagerTitle','supportManagerTitleEn'].forEach(function(k){ if(r[k] && /別紙/.test(r[k])) delete r[k]; });
   var st=(Array.isArray(x.staff)?x.staff:[]).filter(function(p){ return p && s(p.name); });
   if(st.length) att.support_staff=st.map(function(p){ return {name:s(p.name), title:s(p.title), name_en:s(p.nameEn), title_en:s(p.titleEn), tel:s(p.tel)}; });
   var it=(Array.isArray(x.interpreters)?x.interpreters:[]).filter(function(p){ return p && s(p.name); });
-  if(it.length) att.interpreters=it.map(function(p){ return {name:s(p.name), kana:s(p.kana), language_codes:[], language_other:s(p.language)}; });
-  if(att.support_staff||att.interpreters) r.attachments=att;
+  if(it.length) att.interpreters=it.map(function(p){ return {name:s(p.name), kana:s(p.kana), name_en:s(p.nameEn), affiliation:s(p.affiliation), language_codes:[], language_other:s(p.language)}; });
+  if(att.support_managers||att.support_staff||att.interpreters) r.attachments=att;
   return r;
 }
 // 今の登録支援機関に入っている値（上書きしないための比較用）
