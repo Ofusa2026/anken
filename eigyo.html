@@ -336,7 +336,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261112.08</div>
+      <div class="ver">ver.20261112.09</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -1798,7 +1798,7 @@ function renderDrawer(){
   +     '<button class="btn" onclick="copyThanksMsg()">📄 御礼文をコピー</button>'
   +     (x.thanks_sent
         ? '<button class="btn" onclick="markThanksSent(false)" style="background:#f0fff4;border-color:#9ae6b4;color:#276749;">✓ 御礼送信済み（クリックで取消）</button>'
-        : '<button class="btn btn-primary" onclick="markThanksSent(true)">✅ 御礼メール送信済みにする</button>')
+        : '<button class="btn btn-primary" onclick="askThanksNext()">✅ 御礼メール送信済みにする</button>')
   +   '</div>'
   +   '<label class="full sec-title" style="font-size:14px;">📝 代行会社スプレッドへ転記</label>'
   +   '<div class="full" style="display:flex;gap:8px;flex-wrap:wrap;">'
@@ -2468,18 +2468,46 @@ function markMeetSent(flag){
   });
 }
 /* ===== 御礼メール（商談後＝apt_at経過×御礼未送信）===== */
-function markThanksSent(flag){
+// ver.20261112.09: 御礼送信済みにするとき、次の連絡をボタンで選ぶ（社内の予定。先方には見えない）
+function askThanksNext(){
   if(!curLead) return;
+  var o=el('thxNextOv'); if(o) o.remove(); var b=el('thxNextBox'); if(b) b.remove();
+  o=document.createElement('div'); o.id='thxNextOv'; o.className='overlay on'; o.style.zIndex='80'; o.onclick=closeThanksNext; document.body.appendChild(o);
+  b=document.createElement('div'); b.id='thxNextBox';
+  b.style.cssText='position:fixed;z-index:81;top:50%;left:50%;transform:translate(-50%,-50%);width:min(440px,92vw);background:#fff;border-radius:12px;padding:20px 22px;box-shadow:0 10px 30px rgba(0,0,0,.25);';
+  var opts=[[7,'1週間後'],[14,'2週間後'],[30,'1か月後'],[90,'3か月後']];
+  b.innerHTML='<h3 style="margin:0 0 4px;font-size:16px;">次の連絡はいつにしますか？</h3>'
+    + '<div class="sub" style="font-size:12px;margin-bottom:12px;">社内の予定としてネクストアクションに入ります（先方には見えません）。興味が薄そうなら3か月後、追わないなら「追わない」を選んでください。</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
+    + opts.map(function(x){ return '<button class="btn" style="padding:10px;" onclick="markThanksSent(true,'+x[0]+')">'+x[1]+'<div class="sub" style="font-size:11px;">'+esc(fmtMD(kpAddD(kpToday(),x[0])))+'</div></button>'; }).join('')
+    + '</div>'
+    + '<button class="btn" style="width:100%;margin-top:8px;padding:9px;color:#c53030;border-color:#feb2b2;" onclick="markThanksSent(true,-1)">追わない（ステータスを「だめ」にする）</button>'
+    + '<div style="text-align:right;margin-top:10px;"><button class="btn btn-sm" onclick="closeThanksNext()">キャンセル</button></div>';
+  document.body.appendChild(b);
+}
+function closeThanksNext(){ var o=el('thxNextOv'); if(o) o.remove(); var b=el('thxNextBox'); if(b) b.remove(); }
+function markThanksSent(flag, nextDays){
+  if(!curLead) return;
+  closeThanksNext();
   var patch = flag ? {thanks_sent:true, thanks_sent_at:new Date().toISOString()} : {thanks_sent:false, thanks_sent_at:null};
+  var nextMsg='';
+  if(flag && nextDays>0){
+    patch.next_action_date=kpAddD(kpToday(),nextDays);   // 日本時間の日付で計算
+    if(!curLead.next_action_kind) patch.next_action_kind='電話';
+    if(!curLead.next_action) patch.next_action='御礼後のフォロー';
+    nextMsg='／次の連絡：'+fmtMD(patch.next_action_date);
+  }
   // 送信済みにしたら、未接触・アタック中・商談予定のときだけステータスを「結果待ち」に自動更新
   var statusMsg='';
-  if(flag && ['','未接触','アタック中','商談予定'].indexOf(curLead.status||'')>=0){
+  if(flag && nextDays===-1){
+    patch.status='だめ'; patch.next_action_date=null; statusMsg='／追わない（ステータスをだめに変更）';
+  } else if(flag && ['','未接触','アタック中','商談予定'].indexOf(curLead.status||'')>=0){
     patch.status='結果待ち'; statusMsg='／ステータスを結果待ちに変更';
   }
   _sb.from('eigyo_leads').update(patch).eq('reg_no', curLead.reg_no).then(function(r){
     if(r.error){ showMsg('dMsg','更新に失敗しました：'+r.error.message,'err'); return; }
     curLead.thanks_sent=flag; if(patch.status) curLead.status=patch.status;
-    showMsg('dMsg', (flag?'御礼メール送信済みにしました':'未送信に戻しました')+statusMsg,'ok');
+    showMsg('dMsg', (flag?'御礼メール送信済みにしました':'未送信に戻しました')+nextMsg+statusMsg,'ok');
     openDrawer(curLead.reg_no); load(); refreshApptChip(); checkThanksReminder();
   });
 }
