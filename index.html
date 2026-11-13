@@ -6529,7 +6529,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261112.19';
+var OFUSA_VERSION = 'ver.20261113.01';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -9587,7 +9587,14 @@ function doLogin() {
 // 新しい変更をリリースしたら、配列の先頭に {version,date,notify,items:[...]} を追加。
 // notify:false は履歴のみ（右上トースト通知を出さない）。既読は localStorage 'ofusa_anken_last_seen_version'。
 // items は HTML可（<br>,<strong> 等）。
+/* ver.20261113.01: 保険：スマホで「UP書類の必須対応」の画面が付いたらすぐ外す（ほかの自動表示は _quietOn 側で止めている） */
+(function(){ try{ var ua=navigator.userAgent||''; if(!(/Mobi|Android|iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && (navigator.maxTouchPoints||0)>1))) return;
+  new MutationObserver(function(){ var e=document.getElementById('_upDueAlert'); if(e) e.remove(); }).observe(document.documentElement,{childList:true,subtree:true});
+}catch(e){} })();
 var WHATS_NEW = [
+  { version:'ver.20261113.01', date:'2026-11-13', notify:true, part:false, items:[
+    '📵 <b>スマホ（iPhone・Android・iPad）で開いたときは、自動で出る表示を全部出さない</b>ようにしました。「人材のUP書類を確認（必須対応）」・確認モード・強制表示・お知らせ・通知のトーストなど、今後追加されるものも含めて、スマホでは出ません。パソコンの動きは変わりません。'
+  ] },
   { version:'ver.20261112.19', date:'2026-11-12', notify:true, part:true, items:[
     '🧾 パートの方へご依頼の「印紙・レターパック発注」に、<b>9/30までに申請した変更・更新のうち、まだ審査完了していない件数</b>と、<b>必要な収入印紙（1人5,500円）</b>、<b>今の購入ペースで何週間分か</b>を出しました。画面を開くたびに数え直すので、審査完了が進むと減っていきます',
     '「📌 11月16日（月）までは、通常通り購入してください。」の案内は外しました'
@@ -14130,7 +14137,9 @@ function _wnCurrentNotifyVersion(){ var f=_wnNotifyEntries(); return (f&&f.lengt
 //   到達せず、「休日は1日1回」がまったく効かない（アラートが何度も出る）バグを修正。
 //   また、表示済みフラグをWhatsNew等のチェックでも消費してしまい記録がズレる問題を分離。
 // ver.20261110.15: 静音枠（承認ずみ・90分）のあいだは、自動で出るお知らせを何も出さない。判定はこの1箇所
-function _quietOn(){ try{ return typeof _isQuietWindowActive==='function' && _isQuietWindowActive(); }catch(e){ return false; } }
+// ver.20261113.01: スマホ（iPhone/Android/iPad）では、自動で出る表示（強制表示・確認モード・お知らせ・UP書類の必須対応・トースト通知など）を全部出さない
+function _isMobileUA(){ try{ var ua=navigator.userAgent||''; return /Mobi|Android|iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && (navigator.maxTouchPoints||0)>1); }catch(e){ return false; } }
+function _quietOn(){ try{ if(_isMobileUA()) return true; return typeof _isQuietWindowActive==='function' && _isQuietWindowActive(); }catch(e){ return false; } }
 // ver.20261110.15: 開いた（読み直した）直後は、静音枠かどうかをまだ読めていない。ログイン時に出すものは、読めてから出す
 //   （読めないまま15秒たったら出す＝つながらないときに何も出なくならないように）
 function _quietReady(fn){
@@ -15171,7 +15180,7 @@ function _buildAndRenderCheckMode(targetTeam){
 
 function _renderLoginCheckModal(criticalRows, optionalRows){
   if(typeof _alertsMutedNow==='function' && _alertsMutedNow()) return; // ver.20260915.15: 初回ログインから30分は抑制
-  if(typeof _isQuietWindowActive==='function' && _isQuietWindowActive()) return; // 静音枠中は抑制
+  if(_quietOn()) return; // 静音枠中は抑制
   var _ex = document.getElementById('_loginCheckModal'); if(_ex) _ex.remove();
   criticalRows = criticalRows || [];
   optionalRows = optionalRows || [];
@@ -16744,7 +16753,7 @@ function _doForcePush(target){
 // クライアント側検知: 30秒ごとに force_check_mode_push をチェック
 function _checkForceCheckModePush(){
   if(typeof _alertsMutedNow==='function' && _alertsMutedNow()) return; // ver.20260915.15: 初回ログインから30分は抑制
-  if(typeof _isQuietWindowActive==='function' && _isQuietWindowActive()) return; // 静音枠中は抑制
+  if(_quietOn()) return; // 静音枠中は抑制
   if(!DB_READY || !currentUser) return;
   if(!cData || cData.length===0) return; // データ未ロード
   // 共通メンバーは確認モード強制表示の対象外
@@ -16925,7 +16934,7 @@ function _shinseiStayBizDaysSince(fromMs, toMs){
 }
 function _autoPushShinseiStay(){
   if(typeof _alertsMutedNow==='function' && _alertsMutedNow()) return; // ver.20260915.15: 初回ログインから30分は抑制
-  if(typeof _isQuietWindowActive==='function' && _isQuietWindowActive()) return; // 静音枠中は抑制
+  if(_quietOn()) return; // 静音枠中は抑制
   if(_shinseiStayAutoPushDone) return;
   if(!DB_READY || !_sb) return;
   if(!cData || !cData.length) return; // cData未準備なら未実行のまま戻る（次回tickで再試行）
@@ -17065,7 +17074,7 @@ function _immiSubmittedExclude(c){
 function _autoPushImmiAnnai(){
   if(!_IMMI_ANNAI_ENABLED) return; // 一時停止スイッチ
   if(typeof _alertsMutedNow==='function' && _alertsMutedNow()) return; // ver.20260915.15: 初回ログインから30分は抑制
-  if(typeof _isQuietWindowActive==='function' && _isQuietWindowActive()) return;
+  if(_quietOn()) return;
   if(_immiAnnaiAutoPushDone) return;
   if(!DB_READY || !_sb) return;
   if(!cData || !cData.length) return;
@@ -17190,7 +17199,7 @@ function _docHolSuppressed(cat){
 }
 function _checkForceCaseAlertPush(){
   if(typeof _alertsMutedNow==='function' && _alertsMutedNow()) return; // ver.20260915.15: 初回ログインから30分は抑制
-  if(typeof _isQuietWindowActive==='function' && _isQuietWindowActive()) return; // 静音枠中は抑制
+  if(_quietOn()) return; // 静音枠中は抑制
   if(!DB_READY || !currentUser) return;
   if(!cData || cData.length===0) return;
   if(_isCommonMember(currentUser)) return;
@@ -19200,7 +19209,7 @@ function _forceCaseAlertSaveDocTemp(caseId){
 // 管理部が案件依頼タブから強制表示を実行すると、該当する登録支援機関の担当者にバナー表示される
 function _checkIntakeForcePush(){
   if(typeof _alertsMutedNow==='function' && _alertsMutedNow()) return; // ver.20260915.15: 初回ログインから30分は抑制
-  if(typeof _isQuietWindowActive==='function' && _isQuietWindowActive()) return; // 静音枠中は抑制
+  if(_quietOn()) return; // 静音枠中は抑制
   if(!DB_READY || !currentUser) return;
   if(_isCommonMember(currentUser)) return;
   // 既に表示中ならスキップ
