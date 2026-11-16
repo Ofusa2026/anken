@@ -6673,7 +6673,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261116.24';
+var OFUSA_VERSION = 'ver.20261116.25';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -9839,6 +9839,9 @@ function _bnavSlotPick(){
   document.body.appendChild(ov);
 }
 var WHATS_NEW = [
+  { version:'ver.20261116.25', date:'2026-11-16', notify:true, part:false, items:[
+    '📮 <b>グローバルパートナーズの送り先</b>を在留資格で分けました。<b>特定活動</b>：審査完了＝人材グループだけ／支払いリンク＝ふだんは送らない（大房で支払う。送るときは確認が出て、人材グループだけへ）。<b>特定技能</b>：審査完了＝人材と企業様の両方／支払いリンク＝<b>企業様のグループだけ</b>。'
+  ] },
   { version:'ver.20261116.24', date:'2026-11-16', notify:true, part:false, items:[
     '✅ <b>@メンションを案シスで開いたかどうかが分かる</b>ようになりました。LINEのグループ一覧の @バッジは、案シスでまだだれも開いていない @メンションがあれば赤で「@未読3」、だれかが開いたあとなら緑で「@2 ✓」になります（マウスを乗せると、最後にだれがいつ開いたかが出ます）。トークの中の「@名前」も「未読」「✓」になり、上の帯に未読の件数が出ます。※ 案シスでそのトークを開いたかどうかです（LINEのアプリで読んだかは分かりません）。記録は今日から始めたので、11/9より前の @メンションは未読に数えません',
   ]},
@@ -127739,7 +127742,7 @@ function _shinsaStatusChangeModal(cas, type, onComplete, options) {
     e.stopPropagation();
     if(!_textArea.value){ showToast('⚠️ 送信テキストが空です（ステータスを選ぶか入力してください）'); return; }
     _lineTextBtn.disabled = true; _lineTextBtn.textContent = '送信中…';
-    _nyOfficialSend(cas, _textArea.value).then(function(sent){   // ver.20261023.02: グローバルパートナーズは所属機関にも
+    _nyOfficialSend(cas, _textArea.value, { source:'modal_'+type }).then(function(sent){   // ver.20261023.02: グローバルパートナーズは所属機関にも／.20261116.25: 送るものを source で
       _lineTextBtn.disabled = false;
       _lineTextBtn.textContent = sent ? '✅ 送信済' : '🟢 LINEで送信';
       if(sent){ setTimeout(function(){ _lineTextBtn.textContent='🟢 LINEで送信'; }, 4000); }
@@ -128156,6 +128159,7 @@ function _shinsaStatusChangeModal(cas, type, onComplete, options) {
     if (!_selectedStatus) return;
     var _txt = (_textArea && _textArea.value) ? _textArea.value : '';
     var _sendOpts=(((type==='shinsa' && _aidemShinsaRule(cas)) || (type==='cert' && _aidemRule('cert', cas))) && _aidemStaffLabel(cas)) ? { mentionStaff:{ label:_aidemStaffLabel(cas), staff:cas.staff } } : undefined;   // ver.20261016.02（ver.20261016.11: 認定証明書も）
+    _sendOpts=Object.assign({ source:'modal_'+type }, _sendOpts||{});   // ver.20261116.25
     _nyOfficialSend(cas, _txt, _sendOpts).then(function(sent){   // ver.20261023.02: グローバルパートナーズは所属機関にも
       if(!sent) return; // 未紐づけ・送信失敗・キャンセル時はモーダルを閉じない
       _shinsaApplyStatus(_cid, _selectedStatus);
@@ -128967,10 +128971,40 @@ async function _nyCoSendTo(lc, l, text, source){
   return { ok:!err, err:err, gname:l.gname };
 }
 // 入管記録の個別送付：申請人へ送って（今までどおり _lineOfficialSendText）、送れたら所属機関にも送る。戻り値は申請人へ送れたか
+// ver.20261116.25: グローバルパートナーズの送り先を、在留資格（特定活動／特定技能）と送るもの（審査完了／支払いリンク）で分ける。決めるのは _nyGpRoute の1箇所
+//   特定活動：審査完了＝申請人（人材）のグループだけ／支払いリンク（支払依頼・催促・支払完了）＝ふだんは送らない（大房で支払う）。送るときは確認を出して、人材のグループだけへ
+//   特定技能：審査完了＝申請人と所属機関の両方／支払いリンク＝所属機関（企業様）のグループだけ
+//   それ以外（受付番号・COEなど）は今までどおり（申請人へ送れたら所属機関にも）
+function _nyGpRoute(lc, src){
+  try{
+    if(!lc || !_nyCoAlsoOrg(lc)) return null;
+    src=String(src||'');
+    var kind=/^shinsa_fee/.test(src) ? 'fee' : (/shinsa/.test(src) ? 'shinsa' : '');
+    if(!kind) return null;
+    var rs=String(lc.residenceStatus||'');
+    if(/特定活動/.test(rs)) return kind==='fee' ? { ask:true, applicant:true, company:false } : { applicant:true, company:false };
+    if(/特定技能/.test(rs)) return kind==='fee' ? { applicant:false, company:true } : { applicant:true, company:true };
+  }catch(e){}
+  return null;
+}
 async function _nyOfficialSend(lc, text, opts){
   if(!lc) return false;
   opts=Object.assign({}, opts||{});
-  var co=null; try{ co=await _nyCoLinkOf(lc); }catch(e){ co=null; }
+  var _gp=_nyGpRoute(lc, opts.source);
+  if(_gp && _gp.ask){   // 特定活動の支払いリンク：大房で支払う設定。送ることもあるので、毎回たずねる（一括でも1件ずつ）
+    if(!confirm('グローバルパートナーズの特定活動は、ふだんは大房で支払うため支払いの連絡は送りません。\n\n'+String(lc.applicant||lc.name||'')+' さんに、それでも送りますか？\n（送る場合は人材のグループだけに送ります）')){ if(!opts.silent) showToast('送りませんでした（大房で支払い）'); return false; }
+  }
+  var co=null; if(!_gp || _gp.company){ try{ co=await _nyCoLinkOf(lc); }catch(e){ co=null; } }
+  if(_gp && _gp.company && !_gp.applicant){   // 特定技能の支払いリンク：所属機関（企業様）のグループだけ
+    if(!co){ if(!opts.silent) showToast('⚠️ 所属機関（企業様）のグループが紐づいていないため送れません（グローバルパートナーズの特定技能の支払いリンクは企業様のグループだけに送ります）'); return false; }
+    if(!opts.noConfirm && !confirm('グローバルパートナーズの特定技能の支払いリンクです。\n所属機関（企業様）のグループだけに送ります（申請人には送りません）。\n\n送り先：'+co.gname+'\n\n送りますか？')) return false;
+    var cr0=await _nyCoSendTo(lc, co, String(text||'').trim(), opts.source||'ny_single');
+    cr0.name=String(lc.applicant||lc.name||'').trim();
+    if(opts.coResult) opts.coResult.push(cr0);
+    if(cr0.ok){ if(!opts.silent) showToast('🏢 所属機関（企業様）に送りました → '+cr0.gname); }
+    else if(!opts.silent) showToast('⚠️ 所属機関（'+cr0.gname+'）に送れませんでした：'+cr0.err);
+    return cr0.ok;
+  }
   if(co){ opts.coNote='\n🏢 所属機関（'+co.gname+'）にも同じ文面を送ります'; opts.excludeGids=[co.gid]; }
   var ok=await _lineOfficialSendText(lc.id, text, opts);
   if(ok && co && opts._sameAsCo){ showToast('ℹ️ 申請人の送り先が所属機関と同じグループ（'+co.gname+'）だけなので、1回だけ送りました'); return ok; }   // ver.20261023.03
