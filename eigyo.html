@@ -344,7 +344,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261117.08</div>
+      <div class="ver">ver.20261117.09</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -370,8 +370,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div class="nav-item" id="apptChip" onclick="toggleApptOnly()" style="display:none;color:#f87171;">🔴 Meet未送信 <span class="badge" style="background:rgba(239,68,68,.16);color:#f87171;" id="apptChipN">0</span></div>
     <div class="nav-item" id="noDateChip" onclick="toggleNoDateOnly()" style="display:none;color:#fbbf24;">📅 日程未入力 <span class="badge" style="background:rgba(245,158,11,.16);color:#fbbf24;" id="noDateChipN">0</span></div>
     <div class="nav-item" id="transChip" onclick="toggleTransOnly()" style="display:none;color:#fcd34d;">📝 スプレッド転記未 <span class="badge" style="background:rgba(214,158,46,.16);color:#fcd34d;" id="transChipN">0</span></div>
-    <div class="nav-item" id="fuChip" onclick="toggleFuOnly()" style="display:none;color:#c4b5fd;">📨 フォロー候補（料金改定・RSO） <span class="badge" style="background:rgba(139,92,246,.16);color:#c4b5fd;" id="fuChipN">0</span></div>
-    <div class="nav-item" id="fuDoneChip" onclick="toggleFuDoneOnly()" style="display:none;color:#ddd6fe;">📨 フォロー済み（料金改定・RSO） <span class="badge" style="background:rgba(139,92,246,.12);color:#ddd6fe;" id="fuDoneChipN">0</span></div>
+    <div class="nav-item" id="followChip" onclick="openFollowupNow()" style="display:none;color:#fbd38d;">📮 フォロー要 <span class="badge" style="background:rgba(221,107,32,.16);color:#fbd38d;" id="followChipN">0</span></div>
     <div class="nav-item" id="cxChip" onclick="toggleCxOnly()" style="display:none;color:#fca5a5;">❌ キャンセル後・連絡なし <span class="badge" style="background:rgba(239,68,68,.16);color:#fca5a5;" id="cxChipN">0</span></div>
     <div class="nav-item" id="thanksChip" onclick="toggleThanksOnly()" style="display:none;color:#7dd3fc;">📄 御礼未送信 <span class="badge" style="background:rgba(59,130,246,.16);color:#7dd3fc;" id="thanksChipN">0</span></div>
     <div class="sb-group">資料・出力</div>
@@ -2395,6 +2394,33 @@ function aptUncancel(){
 /* ===== 商談後フォローリマインド（商談済み→依頼待ちで最終対応からX日経過） ===== */
 function followupDays(){ try{ var v=parseInt(localStorage.getItem('followupDays'),10); if(v>0) return v; }catch(e){} return 30; }
 function setFollowupDays(v){ v=parseInt(v,10)||30; if(v<1)v=1; try{ localStorage.setItem('followupDays',v); }catch(e){} return v; }
+// ver.20261117.09: フォロー要の対象を数える処理を共通にし、サイドバーからいつでも開けるようにした
+function _followupCompute(cb){
+  var days=followupDays();
+  _sb.from('eigyo_leads').select('reg_no,name,updated_at,fu_rso_sent_at').eq('status','結果待ち').then(function(r){
+    var leads=(r.data)||[]; if(!leads.length){ cb([],days); return; }
+    var regs=leads.map(function(l){return l.reg_no;});
+    _sb.from('eigyo_notes').select('reg_no,note_date').in('reg_no',regs).order('note_date',{ascending:false}).limit(5000).then(function(nr){
+      var lastNote={};
+      (nr.data||[]).forEach(function(n){ if(!lastNote[n.reg_no] || n.note_date>lastNote[n.reg_no]) lastNote[n.reg_no]=n.note_date; });
+      var now=Date.now(), overdue=[];
+      leads.forEach(function(l){
+        var last=lastNote[l.reg_no]||(l.updated_at?l.updated_at.slice(0,10):null);
+        var dd = last ? Math.floor((now-new Date(last.length<=10?last+'T00:00:00':last).getTime())/86400000) : 9999;
+        if(dd>=days) overdue.push({name:l.name,reg_no:l.reg_no,last:lastNote[l.reg_no]||null,dd:dd,fu:l.fu_rso_sent_at||null});
+      });
+      overdue.sort(function(a,b){return b.dd-a.dd;});
+      cb(overdue,days);
+    });
+  });
+}
+function refreshFollowupChip(){
+  _followupCompute(function(list){
+    var c=el('followChip'); if(!c) return;
+    el('followChipN').textContent=list.length; c.style.display = list.length>0 ? '' : 'none';
+  });
+}
+function openFollowupNow(){ _followupCompute(function(list,days){ showFollowupModal(list,days); }); }
 function checkFollowupReminder(){
   var days=followupDays();
   _sb.from('eigyo_leads').select('reg_no,name,updated_at').eq('status','結果待ち').then(function(r){
@@ -2428,12 +2454,14 @@ function showFollowupModal(list,days){
   list.forEach(function(x){
     h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #fbd38d;background:#fffaf0;border-radius:8px;padding:10px 12px;margin-bottom:8px;">'
       + '<div><div style="font-weight:600;font-size:14px;">'+esc(x.name||'')+'</div>'
-      + '<div style="font-size:12px;color:#dd6b20;">'+(x.last?'最終対応 '+esc(x.last)+'（'+x.dd+'日前）':'対応履歴なし')+'</div></div>'
+      + '<div style="font-size:12px;color:#dd6b20;">'+(x.last?'最終対応 '+esc(x.last)+'（'+x.dd+'日前）':'対応履歴なし')+(x.fu?'　<span style="color:#6b46c1;">📨フォロー済 '+esc(fmtMD(x.fu))+'</span>':'')+'</div></div>'
       + '<button class="btn btn-primary" onclick="followOpen(\''+esc(x.reg_no)+'\')">開く</button>'
       + '</div>';
   });
   h+='<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;"><button class="btn btn-primary" onclick="closeFollowupModal()">閉じる</button></div>';
+  if(!list.length) h=h.replace('</h2>','</h2><p style="font-size:13px;margin:6px 0 10px;">いまフォローが必要な会社はありません。</p>');
   box.innerHTML=h; box.style.display='block';
+  if(!el('followOv')){ var ov=document.createElement('div'); ov.id='followOv'; ov.className='overlay on'; ov.style.zIndex='71'; ov.onclick=closeFollowupModal; document.body.appendChild(ov); }
 }
 function closeFollowupModal(){ var b=el('followBox'); if(b) b.style.display='none'; var o=el('followOv'); if(o) o.remove(); }
 function followApplyDays(){ var v=el('followDaysInput')&&el('followDaysInput').value; setFollowupDays(v); checkFollowupReminder(); }
@@ -2462,7 +2490,7 @@ var apptOnly = false;
 var thanksOnly = false;
 var noDateOnly = false;   // ver.20261106.03: 商談予定なのに日程が入っていない会社
 var fuDoneOnly = false;   // ver.20261117.07: フォローメールを送った会社
-var fuOnly = false;   // ver.20261117.04: 料金改定・RSOのフォロー候補
+var fuOnly = false;   // ver.20261117.04: 料金改定・RSOのフォロー候補（ver.20261117.09: サイドバーからは外した。「📮 フォロー要」と役割が重なるため）
 var cxOnly = false;   // ver.20261117.03: アポがキャンセルになり、アタック中に戻した会社
 var transOnly = false;   // ver.20261111.02: セールスパス案件でスプレッド転記がまだの会社
 function toggleApptOnly(){ apptOnly = !apptOnly; if(apptOnly){ fuDoneOnly=false; fuOnly=false; cxOnly=false; thanksOnly=false; noDateOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
@@ -2504,14 +2532,7 @@ function apptCell(x){
   return esc(s)+'<div><span class="apt-chip apt-pending'+(soon?' apt-soon':'')+'">🔴Meet未送信</span></div>';
 }
 function refreshApptChip(){
-  _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).not('fu_rso_sent_at','is',null).then(function(r){   // ver.20261117.07
-    var n=r.count||0, c=el('fuDoneChip'); if(!c) return;
-    el('fuDoneChipN').textContent=n; c.style.display = n>0 ? '' : (fuDoneOnly?'':'none');
-  });
-  _fuRsoQuery(_sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true})).then(function(r){   // ver.20261117.04
-    var n=r.count||0, c=el('fuChip'); if(!c) return;
-    el('fuChipN').textContent=n; c.style.display = n>0 ? '' : (fuOnly?'':'none');
-  });
+  refreshFollowupChip();   // ver.20261117.09
   _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).eq('status','アタック中').not('apt_canceled_at','is',null).then(function(r){   // ver.20261117.03
     var n=r.count||0, c=el('cxChip'); if(!c) return;
     el('cxChipN').textContent=n; c.style.display = n>0 ? '' : (cxOnly?'':'none');
