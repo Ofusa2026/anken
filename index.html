@@ -1219,6 +1219,37 @@ body.case-modal-open #_docShinsaMiniBar,
 body.case-modal-open #_docRecMiniBar { display: none !important; }
 </style>
 <script>
+// ver.20261117.11: 案シスが止まる件の対策A。隠れているタブ（別のタブを見ている・最小化）では、
+//   30秒以上の間隔でくり返す自動更新を止める。表示に戻ったら、止めていたものを0〜5秒散らして1回だけ実行する
+//   （約30画面が裏で読み続けていて、サーバーが詰まって再起動していたため）。
+//   隠れていても動かしたいもの（ロックの延長・承認の通知・12時のお知らせなど）は _setIntervalAlways を使う
+(function(){
+  try{
+    var _si=window.setInterval, _ci=window.clearInterval, _recs={};
+    window._setIntervalAlways=function(){ return _si.apply(window, arguments); };
+    window.setInterval=function(fn, ms){
+      var args=Array.prototype.slice.call(arguments, 2);
+      if(typeof fn!=='function' || !(+ms>=30000)) return _si.apply(window, arguments);
+      var rec={fn:fn, args:args, pending:false};
+      var id=_si(function(){
+        if(document.hidden){ rec.pending=true; return; }
+        rec.pending=false; return fn.apply(window, args);
+      }, ms);
+      _recs[id]=rec; return id;
+    };
+    window.clearInterval=function(id){ try{ delete _recs[id]; }catch(e){} return _ci.call(window, id); };
+    document.addEventListener('visibilitychange', function(){
+      if(document.hidden) return;
+      Object.keys(_recs).forEach(function(k){
+        var r=_recs[k]; if(!r || !r.pending) return;
+        r.pending=false;
+        setTimeout(function(){ if(!_recs[k]) return; try{ r.fn.apply(window, r.args); }catch(e){ console.error('[自動更新]', e); } }, Math.floor(Math.random()*5000));
+      });
+    });
+  }catch(e){ console.warn('[自動更新の間引き]', e); }
+})();
+</script>
+<script>
 (function(){
   try {
     var s = document.createElement('script');
@@ -1431,7 +1462,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <img src="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAvAMgDASIAAhEBAxEB/8QAGwAAAgMBAQEAAAAAAAAAAAAAAAYEBQcIAwL/xAAzEAABAwMDAgQEBgIDAQAAAAABAgMEAAURBhIhMUEHExQiIzJRcQgVQmGBoRaRM1Kxcv/EABgBAQEBAQEAAAAAAAAAAAAAAAABAwQC/8QAHhEAAgMAAwEBAQAAAAAAAAAAAAECAxESITETBEH/2gAMAwEAAhEDEQA/AOy6VNS6+sNjckoeeL3oyBKLfIaUflbz3cODhA5ABJ2jmoHjJqK72awIhafhy37nPJbQ4wypfkp7qyAcHkAZ+ue1YRrC031EluyxLNdnYduy35iYbpD75/5nidvJUrgH/qlNddH51PuTOe25x6iPt18Zb05ZJl0gwIkNpcgRYKHQXFlQG9xajkDCU7Rgd19eKmRfGl6HJt794trS7ZcY4dQ7HyHGFglDiSk53hK0npg4UOprLNQWe+IsFght2W5qKY70l0JhuHC3HlDB44O1tHFeUiy32RoWOj8kuheh3RxKUejc3eW60lWcbc43Nnn966nTVnhh9bNOodM6ttF9eMWM+lEsNB4MqUD5jR6OtnotB+o6EEEAjFX9cjaai6sRanmWLVeolwtObjapHonUlBBHnMglPIWn3be5QR+o10x4eX+RqTSkS5zbfIt8wgtyY7zKmylxPBwFAHaeoP0NcV9Kh2vDpqs5ejDRUO8XOFaIKptwe8lhKgkq2KVyTgcJBNJV/wDEixsXewtxLyER35y25YMVz3N+Q6oAZRn5wjpz/GaxUW/DVtI0GiqK06tsN3mCFbp/myVJUpKSw4ngDk+5IH90m/5LqhcuYxHuDT4iSXIy1+gjNgrQcKwFzEqxnuQKKDYckafRWZDUupmpsJiXPaYTKlNxkq9DGXhSzgZCJilY/cA4pkv99lsX+JDQHIFvbkNJky3Wc+pWv5GGRyVZzuWscJCT3yUnBk5DTRSQq43FS1FvxE0wEkkpHokkgdufUc8VZzZM9y021ULU9rQ+8steo9GHW5Tm0nahIcG0+1RxuPQ04l0ZKKzZjUuozpSyTEz4tyud6diFmLCjIbW2jAdkD3uFJw2FDJ24JHcimey6lkXRF0DWnriy9bnPJU266xlxzaFFCSlwjgKTycDnrwaODQUkMVFY3f8AxB1LGYYUxMhNqVMYbViI38qnUhQ/5z2JHb7jrTDo3WGoLnqtNskQm5cJUYurkMNJb8lQWANx81YIIJ4HP7YzXp1tLScluGh0VSP6u0ow8th7U1ladbUULQuc0FJUDgggq4INUOhNe2KZo+1y7zqqzC4OxwqR5ktptW7vlORivPF5pdQ80VQXOfIfvNvZst7tZcLYfdgv4JkR1KA81CkncCMHBwUnODjIIor1qnU0fUlkiNaYmtNSXX0uNGVFJfCWioYO/wBuCM9R9KKLYbwfKKiWmTKlww9Mt7sB0qILLjiFqAHQ5QSOfvVLqe9PW/V2lLY3JDTdzlSG3UFIPmBEdawMnke4JPFRLXg0ZaKKKhSNdnXWLXKfYQpx1tla0JSMlSgkkAD71yAbVr1WFG16nyeT8GR1rsiit6b/AJb0ZWVfTOxZ8LI8qN4d2JmcmQiSmGjzUv7g4FHkhW7nPPelf8SUO7S9BR02Vie/JRcG1FENKyvbtWDwjnHIrM/xBaZ1bcPEuXLtNkvEyK5GY2uxmHFoyE4IyOM8UqRNK64Y0PeWl6fvqH350MIbUw4FqSkPlRA+gJSD9xW0Klqs5GUpvHDD70RbNdMaztC5Vq1OIxlobeLjMjYG1+xROeAMKPPatL/C81qi3XW/Wy+wbu1HU224y5NbdCSpKlJO1S/qCDx9KyrQulNat61s78yxX5qMxLQ+6tbTgSEt+89frtx/Naf+FXTmooN0v95v8C4QS622y0iWlSSolSlrIB+ntH81pe1xfaPNSeo3xakoQVrUEpSMkk4AFZ1eI0nXdy/NLK8lMOyJK7RKUT5UqcFAlaf+zSUpLe4cK81zGcZL1eLXb7xBMG5xW5cVSkqU04MoUUnIyO4z2PB71KaQhptLbaEoQgBKUpGAAOgArgTzs62tKnS1/h36EtxpK48thXlzIbpw9Fd7oWP/AA9FDBBINZdOtjJsF2v8aa0uddLtMRaYpgRHvUul5SGwC42VlJKdxOcBOTwBWtu2e1u3du7rgsG4NtKZTI24c8s9UkjqP2PSo9v01YrfOamw7XGZkMx0xmVpRy00kYCEZ+UfXGM9816UkvCNNmZ2vT8nTT9oYcgT4KHpqY7MhLdtcUhxZUrPDO7HzdDkD7U03yFIHirp6ZKnuSGHG5aY8UoAaYAZRk4/Uskq9x6JO0AcksMux2VV9YvUptSpqHB5JdlOFtK9pQClsq2BW0kZAzyanSLfDkT4s95gLkxAsMOZOUbwAr/YAo572FEU/EayWZrTbamrRb0H8ygDIio6GYyCOn04r61/JtFj/wAZ89+FbYyLuFAKUlpAHkPZIHHcj/dXd309ZLndIs64srdksqQplJlOJQShW9JLYUEqIPOSD0H0q2W22taFrbSpSDlJKclP2+lTl4MMYtSNNwNEWTVNrhqavNoixPaIq2RJcKdrrDeUhK3nAVJ4ySQjPAp68PmzO0OZcee2mZc3XpT7zIC/JecWSWyFd0DDZBH6ORTC7aLY7eWrw9EbcnMtlpl5eVFtJznaDwknJyRgkcHii32y1xpkq5QYrLb0/at91rgPFIOFHHBOD16kY+gqynqCjhiCIKr3BaeQzNDCZAcb+G5klpw4yUx1JwSnsTx3pq8PG3xrExSuTGcai+ercydriCvaUfEbQRzg5GfvTmxonSbLexuwQcbir3N7iSSSTk89Sa9dPWfTEeS5dLFFgJcUgx1vRVAggKyUnacZB/mvTsTRFFluqPHJJLDZJ6nYKVfCSOwfDawlTDZJhpySgfvVlctH6YuM52bOssORJdILji0ZUogY/wDAKjNaB0a1t8rTlubCCCkJawBj6VnqzC96Gsno/r7JbmYUeRdJEk+lUtPuitJHx3kkcpwg7QR+paB3pQbsjU+ddbs3dr5JZtSlR7Why9raLz6EqDyg4roCT5QzxlCj3rSXbXbnpzs12GyuS9G9K44pOVKayTs/+ck8d6rIuitHxUgMaWsreOmILfH9VYySQa0+dFS7SvSjd2hXSXJgPpL5enyi4prHCkqUo+3aUkEZ4INK9wizNbSndUWhI8q2IT+QKd9qZTqXEuOOjPRtYQloK7grV0Iy3u6U047DXCds8RcRcoTFx1Iy0p4ADcUdOw4xjPOM1dAAAAAADoKcseoZvpV6ZvsC/wBu9VCUpK0KLciO4NrsZ0fM24nqlQ/vqMgg0V6izWsXw3xMJpNxLPkKkJGFLRkHarHzYxxnOOcYyaK8vP4VE+iiioUK55/GZdEoiadtCF+9br0paQeyUhCf7Ur/AFXQ1Zdqzwji6z8QF6k1Tc1SYLDaGYdtZSUpCE5PxF5yrKiokDHYZrWmSjPkzOxOUcRzhomw3eVbSxa4q371qNtUO3NZI8uJuHqJKj+lBx5YV3+JjOBnrzw10nD0Vo+FYIivNLSSt94jBedVytf8noOwAFS9OaZs9gU87b4qRIkbQ9IUAXFhIwlOeyEjhKEgJSOgFXNW25z6JXWoBRRRWJqFFFFAQbtbk3D0m51TfppKJAwM7inPH90vxNFLjs3Br/IbosTkbXCp5ZKfcCSn3e39Q4x8x/am6irrAswdLvwrezGZvc5xTHnFtbiyVEuN7RlRJPByodeTUfSOm7pEhQjeLi4X40l54NMvuKbIWnakEqOTjlWDkZNN1FNYFix6UXAbipl3aTOXGn+sbU4VZz5BawcqPXcVnsVE4Ar2i6ckMXK1yheZSkQYqWFNnOHSEqG4+7Hu3AnIJJQjBGDlhoprBVaZs6rLbDBNwkzRv3Bx9RUoZAzySTyQVfdRqpi6SlxrSzAj31+OG5Ze+A1sQGiAC0hO72jjI5IBJwAMJDXRTWBKk6VvbjV7Wi9LDtwkAsoLjmxtsPBXuIVknZlOE7OOM96somm5TFwtUpV8mOpgsBpaFE/FICuT7sYO4ZyFH2IwRg5Y6KawUlm06zbpcKUJT77saB6MqdUVFzKgorUSTySP7q7ooqAKKKKAKKKKA//Z" alt="大房行政書士法人" style="width:100%;height:auto;display:block;" />
     </div>
     <div style="font-size:12px;font-weight:700;color:white;line-height:1.3;">案件管理システム</div>
-    <div class="js-app-version" style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;cursor:pointer;text-decoration:underline dotted;" onclick="openWhatsNew()" title="クリックでアップデート履歴を表示">ver.20261117.10</div>
+    <div class="js-app-version" style="font-size:9px;color:rgba(255,255,255,.4);margin-top:3px;letter-spacing:.3px;cursor:pointer;text-decoration:underline dotted;" onclick="openWhatsNew()" title="クリックでアップデート履歴を表示">ver.20261117.11</div>
   </div>
   <!-- ver.20260811.18: グローバル検索ボタン（全画面から Cmd/Ctrl+K でも開く） -->
   <div style="margin:0 12px 8px;">
@@ -6673,7 +6704,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261117.10';
+var OFUSA_VERSION = 'ver.20261117.11';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -8552,7 +8583,8 @@ function persistCompaniesToDB(companiesArray, silent, updateTimestamp) {
       shortage_memo: c.shortageMemo || null,
       company_note: c.companyNote || null,
       folder_no: c.folderNo || null,
-      emp_sets: c.empSets || [],
+      // ver.20261117.11: 雇用条件セットを読み込めていない会社（_empLoaded===false）は emp_sets を送らない＝DBの中身を消さない
+      emp_sets: (c._empLoaded === false) ? undefined : (c.empSets || []),
       officers: c.officers || [],
       jp_voluntary_quit: c.jpVoluntaryQuit || null,
       jp_involuntary_quit: c.jpInvoluntaryQuit || null,
@@ -8609,6 +8641,9 @@ function persistCompaniesToDB(companiesArray, silent, updateTimestamp) {
       is_haken_gen: !!c.isHakenGen,
       // ver.20260519.07: foreigner_accept_exp カラム追加済み
       foreigner_accept_exp: c.foreignerAcceptExp || null,
+      // ver.20261117.11: 農業分野の誓約書（11-1号）誓約事項３
+      nogyo_exp_type: c.nogyoExpType || null, nogyo_exp_from: c.nogyoExpFrom || null, nogyo_exp_to: c.nogyoExpTo || null,
+      nogyo_exp_name: c.nogyoExpName || null, nogyo_exp_org: c.nogyoExpOrg || null,
       // ver.20261102.07: _editedKeep … 案シスは _edited（Saysayの直接編集HTML）を読み込まないので、
       //   DBのトリガー companies_keep_edited が DB にある _edited をそのまま残す（送った _edited は使わない）
       extra: Object.assign({}, c.extra || {}, {
@@ -8617,10 +8652,10 @@ function persistCompaniesToDB(companiesArray, silent, updateTimestamp) {
       })
     };
   });
-  // 既知の除外カラムを事前に除外
+  // 既知の除外カラムを事前に除外（ver.20261117.11: 値が undefined の列＝送らない列も落とす）
   rows = rows.map(function(r) {
     var nr = {};
-    Object.keys(r).forEach(function(k){ if(!_dbExcludedCols[k]) nr[k]=r[k]; });
+    Object.keys(r).forEach(function(k){ if(!_dbExcludedCols[k] && r[k] !== undefined) nr[k]=r[k]; });
     return nr;
   });
   if (!rows.length) return;
@@ -9839,6 +9874,11 @@ function _bnavSlotPick(){
   document.body.appendChild(ov);
 }
 var WHATS_NEW = [
+  { version:'ver.20261117.11', date:'2026-11-17', notify:true, part:false, items:[
+    '🛠 <b>案シスが止まりにくくなるよう、自動更新の回数を減らしました</b>（別のタブを見ているあいだ・最小化しているあいだは自動の読み直しを止め、戻ったときに1回だけ読み直します）',
+    '⚡ 所属機関の雇用条件セットは、この端末に覚えておいて変わったものだけを読むようにしました（2回目からの読み込みが軽くなります）。読み込めなかった所属機関は雇用条件タブに赤いお知らせが出て、直しても保存されないようにしてあります（画面を再読み込みしてから直してください）',
+    '🌾 企業ヒアリングフォームの<b>「農業分野の誓約書（11-1号）」の答え</b>（過去5年以内の雇用経験・労務管理の経験の時期や氏名）を、フォーム回答の取り込みで<b>所属機関に保存</b>するようにしました。Saysay の11-1号を開いて案件を選ぶと雇用経験の欄に自動で入ります（同じ会社の2人目からは聞き直さなくても作れます）。フォーム回答の確認画面にも答えが出ます'
+  ]},
   { version:'ver.20261117.10', date:'2026-11-17', notify:true, part:false, items:[
     '🖨 スキャン用セット：人材のドライブフォルダが登録されていない案件は、ボタンの横に<b>「⚠ ドライブ未登録」</b>が出るようになりました（そのままだと署名済みの書類やアップロードされた書類が1つも入らないため、先にフォルダのURLを入れてください）',
     '👥 スキャン用セット：グループに入っている案件は<b>［👥 グループ全員（◯名）］</b>のボタンから、グループの全員ぶんを続けて作れるようになりました（1人ずつ順番に作り、最後に全員の結果がまとめて出ます）'
@@ -14896,7 +14936,10 @@ function doLogout() {
 // ===== 強制ログアウト機能 =====
 // 管理者が「今すぐ全員ログアウト」ボタンを押すと settings.force_logout_at がDBに書き込まれる
 // 各クライアントはログイン時刻 < force_logout_at なら強制ログアウト
-function _checkForceLogout() {
+// ver.20261117.11: 強制ログアウトとバージョンの確認は、settings を1回だけ読んで両方に渡す（_checkSettingsPoll・120秒ごと）
+var _FL_KEYS = ['force_logout_at','force_logout_users','force_logout_comments','force_logout_all_comment'];
+var _MV_KEYS = ['min_app_version','latest_app_version','force_reload_comment'];
+function _checkForceLogout(rows) {
   if (!DB_READY || !currentUser) return;
   // ログイン直後3秒間はスキップ（loginAt記録が完了する前に走るのを防ぐ）
   var myLoginAt = localStorage.getItem('ofusa_loginAt');
@@ -14905,8 +14948,14 @@ function _checkForceLogout() {
     if(loginAge < 3) return;
   }
   // 全員対象 + ユーザー個別 + コメント（個別・全員）の4つをまとめて取得
-  _sb.from('settings').select('key,value').in('key',['force_logout_at','force_logout_users','force_logout_comments','force_logout_all_comment']).then(function(r){
+  if(rows){ _applyForceLogout({data:rows}); return; }
+  _sb.from('settings').select('key,value').in('key',_FL_KEYS).then(function(r){
     if(!r || r.error || !r.data) return;
+    _applyForceLogout(r);
+  }).catch(function(e){ console.error('forceLogout check err:', e); });
+}
+function _applyForceLogout(r){
+  {
     var forceAt = '';
     var forceUsers = {};
     var forceComments = {};
@@ -14956,7 +15005,7 @@ function _checkForceLogout() {
       console.warn('🚪 強制ログアウト発動('+reason+'): loginAt='+(myLoginAt||'未記録')+' / forceAt='+applicableForceAt+(myComment?' / comment='+myComment:''));
       _showForceLogoutCountdown(reason, myComment);
     }
-  }).catch(function(e){ console.error('forceLogout check err:', e); });
+  }
 }
 
 // 強制ログアウトのカウントダウンバナー（10秒）
@@ -15071,14 +15120,21 @@ function _versionToNum(v){
 }
 
 var _reloadBannerShown = false;
-function _checkMinAppVersion(){
+function _checkMinAppVersion(rows){
   if(!DB_READY) return;
   if(_reloadBannerShown) return; // 既に表示中なら処理しない
+  if(rows){ _applyMinAppVersion({data:rows}); return; }
+  _sb.from('settings').select('key,value').in('key',_MV_KEYS).then(function(r){
+    if(!r || r.error || !r.data) return;
+    _applyMinAppVersion(r);
+  }).catch(function(e){ console.error('minVersion check err:', e); });
+}
+function _applyMinAppVersion(r){
+  if(_reloadBannerShown) return;
   // ver.20260827.02: 【案A】強制(min_app_version)と任意(latest_app_version)を分離。
   //   通常のアップデートは latest_app_version だけを上げ、青い「お知らせバナー」を出すのみ（自動リロードなし）。
   //   データ破損に関わる緊急修正のときだけ min_app_version を上げ、従来の赤バナー+自動リロードを行う。
-  _sb.from('settings').select('key,value').in('key',['min_app_version','latest_app_version','force_reload_comment']).then(function(r){
-    if(!r || r.error || !r.data) return;
+  {
     var minVer = '';
     var latestVer = '';
     var reloadComment = null;
@@ -15126,7 +15182,17 @@ function _checkMinAppVersion(){
     if(latestNum > 0 && curNum < latestNum){
       _showSoftUpdateBanner(cur, latestVer, commentText);
     }
-  }).catch(function(e){ console.error('minVersion check err:', e); });
+  }
+}
+function _checkSettingsPoll(){
+  if(!DB_READY || typeof _sb==='undefined' || !_sb) return;
+  var fl = !!currentUser, mv = !_reloadBannerShown;
+  if(!fl && !mv) return;
+  _sb.from('settings').select('key,value').in('key', (fl?_FL_KEYS:[]).concat(mv?_MV_KEYS:[])).then(function(r){
+    if(!r || r.error || !r.data) return;
+    if(fl){ try{ _checkForceLogout(r.data); }catch(e){ console.error('forceLogout check err:', e); } }
+    if(mv){ try{ _checkMinAppVersion(r.data); }catch(e){ console.error('minVersion check err:', e); } }
+  }).catch(function(e){ console.error('settings check err:', e); });
 }
 
 // ver.20260925.19 / .20260928.07: 「新しいバージョンがあります」は左下のカード1つだけ（右下の✨通知は廃止し、管理者コメントもここに表示）
@@ -15203,6 +15269,7 @@ function _showReloadBanner(cur, minVer, comment){
     if(_last && (Date.now() - _last) < 5*60*1000) _autoOk = false;
   }catch(e){}
   comment = (comment || '').trim();
+  var _cdStart = 10 + Math.floor(Math.random()*61);   // ver.20261117.11: 全員が同じ秒にリロードしてサーバーが詰まらないよう、0〜60秒散らす
   var banner = document.createElement('div');
   banner.id = '_forceReloadBanner';
   banner.style.cssText = 'position:fixed;bottom:12px;left:10px;right:auto;width:200px;max-width:200px;z-index:999999;background:linear-gradient(135deg,#dc2626,#f97316);color:white;padding:8px 10px;border-radius:10px;box-shadow:0 3px 14px rgba(0,0,0,0.3);display:flex;flex-direction:column;align-items:stretch;gap:5px;font-family:inherit;';   // ver.20260917.27: サイドバー内に収まる小さいカード（左下）
@@ -15215,12 +15282,12 @@ function _showReloadBanner(cur, minVer, comment){
     '<div style="font-size:12px;font-weight:800;line-height:1.35;">🔄 新しいバージョン</div>' +
     '<div style="font-size:9.5px;opacity:0.9;line-height:1.3;word-break:break-all;">' + cur + ' → ' + minVer + '</div>' +
     commentHtml +
-    (_autoOk ? '<div style="font-size:10.5px;font-weight:700;">自動更新まで <span id="_reloadCountdown" style="font-size:13px;font-weight:900;background:rgba(255,255,255,0.25);padding:0 6px;border-radius:5px;">10</span> 秒</div>' : '<div style="font-size:12px;background:rgba(255,255,255,0.2);padding:4px 10px;border-radius:6px;">⏳ 配信反映待ちの可能性があります。少し待ってから「今すぐ更新」を押してください（この状態ではタスク保存はできません）</div>') +
+    (_autoOk ? '<div style="font-size:10.5px;font-weight:700;">自動更新まで <span id="_reloadCountdown" style="font-size:13px;font-weight:900;background:rgba(255,255,255,0.25);padding:0 6px;border-radius:5px;">'+_cdStart+'</span> 秒</div>' : '<div style="font-size:12px;background:rgba(255,255,255,0.2);padding:4px 10px;border-radius:6px;">⏳ 配信反映待ちの可能性があります。少し待ってから「今すぐ更新」を押してください（この状態ではタスク保存はできません）</div>') +
     '<button onclick="_doForceReload()" style="width:100%;padding:6px 8px;background:white;color:#dc2626;border:none;border-radius:7px;font-size:11.5px;font-weight:800;cursor:pointer;">今すぐ更新</button>';
   document.body.appendChild(banner);
   // ver.20260917.26: 左上に浮かせるので本文の押し下げはしない（画面を占有しない）
   if(!_autoOk) return; // ver.20260827.01: 配信遅延中のリロードループ防止（手動更新のみ）
-  var countdown = 10;
+  var countdown = _cdStart;
   var timer = setInterval(function(){
     // ver.20260827.02: 【案B】入力中・モーダル表示中はカウントダウンを止めて待つ。
     //   強制更新であっても、書きかけのコメントやメモを失わせないため。
@@ -17522,21 +17589,22 @@ function _autoPushImmiAnnai(){
 setTimeout(function(){ _autoPushImmiAnnai(); }, 9000);
 setInterval(function(){ _autoPushImmiAnnai(); }, 300000); // cData未準備時のリトライ（done後はno-op）
 // ver.20260529.01: 承認済み表示停止（案件×カテゴリ）のキャッシュを定期更新
-setInterval(function(){ _refreshActiveDisplayStops(); }, 30000);
+// ver.20261117.11: 間隔を減らした（表示停止 30→60秒・静音枠 30→60秒・申請の件数 60→180秒で管理部だけ・残り回数 60→300秒）
+setInterval(function(){ _refreshActiveDisplayStops(); }, 60000);
 setTimeout(function(){ _refreshActiveDisplayStops(); }, 5500);
 // ver.20260703: 静音枠（承認済み・担当者単位）のキャッシュを定期更新
-setInterval(function(){ _refreshActiveQuietWindow(); }, 30000);
+setInterval(function(){ _refreshActiveQuietWindow(); }, 60000);
 setTimeout(function(){ _refreshActiveQuietWindow(); }, 6000);
-setInterval(function(){ _updateQuietReqBadge(); }, 60000);
+setInterval(function(){ try{ if(typeof _isKanriReadonly==='function' && _isKanriReadonly()) return; }catch(e){} _updateQuietReqBadge(); }, 180000);
 setTimeout(function(){ _updateQuietReqBadge(); }, 6500);
-setInterval(function(){ _refreshQuietRemainBadge(); }, 60000);
+setInterval(function(){ _refreshQuietRemainBadge(); }, 300000);
 setTimeout(function(){ _refreshQuietRemainBadge(); }, 7000);
 // 案件依頼強制表示プッシュ（管理部から受信トレイの案件依頼を担当者に通知）
 setInterval(function(){ _checkIntakeForcePush(); }, 300000);
 setTimeout(function(){ _checkIntakeForcePush(); }, 7000);
-// 報告済みマップを起動時・60秒ごとに読み込む
+// 報告済みマップを起動時・180秒ごとに読み込む（ver.20261117.11: 60→180秒）
 setTimeout(function(){ _loadReportedFieldsMap(); }, 4000);
-setInterval(function(){ _loadReportedFieldsMap(); }, 60000);
+setInterval(function(){ _loadReportedFieldsMap(); }, 180000);
 // ===== /確認モード強制表示 =====
 
 // ===== 案件強制表示プッシュ =====
@@ -19956,15 +20024,11 @@ function loadKanriPlanHistory(caseId){
 
 
 
-// 起動時＋30秒間隔で強制ログアウトをチェック
-setInterval(function(){ _checkForceLogout(); }, 30000);
+// ver.20261117.11: 強制ログアウトとバージョンの確認は1回の読み込みにまとめ、120秒ごとに（以前は30秒ごとに別々に読んでいた）
+setInterval(function(){ _checkSettingsPoll(); }, 120000);
 // 起動後3秒後に初回チェック（DB_READY待ち）
-setTimeout(function(){ _checkForceLogout(); }, 3000);
-// ===== /強制ログアウト =====
-
-// 起動時＋30秒間隔でmin_app_versionをチェック
-setInterval(function(){ _checkMinAppVersion(); }, 30000);
-setTimeout(function(){ _checkMinAppVersion(); }, 4000);
+setTimeout(function(){ _checkSettingsPoll(); }, 3000);
+// ===== /強制ログアウト・バージョンチェック =====
 // ===== /バージョンチェック =====
 
 
@@ -20160,6 +20224,8 @@ function _bulkImportSingle(r) {
           var dest = _coKeyMap[k];
           if (dest) co[dest] = response[k];
         });
+        // ver.20261117.11: 農業分野の誓約書（11-1号）誓約事項３ → companies.nogyo_exp_*（5つで1組。選び直した回答では使わない欄を空にする）
+        if (response.nogyoExpType) ['nogyoExpType','nogyoExpFrom','nogyoExpTo','nogyoExpName','nogyoExpOrg'].forEach(function(k){ co[k] = (response[k] == null) ? '' : response[k]; });
         persistCompanies(co.id);
         _queueSaveCompanies()
       }
@@ -36985,7 +37051,7 @@ setInterval(function(){ try{ var on=_quietOn(); if(window._quietWasOn && !on) _q
 function _refreshActiveQuietWindow(cb){
   if(!DB_READY || typeof _sb === 'undefined' || !_sb){ if(cb) cb(); return; }
   var _now = Date.now();
-  var _TTL = 25 * 1000;
+  var _TTL = 55 * 1000;   // ver.20261117.11: 60秒ごとの読み直しに合わせて 25→55秒
   if(window._activeQuietWindowAt && (_now - window._activeQuietWindowAt) < _TTL){ if(cb) cb(); return; }
   var nowIso = new Date().toISOString();
   _sb.from('quiet_window_requests')
@@ -37161,7 +37227,7 @@ function _apvBeep(){
   }catch(e){}
 }
 setTimeout(function(){ _apvNotifyTick(); }, 8000);
-setInterval(function(){ _apvNotifyTick(); }, APV_NOTIFY_MS);
+_setIntervalAlways(function(){ _apvNotifyTick(); }, APV_NOTIFY_MS);   // ver.20261117.11: 別のタブを見ていても承認待ちを知らせる
 
 function _jstDayKey(d){
   var j = new Date(d.getTime() + (9*60 + d.getTimezoneOffset())*60000);
@@ -37370,6 +37436,7 @@ function _approveQuietWindow(id){
           showToast('✅ 承認しました（90分の静音枠）');
           _clearQuietWindowCache();
           renderQuietWindowRequests();
+    try{ _refreshQuietRemainBadge(); }catch(e){}
         });
       });
   });
@@ -37382,6 +37449,7 @@ function _rejectQuietWindow(id){
     if(r && r.error){ alert('却下失敗: '+(r.error.message||'')); return; }
     showToast('❌ 却下しました');
     renderQuietWindowRequests();
+    try{ _refreshQuietRemainBadge(); }catch(e){}
   });
 }
 function _cancelQuietWindow(id){
@@ -37393,6 +37461,7 @@ function _cancelQuietWindow(id){
     showToast('↩️ 静音枠を解除しました');
     _clearQuietWindowCache();
     renderQuietWindowRequests();
+    try{ _refreshQuietRemainBadge(); }catch(e){}
   });
 }
 
@@ -49359,7 +49428,7 @@ var FLOW_PHASES = [
 //   ・ボールの持ち主は BALL_STATUS_MAP、支援機関への見え方は SB_ST_EXTERNAL をそのまま見る（別に持たない）
 //   ・関係するアップデートは WHATS_NEW から自動で拾う（_flowUpdIndex）
 //   ⚠️ ステータスの自動の進み方・止め方を変えたら、FLOW_AUTO と FLOW_REVIEWED も直すこと（プッシュの前に見る）
-var FLOW_REVIEWED = { version:'ver.20261117.10', date:'2026-11-17' };
+var FLOW_REVIEWED = { version:'ver.20261117.11', date:'2026-11-17' };
 // ステータスごとの「自動で進む・止まる」の説明（いまの動きに合わせて書く。1行＝1つの動き）
 var FLOW_AUTO = {
   '★ヒアリングフォーム送付': ['ヒアリングフォームを送ったあとの［✅ 送付完了・ステータス変更］を押すと、「ヒアリングフォーム回答待ち(送付済)」に進みます。'],
@@ -70852,7 +70921,7 @@ function _mailSweepIsLeader(){
     return true;
   }catch(e){ return true; }
 }
-setInterval(function(){ try{ if(window._mailSweepTabId){ var cur=JSON.parse(localStorage.getItem('ofusa_mailSweepLeader')||'null'); if(cur && cur.id===window._mailSweepTabId) localStorage.setItem('ofusa_mailSweepLeader', JSON.stringify({id:cur.id, ts:Date.now()})); } }catch(e){} }, 60*1000);
+_setIntervalAlways(function(){ try{ if(window._mailSweepTabId){ var cur=JSON.parse(localStorage.getItem('ofusa_mailSweepLeader')||'null'); if(cur && cur.id===window._mailSweepTabId) localStorage.setItem('ofusa_mailSweepLeader', JSON.stringify({id:cur.id, ts:Date.now()})); } }catch(e){} }, 60*1000);
 function _mailSweepDailyOk(n){
   try{
     var key='ofusa_mailSweepDaily'; var today=new Date().toISOString().slice(0,10);
@@ -72317,6 +72386,11 @@ function previewFormResponse(responseId, formType, idPrefix) {
         }
       }
       if (officerFields.length > 0) sections.push({ title:'役員情報', fields: officerFields });
+      // ver.20261117.11: 農業分野の誓約書（11-1号）誓約事項３（分野が農業の会社だけフォームに出る）
+      if (resp.nogyoExpType) sections.push({ title:'🌾 農業分野の誓約書（11-1号）', fields:[
+        { k:'nogyoExpType', l:'当てはまるもの' }, { k:'nogyoExpName', l:'氏名（役員・経験者）' },
+        { k:'nogyoExpFrom', l:'時期（開始）' }, { k:'nogyoExpTo', l:'時期（終了）' }, { k:'nogyoExpOrg', l:'労務管理をした機関名' }
+      ]});
       // ver.20260701: JAIM質問票
       sections.push({ title:'📦 JAIM質問票', fields:[
         { k:'jaimIndustryCode',       l:'日本標準産業分類番号' },
@@ -72563,7 +72637,9 @@ function importFormResponse(responseId, caseId, formType) {
           jaimEquipmentPurpose:'jaimEquipmentPurpose', jaimEquipmentEffect:'jaimEquipmentEffect',
           jaimBranchOfficeFlag:'jaimBranchOfficeFlag', jaimBranchOfficeName:'jaimBranchOfficeName',
           jaimBranchOfficeZip:'jaimBranchOfficeZip', jaimBranchOfficeAddress:'jaimBranchOfficeAddress',
-          jaimBranchOfficeContact:'jaimBranchOfficeContact', jaimBranchOfficeTel:'jaimBranchOfficeTel'
+          jaimBranchOfficeContact:'jaimBranchOfficeContact', jaimBranchOfficeTel:'jaimBranchOfficeTel',
+          // ver.20261117.11: 農業分野の誓約書（11-1号）誓約事項３（企業フォーム ver.20261117.01〜）→ companies.nogyo_exp_*（Saysay の 11-1号が読む）
+          nogyoExpType:'nogyoExpType', nogyoExpFrom:'nogyoExpFrom', nogyoExpTo:'nogyoExpTo', nogyoExpName:'nogyoExpName', nogyoExpOrg:'nogyoExpOrg'
         };
         // 雇用条件フィールドはempSetsに
         var _esKeys = ['salaryType','salaryAmt','salaryMonthly','contractStart','contractEnd',
@@ -72620,6 +72696,8 @@ function importFormResponse(responseId, caseId, formType) {
           else if (k === 'consultDept')  { _coData[k] = response[k]; _esData['contactDept']   = response[k]; }
           else if (k === 'consultNameEn') _coData[k] = response[k];
         });
+        // ver.20261117.11: 11-1号の答えは5つで1組。当てはまるものを選び直した回答では、使わない欄（氏名・機関名）を空にする
+        if (response.nogyoExpType) ['nogyoExpType','nogyoExpFrom','nogyoExpTo','nogyoExpName','nogyoExpOrg'].forEach(function(k){ _coData[k] = (response[k] == null) ? '' : response[k]; });
         Object.assign(co, _coData);
         // ver.20260818: 在留資格別フォーム（技人国/46号/9号）の差分を co.extra[正式名称] へ格納
         (function(){
@@ -75800,6 +75878,8 @@ function loadPersistedData() {
     if (s) supportOrgs = JSON.parse(s);
     var c = localStorage.getItem('ofusa_companies');
     if (c) companies = JSON.parse(c);
+    // ver.20261117.11: この端末に残っていた控えの雇用条件セットは古いことがあるので、DBから読み直すまで保存しない
+    try{ (companies||[]).forEach(function(co){ if(co) co._empLoaded=false; }); }catch(e){}
     var n = localStorage.getItem('ofusa_caseNotes');
     if (n) caseNotes = JSON.parse(n);
     var d = localStorage.getItem('ofusa_docCheck');
@@ -85130,6 +85210,7 @@ function renderCompanyDetail(co){
       delete co.employment;
       persistCompanies(co.id);
     }
+    if (co._empLoaded === false) h += '<div style="background:#fef2f2;border:1px solid #fca5a5;color:#b91c1c;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:12px;font-weight:700;line-height:1.6;">⚠️ この所属機関の雇用条件セットをまだ読み込めていません（サーバーが混んでいるため）。ここで直しても保存されません。画面を再読み込みしてから直してください。</div>';   // ver.20261117.11
     h += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
     h += '<div style="font-size:12px;font-weight:800;color:var(--gray-600);">雇用条件セット（' + co.empSets.length + '件）</div>';
     h += '<button onclick="addEmpSet(\'' + co.id + '\')" style="font-size:11px;padding:5px 12px;background:var(--blue);color:white;border:none;border-radius:6px;cursor:pointer;font-weight:700;">＋ 新規追加</button>';
@@ -108919,7 +109000,7 @@ async function _rmNoonManual(btn){
   }finally{ try{ _rmFlowRender(); }catch(e){} }
 }
 setTimeout(function(){ try{ _rmNoonAuto(); }catch(e){} }, 45000);
-setInterval(function(){ try{ _rmNoonAuto(); }catch(e){} }, 60000);
+_setIntervalAlways(function(){ try{ _rmNoonAuto(); }catch(e){} }, 60000);   // ver.20261117.11: 12時のお知らせは隠れているタブからも送る
 function _rmFlowTogglePending(sec){ window._rmFlowOpen=(window._rmFlowOpen===sec)?'':sec; _rmFlowRender(); }
 function _rmFlowGoStaff(sec, name){
   window._pdaTab='doc';
@@ -130207,7 +130288,7 @@ function _lineBillingDailyReportRun(){
   });
 }
 setTimeout(function(){ try{ _lineBillingDailyReport(); }catch(e){} }, 40000);
-setInterval(function(){ try{ _lineBillingDailyReport(); }catch(e){} }, 3600000); // 開きっぱなし端末でも1時間毎に日付替わりを検知
+_setIntervalAlways(function(){ try{ _lineBillingDailyReport(); }catch(e){} }, 3600000); // 開きっぱなし端末でも1時間毎に日付替わりを検知
 
 // ver.20260720.26: LINE送信履歴の表示（line_send_log + キュー送信済みを統合表示）
 //   caseId指定=その案件宛のみ／null=全案件（直近limit件）。elIdのコンテナに描画。
@@ -135920,13 +136001,35 @@ function _elapsedDaysFrom(iso){
 //   GAS の時間トリガー（scanRepliesToDb・10分ごと）が受信トレイを1回だけ走査して書いた結果を読むだけ。
 //   ブラウザからの Gmail 読み取り（getInbox/getMailBody の巡回）は行わない。
 var _MAIL_STATE_TTL=4*60*1000; var _mailStateAt=0; var _mailStateRows=[];
+// ver.20261117.11: 案シスが止まる件の対策B。毎回全件（約6,500件＝7回に分けて）読んでいたのをやめ、
+//   2回目からは「前回読んだあとに書き替わった行」（updated_at）だけを読んで thread_id で上書きする。
+//   30分に1回は全件を読み直す（消えた行・取りこぼしをそろえるため）。読んだあとの処理は今までどおり
+var _MAIL_STATE_FULL_MS=30*60*1000; var _mailStateFullAt=0; var _mailStateMaxUpd='';
 async function _mailStateLoad(force){
   try{
     if(!(typeof DB_READY!=='undefined' && DB_READY) || typeof _sb==='undefined' || !_sb) return false;
     if(!force && (Date.now()-_mailStateAt)<_MAIL_STATE_TTL) return true;
-    var q=await _sbAllRows(function(){ return _sb.from('mail_thread_state').select('thread_id,subject,last_from,last_at,last_external,msg_count,unread').order('last_at',{ascending:false}).order('thread_id'); }, 50000);   // ver.20261015.41: 新しい1,000件→全部
+    var _cols='thread_id,subject,last_from,last_at,last_external,msg_count,unread,updated_at';
+    var _full=!_mailStateRows.length || !_mailStateMaxUpd || (Date.now()-_mailStateFullAt)>=_MAIL_STATE_FULL_MS;
+    var q;
+    if(_full){
+      q=await _sbAllRows(function(){ return _sb.from('mail_thread_state').select(_cols).order('last_at',{ascending:false}).order('thread_id'); }, 50000);
+    } else {
+      // 境目の取りこぼしが無いよう、前回の一番新しい updated_at から2分さかのぼって読む（重なった分は thread_id で上書き）
+      var _since=new Date(new Date(_mailStateMaxUpd).getTime()-2*60*1000).toISOString();
+      q=await _sbAllRows(function(){ return _sb.from('mail_thread_state').select(_cols).gte('updated_at', _since).order('updated_at',{ascending:true}).order('thread_id'); }, 50000);
+      if(q && !q.error){
+        var _byId={}; _mailStateRows.forEach(function(r){ if(r&&r.thread_id) _byId[r.thread_id]=r; });
+        ((q&&q.data)||[]).forEach(function(r){ if(r&&r.thread_id) _byId[r.thread_id]=r; });
+        var _merged=Object.keys(_byId).map(function(k){ return _byId[k]; });
+        _merged.sort(function(a,b){ var x=a.last_at||'', y=b.last_at||''; if(x!==y) return x<y?1:-1; return String(a.thread_id)<String(b.thread_id)?-1:(String(a.thread_id)>String(b.thread_id)?1:0); });
+        q={data:_merged, error:null};
+      }
+    }   // ver.20261015.41: 新しい1,000件→全部
     if(q && q.error){ console.warn('[mailState]', q.error.message); return false; }
     _mailStateRows=(q&&q.data)||[]; _mailStateAt=Date.now();
+    if(_full) _mailStateFullAt=_mailStateAt;
+    _mailStateRows.forEach(function(r){ if(r && r.updated_at && (!_mailStateMaxUpd || r.updated_at>_mailStateMaxUpd)) _mailStateMaxUpd=r.updated_at; });
     // 返信キャッシュへ反映（seenAt は保持）
     var map=_threadReplyCacheLoad(); var changed=false;
     _mailStateRows.forEach(function(r){
@@ -135950,7 +136053,7 @@ async function _mailStateLoad(force){
     return true;
   }catch(e){ console.warn('[mailStateLoad]', e); return false; }
 }
-setTimeout(function(){ try{ _mailStateLoad(true); }catch(e){} }, 20*1000);
+setTimeout(function(){ try{ _mailStateLoad(true); }catch(e){} }, 20*1000 + Math.floor(Math.random()*30*1000));   // ver.20261117.11: 初回は20〜50秒のあいだで散らす（全員が同時に読まないように）
 setInterval(function(){ try{ if(!document.hidden) _mailStateLoad(true); }catch(e){} }, 5*60*1000);
 function _threadReplyState(c){
   if(!c || !c.mailThreadId) return {show:false};
@@ -148518,9 +148621,110 @@ function _mapPersonRowToMemory(r){
   personData[r.case_id] = Object.assign(personData[r.case_id]||{}, p);
 }
 
+// ===== ver.20261117.11: 雇用条件セット（companies.emp_sets）をこの端末に覚えておく（案シスが止まる件の対策E） =====
+//   軽い読み込み v2 は emp_sets を返さず、emp_sets_rev（emp_sets が変わるたびに DB が進める番号）だけを返す。
+//   覚えている番号と同じ会社は覚えている中身を使い、違う会社・初めての会社だけ DB から読み直す。
+//   読めなかった会社は r._empMissing＝true（→ co._empLoaded＝false）。保存（persistCompaniesToDB）はその会社の emp_sets を送らない
+var _EMP_IDB_NAME='ofusa_emp_sets', _EMP_IDB_STORE='sets', _EMP_FETCH_CHUNK=40, _EMP_FETCH_PAR=3;
+function _empIdbOpen(){
+  return new Promise(function(res){
+    var done=false, ok=function(v){ if(!done){ done=true; res(v); } };
+    try{
+      if(!window.indexedDB){ ok(null); return; }
+      var rq=indexedDB.open(_EMP_IDB_NAME, 1);
+      rq.onupgradeneeded=function(){ try{ if(!rq.result.objectStoreNames.contains(_EMP_IDB_STORE)) rq.result.createObjectStore(_EMP_IDB_STORE); }catch(e){} };
+      rq.onsuccess=function(){ ok(rq.result); };
+      rq.onerror=function(){ ok(null); };
+      rq.onblocked=function(){ ok(null); };
+      setTimeout(function(){ ok(null); }, 4000);
+    }catch(e){ ok(null); }
+  });
+}
+function _empIdbGetAll(db){
+  return new Promise(function(res){
+    var done=false, ok=function(v){ if(!done){ done=true; res(v); } };
+    if(!db){ ok({}); return; }
+    try{
+      var rq=db.transaction(_EMP_IDB_STORE,'readonly').objectStore(_EMP_IDB_STORE).getAll();
+      rq.onsuccess=function(){ var out={}; (rq.result||[]).forEach(function(v){ if(v && v.id) out[v.id]=v; }); ok(out); };
+      rq.onerror=function(){ ok({}); };
+      setTimeout(function(){ ok({}); }, 8000);
+    }catch(e){ ok({}); }
+  });
+}
+function _empIdbPut(db, list){
+  if(!db || !list || !list.length) return;
+  try{ var st=db.transaction(_EMP_IDB_STORE,'readwrite').objectStore(_EMP_IDB_STORE); list.forEach(function(v){ try{ st.put(v, v.id); }catch(e){} }); }catch(e){ console.warn('[雇用条件セットの控え]', e); }
+}
+function _empRevOf(r){ return (r && r.emp_sets_rev!=null) ? String(r.emp_sets_rev) : ''; }
+// rows（軽い読み込みの行）の emp_sets を埋める。返すのは読めなかった会社の数
+async function _empFillFromCache(rows){
+  if(!rows || !rows.length) return 0;
+  var db=await _empIdbOpen();
+  // v1・全件読みで emp_sets が付いてきたときは、そのまま使って覚えるだけ
+  if(rows.some(function(r){ return r && ('emp_sets' in r); })){
+    _empIdbPut(db, rows.filter(function(r){ return r && r.id && ('emp_sets' in r) && ('emp_sets_rev' in r); }).map(function(r){ return {id:r.id, rev:_empRevOf(r), sets:r.emp_sets||[]}; }));
+    return 0;
+  }
+  var cache=await _empIdbGetAll(db), byId={}, need=[];
+  rows.forEach(function(r){
+    if(!r || !r.id) return; byId[r.id]=r;
+    var c=cache[r.id];
+    if(c && c.rev===_empRevOf(r) && Array.isArray(c.sets)) r.emp_sets=c.sets; else need.push(r.id);
+  });
+  if(!need.length) return 0;
+  var chunks=[]; for(var i=0;i<need.length;i+=_EMP_FETCH_CHUNK) chunks.push(need.slice(i, i+_EMP_FETCH_CHUNK));
+  var puts=[], missing=0;
+  async function one(ids){
+    for(var t=0;t<3;t++){
+      try{
+        var q=await _sb.from('companies').select('id,emp_sets,emp_sets_rev').in('id', ids);
+        if(q && !q.error && Array.isArray(q.data)){
+          var got={};
+          q.data.forEach(function(d){ var r=byId[d.id]; if(!r) return; got[d.id]=1; r.emp_sets=d.emp_sets||[]; r.emp_sets_rev=d.emp_sets_rev; puts.push({id:d.id, rev:_empRevOf(d), sets:d.emp_sets||[]}); });
+          ids.forEach(function(id){ if(!got[id]){ byId[id]._empMissing=true; missing++; } });
+          return;
+        }
+      }catch(e){}
+      await new Promise(function(r){ setTimeout(r, 2000+Math.floor(Math.random()*4000)); });
+    }
+    ids.forEach(function(id){ byId[id]._empMissing=true; missing++; });
+  }
+  var k=0;
+  async function worker(){ while(k<chunks.length){ var ch=chunks[k++]; await one(ch); } }
+  var ws=[]; for(var w=0; w<_EMP_FETCH_PAR; w++) ws.push(worker());
+  await Promise.all(ws);
+  _empIdbPut(db, puts);
+  if(missing){
+    console.warn('[雇用条件セット] 読めなかった会社', missing);
+    try{ showToast('⚠️ 雇用条件セットを読み込めなかった所属機関が'+missing+'社あります。30秒後にもう一度読みます'); }catch(e){}
+    setTimeout(_empRetryMissing, 30000);
+  }
+  return missing;
+}
+// 読めなかった会社だけ、あとからもう一度読む（読めたら _empLoaded を true に戻す）
+async function _empRetryMissing(){
+  try{
+    var list=(typeof companies!=='undefined' && companies || []).filter(function(c){ return c && c._empLoaded===false; });
+    if(!list.length) return;
+    var db=await _empIdbOpen(), puts=[], left=0;
+    for(var i=0;i<list.length;i+=_EMP_FETCH_CHUNK){
+      var ch=list.slice(i, i+_EMP_FETCH_CHUNK), q=null;
+      try{ q=await _sb.from('companies').select('id,emp_sets,emp_sets_rev').in('id', ch.map(function(c){ return c.id; })); }catch(e){}
+      var got={};
+      ((q && !q.error && q.data) || []).forEach(function(d){ got[d.id]=d; });
+      ch.forEach(function(c){ var d=got[c.id]; if(!d){ left++; return; } c.empSets=_normalizeEmpSets(d.emp_sets||[]); c._empLoaded=true; puts.push({id:d.id, rev:_empRevOf(d), sets:d.emp_sets||[]}); });
+    }
+    _empIdbPut(db, puts);
+    if(left){ try{ showToast('⚠️ 雇用条件セットを読み込めなかった所属機関が'+left+'社あります。画面を再読み込みしてください'); }catch(e){} }
+    else { try{ showToast('✅ 雇用条件セットを読み込みました'); }catch(e){} }
+  }catch(e){ console.warn('[雇用条件セットの読み直し]', e); }
+}
+
 function loadAllFromSupabase() {
   if (isLoading) return;
   isLoading = true;
+  window._allLoadCount = (window._allLoadCount || 0) + 1;
   if (!DB_READY) {
     console.warn('⚠️ DB not ready, using localStorage cache');
     isLoading = false;
@@ -149086,21 +149290,52 @@ function loadAllFromSupabase() {
   //   開くたびに全員がこれを読んでいたためサーバーが詰まって止まっていた（2026/11/02 11:07・11:30）。
   //   RPC companies_lite_page で _edited だけ除いて読む（ほかの列・extra の他のキーは今までどおり）。
   //   RPC が使えないときは今までどおり全部読む。保存側は persistCompaniesToDB の _editedKeep を参照。
+  // ver.20261117.11: 案シスが止まる件の対策C・E。
+  //   C … 60秒で全件読み（約38MB）に切り替えるのをやめた。混んでいるときほど重い読み方になり、さらに詰まっていたため。
+  //       5〜15秒散らして2回まで読み直し、だめならお知らせを出して止める（全件読みは「RPCが無い」ときだけ）
+  //   E … 雇用条件セット（emp_sets・約29MB）は軽い読み込み v2 から外し、この端末に覚えておく（IndexedDB）。
+  //       DB は emp_sets が変わるたびに emp_sets_rev を進めるので、番号が変わった会社のぶんだけ読み直す（_empFillFromCache）。
+  //       読めなかった会社は _empLoaded=false にして、保存のときに emp_sets を送らない（＝消さない）
   (function(cb){
-    var all=[], after=null, PAGE=800, guard=0, finished=false;
-    var fallback=function(why){ if(finished) return; finished=true; console.warn('[companies] 軽い読み込みに失敗 → 今までどおり全部読みます', why||''); fetchAllRows('companies', {order:'id',ascending:true}, cb); };
-    var timer=setTimeout(function(){ fallback('timeout'); }, 60000);
-    (function next(){
-      _sb.rpc('companies_lite_page', {p_after: after, p_limit: PAGE}).then(function(r){
-        if(finished) return;
-        if(r.error || !Array.isArray(r.data)){ clearTimeout(timer); fallback(r.error); return; }
-        all=all.concat(r.data);
-        if(r.data.length<PAGE || ++guard>40){ finished=true; clearTimeout(timer); cb(all); return; }
-        after=r.data[r.data.length-1] && r.data[r.data.length-1].id;
-        if(after==null){ clearTimeout(timer); fallback('no id'); return; }
-        next();
-      }, function(e){ clearTimeout(timer); fallback(e); });
-    })();
+    var rpc='companies_lite_page_v2', PAGE=800, tries=0, gen=0, finished=false, timer=null;
+    var finish=function(rows){ if(finished) return; finished=true; clearTimeout(timer); cb(rows); };
+    var missingRpc=function(e){ var t=String((e&&e.code)||'')+' '+String((e&&e.message)||e||''); return /PGRST202|42883|Could not find the function|does not exist/i.test(t); };
+    var giveUp=function(why){
+      console.error('[companies] 読み込めませんでした', why||'');
+      try{ showToast('⚠️ 所属機関を読み込めませんでした（サーバーが混んでいます）。少し待ってから画面を再読み込みしてください'); }catch(e){}
+      finish([]);
+    };
+    var retry=function(why){
+      if(finished) return;
+      clearTimeout(timer);
+      if(tries>=2){ giveUp(why); return; }
+      tries++; gen++;
+      console.warn('[companies] 読み込みに失敗 → '+tries+'回目の読み直し', why||'');
+      setTimeout(start, 5000+Math.floor(Math.random()*10000));
+    };
+    function start(){
+      if(finished) return;
+      var my=++gen, all=[], after=null, guard=0;
+      clearTimeout(timer); timer=setTimeout(function(){ if(my===gen) retry('timeout'); }, 60000);
+      (function next(){
+        _sb.rpc(rpc, {p_after: after, p_limit: PAGE}).then(function(r){
+          if(finished || my!==gen) return;
+          if(r.error || !Array.isArray(r.data)){
+            if(missingRpc(r.error)){
+              if(rpc==='companies_lite_page_v2'){ rpc='companies_lite_page'; console.warn('[companies] v2 が無いので v1 で読みます'); start(); return; }
+              finished=true; clearTimeout(timer); console.warn('[companies] 軽い読み込みが無いので全部読みます'); fetchAllRows('companies', {order:'id',ascending:true}, cb); return;
+            }
+            retry(r.error); return;
+          }
+          all=all.concat(r.data);
+          if(r.data.length<PAGE || ++guard>40){ clearTimeout(timer); finished=true; _empFillFromCache(all).then(function(){ cb(all); }, function(){ cb(all); }); return; }
+          after=r.data[r.data.length-1] && r.data[r.data.length-1].id;
+          if(after==null){ retry('no id'); return; }
+          next();
+        }, function(e){ if(my===gen) retry(e); });
+      })();
+    }
+    start();
   })(function(rows) {
     if (rows.length) {
       try{ _invalidateCompanyIndex(); }catch(e){}
@@ -149155,7 +149390,9 @@ function loadAllFromSupabase() {
           jpCompGender:r.jp_comp_gender||'', jpCompExp:r.jp_comp_exp||'',
           jpCompSalary:r.jp_comp_salary||'', jpCompReason:r.jp_comp_reason||'',
           wageRegulation:r.wage_regulation||'', isHakenGen:!!r.is_haken_gen,
-          foreignerAcceptExp:r.foreigner_accept_exp||'', extra:r.extra||{}
+          foreignerAcceptExp:r.foreigner_accept_exp||'', extra:r.extra||{},
+          nogyoExpType:r.nogyo_exp_type||'', nogyoExpFrom:r.nogyo_exp_from||'', nogyoExpTo:r.nogyo_exp_to||'', nogyoExpName:r.nogyo_exp_name||'', nogyoExpOrg:r.nogyo_exp_org||'',   // ver.20261117.11: 11-1号
+          _empLoaded:!r._empMissing   // ver.20261117.11: 雇用条件セットを読めたか（false の会社は保存で emp_sets を送らない）
         };
         // extraフィールドに保存された財務データを展開（DBカラム未追加時のフォールバック）
         var _extraKeys=['salesY1','salesY2','salesY3','ordinaryPLY1','ordinaryPLY2','ordinaryPLY3','netPLY1','netPLY2','netPLY3','netAssetsY1','netAssetsY2','netAssetsY3','jpVoluntaryQuit','jpInvoluntaryQuit','fnVoluntaryQuit','fnInvoluntaryQuit','missingCount','missingCount2y','missingCount3y','foreignerAcceptExp'];
@@ -149966,11 +150203,13 @@ function initRealtime() {
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
         window._rtConnected = false;
         if (_rtReconnectTimer) return;   // ver.20261015.11: 再接続の予約は1つだけ
-        console.warn('⚠️ Realtime error, reconnecting in 10s...');
+        // ver.20261117.11: サーバーの再起動のあと全員が同じ秒につなぎ直して詰まらないよう、10〜30秒散らす
+        var _rtWait = 10000 + Math.floor(Math.random()*20000);
+        console.warn('⚠️ Realtime error, reconnecting in '+Math.round(_rtWait/1000)+'s...');
         _rtReconnectTimer = setTimeout(function(){
           _rtReconnectTimer = null;
           try { initRealtime(); } catch(e) {}
-        }, 10000);
+        }, _rtWait);
       }
     });
 }
@@ -153605,7 +153844,10 @@ rebuildLoginSelect();
     if (DB_READY || ++retries2 > 10) {
       clearInterval(initTimer);
       if (DB_READY) {
-        loadAllFromSupabase();
+        // ver.20261117.11: 開いた直後の読み込みは0〜8秒散らす（サーバーの再起動のあと全員が同時に読み直して、また詰まっていたため）。
+        //   待っているあいだにログインなどで読み込みが始まっていれば、ここでは読まない
+        var _lc0 = window._allLoadCount || 0;
+        setTimeout(function(){ if((window._allLoadCount || 0) === _lc0) loadAllFromSupabase(); }, Math.floor(Math.random()*8000));
         // GAS接続テスト（3秒以内に応答なければプロキシモードに自動切替）
         testGasConnectivity();
       } else {
@@ -155110,7 +155352,7 @@ async function lpOpenCardPhoto(shipId){
   var persons = await _lcpLoadPersons(rec.caseIds||[]);
   await _lcpTouchLock(shipId);
   if(_lcpHeart) clearInterval(_lcpHeart);
-  _lcpHeart = setInterval(function(){ if(_lcpState) _lcpTouchLock(shipId); }, 60000);
+  _lcpHeart = _setIntervalAlways(function(){ if(_lcpState) _lcpTouchLock(shipId); }, 60000);   // ver.20261117.11: 隠れていても撮影中のロックは延ばす
   var maxSet = Object.keys(sets).map(Number).reduce(function(a,b){ return b>a?b:a; }, 0);
   // 続きから撮る：最後の組が3枚そろっていれば次の人、そうでなければ足りない種別から
   var mode='front', curSet=maxSet+1;
@@ -159300,7 +159542,7 @@ function _bulkAnomalyDailyCheck(){
   });
 }
 setTimeout(function(){ try{ _bulkAnomalyDailyCheck(); }catch(e){} }, 50000);
-setInterval(function(){ try{ _bulkAnomalyDailyCheck(); }catch(e){} }, 3600000);
+_setIntervalAlways(function(){ try{ _bulkAnomalyDailyCheck(); }catch(e){} }, 3600000);
 
 // --- ④ 朝のマイダイジェスト：その日最初に開いたとき、自分担当の「今日見るべき数字」を1枚で ---
 function _showMyDigest(force){
