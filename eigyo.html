@@ -344,7 +344,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261117.02</div>
+      <div class="ver">ver.20261117.03</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -370,6 +370,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div class="nav-item" id="apptChip" onclick="toggleApptOnly()" style="display:none;color:#f87171;">🔴 Meet未送信 <span class="badge" style="background:rgba(239,68,68,.16);color:#f87171;" id="apptChipN">0</span></div>
     <div class="nav-item" id="noDateChip" onclick="toggleNoDateOnly()" style="display:none;color:#fbbf24;">📅 日程未入力 <span class="badge" style="background:rgba(245,158,11,.16);color:#fbbf24;" id="noDateChipN">0</span></div>
     <div class="nav-item" id="transChip" onclick="toggleTransOnly()" style="display:none;color:#fcd34d;">📝 スプレッド転記未 <span class="badge" style="background:rgba(214,158,46,.16);color:#fcd34d;" id="transChipN">0</span></div>
+    <div class="nav-item" id="cxChip" onclick="toggleCxOnly()" style="display:none;color:#fca5a5;">❌ キャンセル後・連絡なし <span class="badge" style="background:rgba(239,68,68,.16);color:#fca5a5;" id="cxChipN">0</span></div>
     <div class="nav-item" id="thanksChip" onclick="toggleThanksOnly()" style="display:none;color:#7dd3fc;">📄 御礼未送信 <span class="badge" style="background:rgba(59,130,246,.16);color:#7dd3fc;" id="thanksChipN">0</span></div>
     <div class="sb-group">資料・出力</div>
     <div class="nav-item" data-main="materials" onclick="openCommonMaterials()">📎 資料ライブラリ</div>
@@ -1455,6 +1456,7 @@ function buildQuery(forCount){
   if(apptOnly){ q = q.not('apt_at','is',null).eq('apt_meet_sent', false).eq('status','商談予定').or('meeting_kind.is.null,meeting_kind.neq.訪問'); }
   if(noDateOnly){ q = q.eq('status','商談予定').is('apt_at',null).is('meeting_date',null).eq('apt_reschedule',false).is('apt_canceled_at',null); }   // ver.20261106.03
   if(transOnly){ q = q.not('apt_at','is',null).lt('apt_at', new Date().toISOString()).eq('transcribed', false).eq('apt_reschedule', false).is('apt_canceled_at',null).eq('acquisition_source','Sales pass'); }   // ver.20261111.02: セールスパス案件でスプレッド転記がまだの会社
+  if(cxOnly){ q = q.eq('status','アタック中').not('apt_canceled_at','is',null); }   // ver.20261117.03
   if(thanksOnly){ q = q.not('apt_at','is',null).lt('apt_at', new Date().toISOString()).eq('thanks_sent', false).eq('apt_reschedule', false).is('apt_canceled_at',null); }
   q = applyExclusions(q);
 
@@ -2326,30 +2328,36 @@ function apptSetReschedule(regNo, checked){
 }
 function remindOpen(regNo){ closeRemindModal(); openDrawer(regNo); }
 /* ver.20261117.02: キャンセル・お断り（日程を取り直さない）。アポ関連のアラート（Meet未送信・御礼・転記・リスケフォロー）を全部止める */
-function aptCancelAsk(){
-  if(!curLead) return; aptCancelClose();
+var _aptCx=null;   // ver.20261117.03: キャンセルにする相手（詳細画面でもリスケのフォロー画面でも使う）
+function aptCancelAsk(regNo, name){
+  if(regNo){ _aptCx={reg_no:regNo, name:name||''}; } else { if(!curLead) return; _aptCx={reg_no:curLead.reg_no, name:curLead.name||''}; }
+  aptCancelClose();
   var ov=document.createElement('div'); ov.id='aptCxOv'; ov.className='overlay on'; ov.style.zIndex='90'; ov.onclick=aptCancelClose; document.body.appendChild(ov);
   var b=document.createElement('div'); b.id='aptCxBox';
   b.style.cssText='position:fixed;z-index:91;top:50%;left:50%;transform:translate(-50%,-50%);width:min(440px,92vw);background:#fff;border-radius:12px;padding:20px 22px;box-shadow:0 8px 40px rgba(0,0,0,.25);border-top:6px solid #c53030;';
   b.innerHTML='<h3 style="margin:0 0 6px;font-size:16px;color:#c53030;">❌ キャンセル・お断り</h3>'
-    + '<p style="margin:0 0 12px;font-size:12.5px;color:var(--muted);">'+esc(curLead.name||'')+' のアポを、日程を取り直さないキャンセルにします。<br>Meet未送信・御礼メール・転記・リスケフォローのアラートが出なくなります。<br>日程を取り直す場合は、これではなく「リスケ中」にしてください。</p>'
+    + '<p style="margin:0 0 12px;font-size:12.5px;color:var(--muted);">'+esc(_aptCx.name||'')+' のアポを、日程を取り直さないキャンセルにします。<br>Meet未送信・御礼メール・転記・リスケフォローのアラートが出なくなります。<br>日程を取り直す場合は、これではなく「リスケ中」にしてください。</p>'
     + '<button class="btn" style="width:100%;padding:10px;margin-bottom:8px;color:#c53030;border-color:#feb2b2;" onclick="aptCancel(\'だめ\')">もう追わない（ステータスを「だめ」にする）</button>'
-    + '<button class="btn" style="width:100%;padding:10px;" onclick="aptCancel(\'アタック中\')">時期をおいてまた営業する（「アタック中」に戻す）</button>'
+    + '<button class="btn" style="width:100%;padding:10px;" onclick="aptCancel(\'アタック中\')">時期をおいてまた営業する（「アタック中」に戻す）<div class="sub" style="font-size:11px;">次の連絡日を'+esc(fmtMD(kpAddD(kpToday(),APT_CX_NEXT_DAYS)))+'（1か月後）に入れます</div></button>'
     + '<div style="text-align:right;margin-top:10px;"><button class="btn btn-sm" onclick="aptCancelClose()">やめる</button></div>';
   document.body.appendChild(b);
 }
 function aptCancelClose(){ var o=el('aptCxOv'); if(o) o.remove(); var b=el('aptCxBox'); if(b) b.remove(); }
+var APT_CX_NEXT_DAYS=30;   // ver.20261117.03: 「また営業する」を選んだときの次の連絡日（1か月後）
+var APT_CX_SUGGEST_N=3;   // ver.20261117.03: リスケ中の日程フォローがこの回数を超えて空振りしたら切り替えを勧める
 function aptCancel(st){
-  if(!curLead) return; aptCancelClose();
-  var now=new Date().toISOString(), regNo=curLead.reg_no;
+  if(!_aptCx) return; aptCancelClose();
+  var now=new Date().toISOString(), regNo=_aptCx.reg_no;
   var patch={apt_canceled_at:now, apt_reschedule:false, apt_reschedule_at:null, apt_auto_follow:false, apt_auto_follow_n:0, apt_auto_follow_last:null, status:st, updated_at:now};
   if(st==='だめ') patch.next_action_date=null;
+  if(st==='アタック中'){ patch.next_action_date=kpAddD(kpToday(),APT_CX_NEXT_DAYS); patch.next_action_kind='電話'; patch.next_action='再アプローチ（アポがキャンセルになった先）'; }
   _sb.from('eigyo_leads').update(patch).eq('reg_no',regNo).then(function(r){
     if(r.error){ showMsg('dMsg','更新に失敗しました：'+r.error.message,'err'); return; }
     var me2=''; try{ me2=localStorage.getItem('thanksSender')||''; }catch(e){}
     _sb.from('eigyo_notes').insert({reg_no:regNo, note_date:today(), kind:'その他', author:me2||null, body:'アポがキャンセル・お断り（日程の取り直しなし）'+(st==='だめ'?'。ステータスを「だめ」に変更':'。ステータスを「アタック中」に変更')}).then(function(){
-      showMsg('dMsg','キャンセル・お断りにしました（'+st+'）','ok');
-      openDrawer(regNo); load(); refreshApptChip(); checkTomorrowReminder(); checkThanksReminder(); checkRescheduleReminder(); if(typeof checkTranscribeReminder==='function') checkTranscribeReminder();
+      showMsg('dMsg','キャンセル・お断りにしました（'+st+'）'+(st==='アタック中'?'／次の連絡：'+fmtMD(patch.next_action_date):''),'ok');
+      if(curLead && curLead.reg_no===regNo) openDrawer(regNo); else if(typeof autosaveToast==='function') autosaveToast('キャンセル・お断りにしました（'+st+'）');
+      load(); refreshApptChip(); checkTomorrowReminder(); checkThanksReminder(); checkRescheduleReminder(); if(typeof checkTranscribeReminder==='function') checkTranscribeReminder();
     });
   });
 }
@@ -2433,12 +2441,15 @@ function remindToast(msg){
 var apptOnly = false;
 var thanksOnly = false;
 var noDateOnly = false;   // ver.20261106.03: 商談予定なのに日程が入っていない会社
+var cxOnly = false;   // ver.20261117.03: アポがキャンセルになり、アタック中に戻した会社
 var transOnly = false;   // ver.20261111.02: セールスパス案件でスプレッド転記がまだの会社
-function toggleApptOnly(){ apptOnly = !apptOnly; if(apptOnly){ thanksOnly=false; noDateOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
-function toggleThanksOnly(){ thanksOnly = !thanksOnly; if(thanksOnly){ apptOnly=false; noDateOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
-function toggleNoDateOnly(){ noDateOnly = !noDateOnly; if(noDateOnly){ apptOnly=false; thanksOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
-function toggleTransOnly(){ transOnly = !transOnly; if(transOnly){ apptOnly=false; thanksOnly=false; noDateOnly=false; } page=0; syncChipStyles(); load(); }
+function toggleApptOnly(){ apptOnly = !apptOnly; if(apptOnly){ cxOnly=false; thanksOnly=false; noDateOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
+function toggleThanksOnly(){ thanksOnly = !thanksOnly; if(thanksOnly){ cxOnly=false; apptOnly=false; noDateOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
+function toggleNoDateOnly(){ noDateOnly = !noDateOnly; if(noDateOnly){ cxOnly=false; apptOnly=false; thanksOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
+function toggleTransOnly(){ transOnly = !transOnly; if(transOnly){ cxOnly=false; apptOnly=false; thanksOnly=false; noDateOnly=false; } page=0; syncChipStyles(); load(); }
+function toggleCxOnly(){ cxOnly = !cxOnly; if(cxOnly){ apptOnly=false; thanksOnly=false; noDateOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
 function syncChipStyles(){
+  var cx=el('cxChip'); if(cx){ cx.style.background=cxOnly?'#c53030':'#fff5f5'; cx.style.color=cxOnly?'#fff':'#c53030'; }
   var a=el('apptChip'); if(a){ a.style.background=apptOnly?'#c53030':'#fff5f5'; a.style.color=apptOnly?'#fff':'#c53030'; }
   var t=el('thanksChip'); if(t){ t.style.background=thanksOnly?'#2b6cb0':'#ebf8ff'; t.style.color=thanksOnly?'#fff':'#2b6cb0'; }
   var n=el('noDateChip'); if(n){ n.style.background=noDateOnly?'#b7791f':'#fffbeb'; n.style.color=noDateOnly?'#fff':'#b7791f'; }
@@ -2467,6 +2478,10 @@ function apptCell(x){
   return esc(s)+'<div><span class="apt-chip apt-pending'+(soon?' apt-soon':'')+'">🔴Meet未送信</span></div>';
 }
 function refreshApptChip(){
+  _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).eq('status','アタック中').not('apt_canceled_at','is',null).then(function(r){   // ver.20261117.03
+    var n=r.count||0, c=el('cxChip'); if(!c) return;
+    el('cxChipN').textContent=n; c.style.display = n>0 ? '' : (cxOnly?'':'none');
+  });
   _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).not('apt_at','is',null).lt('apt_at',new Date().toISOString()).eq('transcribed',false).eq('apt_reschedule',false).is('apt_canceled_at',null).eq('acquisition_source','Sales pass').then(function(r){
     var n=r.count||0, c=el('transChip'); if(!c) return;
     el('transChipN').textContent=n; c.style.display = n>0 ? '' : (transOnly?'':'none');
@@ -2804,7 +2819,18 @@ function checkRescheduleReminder(){
     .not('apt_reschedule_at','is',null).lt('apt_reschedule_at', cut)
     .order('apt_reschedule_at',{ascending:true}).then(function(r){
       if(r.error || !r.data || !r.data.length){ closeReschedModal(); return; }
-      showReschedModal(r.data, days);
+      // ver.20261117.03: 日程フォローの回数（対応履歴の「日程フォロー実施」）を数える
+      var list=r.data, regs=list.map(function(x){ return x.reg_no; });
+      _sb.from('eigyo_notes').select('reg_no,note_date').in('reg_no',regs).eq('kind','フォロー').like('body','日程フォロー%').then(function(nr){
+        var cnt={};
+        (nr.data||[]).forEach(function(n){
+          var x=list.filter(function(l){ return l.reg_no===n.reg_no; })[0];
+          var since=x&&x.apt_at ? kpAddD(String(x.apt_at).slice(0,10),-60) : '';   // 今回のアポのまわりのフォローだけ数える
+          if(!since || String(n.note_date)>=since) cnt[n.reg_no]=(cnt[n.reg_no]||0)+1;
+        });
+        list.forEach(function(x){ x._followN=cnt[x.reg_no]||0; });
+        showReschedModal(list, days);
+      });
   });
 }
 function showReschedModal(list, days){
@@ -2832,7 +2858,10 @@ function showReschedModal(list, days){
       + '<button class="btn btn-sm" onclick="copyRemindMail(\''+esc(x.reg_no)+'\')">📧 催促文をコピー</button>'
       + '<button class="btn btn-sm btn-primary" onclick="reschedFollowed(\''+esc(x.reg_no)+'\')">✅ フォロー実施</button>'
       + '<button class="btn btn-sm" onclick="reschedSnooze(\''+esc(x.reg_no)+'\')">+'+days+'日</button>'
-      + '</div></div>';
+      + '<button class="btn btn-sm" onclick="aptCancelAsk(\''+esc(x.reg_no)+'\',\''+esc(String(x.name||'').replace(/'/g,''))+'\')" style="color:#c53030;border-color:#feb2b2;'+(x._followN>=APT_CX_SUGGEST_N?'background:#fff5f5;font-weight:700;':'')+'">❌ キャンセルにする</button>'
+      + '</div>'
+      + (x._followN>=APT_CX_SUGGEST_N ? '<div style="font-size:11.5px;color:#c53030;margin-top:6px;">日程フォローを'+x._followN+'回しても返事がありません。日程を取り直さないなら「❌ キャンセルにする」に切り替えてください。</div>' : (x._followN?'<div style="font-size:11px;color:#718096;margin-top:4px;">日程フォロー '+x._followN+'回</div>':''))
+      + '</div>';
   });
   h+='<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px;"><button class="btn btn-primary" onclick="closeReschedModal()">閉じる</button></div>'
     + '<p style="font-size:11px;color:var(--muted);margin:8px 0 0;text-align:right;">※対応するまで、開くたびに表示されます</p>';
