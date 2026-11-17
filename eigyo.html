@@ -344,7 +344,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261117.03</div>
+      <div class="ver">ver.20261117.04</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -370,6 +370,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div class="nav-item" id="apptChip" onclick="toggleApptOnly()" style="display:none;color:#f87171;">🔴 Meet未送信 <span class="badge" style="background:rgba(239,68,68,.16);color:#f87171;" id="apptChipN">0</span></div>
     <div class="nav-item" id="noDateChip" onclick="toggleNoDateOnly()" style="display:none;color:#fbbf24;">📅 日程未入力 <span class="badge" style="background:rgba(245,158,11,.16);color:#fbbf24;" id="noDateChipN">0</span></div>
     <div class="nav-item" id="transChip" onclick="toggleTransOnly()" style="display:none;color:#fcd34d;">📝 スプレッド転記未 <span class="badge" style="background:rgba(214,158,46,.16);color:#fcd34d;" id="transChipN">0</span></div>
+    <div class="nav-item" id="fuChip" onclick="toggleFuOnly()" style="display:none;color:#c4b5fd;">📨 フォロー候補（料金改定・RSO） <span class="badge" style="background:rgba(139,92,246,.16);color:#c4b5fd;" id="fuChipN">0</span></div>
     <div class="nav-item" id="cxChip" onclick="toggleCxOnly()" style="display:none;color:#fca5a5;">❌ キャンセル後・連絡なし <span class="badge" style="background:rgba(239,68,68,.16);color:#fca5a5;" id="cxChipN">0</span></div>
     <div class="nav-item" id="thanksChip" onclick="toggleThanksOnly()" style="display:none;color:#7dd3fc;">📄 御礼未送信 <span class="badge" style="background:rgba(59,130,246,.16);color:#7dd3fc;" id="thanksChipN">0</span></div>
     <div class="sb-group">資料・出力</div>
@@ -1456,6 +1457,7 @@ function buildQuery(forCount){
   if(apptOnly){ q = q.not('apt_at','is',null).eq('apt_meet_sent', false).eq('status','商談予定').or('meeting_kind.is.null,meeting_kind.neq.訪問'); }
   if(noDateOnly){ q = q.eq('status','商談予定').is('apt_at',null).is('meeting_date',null).eq('apt_reschedule',false).is('apt_canceled_at',null); }   // ver.20261106.03
   if(transOnly){ q = q.not('apt_at','is',null).lt('apt_at', new Date().toISOString()).eq('transcribed', false).eq('apt_reschedule', false).is('apt_canceled_at',null).eq('acquisition_source','Sales pass'); }   // ver.20261111.02: セールスパス案件でスプレッド転記がまだの会社
+  if(fuOnly){ q = _fuRsoQuery(q); }   // ver.20261117.04
   if(cxOnly){ q = q.eq('status','アタック中').not('apt_canceled_at','is',null); }   // ver.20261117.03
   if(thanksOnly){ q = q.not('apt_at','is',null).lt('apt_at', new Date().toISOString()).eq('thanks_sent', false).eq('apt_reschedule', false).is('apt_canceled_at',null); }
   q = applyExclusions(q);
@@ -1834,6 +1836,15 @@ function renderDrawer(){
   +     (x.thanks_sent
         ? '<button class="btn" onclick="markThanksSent(false)" style="background:#f0fff4;border-color:#9ae6b4;color:#276749;">✓ 御礼送信済み（クリックで取消）</button>'
         : '<button class="btn btn-primary" onclick="askThanksNext()">✅ 御礼メール送信済みにする</button>')
+  +   '</div>'
+  // ver.20261117.04: 料金改定・RSOのフォローメール（しばらくやり取りがない先に送る）
+  +   '<label class="span2" style="margin:10px 0 -2px;font-weight:700;color:#6b46c1;">📨 フォローメール（料金改定・RSOのご案内）</label>'
+  +   '<div class="span2" style="font-size:11.5px;color:#718096;">差出人は上の「差出人（担当者名）」を使います。料金表は御礼文と同じドライブのURLが本文に入ります（この会社用の料金表があればそちら）。</div>'
+  +   '<div class="span2" style="display:flex;gap:8px;flex-wrap:wrap;">'
+  +     '<button class="btn" onclick="copyFuRsoMsg()">📨 フォロー文をコピー</button>'
+  +     (x.fu_rso_sent_at
+        ? '<button class="btn" onclick="markFuRsoSent(false)" style="background:#f0fff4;border-color:#9ae6b4;color:#276749;">✓ 送信済み '+esc(fmtMD(x.fu_rso_sent_at))+'（クリックで取消）</button>'
+        : '<button class="btn btn-primary" onclick="markFuRsoSent(true)">✅ 送信済みにする</button>')
   +   '</div>'
   +   '<label class="full sec-title" style="font-size:14px;">📝 代行会社スプレッドへ転記</label>'
   +   '<div class="full" style="display:flex;gap:8px;flex-wrap:wrap;">'
@@ -2441,14 +2452,17 @@ function remindToast(msg){
 var apptOnly = false;
 var thanksOnly = false;
 var noDateOnly = false;   // ver.20261106.03: 商談予定なのに日程が入っていない会社
+var fuOnly = false;   // ver.20261117.04: 料金改定・RSOのフォロー候補
 var cxOnly = false;   // ver.20261117.03: アポがキャンセルになり、アタック中に戻した会社
 var transOnly = false;   // ver.20261111.02: セールスパス案件でスプレッド転記がまだの会社
-function toggleApptOnly(){ apptOnly = !apptOnly; if(apptOnly){ cxOnly=false; thanksOnly=false; noDateOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
-function toggleThanksOnly(){ thanksOnly = !thanksOnly; if(thanksOnly){ cxOnly=false; apptOnly=false; noDateOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
-function toggleNoDateOnly(){ noDateOnly = !noDateOnly; if(noDateOnly){ cxOnly=false; apptOnly=false; thanksOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
-function toggleTransOnly(){ transOnly = !transOnly; if(transOnly){ cxOnly=false; apptOnly=false; thanksOnly=false; noDateOnly=false; } page=0; syncChipStyles(); load(); }
-function toggleCxOnly(){ cxOnly = !cxOnly; if(cxOnly){ apptOnly=false; thanksOnly=false; noDateOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
+function toggleApptOnly(){ apptOnly = !apptOnly; if(apptOnly){ fuOnly=false; cxOnly=false; thanksOnly=false; noDateOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
+function toggleThanksOnly(){ thanksOnly = !thanksOnly; if(thanksOnly){ fuOnly=false; cxOnly=false; apptOnly=false; noDateOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
+function toggleNoDateOnly(){ noDateOnly = !noDateOnly; if(noDateOnly){ fuOnly=false; cxOnly=false; apptOnly=false; thanksOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
+function toggleTransOnly(){ transOnly = !transOnly; if(transOnly){ fuOnly=false; cxOnly=false; apptOnly=false; thanksOnly=false; noDateOnly=false; } page=0; syncChipStyles(); load(); }
+function toggleCxOnly(){ cxOnly = !cxOnly; if(cxOnly){ fuOnly=false; apptOnly=false; thanksOnly=false; noDateOnly=false; transOnly=false; } page=0; syncChipStyles(); load(); }
+function toggleFuOnly(){ fuOnly = !fuOnly; if(fuOnly){ apptOnly=false; thanksOnly=false; noDateOnly=false; transOnly=false; cxOnly=false; } page=0; syncChipStyles(); load(); }
 function syncChipStyles(){
+  var fu=el('fuChip'); if(fu){ fu.style.background=fuOnly?'#6b46c1':'#faf5ff'; fu.style.color=fuOnly?'#fff':'#6b46c1'; }
   var cx=el('cxChip'); if(cx){ cx.style.background=cxOnly?'#c53030':'#fff5f5'; cx.style.color=cxOnly?'#fff':'#c53030'; }
   var a=el('apptChip'); if(a){ a.style.background=apptOnly?'#c53030':'#fff5f5'; a.style.color=apptOnly?'#fff':'#c53030'; }
   var t=el('thanksChip'); if(t){ t.style.background=thanksOnly?'#2b6cb0':'#ebf8ff'; t.style.color=thanksOnly?'#fff':'#2b6cb0'; }
@@ -2478,6 +2492,10 @@ function apptCell(x){
   return esc(s)+'<div><span class="apt-chip apt-pending'+(soon?' apt-soon':'')+'">🔴Meet未送信</span></div>';
 }
 function refreshApptChip(){
+  _fuRsoQuery(_sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true})).then(function(r){   // ver.20261117.04
+    var n=r.count||0, c=el('fuChip'); if(!c) return;
+    el('fuChipN').textContent=n; c.style.display = n>0 ? '' : (fuOnly?'':'none');
+  });
   _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).eq('status','アタック中').not('apt_canceled_at','is',null).then(function(r){   // ver.20261117.03
     var n=r.count||0, c=el('cxChip'); if(!c) return;
     el('cxChipN').textContent=n; c.style.display = n>0 ? '' : (cxOnly?'':'none');
@@ -2691,6 +2709,74 @@ function copyThanksMsg(){
 }
 
 /* ===== 代行会社スプレッドへの転記（コピー・リマインド・転記済み） ===== */
+/* ver.20261117.04: 料金改定・RSOのフォローメール */
+var FU_RSO_SUBJECT='【大房行政書士法人】費用改定と入管監査に係る支援機関向け管理システムのご案内';
+var FU_RSO_STALE_DAYS=60;   // 最後のやり取りからこの日数たった先を「フォロー候補」に出す
+function _fuRsoPerson(x){
+  var c=(x.contacts||[]).filter(function(c){ return c && c.name; })[0];
+  var n=(c&&c.name)||x.apt_person||'';
+  n=String(n).replace(/\/.*$/,'').replace(/[（(].*?[）)]/,'').replace(/様$/,'').trim();
+  return n ? n+' 様' : 'ご担当者様';
+}
+function buildFuRsoMsg(x, sender, price){
+  return '件名：'+FU_RSO_SUBJECT+'\n\n'
+    + (x.name||'')+'\n'+_fuRsoPerson(x)+'\n\n'
+    + 'お世話になっております。\n大房行政書士法人の'+(sender||'')+'です。\n\n'
+    + '以前ご案内いたしました申請費用につきまして、この度改訂を行いましたので、最新の料金表を下記にてお送りいたします。ご査収いただけますと幸いです。\n\n'
+    + '▼最新の料金表\n'+(price&&price.url ? price.url : '（料金表のURL）')+'\n\n'
+    + '併せまして、入管の監査対策ができる登録支援機関様向けの支援管理システム（RSO）を開発いたしましたので、ご案内申し上げます。\n\n'
+    + '【主な機能・特徴】\n'
+    + '・運用要領で求められる帳簿（14種）をボタン1つで作成\n'
+    + '・帳簿を出す前に、足りない記録を自動でお知らせ\n'
+    + '・定期面談（3か月ごと）や在留期限などの期限を一覧で管理\n'
+    + '・随時届出の提出先・必要書類・期限（14日以内）をご案内\n\n'
+    + '【RSOのご利用条件】\n'
+    + 'RSOは、特定技能の入管申請を弊社に全件ご依頼いただいている登録支援機関様専用のシステムです。\n'
+    + '全件ご依頼いただく場合は、無料でお使いいただけます。\n'
+    + '※一部のみのご依頼の場合は、ご利用いただけませんのでご了承ください。\n\n'
+    + 'なお、初期設定や今お使いのExcel・管理表からのデータ移行につきましても、弊社にて対応いたします。\n\n'
+    + '▼RSOデモ環境（すべて架空のデータです。ご自由にお試しください）\n'
+    + 'URL：https://ofusa2026.github.io/rso/\n'
+    + 'ID：emo@dummy.example.com\n'
+    + 'パスワード：Dm-51d6e499ff9\n'
+    + '※実際の人材・企業の情報は入力しないでください。\n\n'
+    + '画面を見ながらのご説明も、オンラインにて30分ほどで承ります。\n'
+    + 'ご興味がございましたら、ご都合のよい日時をお知らせいただけますと幸いです。\n\n'
+    + 'ご検討のほど、何卒よろしくお願い申し上げます。\n\n'
+    + (sender||'');
+}
+function copyFuRsoMsg(){
+  if(!curLead) return;
+  var sender=(el('eThanksSender')&&el('eThanksSender').value.trim())||'';
+  if(!sender){ showMsg('dMsg','先に「差出人（担当者名）」を選んでください','err'); return; }
+  try{ localStorage.setItem('thanksSender',sender); }catch(e){}
+  var lead=curLead;
+  // 御礼文と同じ料金表：会社別の料金表があればそれ、なければ共通資料の料金表（ドライブのURL）
+  _sb.from('eigyo_materials').select('scope,category,name,url,created_at').or('and(scope.eq.lead,reg_no.eq.'+lead.reg_no+',category.eq.料金表),and(scope.eq.common,name.ilike.*料金表*)').then(function(r){
+    var rows=(r.data||[]).filter(function(m){ return m.url; });
+    var own=rows.filter(function(m){ return m.scope==='lead'; }).sort(function(a,b){ return String(b.created_at).localeCompare(String(a.created_at)); })[0];
+    var com=rows.filter(function(m){ return m.scope==='common'; })[0];
+    var price=own||com||null;
+    _copyTo(buildFuRsoMsg(lead, sender, price), price ? ('フォロー文をコピーしました（料金表：'+(own?'この会社用の料金表':'共通の料金表')+'）') : 'フォロー文をコピーしました。料金表のURLが見つからなかったので、本文の（料金表のURL）を差し替えてください');
+  });
+}
+function markFuRsoSent(flag){
+  if(!curLead) return;
+  var regNo=curLead.reg_no, now=new Date().toISOString();
+  var patch = flag ? {fu_rso_sent_at:now, last_contact_date:kpToday(), updated_at:now} : {fu_rso_sent_at:null, updated_at:now};
+  _sb.from('eigyo_leads').update(patch).eq('reg_no',regNo).then(function(r){
+    if(r.error){ showMsg('dMsg','更新に失敗しました：'+r.error.message,'err'); return; }
+    var done=function(){ showMsg('dMsg', flag?'フォローメール送信済みにしました（対応履歴に記録）':'未送信に戻しました','ok'); openDrawer(regNo); load(); refreshApptChip(); };
+    if(!flag) return done();
+    var me2=''; try{ me2=localStorage.getItem('thanksSender')||''; }catch(e){}
+    _sb.from('eigyo_notes').insert({reg_no:regNo, note_date:kpToday(), kind:'メール', author:me2||null, body:'料金改定・RSOのフォローメールを送付'}).then(done, done);
+  });
+}
+function _fuRsoQuery(q){
+  var cut=kpAddD(kpToday(),-FU_RSO_STALE_DAYS);
+  return q.in('status',['結果待ち','依頼待ち','アタック中']).not('first_contact_date','is',null).is('fu_rso_sent_at',null).eq('no_mail',false)
+    .or('last_contact_date.lt.'+cut+',and(last_contact_date.is.null,first_contact_date.lt.'+cut+')');
+}
 function _copyTo(text, okmsg){
   navigator.clipboard.writeText(text).then(function(){ showMsg('dMsg',okmsg||'コピーしました','ok'); }, function(){ prompt('コピーできませんでした。手動でコピーしてください：', text); });
 }
