@@ -344,7 +344,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261117.01</div>
+      <div class="ver">ver.20261117.02</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -1453,9 +1453,9 @@ function buildQuery(forCount){
   if(_kz==='yes') q = q.or('is_client.eq.true,status.eq.取引中');
   else if(_kz==='no') q = q.or('is_client.is.null,is_client.eq.false').or('status.is.null,status.neq.取引中');
   if(apptOnly){ q = q.not('apt_at','is',null).eq('apt_meet_sent', false).eq('status','商談予定').or('meeting_kind.is.null,meeting_kind.neq.訪問'); }
-  if(noDateOnly){ q = q.eq('status','商談予定').is('apt_at',null).is('meeting_date',null).eq('apt_reschedule',false); }   // ver.20261106.03
-  if(transOnly){ q = q.not('apt_at','is',null).lt('apt_at', new Date().toISOString()).eq('transcribed', false).eq('apt_reschedule', false).eq('acquisition_source','Sales pass'); }   // ver.20261111.02: セールスパス案件でスプレッド転記がまだの会社
-  if(thanksOnly){ q = q.not('apt_at','is',null).lt('apt_at', new Date().toISOString()).eq('thanks_sent', false).eq('apt_reschedule', false); }
+  if(noDateOnly){ q = q.eq('status','商談予定').is('apt_at',null).is('meeting_date',null).eq('apt_reschedule',false).is('apt_canceled_at',null); }   // ver.20261106.03
+  if(transOnly){ q = q.not('apt_at','is',null).lt('apt_at', new Date().toISOString()).eq('transcribed', false).eq('apt_reschedule', false).is('apt_canceled_at',null).eq('acquisition_source','Sales pass'); }   // ver.20261111.02: セールスパス案件でスプレッド転記がまだの会社
+  if(thanksOnly){ q = q.not('apt_at','is',null).lt('apt_at', new Date().toISOString()).eq('thanks_sent', false).eq('apt_reschedule', false).is('apt_canceled_at',null); }
   q = applyExclusions(q);
 
   var sort = el('fSort').value;
@@ -1817,6 +1817,9 @@ function renderDrawer(){
   +     ((x.apt_person||x.apt_email||x.apt_role) ? '<button class="btn" onclick="fillContactFromAppt()">👤 担当者欄に反映</button>' : '')
   +   '</div>'
   +   '<label class="span2" style="display:inline-flex;align-items:center;justify-content:flex-start;gap:6px;width:auto;font-size:12.5px;color:#4a5568;margin-top:2px;cursor:pointer;"><input type="checkbox" id="eAptResched" '+(x.apt_reschedule?'checked':'')+' onchange="apptSetReschedule(curLead.reg_no,this.checked)" style="flex:none;margin:0;padding:0;width:15px;height:15px;"> リスケ中（日程調整中・連絡待ち：決まるまでリマインドを停止）</label>'
+  +   (x.apt_at ? (x.apt_canceled_at   // ver.20261117.02: キャンセル・お断り（日程を取り直さない）
+        ? '<div class="span2" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px;padding:8px 10px;border:1px solid #feb2b2;background:#fff5f5;border-radius:8px;font-size:12.5px;color:#c53030;"><b>❌ キャンセル・お断り（'+esc(fmtMD(x.apt_canceled_at))+'）</b><span style="color:#718096;">このアポのアラートは出ません</span><button class="btn btn-sm" onclick="aptUncancel()">キャンセルを戻す</button></div>'
+        : '<div class="span2" style="margin-top:4px;"><button class="btn" onclick="aptCancelAsk()" style="color:#c53030;border-color:#feb2b2;">❌ キャンセル・お断り（日程を取り直さない）</button></div>') : '')
   +   '<label class="span2" style="display:inline-flex;align-items:center;justify-content:flex-start;gap:6px;width:auto;font-size:12.5px;color:#4a5568;margin-top:4px;cursor:pointer;"><input type="checkbox" id="eNoMail" '+(x.no_mail?'checked':'')+' style="flex:none;margin:0;padding:0;width:15px;height:15px;"> ✉️ メール配信不要（メルマガ等の一斉配信から除外する）</label>'
   +   (x.apt_reschedule ? '<div class="span2" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;"><button class="btn" onclick="copyRemindMail(curLead.reg_no)">📧 日程催促文をコピー</button><button class="btn btn-primary" onclick="reschedFollowed(curLead.reg_no)">✅ フォロー実施（履歴記録）</button></div>'
         + '<div class="span2" id="autoFollowBox" style="display:flex;flex-direction:column;gap:2px;">'+_autoFollowHtml(x)+'</div>' : '')
@@ -1835,7 +1838,7 @@ function renderDrawer(){
   +     '<button class="btn" onclick="copyLeadMemo()">📋 社内メモをコピー</button>'
   +     '<button class="btn" onclick="copyLeadNotes()">📋 対応履歴をコピー</button>'
   +     '<button class="btn" onclick="copyHearing()">📋 ヒアリングをコピー</button>'
-  +     (x.apt_reschedule ? '<button class="btn" onclick="copyCancelReport()" style="border-color:#f6ad55;color:#975a16;">📋 キャンセル報告をコピー</button>' : '')
+  +     ((x.apt_reschedule||x.apt_canceled_at) ? '<button class="btn" onclick="copyCancelReport()" style="border-color:#f6ad55;color:#975a16;">📋 キャンセル報告をコピー</button>' : '')
   +     (x.transcribed
         ? '<button class="btn" onclick="markTranscribed(false)" style="background:#f0fff4;border-color:#9ae6b4;color:#276749;">✓ 転記済み（クリックで取消）</button>'
         : '<button class="btn btn-primary" onclick="markTranscribed(true)">✅ 転記済みにする</button>')
@@ -2263,7 +2266,7 @@ function issueHearingFormUrl(){
 // 前日リマインド：翌日アポ×Meet未送信をポップアップで強制表示
 function checkTomorrowReminder(){
   _sb.from('eigyo_leads').select('reg_no,name,apt_at,apt_email,apt_meet_url')
-    .not('apt_at','is',null).eq('apt_meet_sent', false).eq('apt_reschedule', false).eq('status','商談予定').or('meeting_kind.is.null,meeting_kind.neq.訪問')
+    .not('apt_at','is',null).eq('apt_meet_sent', false).eq('apt_reschedule', false).is('apt_canceled_at',null).eq('status','商談予定').or('meeting_kind.is.null,meeting_kind.neq.訪問')
     .order('apt_at',{ascending:true}).then(function(r){
       if(r.error || !r.data || !r.data.length){ closeRemindModal(); return; }
       showRemindModal(r.data);
@@ -2322,6 +2325,44 @@ function apptSetReschedule(regNo, checked){
   });
 }
 function remindOpen(regNo){ closeRemindModal(); openDrawer(regNo); }
+/* ver.20261117.02: キャンセル・お断り（日程を取り直さない）。アポ関連のアラート（Meet未送信・御礼・転記・リスケフォロー）を全部止める */
+function aptCancelAsk(){
+  if(!curLead) return; aptCancelClose();
+  var ov=document.createElement('div'); ov.id='aptCxOv'; ov.className='overlay on'; ov.style.zIndex='90'; ov.onclick=aptCancelClose; document.body.appendChild(ov);
+  var b=document.createElement('div'); b.id='aptCxBox';
+  b.style.cssText='position:fixed;z-index:91;top:50%;left:50%;transform:translate(-50%,-50%);width:min(440px,92vw);background:#fff;border-radius:12px;padding:20px 22px;box-shadow:0 8px 40px rgba(0,0,0,.25);border-top:6px solid #c53030;';
+  b.innerHTML='<h3 style="margin:0 0 6px;font-size:16px;color:#c53030;">❌ キャンセル・お断り</h3>'
+    + '<p style="margin:0 0 12px;font-size:12.5px;color:var(--muted);">'+esc(curLead.name||'')+' のアポを、日程を取り直さないキャンセルにします。<br>Meet未送信・御礼メール・転記・リスケフォローのアラートが出なくなります。<br>日程を取り直す場合は、これではなく「リスケ中」にしてください。</p>'
+    + '<button class="btn" style="width:100%;padding:10px;margin-bottom:8px;color:#c53030;border-color:#feb2b2;" onclick="aptCancel(\'だめ\')">もう追わない（ステータスを「だめ」にする）</button>'
+    + '<button class="btn" style="width:100%;padding:10px;" onclick="aptCancel(\'アタック中\')">時期をおいてまた営業する（「アタック中」に戻す）</button>'
+    + '<div style="text-align:right;margin-top:10px;"><button class="btn btn-sm" onclick="aptCancelClose()">やめる</button></div>';
+  document.body.appendChild(b);
+}
+function aptCancelClose(){ var o=el('aptCxOv'); if(o) o.remove(); var b=el('aptCxBox'); if(b) b.remove(); }
+function aptCancel(st){
+  if(!curLead) return; aptCancelClose();
+  var now=new Date().toISOString(), regNo=curLead.reg_no;
+  var patch={apt_canceled_at:now, apt_reschedule:false, apt_reschedule_at:null, apt_auto_follow:false, apt_auto_follow_n:0, apt_auto_follow_last:null, status:st, updated_at:now};
+  if(st==='だめ') patch.next_action_date=null;
+  _sb.from('eigyo_leads').update(patch).eq('reg_no',regNo).then(function(r){
+    if(r.error){ showMsg('dMsg','更新に失敗しました：'+r.error.message,'err'); return; }
+    var me2=''; try{ me2=localStorage.getItem('thanksSender')||''; }catch(e){}
+    _sb.from('eigyo_notes').insert({reg_no:regNo, note_date:today(), kind:'その他', author:me2||null, body:'アポがキャンセル・お断り（日程の取り直しなし）'+(st==='だめ'?'。ステータスを「だめ」に変更':'。ステータスを「アタック中」に変更')}).then(function(){
+      showMsg('dMsg','キャンセル・お断りにしました（'+st+'）','ok');
+      openDrawer(regNo); load(); refreshApptChip(); checkTomorrowReminder(); checkThanksReminder(); checkRescheduleReminder(); if(typeof checkTranscribeReminder==='function') checkTranscribeReminder();
+    });
+  });
+}
+function aptUncancel(){
+  if(!curLead) return;
+  if(!confirm('キャンセル・お断りを取り消して、ステータスを「商談予定」に戻しますか？')) return;
+  var regNo=curLead.reg_no, now=new Date().toISOString();
+  _sb.from('eigyo_leads').update({apt_canceled_at:null, status:'商談予定', updated_at:now}).eq('reg_no',regNo).then(function(r){
+    if(r.error){ showMsg('dMsg','更新に失敗しました：'+r.error.message,'err'); return; }
+    showMsg('dMsg','キャンセルを戻しました（商談予定）','ok');
+    openDrawer(regNo); load(); refreshApptChip(); checkTomorrowReminder(); checkThanksReminder();
+  });
+}
 
 /* ===== 商談後フォローリマインド（商談済み→依頼待ちで最終対応からX日経過） ===== */
 function followupDays(){ try{ var v=parseInt(localStorage.getItem('followupDays'),10); if(v>0) return v; }catch(e){} return 30; }
@@ -2417,6 +2458,7 @@ function apptCell(x){
   if(!x.apt_at){ return x.meeting_date ? esc(fmtMD(x.meeting_date))+(x.meeting_kind?'<div class="sub">'+esc(x.meeting_kind)+'</div>':'') : '—'; }
   var d=new Date(x.apt_at);
   var s=fmtMD(x.apt_at, true);
+  if(x.apt_canceled_at){ return esc(s)+'<div><span class="apt-chip" style="background:#fff5f5;color:#c53030;border:1px solid #feb2b2;">❌キャンセル</span></div>'; }   // ver.20261117.02
   if(x.apt_meet_sent){ return esc(s)+'<div><span class="apt-chip apt-sent">✓Meet送信済</span></div>'; }
   if(x.apt_reschedule){ return esc(s)+'<div><span class="apt-chip" style="background:#edf2f7;color:#4a5568;border:1px solid #cbd5e0;">⏸リスケ中</span></div>'; }
   if(x.status!=='商談予定'){ return esc(s); }
@@ -2425,19 +2467,19 @@ function apptCell(x){
   return esc(s)+'<div><span class="apt-chip apt-pending'+(soon?' apt-soon':'')+'">🔴Meet未送信</span></div>';
 }
 function refreshApptChip(){
-  _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).not('apt_at','is',null).lt('apt_at',new Date().toISOString()).eq('transcribed',false).eq('apt_reschedule',false).eq('acquisition_source','Sales pass').then(function(r){
+  _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).not('apt_at','is',null).lt('apt_at',new Date().toISOString()).eq('transcribed',false).eq('apt_reschedule',false).is('apt_canceled_at',null).eq('acquisition_source','Sales pass').then(function(r){
     var n=r.count||0, c=el('transChip'); if(!c) return;
     el('transChipN').textContent=n; c.style.display = n>0 ? '' : (transOnly?'':'none');
   });
-  _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).eq('status','商談予定').is('apt_at',null).is('meeting_date',null).eq('apt_reschedule',false).then(function(r){
+  _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).eq('status','商談予定').is('apt_at',null).is('meeting_date',null).eq('apt_reschedule',false).is('apt_canceled_at',null).then(function(r){
     var n=r.count||0, c=el('noDateChip'); if(!c) return;
     el('noDateChipN').textContent=n; c.style.display = n>0 ? '' : (noDateOnly?'':'none');
   });
-  _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).not('apt_at','is',null).eq('apt_meet_sent',false).eq('apt_reschedule',false).eq('status','商談予定').or('meeting_kind.is.null,meeting_kind.neq.訪問').then(function(r){
+  _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).not('apt_at','is',null).eq('apt_meet_sent',false).eq('apt_reschedule',false).is('apt_canceled_at',null).eq('status','商談予定').or('meeting_kind.is.null,meeting_kind.neq.訪問').then(function(r){
     var n=r.count||0, c=el('apptChip'); if(!c) return;
     el('apptChipN').textContent=n; c.style.display = n>0 ? '' : (apptOnly?'':'none');
   });
-  _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).not('apt_at','is',null).lt('apt_at',new Date().toISOString()).eq('thanks_sent',false).eq('apt_reschedule',false).then(function(r){
+  _sb.from('eigyo_leads').select('reg_no',{count:'exact',head:true}).not('apt_at','is',null).lt('apt_at',new Date().toISOString()).eq('thanks_sent',false).eq('apt_reschedule',false).is('apt_canceled_at',null).then(function(r){
     var n=r.count||0, c=el('thanksChip'); if(!c) return;
     el('thanksChipN').textContent=n; c.style.display = n>0 ? '' : (thanksOnly?'':'none');
   });
@@ -2682,7 +2724,7 @@ function markTranscribed(flag){
 function checkTranscribeReminder(){
   _sb.from('eigyo_leads').select('reg_no,name,apt_at')
     .not('apt_at','is',null).lt('apt_at', new Date().toISOString())
-    .eq('transcribed', false).eq('apt_reschedule', false).eq('acquisition_source','Sales pass')
+    .eq('transcribed', false).eq('apt_reschedule', false).is('apt_canceled_at',null).eq('acquisition_source','Sales pass')
     .order('apt_at',{ascending:true}).then(function(r){
       if(r.error || !r.data || !r.data.length){ closeTranscribeModal(); return; }
       showTranscribeModal(r.data);
@@ -2717,7 +2759,7 @@ function transOpen(regNo){ closeTranscribeModal(); openDrawer(regNo); }
 function checkThanksReminder(){
   _sb.from('eigyo_leads').select('reg_no,name,apt_at,apt_email')
     .not('apt_at','is',null).lt('apt_at', new Date().toISOString())
-    .eq('thanks_sent', false).eq('apt_reschedule', false)
+    .eq('thanks_sent', false).eq('apt_reschedule', false).is('apt_canceled_at',null)
     .order('apt_at',{ascending:true}).then(function(r){
       if(r.error || !r.data || !r.data.length){ closeThanksModal(); return; }
       showThanksModal(r.data);
@@ -2758,7 +2800,7 @@ function checkRescheduleReminder(){
   var cut=new Date(Date.now()-days*86400000).toISOString();
   // ver.20261106.03: Meetを送ったあとにキャンセルになった会社も対象にする。自動フォローONの会社は自動に任せるので出さない
   _sb.from('eigyo_leads').select('reg_no,name,apt_at,apt_reschedule_at,apt_person')
-    .eq('apt_reschedule',true).eq('apt_auto_follow',false)
+    .eq('apt_reschedule',true).eq('apt_auto_follow',false).is('apt_canceled_at',null)
     .not('apt_reschedule_at','is',null).lt('apt_reschedule_at', cut)
     .order('apt_reschedule_at',{ascending:true}).then(function(r){
       if(r.error || !r.data || !r.data.length){ closeReschedModal(); return; }
@@ -2843,9 +2885,9 @@ function copyCancelReport(){
     + '会社名：'+(x.name||'')+'\n'
     + (x.apt_person?'先方担当者：'+String(x.apt_person).replace(/\/.*$/,'')+'様\n':'')
     + (x.apt_at?'当初の商談日時：'+d(x.apt_at)+'\n':'')
-    + (x.apt_reschedule_at?'キャンセル連絡日：'+d(String(x.apt_reschedule_at).slice(0,10))+'\n':'')
+    + ((x.apt_canceled_at||x.apt_reschedule_at)?'キャンセル連絡日：'+d(String(x.apt_canceled_at||x.apt_reschedule_at).slice(0,10))+'\n':'')
     + '理由：先方都合によるキャンセル\n'
-    + '状況：先方からの再日程のご連絡待ち（日程が決まり次第ご報告いたします）';
+    + (x.apt_canceled_at ? '状況：先方より商談のお断り（再日程なし）' : '状況：先方からの再日程のご連絡待ち（日程が決まり次第ご報告いたします）');
   _copyTo(t,'キャンセル報告をコピーしました。代行会社のスプレッドシートに貼り付けてください');
 }
 // 催促（日程フォロー）メール文を生成してコピー
@@ -3136,7 +3178,7 @@ function apptDoImport(){
   var aptFields={ apt_at:d.apt_at, apt_getter:d.apt_getter||null, apt_got_at:d.apt_got_at||null, apt_person:d.apt_person||null,
     apt_role:d.apt_role||null, apt_dept:d.apt_dept||null, apt_email:d.apt_email||null, apt_test_closing:d.apt_test_closing||null,
     apt_reason:d.apt_reason||null, apt_env:d.apt_env||null, apt_memo:d.apt_memo||null, apt_raw:d.apt_raw||null,
-    apt_meet_sent:false, apt_meet_sent_at:null, updated_at:new Date().toISOString() };
+    apt_meet_sent:false, apt_meet_sent_at:null, apt_canceled_at:null, updated_at:new Date().toISOString() };   // ver.20261117.02: 新しいアポを取り込んだらキャンセルは解除
   aptFields.meeting_kind='オンライン';   // ver.20261111.01: アポ取込の商談方法は常にオンラインが初期値（訪問は登録後に手で切り替え）
   if(d.apt_at){ aptFields.meeting_date=d.apt_at.slice(0,10); }
   // 既存照合：会社名 完全一致 → 電話一致
@@ -5451,7 +5493,7 @@ function mtRenderLead(o){
   var ws=o.ws, we=o.we, from=kpAddD(ws,-28), prevE=kpAddD(ws,-1);
   var isoA=new Date(from+'T00:00:00+09:00').toISOString(), isoB=new Date(kpAddD(we,1)+'T00:00:00+09:00').toISOString();
   Promise.all([
-    _sb.from('eigyo_leads').select('reg_no,staff,first_contact_date,meeting_date,apt_at,apt_reschedule')
+    _sb.from('eigyo_leads').select('reg_no,staff,first_contact_date,meeting_date,apt_at,apt_reschedule,apt_canceled_at')
       .or('and(first_contact_date.gte.'+from+',first_contact_date.lte.'+we+'),and(meeting_date.gte.'+from+',meeting_date.lte.'+we+'),and(apt_at.gte.'+isoA+',apt_at.lt.'+isoB+')'),
     _sb.from('settings').select('value').eq('key','eigyo_month_plan').maybeSingle()
   ]).then(function(R){
@@ -5463,7 +5505,7 @@ function mtRenderLead(o){
     function cnt(a,b){ var c=0,m=0; ls.forEach(function(l){
         if(l.first_contact_date && l.first_contact_date>=a && l.first_contact_date<=b) c++;
         var md=l.meeting_date || (l.apt_at? kpS(new Date(l.apt_at)) : '');
-        if(md && md>=a && md<=b && !l.apt_reschedule) m++; }); return {c:c,m:m}; }
+        if(md && md>=a && md<=b && !l.apt_reschedule && !l.apt_canceled_at) m++; }); return {c:c,m:m}; }
     var W=cnt(ws,we), P4=cnt(from,prevE);
     var dl=(KP.deals||[]).filter(function(d){ return o.inSt(d.staff); });
     var d4=dl.filter(function(d){ return d.start_date>=from && d.start_date<=prevE; }).length;
