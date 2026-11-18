@@ -6704,7 +6704,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261118.02';
+var OFUSA_VERSION = 'ver.20261118.03';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -9874,6 +9874,9 @@ function _bnavSlotPick(){
   document.body.appendChild(ov);
 }
 var WHATS_NEW = [
+  { version:'ver.20261118.03', date:'2026-11-18', notify:true, part:false, items:[
+    '📅 確認事項の<b>「タスク確認依頼」のカード</b>に、<b>確認依頼になった日付</b>（例：11/17（火）14:20・1日前）を出しました。3日以上はオレンジ、7日以上は赤で出ます。'
+  ] },
   { version:'ver.20261118.02', date:'2026-11-18', notify:true, part:false, items:[
     '🧊 朝などに出る強制表示のアラートから［詳細］で案件を開き、その案件を閉じると、画面が固まって「ページが応答しません」と出ることがあったのを直しました',
   ]},
@@ -47569,6 +47572,27 @@ function renderKanriTempReturnAlert(){
 // ===== タスク確認タブ（status=3 の doc_tasks を一覧表示）=====
 var _taskConfirmSelected = new Set();
 
+// ver.20261118.03: 確認事項の「タスク確認依頼」のカードに、確認依頼になった日付を出す（doc_tasks.confirm_at。無ければ通知の時刻）
+function _rvConfirmDateHtml(tk, fallback){
+  try{
+    var _miss=!((window._taskConfirmAtMap||{})[tk]);
+    if((!window._taskConfirmAtLoaded || (_miss && Date.now()-(window._rvCaAt||0)>60000)) && !window._rvCaLoading && typeof _loadTaskConfirmAt==='function'){
+      window._rvCaLoading=true; window._rvCaAt=Date.now();
+      _loadTaskConfirmAt(function(){ window._rvCaLoading=false; try{ if(typeof renderReview==='function') renderReview(); }catch(e){} });
+    }
+    var at=(window._taskConfirmAtMap||{})[tk] || '';
+    if(!at && fallback){ at=String(fallback); if(/^\d{4}-\d\d-\d\d \d\d:\d\d$/.test(at)) at=at.replace(' ','T')+':00Z'; }   // 通知の時刻は toISOString（UTC）を切ったもの
+    if(!at) return '';
+    var t=Date.parse(String(at).replace(' ','T')); if(isNaN(t)) return '';
+    var j=new Date(t+9*3600000), md=(j.getUTCMonth()+1)+'/'+j.getUTCDate(), wd='日月火水木金土'.charAt(j.getUTCDay());
+    var hm=('0'+j.getUTCHours()).slice(-2)+':'+('0'+j.getUTCMinutes()).slice(-2);
+    var today=new Date(Date.now()+9*3600000); today.setUTCHours(0,0,0,0);
+    var day0=new Date(t+9*3600000); day0.setUTCHours(0,0,0,0);
+    var d=Math.round((today-day0)/86400000);
+    var col=d>=7?'#dc2626':(d>=3?'#ea580c':'#64748b');
+    return '<div style="font-size:11px;color:#475569;margin-top:2px;">📅 確認依頼：<b>'+md+'（'+wd+'）'+hm+'</b><span style="color:'+col+';font-weight:800;margin-left:4px;">'+(d<=0?'今日':d+'日前')+'</span></div>';
+  }catch(e){ return ''; }
+}
 // ver.20260603: 確認(status=3)になってからの経過日数表示用に confirm_at をロード
 function _loadTaskConfirmAt(cb){
   if(!DB_READY || !_sb){ window._taskConfirmAtMap = window._taskConfirmAtMap || {}; window._taskConfirmAtLoaded = true; if(cb) cb(); return; }
@@ -65563,6 +65587,7 @@ function renderReview() {
       if(_orgName) h+='<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">🏢 '+esc(_orgName)+'</div>';
       if(tn.taskName) h+='<div style="font-size:12px;color:#6366f1;font-weight:600;margin-top:4px;">📋 '+esc(tn.taskName)+'</div>';
       if(tn.from) h+='<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">🙋 '+esc(tn.from)+' から</div>';
+      h+=_rvConfirmDateHtml(tkey, tn.repliedAt);   // ver.20261118.03
       if(tn.autoDone==='review') h+='<div style="font-size:11px;color:#b45309;font-weight:700;margin-top:3px;">⏳ 担当者が完了を押しました。「確認済にする」を押すと完了になります</div>';   // ver.20261104.05
       else if(tn.autoDone==='notice') h+='<div style="font-size:11px;color:#15803d;font-weight:700;margin-top:3px;">✅ 担当者が完了にしました。内容を確認したら「確認済にする」を押してください</div>';
       if(_displayComment) h+='<div style="font-size:11px;margin-top:4px;padding:6px 8px;background:'+_stateBg+';border-radius:6px;color:var(--gray-600);white-space:pre-wrap;word-break:break-word;">💬 '+esc(_displayComment)+'</div>';
@@ -65598,6 +65623,7 @@ function renderReview() {
         var _orgN=c.org||c.company||''; if(_orgN) h+='<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">🏢 '+esc(_orgN)+'</div>';
         h+='<div style="font-size:12px;color:#6366f1;font-weight:600;margin-top:4px;">📋 '+esc(TASK_NAMES[i])+'</div>';
         if(tAssn) h+='<div style="font-size:11px;color:var(--gray-400);margin-top:2px;">🙋 '+esc(tAssn)+' から</div>';
+        h+=_rvConfirmDateHtml(tk);   // ver.20261118.03
         var tAC=taskAssigneeComment[tk]||''; if(tAC) h+='<div style="font-size:11px;margin-top:4px;padding:6px 8px;background:#fff7ed;border-radius:6px;color:var(--gray-600);">💬 '+esc(tAC)+'</div>';
         h+='<div style="display:flex;gap:6px;margin-top:8px;">';
         h+='<button onclick="event.stopPropagation();openCase(\''+c.id+'\');setTimeout(function(){showTab(\'tasks\');setTimeout(function(){var el=document.getElementById(\'acc_'+tk+'\');if(el){el.style.display=\'block\';el.scrollIntoView({behavior:\'smooth\',block:\'center\'});}},300);},200);" style="font-size:12px;padding:5px 14px;background:var(--blue);color:white;border:none;border-radius:6px;cursor:pointer;">案件を開く</button>';
