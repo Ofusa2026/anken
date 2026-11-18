@@ -6696,7 +6696,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261118.14';
+var OFUSA_VERSION = 'ver.20261118.15';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -9876,6 +9876,9 @@ function _bnavSlotPick(){
   document.body.appendChild(ov);
 }
 var WHATS_NEW = [
+  { version:'ver.20261118.15', date:'2026-11-18', notify:true, part:false, items:[
+    '📝 <b>企業マイページの画面から案内文を作れる</b>ようにしました。「📝 案内文を作る」で、<b>初回の案内</b>（マイページでできることの説明つき）か<b>2回目以降</b>（マイページからご確認いただけます）を選び、画面で確認・編集してから「コピー」か「メールで開く」で送れます。'
+  ] },
   { version:'ver.20261118.14', date:'2026-11-18', notify:false, part:true, items:['📤 <b>株式会社トップロード</b>の所属機関のUP書類は、いちばん新しい案件の担当者ではなく、<b>会社の担当（清水）</b>に出るようにしました。'] },
   { version:'ver.20261118.11', date:'2026-11-18', notify:true, part:false, items:[
     '🎫 <b>レターパック番号の欄を、郵送交付・発送台帳・推薦票（大使館）で同じ形にそろえました</b>。どの画面も「行きのレターパック番号／返送用のレターパック番号」の名前で、横に<b>［選ぶ］［自動］［追跡］</b>が並びます（郵送交付は［撮影］も）。色を抑えた落ち着いた見た目にしています。番号は 1234-5678-9012 の形で出ます（ハイフンや全角で入れても大丈夫です）',
@@ -80977,7 +80980,17 @@ function _coGuideStaffName(coId, caseIds){
   var me=(typeof currentUser!=='undefined' && currentUser) ? (typeof currentUser==='string' ? currentUser : (currentUser.name||'')) : '';
   return sur(me) || '町田';
 }
+// ver.20261118.15: 文面づくりを _buildCompanyShareMsg(mode) に分けて、「📝 案内文を作る」（確認・編集してからコピー／メール）でも使う
+//   mode: 'short'＝今までのコピーと同じ／'first'＝初回の案内（マイページでできることの説明つき）／'again'＝2回目以降（「マイページからご確認いただけます」）
 function _copyCompanyShareMsg(){
+  var msg=_buildCompanyShareMsg('short');
+  var ctx=window._coShareCtx||{};
+  var done=function(){ showToast('✅ 企業向け文面をコピーしました'); _caseEv([],'guide_mypage','企業マイページの案内文をコピー',{coId:ctx.coId}); };  // ver.20261024.08
+  try{ navigator.clipboard.writeText(msg).then(done); }
+  catch(e){ var ta=document.createElement('textarea'); ta.value=msg; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done(); }
+}
+function _buildCompanyShareMsg(mode){
+  mode=mode||'short';
   var ctx=window._coShareCtx||{};
   var el=document.getElementById('companyPassInput');
   var pass=(el ? (el.value||'').trim() : '') || ctx.pass || '';
@@ -80991,11 +81004,28 @@ function _copyCompanyShareMsg(){
   lines.push('申請を担当させていただきます大房行政書士法人の' + _stf + 'です。');
   lines.push('今後とも宜しくお願いいたします。');
   lines.push('');
+  var _hasUp = (ctx.upMode && ctx.upMode!=='none') || (!ctx.upMode && ctx.uploadUrl);
+  if(mode==='first'){
+    lines.push('このたび、貴社専用の「企業マイページ」をご用意いたしました。');
+    lines.push('マイページでは、次のことができます。');
+    lines.push('・申請の進捗状況の確認');
+    lines.push('・ご提出いただく書類の確認' + (_hasUp ? '・アップロード' : ''));
+    lines.push('');
+    lines.push('ご提出いただく書類や次にお願いすることは、マイページでいつでもご確認いただけます。');
+    lines.push('');
+    lines.push('▼企業マイページ');
+  } else if(mode==='again'){
+    lines.push('申請の進捗状況やご提出いただく書類は、企業マイページからご確認いただけます。');
+    lines.push('');
+    lines.push('▼企業マイページ');
+  } else {
   lines.push('申請の進捗状況を下記ページでご確認いただけます。');
   lines.push('');
   lines.push('▼進捗確認ページ');
+  }
   lines.push(ctx.url||'');
   if(pinSet){ lines.push('PIN（4桁）：' + pass); }
+  else if(mode==='again'){ lines.push('※PINは前回設定いただいた4桁の番号です。'); }
   else { lines.push('※初回アクセス時に4桁のPINを設定してください。'); }
   // ver.20261005.28: どの書類アップロードを案内するかを選べる（建設は入管書類をまだ案内しない＝国交省書類だけ、など）
   var _um = ctx.upMode || (ctx.uploadUrl ? 'nyukan' : 'none');
@@ -81018,12 +81048,52 @@ function _copyCompanyShareMsg(){
     lines.push(ctx.uploadUrl);
   }
   lines.push('');
+  if(mode!=='short'){ lines.push('わからないことがあれば、お気軽にご連絡ください。'); lines.push(''); }
   lines.push('※ページには在留カード番号等の個人情報が含まれます。お取り扱いにご注意ください。');
-  var msg=lines.join('\n');
-  var done=function(){ showToast('✅ 企業向け文面をコピーしました'); _caseEv([],'guide_mypage','企業マイページの案内文をコピー',{coId:ctx.coId}); };  // ver.20261024.08
-  try{ navigator.clipboard.writeText(msg).then(done); }
-  catch(e){ var ta=document.createElement('textarea'); ta.value=msg; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); done(); }
+  return lines.join('\n');
 }
+// ver.20261118.15: 📝 案内文を作る：初回／2回目以降を選んで、画面で確認・編集してから「コピー」か「メールで開く」
+function _openCompanyGuideText(){
+  var ctx=window._coShareCtx||{};
+  var old=document.getElementById('_coGuideTxtModal'); if(old) old.remove();
+  var co=(typeof companies!=='undefined') ? companies.find(function(c){ return c.id===ctx.coId; }) : null;
+  var to=''; try{ to=_coDocMailAddr(co); }catch(e){}
+  var ov=document.createElement('div'); ov.id='_coGuideTxtModal';
+  ov.style.cssText='position:fixed;inset:0;z-index:100060;background:rgba(15,23,42,.5);display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.onclick=function(e){ if(e.target===ov) ov.remove(); };
+  var box=document.createElement('div');
+  box.style.cssText='background:#fff;border-radius:14px;width:min(640px,96vw);max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,.3);';
+  box.innerHTML='<div style="padding:14px 18px 8px;display:flex;align-items:center;gap:8px;"><div style="font-size:16px;font-weight:800;color:#0f2040;">📝 企業マイページの案内文</div><div style="font-size:12px;color:#64748b;">'+esc(ctx.coName||'')+' 様</div><button id="_cgtX" style="margin-left:auto;border:none;background:#f1f5f9;border-radius:8px;padding:4px 10px;cursor:pointer;">✕</button></div>'
+    +'<div style="padding:0 18px 8px;display:flex;gap:6px;flex-wrap:wrap;">'
+    +'<label style="display:flex;align-items:center;gap:5px;font-size:12.5px;font-weight:700;padding:6px 10px;border:1.5px solid #cbd5e1;border-radius:8px;cursor:pointer;"><input type="radio" name="_cgtMode" value="first" checked> 初回の案内（できることの説明つき）</label>'
+    +'<label style="display:flex;align-items:center;gap:5px;font-size:12.5px;font-weight:700;padding:6px 10px;border:1.5px solid #cbd5e1;border-radius:8px;cursor:pointer;"><input type="radio" name="_cgtMode" value="again"> 2回目以降（マイページからご確認ください）</label>'
+    +'</div>'
+    +'<div style="padding:0 18px;font-size:11px;color:#64748b;">書類アップロードの入れ方は、前の画面の「企業に送る文面に入れる書類アップロード」の選択に合わせています。文面はここで直せます。</div>'
+    +'<div style="padding:8px 18px;flex:1;min-height:0;"><textarea id="_cgtText" style="width:100%;box-sizing:border-box;height:46vh;min-height:240px;font-size:13px;line-height:1.6;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;resize:vertical;font-family:inherit;"></textarea></div>'
+    +'<div style="padding:8px 18px 14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
+    +'<button id="_cgtCopy" style="padding:9px 18px;background:#16a34a;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;">📋 コピー</button>'
+    +'<button id="_cgtMail" style="padding:9px 16px;background:#fff;color:#1d4ed8;border:1.5px solid #93c5fd;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;">✉️ メールで開く</button>'
+    +'<span style="font-size:11px;color:#64748b;">宛先：'+(to?esc(to):'<span style="color:#b45309;">未登録（メール画面で入力）</span>')+'</span>'
+    +'</div>';
+  ov.appendChild(box); document.body.appendChild(ov);
+  var ta=box.querySelector('#_cgtText');
+  var fill=function(){ var m=(box.querySelector('input[name=_cgtMode]:checked')||{}).value||'first'; ta.value=_buildCompanyShareMsg(m); };
+  fill();
+  box.querySelectorAll('input[name=_cgtMode]').forEach(function(r){ r.onchange=fill; });
+  box.querySelector('#_cgtX').onclick=function(){ ov.remove(); };
+  var log=function(how){ try{ _caseEv([],'guide_mypage','企業マイページの案内文を'+how,{coId:ctx.coId}); }catch(e){} };
+  box.querySelector('#_cgtCopy').onclick=function(){
+    var v=ta.value;
+    var ok=function(){ showToast('✅ 案内文をコピーしました'); log('コピー'); };
+    try{ navigator.clipboard.writeText(v).then(ok); }catch(e){ ta.select(); document.execCommand('copy'); ok(); }
+  };
+  box.querySelector('#_cgtMail').onclick=function(){
+    var subj='【大房行政書士法人】企業マイページのご案内（'+(ctx.coName||'')+'様）';
+    window.location.href='mailto:'+encodeURIComponent(to||'')+'?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(ta.value);
+    log('メールで開く');
+  };
+}
+
 // ver.20260605.19: 企業向けページ(company.html)の国交省進捗 表示ON/OFF
 //   companies.extra.company_view_cfg.show_mlit (boolean) を会社ごとに保存（他キーはマージ維持）
 function toggleCompanyShowMlit(coId, checked){
@@ -81131,6 +81201,7 @@ function _buildCompanyUrlModal(modal, url, coId, coName, token, passKey, existin
     h2 += '</div>';
   }catch(e){ console.warn('[coShare upMode]', e); }
   // 企業に送る文面
+  h2 += '<button onclick="_openCompanyGuideText()" style="width:100%;padding:10px;background:#fff;color:#0f2040;border:1.5px solid #0f2040;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;margin-bottom:8px;">📝 案内文を作る（初回／2回目以降を選んで、確認・編集してから送る）</button>';   // ver.20261118.15
   h2 += '<button onclick="_copyCompanyShareMsg()" style="width:100%;padding:10px;background:#16a34a;color:white;border:none;border-radius:8px;font-size:13px;font-weight:800;cursor:pointer;margin-bottom:14px;">📨 企業に送る文面をコピー（URL＋パスワード＋アップロード）</button>';
   // 操作ボタン
   h2 += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
