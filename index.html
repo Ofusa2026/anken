@@ -6721,7 +6721,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261119.13';
+var OFUSA_VERSION = 'ver.20261119.14';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -9924,6 +9924,10 @@ function _bnavSlotPick(){
   document.body.appendChild(ov);
 }
 var WHATS_NEW = [
+  { version:'ver.20261119.14', date:'2026-11-19', notify:true, part:true, items:[
+    '📨 <b>登録支援機関の画面から、営シスに「この情報を入れてください」と依頼できる</b>ようになりました（［📨 営シスに入力を依頼］）。営シスの「確定前に聞くこと」（連絡手段・ヒアリング・書類アップ）が何個入っているかも出ます。営業が入力すると自動で「回答あり」になり、依頼した人にポップアップでお知らせします',
+    '📈 管理部レポートの「見込み」タブの上に、<b>営シスへの入力依頼の一覧（未対応／回答あり）</b>を出しました'
+  ] },
   { version:'ver.20261119.13', date:'2026-11-19', notify:true, part:true, items:[
     '🕘 カンボジアの方ご依頼の新しい画面：［🗂 スキャン仮作成］の枠に、<b>前回 Saysay でスキャンを作った日時</b>（「🕘 11/19 10:02」）を出すようにしました。マウスを乗せると、作った人と⛔⚡・不足の数が出ます。作ったことが無い案件には出ません。',
     '🎓 特定活動の案件は、<b>Saysay を開く前に合格証のアップロードを見る</b>ようにしました。技能と日本語の片方しか無いときは「⚠ 合格証（日本語）なし」などと出ます。合格証が1つも上がっていないときは灰色の「合格証 UPなし」（Saysay が人材のドライブの中から探します）。技能＋日本語、または専門級がそろっていれば何も出ません。'
@@ -39879,6 +39883,130 @@ var _KP={data:null, loading:false, err:'', days:7};
 function _kpEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
 function _kpShort(n){ var t=String(n||'').replace(/\s*\n\s*/g,'').trim(); var x=t.replace(/株式会社|有限会社|合同会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|社会福祉法人/g,'').trim(); return x||t; }
 function _kpSur(n){ return String(n||'').split(/[、,]/).map(function(x){ return x.trim().split(/[\s　]+/)[0]; }).filter(Boolean).join('・'); }
+// ===== ver.20261119.14: 案シス → 営シスへの情報入力依頼（eigyo_requests） =====
+//   ・登録支援機関の画面に［📨 営シスに入力を依頼］と、依頼の状況（未対応／回答あり）
+//   ・営シスで頼まれた項目が入ると自動で回答あり（メモの依頼は営業が［対応した］）
+//   ・回答があったら依頼した人と町田・宮澤にポップアップ。13:00 に1日1回、町田・宮澤だけに回答あり／なしの一覧（スマホでは出さない）
+var ER_ITEMS=[['contact_j','①人材との連絡（手段・窓口）'],['contact_k','②企業との連絡（手段・窓口）'],['hearing','③ヒアリング（だれが入力）'],['doc','④書類のアップロード（だれが出す）'],['supporter','支援者数'],['monthly','月の申請件数'],['start','依頼開始見込み'],['prob','確度'],['memo','メモの内容']];
+var ER_BOSS=['町田','宮澤'];
+var _ER={list:null, loading:false};
+function _erLabel(k){ var f=ER_ITEMS.find(function(x){ return x[0]===k; }); return f?f[1].replace(/（.*$/,''):k; }
+function _erIsBoss(){ var u=String(window.currentUser||currentUser||''); return ER_BOSS.some(function(b){ return u.indexOf(b)===0; }); }
+function _erSur(n){ return String(n||'').trim().split(/[\s　]+/)[0]; }
+function _erMd(t){ if(!t) return ''; var d=new Date(new Date(t).getTime()+9*3600000); return (d.getUTCMonth()+1)+'/'+d.getUTCDate(); }
+function _erLoad(cb){
+  if(_ER.loading) return; _ER.loading=true;
+  _sb.from('eigyo_requests').select('*').order('requested_at',{ascending:false}).limit(300).then(function(r){
+    var list=r.data||[];
+    var regs=list.map(function(x){ return x.reg_no; }).filter(function(v,i,a){ return a.indexOf(v)===i; });
+    if(!regs.length){ _ER.list=list; _ER.loading=false; cb&&cb(); return; }
+    _sb.from('eigyo_leads').select('reg_no,name,staff,case_staff').in('reg_no',regs).then(function(q){
+      var m={}; (q.data||[]).forEach(function(l){ m[l.reg_no]=l; });
+      list.forEach(function(x){ x._lead=m[x.reg_no]||{}; });
+      _ER.list=list; _ER.loading=false; cb&&cb();
+    });
+  }).catch(function(){ _ER.loading=false; });
+}
+function _erRow(x){
+  var done=!!x.done_at, items=(x.items||[]).map(_erLabel).join('・');
+  return '<tr style="'+(done?'':'background:#fff7ed;')+'">'
+    +'<td style="padding:6px 8px;font-size:12px;white-space:nowrap;color:#64748b;">'+_erMd(x.requested_at)+'</td>'
+    +'<td style="padding:6px 8px;font-size:12.5px;font-weight:700;white-space:nowrap;">'+_kpEsc(_kpShort(x.org_name||(x._lead&&x._lead.name)||x.reg_no))+'</td>'
+    +'<td style="padding:6px 8px;font-size:12px;">'+_kpEsc(items)+(x.memo?'<div style="font-size:11px;color:#64748b;">「'+_kpEsc(x.memo)+'」</div>':'')+'</td>'
+    +'<td style="padding:6px 8px;font-size:12px;white-space:nowrap;">'+_kpEsc(_kpSur((x._lead&&x._lead.staff)||''))+'</td>'
+    +'<td style="padding:6px 8px;font-size:11.5px;white-space:nowrap;color:#64748b;">'+_kpEsc(x.auto?'自動':_erSur(x.requested_by))+'</td>'
+    +'<td style="padding:6px 8px;font-size:12px;white-space:nowrap;">'+(done?'<span style="color:#15803d;font-weight:800;">✓ 回答あり</span> <span style="color:#94a3b8;font-size:11px;">'+_erMd(x.done_at)+'</span>':'<span style="color:#dc2626;font-weight:800;">未対応</span> <span style="color:#94a3b8;font-size:11px;">'+Math.max(0,Math.floor((Date.now()-new Date(x.requested_at).getTime())/86400000))+'日</span>')+'</td></tr>';
+}
+function _erTable(list){
+  var th='padding:5px 8px;font-size:11px;color:#64748b;text-align:left;border-bottom:1px solid #e5e7eb;background:#f8fafc;white-space:nowrap;';
+  return '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;"><thead><tr><th style="'+th+'">依頼日</th><th style="'+th+'">登録支援機関</th><th style="'+th+'">入れてほしいこと</th><th style="'+th+'">営業</th><th style="'+th+'">依頼者</th><th style="'+th+'">状態</th></tr></thead><tbody>'+list.map(_erRow).join('')+'</tbody></table></div>';
+}
+function _erListHtml(){
+  if(!_ER.list){ _erLoad(function(){ var b=document.getElementById('kpReqBox'); if(b) b.innerHTML=_erListHtml(); }); return '<div style="font-size:12px;color:#94a3b8;margin:4px 0 14px;">📨 営シスへの入力依頼を読み込み中…</div>'; }
+  var open=_ER.list.filter(function(x){ return !x.done_at; }), recent=_ER.list.filter(function(x){ return x.done_at && (Date.now()-new Date(x.done_at).getTime())<7*86400000; });
+  if(!open.length && !recent.length) return '';
+  return '<div style="margin:0 0 18px;padding:12px 14px;border:1px solid #fed7aa;background:#fffbeb;border-radius:10px;"><div style="font-size:14px;font-weight:900;color:#9a3412;margin-bottom:6px;">📨 営シスへの入力依頼　<span style="color:#dc2626;">未対応 '+open.length+'件</span>　<span style="color:#15803d;font-size:12.5px;">回答あり（7日以内） '+recent.length+'件</span></div>'+_erTable(open.concat(recent))+'</div>';
+}
+// 登録支援機関の画面
+function _erRenderSoBox(o){
+  var box=document.getElementById('soEigyoReqBox'); if(!box||!o) return;
+  _sb.from('eigyo_leads').select('reg_no,name,status,staff,hr_contact_jinzai,hr_window_jinzai,hr_contact_kigyo,hr_window_kigyo,hr_hearing_by,doc_collect_jinzai,doc_collect_kigyo').eq('support_org_id',String(o.id)).limit(1).then(function(r){
+    var l=r.data&&r.data[0]; var b2=document.getElementById('soEigyoReqBox'); if(!b2) return;
+    if(!l){ b2.innerHTML=''; return; }
+    window._erLeadCache=window._erLeadCache||{}; window._erLeadCache[o.id]=l;
+    _sb.from('eigyo_requests').select('*').eq('reg_no',l.reg_no).order('requested_at',{ascending:false}).limit(5).then(function(q){
+      var reqs=q.data||[], open=reqs.filter(function(x){ return !x.done_at; }), last=reqs[0];
+      var miss=_kpPreMiss(l), b3=document.getElementById('soEigyoReqBox'); if(!b3) return;
+      var st=open.length?'<span style="color:#dc2626;font-weight:800;">📨 営シスに依頼中（'+_erMd(open[0].requested_at)+' '+_kpEsc(open[0].auto?'自動':_erSur(open[0].requested_by))+'）：'+_kpEsc(open[0].items.map(_erLabel).join('・'))+'</span>'
+        :(last?'<span style="color:#15803d;font-weight:800;">✓ 前回の依頼は回答あり（'+_erMd(last.done_at)+'）</span>':'');
+      b3.innerHTML='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;padding:8px 12px;background:'+(open.length?'#fff7ed':'#f8fafc')+';border:1px solid '+(open.length?'#fdba74':'#e2e8f0')+';border-radius:9px;font-size:12.5px;">'
+        +'<span style="color:#475569;">営シス（'+_kpEsc(_kpSur(l.staff)||'営業担当なし')+'）の確定前に聞くこと：<b style="color:'+(miss.length?'#b45309':'#15803d')+';">'+(4-miss.length)+'/4</b></span>'+st+'<span style="flex:1;"></span>'
+        +'<button onclick="_erOpenModal(\''+_kpEsc(String(o.id))+'\')" style="font-size:12px;padding:5px 12px;background:#fff;color:#c2410c;border:1px solid #fb923c;border-radius:7px;cursor:pointer;font-weight:700;">📨 営シスに入力を依頼</button></div>';
+    });
+  });
+}
+function _erOpenModal(soId){
+  var l=(window._erLeadCache||{})[soId]; if(!l) return;
+  var o=(typeof supportOrgs!=='undefined'?supportOrgs:[]).find(function(x){ return String(x.id)===String(soId); })||{};
+  var miss=_kpPreMiss(l), pre={'①人材との連絡':'contact_j','②企業との連絡':'contact_k','③ヒアリング':'hearing','④書類のアップロード':'doc'};
+  var ck=miss.map(function(m){ return pre[m]; });
+  var old=document.getElementById('erModal'); if(old) old.remove();
+  var ov=document.createElement('div'); ov.id='erModal';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:10050;display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.innerHTML='<div style="background:#fff;border-radius:12px;max-width:520px;width:100%;padding:18px 20px;box-shadow:0 20px 50px rgba(0,0,0,.3);">'
+    +'<div style="font-size:16px;font-weight:900;color:#9a3412;margin-bottom:4px;">📨 営シスに入力を依頼</div>'
+    +'<div style="font-size:12.5px;color:#475569;margin-bottom:10px;">'+_kpEsc(o.name||l.name)+'（営業：'+_kpEsc(_kpSur(l.staff)||'未設定')+'）。営シスを開いたときにポップアップで出て、入力されると自動で「回答あり」になります</div>'
+    +ER_ITEMS.map(function(it){ return '<label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13.5px;cursor:pointer;"><input type="checkbox" class="erChk" value="'+it[0]+'" '+(ck.indexOf(it[0])>=0?'checked':'')+' style="width:17px;height:17px;"> '+_kpEsc(it[1])+(ck.indexOf(it[0])>=0?' <span style="font-size:11px;color:#dc2626;">未入力</span>':'')+'</label>'; }).join('')
+    +'<textarea id="erMemo" placeholder="メモ（例：支援計画書の担当者を聞いてください）" style="width:100%;box-sizing:border-box;margin-top:6px;min-height:56px;padding:8px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;"></textarea>'
+    +'<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;"><button onclick="document.getElementById(\'erModal\').remove()" style="padding:7px 14px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;cursor:pointer;font-weight:700;">やめる</button>'
+    +'<button onclick="_erSubmit(\''+_kpEsc(String(soId))+'\')" style="padding:7px 16px;background:#ea580c;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:800;">依頼する</button></div></div>';
+  document.body.appendChild(ov);
+}
+function _erSubmit(soId){
+  var l=(window._erLeadCache||{})[soId]; if(!l) return;
+  var items=[].slice.call(document.querySelectorAll('#erModal .erChk:checked')).map(function(c){ return c.value; });
+  var memo=(document.getElementById('erMemo')||{}).value||'';
+  if(memo.trim() && items.indexOf('memo')<0) items.push('memo');
+  if(!items.length){ alert('入れてほしい項目を選んでください'); return; }
+  var o=(typeof supportOrgs!=='undefined'?supportOrgs:[]).find(function(x){ return String(x.id)===String(soId); })||{};
+  _sb.from('eigyo_requests').insert({reg_no:l.reg_no, support_org_id:String(soId), org_name:o.name||l.name, items:items, memo:memo.trim()||null, requested_by:String(currentUser||'')}).then(function(r){
+    if(r.error){ alert('依頼できませんでした：'+r.error.message); return; }
+    var m=document.getElementById('erModal'); if(m) m.remove();
+    _ER.list=null; try{ if(typeof showToast==='function') showToast('📨 営シスに入力を依頼しました'); }catch(e){}
+    _erRenderSoBox(o.id?o:{id:soId});
+  });
+}
+// ポップアップ：回答があったとき（依頼者・町田・宮澤）／13:00の一覧（町田・宮澤）。スマホでは出さない
+function _erPopup(title,list,foot,onClose){
+  if(document.getElementById('erPop')) return;
+  var ov=document.createElement('div'); ov.id='erPop';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:10040;display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.innerHTML='<div style="background:#fff;border-radius:12px;max-width:860px;width:100%;max-height:85vh;overflow:auto;padding:18px 20px;box-shadow:0 20px 50px rgba(0,0,0,.3);"><div style="font-size:16px;font-weight:900;color:#1e293b;margin-bottom:10px;">'+title+'</div>'+_erTable(list)+(foot?'<div style="font-size:11.5px;color:#64748b;margin-top:8px;">'+foot+'</div>':'')+'<div style="text-align:right;margin-top:12px;"><button id="erPopClose" style="padding:7px 18px;background:#1e3a8a;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:800;">OK</button></div></div>';
+  document.body.appendChild(ov);
+  document.getElementById('erPopClose').onclick=function(){ ov.remove(); onClose&&onClose(); };
+}
+function _erCheck(){
+  try{ if(typeof _isMobileUA==='function' && _isMobileUA()) return; }catch(e){}
+  var u=String(currentUser||''); if(!u) return;
+  _ER.list=null;
+  _erLoad(function(){
+    var list=_ER.list||[], boss=_erIsBoss();
+    var seenKey='ofusa_erSeen_'+u, seen=[]; try{ seen=JSON.parse(localStorage.getItem(seenKey)||'[]'); }catch(e){}
+    // ① 回答があった依頼（自分が依頼したもの、または町田・宮澤）
+    var ans=list.filter(function(x){ return x.done_at && seen.indexOf(x.id)<0 && (boss || _erSur(x.requested_by)===_erSur(u)) && (Date.now()-new Date(x.done_at).getTime())<14*86400000; });
+    if(ans.length){ _erPopup('✅ 営シスから回答がありました（'+ans.length+'件）',ans,'営シスで頼んだ項目が入力されました',function(){ try{ localStorage.setItem(seenKey,JSON.stringify(seen.concat(ans.map(function(x){ return x.id; })).slice(-500))); }catch(e){} }); return; }
+    // ② 13:00 の一覧（町田・宮澤だけ・1日1回）
+    if(!boss) return;
+    var jst=new Date(Date.now()+9*3600000), today=jst.toISOString().slice(0,10), dayKey='ofusa_erDaily_'+u;
+    if(jst.getUTCHours()<13 || localStorage.getItem(dayKey)===today) return;
+    var open=list.filter(function(x){ return !x.done_at; }), recent=list.filter(function(x){ return x.done_at && (Date.now()-new Date(x.done_at).getTime())<86400000*1.5; });
+    if(!open.length && !recent.length){ localStorage.setItem(dayKey,today); return; }
+    _erPopup('📨 営シスへの入力依頼（13:00）　<span style="color:#dc2626;">未対応 '+open.length+'件</span>　<span style="color:#15803d;font-size:13px;">回答あり（昨日〜今日） '+recent.length+'件</span>',open.concat(recent),'管理部レポート →「📈 見込み」でいつでも見られます',function(){ try{ localStorage.setItem(dayKey,today); }catch(e){} });
+  });
+}
+setInterval(function(){ try{ if(currentUser) _erCheck(); }catch(e){} }, 5*60*1000);
+setTimeout(function(){ try{ if(currentUser) _erCheck(); }catch(e){} }, 20000);
+
 // 営シスの「確定前に聞いておくこと」の未入力（eigyo.html の preMissing と同じ判定）
 function _kpPreMiss(x){ var m=[]; if(!x.hr_contact_jinzai||!x.hr_window_jinzai) m.push('①人材との連絡'); if(!x.hr_contact_kigyo||!x.hr_window_kigyo) m.push('②企業との連絡'); if(!x.hr_hearing_by) m.push('③ヒアリング'); if(!x.doc_collect_jinzai||!x.doc_collect_kigyo) m.push('④書類のアップロード'); return m; }
 function _kpLoad(){
@@ -39888,7 +40016,7 @@ function _kpLoad(){
     if(_krTab==='pipeline') _krRender();
   }).catch(function(e){ _KP.loading=false; _KP.err=String(e&&e.message||e); if(_krTab==='pipeline') _krRender(); });
 }
-function _kpReload(){ _KP.data=null; _krRender(); }
+function _kpReload(){ _KP.data=null; _ER.list=null; _krRender(); }
 function _kpRender(){
   if(!_KP.data){ if(!_KP.err) _kpLoad(); return '<div style="font-size:18px;font-weight:900;color:#111827;">📈 見込み（どこがくるか）</div><div style="padding:20px;color:'+(_KP.err?'#dc2626':'#94a3b8')+';font-size:13px;">'+(_KP.err?'読み込めませんでした：'+_kpEsc(_KP.err):'読み込み中…')+'</div>'; }
   var list=_KP.data, now=Date.now(), isNew=function(l){ return l.pipeline_since && (now-new Date(l.pipeline_since).getTime()) < _KP.days*86400000; };
@@ -39903,6 +40031,7 @@ function _kpRender(){
     +'<a href="./eigyo.html" target="_blank" rel="noopener" style="font-size:12px;font-weight:700;color:#1d4ed8;text-decoration:none;">営シスを開く ↗</a>'
     +'<button onclick="_kpReload()" style="padding:5px 12px;background:white;color:#374151;border:1px solid #d1d5db;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer;">🔄 更新</button></div>';
   h+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 18px;">'+card('見込み','<span>'+list.length+'</span><span style="font-size:13px;">社</span>','#111827')+card('✅ 依頼待ち（決定）',nKak+'<span style="font-size:13px;">社</span>','#15803d')+card('🆕 この'+_KP.days+'日で追加',nNew+'<span style="font-size:13px;">社</span>','#dc2626')+card('スケジュール未記載',nNo+'<span style="font-size:13px;">社</span>','#b45309')+'</div>';
+  h+='<div id="kpReqBox">'+_erListHtml()+'</div>';   // ver.20261119.14
   if(!list.length) return h+'<div style="padding:20px;color:#94a3b8;">見込みの会社はまだありません</div>';
   var th='padding:6px 8px;font-size:11px;color:#64748b;text-align:left;border-bottom:1px solid #e5e7eb;background:#f8fafc;white-space:nowrap;';
   var td='padding:7px 8px;font-size:12.5px;border-bottom:1px solid #f1f5f9;vertical-align:middle;';
@@ -82812,6 +82941,7 @@ function renderSupportDetail(o) {
   h+='<button onclick="deleteSupport(\''+o.id+'\') " style="font-size:12px;padding:6px 10px;background:white;color:var(--red);border:1px solid var(--red);border-radius:8px;cursor:pointer;font-weight:700;">削除</button>';
   h+='</div></div>';
   h+=_soFactsHtml(o, linked);   // ver.20261112.06
+  h+='<div id="soEigyoReqBox"></div>'; setTimeout(function(){ try{ _erRenderSoBox(o); }catch(e){} }, 0);   // ver.20261119.14: 営シスへの入力依頼
   var _soTab=window._supportDetailTab||'detail';
   if(_soTab==='detail'){ setTimeout(function(){ try{ _soMissPopup(o); }catch(e){} }, 300); }   // ver.20261109.24
   h+='<div class="so-dtabs" style="display:flex;gap:6px;margin-bottom:14px;border-bottom:1px solid var(--gray-200);">';

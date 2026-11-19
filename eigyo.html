@@ -344,7 +344,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261119.01</div>
+      <div class="ver">ver.20261119.02</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -1202,6 +1202,7 @@ function onLoggedIn(session){
   load();
   setTimeout(function(){ _thLoad().then(function(){ return _anshisSync(); }).then(function(){ if(KPI_PAGE==='leads') load(); }).catch(function(e){ console.warn('[案シス連動]',e); }); }, 1500);
   if(!remindersMuted()){
+    setTimeout(erDailyPopup, 2500);   // ver.20261119.02: 案シスからの入力依頼
     checkTomorrowReminder();
     checkFollowupReminder();
     checkThanksReminder();
@@ -1807,7 +1808,8 @@ function renderDrawer(){
   +   '<select id="eStatus" class="badge b-'+esc(x.status||'')+'" onchange="this.className=\'badge b-\'+this.value;saveStatusNow()" style="font-size:15px;font-weight:800;padding:6px 12px;border:1px solid #93c5fd;border-radius:8px;min-width:150px;cursor:pointer;">'+(x.status&&STATUSES.indexOf(x.status)<0?'<option selected>'+esc(x.status)+'</option>':'')+STATUSES.map(function(s){return '<option value="'+esc(s)+'"'+(s===x.status?' selected':'')+'>'+esc(stLabel(s))+'</option>';}).join('')+'</select>'
   +   '<span class="sub" style="font-size:11.5px;">案シスに案件が来たら自動で「取引中」になります</span>'
   + '</div>'
-  + '<div id="preBox">'+preBoxHtml(x)+'</div>'   // ver.20261119.01: 確定前に聞いておくこと（連絡手段・ヒアリング・書類アップ）
+  + '<div id="erLeadBox"></div>'   // ver.20261119.02: 案シスからの入力依頼
+  + '<div id="preBox">'+(setTimeout(erLeadBoxRender,0),preBoxHtml(x))+'</div>'   // ver.20261119.01: 確定前に聞いておくこと（連絡手段・ヒアリング・書類アップ）
   + '<div id="kakuteiBox">'+kakuteiBoxHtml(x)+'</div>'   // ver.20261118.01: 依頼待ち（確定）になったらやること
   + '<div class="dtabs" style="display:flex;gap:4px;margin-bottom:12px;border-bottom:2px solid var(--line);">'
   +   '<button id="dtab0" class="dtab" onclick="switchDrawerTab(0)">アポ管理</button>'
@@ -2213,6 +2215,7 @@ function preSave(f,v){
     curLead[f]=v||null; curLead._preOpen=true;
     if(PRE_SYNC[f]&&el(PRE_SYNC[f])) el(PRE_SYNC[f]).value=v||'';
     var b=el('preBox'); if(b) b.innerHTML=preBoxHtml(curLead);
+    setTimeout(function(){ erLeadBoxRender(); erLoad(); }, 600);
   });
 }
 function preSaveChecks(f){
@@ -2230,6 +2233,78 @@ function preConfirmKakutei(x){
 }
 // ===== ver.20261118.01: 依頼待ち（確定）になったら「LINEグループ作成・O-LinkのURL発行・支援計画書情報の依頼」を出す =====
 //   kakutei_todo はDBのトリガーが「依頼待ち」になった時に作る（{line,olink,plan,since}）。3つ終わるまで出し続ける
+// ===== ver.20261119.02: 案シスからの入力依頼（eigyo_requests） =====
+//   毎日さいしょに開いたときにポップアップ（対応するまで毎日）。会社の画面のいちばん上にも出す。
+//   頼まれた項目を入れると自動で「回答あり」（DBのトリガー）。メモの依頼は［対応した］で回答あり
+var ER_ITEM_LABEL={contact_j:'①人材との連絡',contact_k:'②企業との連絡',hearing:'③ヒアリング',doc:'④書類のアップロード',supporter:'支援者数',monthly:'月の申請件数',start:'依頼開始見込み',prob:'確度',memo:'メモの内容'};
+var _erOpen=[];
+function erItems(x){ return (x.items||[]).map(function(k){ return ER_ITEM_LABEL[k]||k; }).join('・'); }
+function erMd(t){ var d=new Date(new Date(t).getTime()+9*3600000); return (d.getUTCMonth()+1)+'/'+d.getUTCDate(); }
+function erLoad(cb){
+  _sb.from('eigyo_requests').select('*').is('done_at',null).order('requested_at').limit(300).then(function(r){
+    var list=r.data||[]; var regs=list.map(function(x){ return x.reg_no; });
+    if(!regs.length){ _erOpen=[]; erBadge(); cb&&cb(); return; }
+    _sb.from('eigyo_leads').select('reg_no,name,staff').in('reg_no',regs).then(function(q){
+      var m={}; (q.data||[]).forEach(function(l){ m[l.reg_no]=l; });
+      list.forEach(function(x){ x._lead=m[x.reg_no]||{}; });
+      _erOpen=list; erBadge(); cb&&cb();
+    });
+  });
+}
+function erBadge(){
+  var b=el('erBadge');
+  if(!_erOpen.length){ if(b) b.remove(); return; }
+  if(!b){ b=document.createElement('button'); b.id='erBadge'; b.onclick=function(){ erShowModal(); };
+    b.style.cssText='position:fixed;right:16px;bottom:16px;z-index:9000;padding:9px 14px;background:#ea580c;color:#fff;border:none;border-radius:22px;font-weight:800;font-size:13px;cursor:pointer;box-shadow:0 6px 18px rgba(234,88,12,.4);';
+    document.body.appendChild(b); }
+  b.textContent='📨 案シスからの入力依頼 '+_erOpen.length+'件';
+}
+function erShowModal(){
+  var old=el('erModalE'); if(old) old.remove();
+  if(!_erOpen.length) return;
+  var ov=document.createElement('div'); ov.id='erModalE';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:10050;display:flex;align-items:center;justify-content:center;padding:16px;';
+  var rows=_erOpen.map(function(x){
+    var days=Math.max(0,Math.floor((Date.now()-new Date(x.requested_at).getTime())/86400000));
+    return '<div style="display:flex;gap:10px;align-items:center;padding:9px 4px;border-top:1px solid #fde68a;">'
+      +'<div style="flex:1;min-width:0;"><div style="font-weight:800;font-size:14px;">'+esc(x.org_name||x._lead.name||x.reg_no)+' <span style="font-size:11.5px;color:#64748b;font-weight:600;">営業：'+esc(x._lead.staff||'未設定')+'</span></div>'
+      +'<div style="font-size:12.5px;color:#9a3412;">入れてほしいこと：'+esc(erItems(x))+'</div>'+(x.memo?'<div style="font-size:12px;color:#475569;">「'+esc(x.memo)+'」</div>':'')
+      +'<div style="font-size:11px;color:#94a3b8;">'+erMd(x.requested_at)+' '+esc(x.auto?'自動（案シスに最初の案件）':(x.requested_by||''))+'から・'+days+'日経過</div></div>'
+      +'<button class="btn btn-sm" onclick="el(\'erModalE\').remove();openDrawer(\''+esc(x.reg_no)+'\')" style="white-space:nowrap;">開いて入力</button></div>';
+  }).join('');
+  ov.innerHTML='<div style="background:#fff;border-radius:12px;max-width:640px;width:100%;max-height:85vh;overflow:auto;padding:18px 20px;box-shadow:0 20px 50px rgba(0,0,0,.3);">'
+    +'<div style="font-size:16px;font-weight:900;color:#9a3412;">📨 案シス（書類部）からの入力依頼 '+_erOpen.length+'件</div>'
+    +'<div style="font-size:12px;color:#64748b;margin:2px 0 8px;">会社の画面を開いて入力してください。入力すると自動で書類部に「回答あり」と伝わります（対応するまで毎日出ます）</div>'+rows
+    +'<div style="text-align:right;margin-top:12px;"><button class="btn" onclick="el(\'erModalE\').remove()">あとで</button></div></div>';
+  document.body.appendChild(ov);
+}
+function erDailyPopup(){
+  erLoad(function(){
+    if(!_erOpen.length) return;
+    var today=new Date(Date.now()+9*3600000).toISOString().slice(0,10), key='eigyo_erPop_'+(me||'')+'_'+today;
+    try{ if(localStorage.getItem(key)) return; localStorage.setItem(key,'1'); }catch(e){}
+    erShowModal();
+  });
+}
+function erLeadBoxRender(){
+  var b=el('erLeadBox'); if(!b||!curLead) return;
+  var reg=curLead.reg_no;
+  _sb.from('eigyo_requests').select('*').eq('reg_no',reg).is('done_at',null).order('requested_at').then(function(r){
+    var b2=el('erLeadBox'); if(!b2||!curLead||curLead.reg_no!==reg) return;
+    var list=r.data||[]; if(!list.length){ b2.innerHTML=''; return; }
+    b2.innerHTML='<div style="margin-bottom:12px;padding:10px 13px;background:#fef2f2;border:2px solid #f87171;border-radius:10px;">'
+      +list.map(function(x){ return '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><div style="flex:1;min-width:0;"><b style="color:#b91c1c;font-size:13.5px;">📨 案シスから依頼（'+erMd(x.requested_at)+' '+esc(x.auto?'自動':(x.requested_by||''))+'）：'+esc(erItems(x))+'を入れてください</b>'+(x.memo?'<div style="font-size:12.5px;color:#475569;">「'+esc(x.memo)+'」</div>':'')+'<div style="font-size:11px;color:#94a3b8;">下の「確定前に聞いておくこと」などに入れると自動で回答ありになります</div></div>'
+        +'<button class="btn btn-sm" onclick="erDone('+x.id+')" style="white-space:nowrap;">対応した</button></div>'; }).join('<hr style="border:none;border-top:1px dashed #fecaca;margin:8px 0;">')
+      +'</div>';
+  });
+}
+function erDone(id){
+  _sb.from('eigyo_requests').update({done_at:new Date().toISOString(), done_by:me||'営シス'}).eq('id',id).then(function(r){
+    if(r.error){ alert('保存できませんでした：'+r.error.message); return; }
+    erLeadBoxRender(); erLoad();
+  });
+}
+
 var KAKUTEI_STEPS=[{k:'line',t:'LINEグループを作る'},{k:'olink',t:'O-LinkのURLを発行する'},{k:'plan',t:'登録支援機関に支援計画書の情報をもらう'}];
 function kakuteiBoxHtml(x){
   var td=x&&x.kakutei_todo; if(!td||typeof td!=='object') return '';
