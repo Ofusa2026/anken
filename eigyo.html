@@ -344,7 +344,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261117.09</div>
+      <div class="ver">ver.20261119.01</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -1518,6 +1518,16 @@ function ilStatus(reg,val){
   return '<select class="badge b-'+esc(val||'')+'" '+ilStop()+' onchange="ilStatusSave(\''+esc(reg)+'\',this)" style="width:100%;box-sizing:border-box;font-size:11.5px;font-weight:700;padding:3px 2px;border:1px solid var(--line);border-radius:6px;cursor:pointer;">'+o+'</select>';
 }
 function ilStatusSave(reg, elm){
+  // ver.20261119.01: 依頼待ちに変えるときは「確定前に聞いておくこと」の未入力を確認（警告だけ）
+  if(elm.value==='依頼待ち' && !elm._preOk){
+    var prev=elm.getAttribute('data-prev')||'';
+    _sb.from('eigyo_leads').select('status,hr_contact_jinzai,hr_window_jinzai,hr_contact_kigyo,hr_window_kigyo,hr_hearing_by,doc_collect_jinzai,doc_collect_kigyo').eq('reg_no',reg).maybeSingle().then(function(q){
+      var x=q.data||{};
+      if(x.status==='依頼待ち' || preConfirmKakutei(x)){ elm._preOk=true; ilStatusSave(reg,elm); elm._preOk=false; }
+      else { elm.value=x.status||prev; elm.className='badge b-'+elm.value; }
+    });
+    return;
+  }
   var v=elm.value; elm.className='badge b-'+v;
   if(v==='取引中'||v==='依頼待ち'){ _sb.from('eigyo_leads').select('decided_at').eq('reg_no',reg).maybeSingle().then(function(r){ if(r.data && !r.data.decided_at) inlineSave(reg,'decided_at',new Date(Date.now()+9*3600000).toISOString().slice(0,10),null); }); }
   inlineSave(reg,'status',v,elm);
@@ -1797,6 +1807,8 @@ function renderDrawer(){
   +   '<select id="eStatus" class="badge b-'+esc(x.status||'')+'" onchange="this.className=\'badge b-\'+this.value;saveStatusNow()" style="font-size:15px;font-weight:800;padding:6px 12px;border:1px solid #93c5fd;border-radius:8px;min-width:150px;cursor:pointer;">'+(x.status&&STATUSES.indexOf(x.status)<0?'<option selected>'+esc(x.status)+'</option>':'')+STATUSES.map(function(s){return '<option value="'+esc(s)+'"'+(s===x.status?' selected':'')+'>'+esc(stLabel(s))+'</option>';}).join('')+'</select>'
   +   '<span class="sub" style="font-size:11.5px;">案シスに案件が来たら自動で「取引中」になります</span>'
   + '</div>'
+  + '<div id="preBox">'+preBoxHtml(x)+'</div>'   // ver.20261119.01: 確定前に聞いておくこと（連絡手段・ヒアリング・書類アップ）
+  + '<div id="kakuteiBox">'+kakuteiBoxHtml(x)+'</div>'   // ver.20261118.01: 依頼待ち（確定）になったらやること
   + '<div class="dtabs" style="display:flex;gap:4px;margin-bottom:12px;border-bottom:2px solid var(--line);">'
   +   '<button id="dtab0" class="dtab" onclick="switchDrawerTab(0)">アポ管理</button>'
   +   '<button id="dtab1" class="dtab dtab-on" onclick="switchDrawerTab(1)">営業管理/対応履歴</button>'
@@ -2161,13 +2173,101 @@ function saveHandover(){
   }
 }
 
+// ===== ver.20261119.01: 確定前に聞いておくこと — 結果待ち（商談後）から出し、依頼待ちに変えるとき未入力なら警告 =====
+//   ①人材との連絡（手段＋窓口） ②企業との連絡（手段＋窓口） ③ヒアリングをだれが入力するか ④書類をだれがアップするか（人材・企業）
+var HR_HEARING_BY=['','人材本人（ヒアリングフォーム）','登録支援機関が代わりに入力','大房が聞き取り','その他'];
+var PRE_SHOW=['結果待ち','依頼待ち','取引中'];
+function preMissing(x){
+  x=x||{}; var m=[];
+  if(!x.hr_contact_jinzai||!x.hr_window_jinzai) m.push('①人材との連絡');
+  if(!x.hr_contact_kigyo||!x.hr_window_kigyo) m.push('②企業との連絡');
+  if(!x.hr_hearing_by) m.push('③ヒアリング');
+  if(!x.doc_collect_jinzai||!x.doc_collect_kigyo) m.push('④書類のアップロード');
+  return m;
+}
+function preSel(f,opts,val){ return '<select onchange="preSave(\''+f+'\',this.value)" style="max-width:100%;padding:4px 6px;font-size:13px;border:1px solid #cbd5e1;border-radius:6px;'+(val?'':'background:#fff7ed;border-color:#fb923c;')+'">'+opts.map(function(o){ return '<option value="'+esc(o)+'"'+(o===(val||'')?' selected':'')+'>'+esc(o||'（未選択）')+'</option>'; }).join('')+'</select>'; }
+function preChecks(f,opts,val){ var cur=String(val||'').split(',').filter(Boolean); return '<span style="display:inline-flex;gap:10px;flex-wrap:wrap;'+(cur.length?'':'background:#fff7ed;border-radius:6px;padding:2px 6px;')+'">'+opts.map(function(o){ return '<label style="display:inline-flex;align-items:center;gap:4px;font-size:13px;cursor:pointer;"><input type="checkbox" class="pre_'+f+'" value="'+esc(o)+'" '+(cur.indexOf(o)>=0?'checked':'')+' onchange="preSaveChecks(\''+f+'\')" style="width:15px;height:15px;">'+esc(o)+'</label>'; }).join('')+'</span>'; }
+function preBoxHtml(x){
+  if(!x||PRE_SHOW.indexOf(x.status)<0) return '';
+  var miss=preMissing(x), done=4-miss.length;
+  if(!miss.length && !x._preOpen) return '<div style="margin-bottom:10px;padding:7px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:12.5px;color:#166534;">✓ 確定前に聞いておくこと（連絡手段・ヒアリング・書類アップ）は入力済み <a href="javascript:void(0)" onclick="preOpen()" style="margin-left:6px;font-size:11.5px;color:#64748b;">見る・直す</a></div>';
+  var row=function(n,t,inner){ return '<div style="display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;padding:5px 0;border-top:1px dashed #fed7aa;"><div style="flex:0 0 150px;font-size:13px;font-weight:700;color:#7c2d12;">'+n+' '+t+'</div><div style="flex:1 1 220px;min-width:0;display:flex;gap:6px 8px;flex-wrap:wrap;align-items:center;">'+inner+'</div></div>'; };
+  var lb=function(t){ return '<span style="font-size:11.5px;color:#64748b;">'+t+'</span>'; };
+  return '<div style="margin-bottom:12px;padding:11px 13px;background:#fffbeb;border:2px solid #f59e0b;border-radius:10px;">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px;"><b style="font-size:14px;color:#92400e;">📝 確定前に聞いておくこと</b><span style="font-size:12px;font-weight:700;color:'+(miss.length?'#b45309':'#15803d')+';">'+done+' / 4</span></div>'
+    +'<div style="font-size:11.5px;color:#92400e;margin-bottom:4px;">商談で聞いて入れてください。確定（依頼待ち）すると、この内容でLINEグループ作成などに進みます</div>'
+    +row('①','人材との連絡', lb('手段')+preSel('hr_contact_jinzai',HR_TOOLS,x.hr_contact_jinzai)+lb('窓口')+preSel('hr_window_jinzai',HR_MADOGUCHI,x.hr_window_jinzai))
+    +row('②','企業との連絡', lb('手段')+preSel('hr_contact_kigyo',HR_TOOLS,x.hr_contact_kigyo)+lb('窓口')+preSel('hr_window_kigyo',HR_MADOGUCHI,x.hr_window_kigyo))
+    +row('③','ヒアリング', lb('だれが入力')+preSel('hr_hearing_by',HR_HEARING_BY,x.hr_hearing_by))
+    +row('④','書類のアップロード', '<div style="display:flex;flex-direction:column;gap:4px;"><div>'+lb('人材書類：')+' '+preChecks('doc_collect_jinzai',DOC_COLLECT_JINZAI,x.doc_collect_jinzai)+'</div><div>'+lb('企業書類：')+' '+preChecks('doc_collect_kigyo',DOC_COLLECT_KIGYO,x.doc_collect_kigyo)+'</div></div>')
+    +'</div>';
+}
+function preOpen(){ if(!curLead) return; curLead._preOpen=true; var b=el('preBox'); if(b) b.innerHTML=preBoxHtml(curLead); }
+// 下の「連絡ツールと窓口」などの入力欄にも同じ値を入れておく（保存ボタンで上書きされないように）
+var PRE_SYNC={hr_contact_jinzai:'eHrContactJinzai',hr_contact_kigyo:'eHrContactKigyo',hr_window_jinzai:'eHrWindowJinzai',hr_window_kigyo:'eHrWindowKigyo'};
+function preSave(f,v){
+  if(!curLead) return; var reg=curLead.reg_no, upd={}; upd[f]=v||null;
+  _sb.from('eigyo_leads').update(upd).eq('reg_no',reg).then(function(r){
+    if(r.error){ alert('保存に失敗しました：'+r.error.message); return; }
+    if(!curLead||curLead.reg_no!==reg) return;
+    curLead[f]=v||null; curLead._preOpen=true;
+    if(PRE_SYNC[f]&&el(PRE_SYNC[f])) el(PRE_SYNC[f]).value=v||'';
+    var b=el('preBox'); if(b) b.innerHTML=preBoxHtml(curLead);
+  });
+}
+function preSaveChecks(f){
+  var a=[]; document.querySelectorAll('#preBox input.pre_'+f+':checked').forEach(function(c){ a.push(c.value); });
+  var v=a.length?a.join(','):null;
+  // 下の（非表示の）書類収集チェックにも同じ値を入れる
+  var legacy=f==='doc_collect_jinzai'?'dcJinzai':'dcKigyo';
+  document.querySelectorAll('input.'+legacy).forEach(function(c){ c.checked=a.indexOf(c.value)>=0; });
+  preSave(f,v);
+}
+// 依頼待ちに変える前の確認（未入力なら警告。OKならそのまま確定）
+function preConfirmKakutei(x){
+  var m=preMissing(x); if(!m.length) return true;
+  return confirm('「確定前に聞いておくこと」に未入力があります。\n\n'+m.join('\n')+'\n\nこのまま「依頼待ち（確定）」にしますか？\n（あとから会社の画面で入力できます）');
+}
+// ===== ver.20261118.01: 依頼待ち（確定）になったら「LINEグループ作成・O-LinkのURL発行・支援計画書情報の依頼」を出す =====
+//   kakutei_todo はDBのトリガーが「依頼待ち」になった時に作る（{line,olink,plan,since}）。3つ終わるまで出し続ける
+var KAKUTEI_STEPS=[{k:'line',t:'LINEグループを作る'},{k:'olink',t:'O-LinkのURLを発行する'},{k:'plan',t:'登録支援機関に支援計画書の情報をもらう'}];
+function kakuteiBoxHtml(x){
+  var td=x&&x.kakutei_todo; if(!td||typeof td!=='object') return '';
+  var done=KAKUTEI_STEPS.filter(function(s){ return td[s.k]; }).length, all=done===KAKUTEI_STEPS.length;
+  var since=td.since?String(td.since).slice(5).replace('-','/'):'';
+  if(all) return '<div style="margin-bottom:12px;padding:8px 12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;font-size:12.5px;color:#166534;">✓ 確定後のやること（LINEグループ・O-Link・支援計画書情報）はすべて完了 <a href="javascript:void(0)" onclick="kakuteiReopen()" style="margin-left:6px;font-size:11.5px;color:#64748b;">もう一度見る</a></div>';
+  var h='<div style="margin-bottom:12px;padding:11px 13px;background:#fff7ed;border:2px solid #fb923c;border-radius:10px;">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;"><b style="font-size:14px;color:#9a3412;">🎉 依頼待ち（確定）になりました'+(since?'（'+esc(since)+'）':'')+'　次の3つをお願いします</b><span style="font-size:12px;font-weight:700;color:#9a3412;">'+done+' / 3</span></div>';
+  KAKUTEI_STEPS.forEach(function(s,i){
+    h+='<label style="display:flex;align-items:center;gap:8px;padding:5px 2px;font-size:13.5px;cursor:pointer;'+(td[s.k]?'color:#94a3b8;text-decoration:line-through;':'color:#1f2937;font-weight:600;')+'">'
+      +'<input type="checkbox" '+(td[s.k]?'checked':'')+' onchange="kakuteiToggle(\''+s.k+'\',this.checked)" style="width:18px;height:18px;"> '+'①②③'.charAt(i)+' '+esc(s.t)+'</label>';
+  });
+  return h+'</div>';
+}
+function kakuteiSave(td){
+  if(!curLead) return;
+  _sb.from('eigyo_leads').update({kakutei_todo:td}).eq('reg_no',curLead.reg_no).then(function(r){
+    if(r.error){ alert('保存に失敗しました：'+r.error.message); return; }
+    curLead.kakutei_todo=td; var b=el('kakuteiBox'); if(b) b.innerHTML=kakuteiBoxHtml(curLead);
+  });
+}
+function kakuteiToggle(k,on){ if(!curLead) return; var td=Object.assign({}, curLead.kakutei_todo||{}); td[k]=!!on; kakuteiSave(td); }
+function kakuteiReopen(){ if(!curLead) return; var b=el('kakuteiBox'); if(b) b.innerHTML=kakuteiListHtml(curLead.kakutei_todo||{}); }
+function kakuteiListHtml(td){
+  var h='<div style="margin-bottom:12px;padding:10px 13px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;">';
+  KAKUTEI_STEPS.forEach(function(s,i){ h+='<label style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:13px;cursor:pointer;"><input type="checkbox" '+(td[s.k]?'checked':'')+' onchange="kakuteiToggle(\''+s.k+'\',this.checked)" style="width:17px;height:17px;"> '+'①②③'.charAt(i)+' '+esc(s.t)+'</label>'; });
+  return h+'</div>';
+}
 function saveStatusNow(){
   if(!curLead) return;
   var newStatus = el('eStatus').value;
+  if(newStatus==='依頼待ち' && curLead.status!=='依頼待ち' && !preConfirmKakutei(curLead)){ el('eStatus').value=curLead.status||''; el('eStatus').className='badge b-'+(curLead.status||''); return; }   // ver.20261119.01
   _sb.from('eigyo_leads').update({status:newStatus}).eq('reg_no', curLead.reg_no).then(function(r){
     if(r.error){ showMsg('dMsg','ステータス保存に失敗：'+r.error.message,'err'); return; }
     curLead.status = newStatus;
     showMsg('dMsg','ステータスを「'+newStatus+'」に保存しました','ok');
+    var pb=el('preBox'); if(pb) pb.innerHTML=preBoxHtml(curLead);   // ver.20261119.01
+    if(newStatus==='依頼待ち'){ var reg=curLead.reg_no; _sb.from('eigyo_leads').select('kakutei_todo').eq('reg_no',reg).maybeSingle().then(function(q){ if(curLead&&curLead.reg_no===reg&&q.data){ curLead.kakutei_todo=q.data.kakutei_todo; var b=el('kakuteiBox'); if(b) b.innerHTML=kakuteiBoxHtml(curLead); } }); }   // ver.20261118.01
     load();
   });
 }
