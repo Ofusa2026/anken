@@ -3522,6 +3522,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <option value="return-asc">一時帰国：近い順</option>
         <option value="return-desc">一時帰国：遠い順</option>
         <option value="priority">🏅 優先順位順</option>
+        <option value="neworg">🌱 新規支援機関：新しい順</option>
       </select>
       <!-- ver.20261023.07: 案件名の表示（アカウントごとに保存） -->
       <span class="cn-disp" id="cnDispBar">
@@ -3600,6 +3601,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 details[open] > ._upDocSummary::before { content: '▼ '; }
 </style>
   <div id="uploadNotifyBanner" onclick="showUploadNotifyModal()" style="display:none !important;"></div>
+  <!-- ver.20261119.15: 🌱 新規支援機関のカードで絞り込んでいるときだけ出す（✕で元に戻す）＝ _renderNewOrgFilterBar() -->
+  <div id="newOrgFilterBar" style="display:none;align-items:center;gap:10px;margin:0 20px 8px;padding:7px 12px;background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;font-size:12px;font-weight:700;color:#065f46;"></div>
   <!-- TABLE + KANBAN (共通ヘッダー) -->
   <div id="tableSection" class="table-section">
     <div class="table-wrap">
@@ -6721,7 +6724,7 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261119.14';
+var OFUSA_VERSION = 'ver.20261119.15';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -7796,7 +7799,7 @@ function sbFetchCases(opts, callback) {
   var pageSize = opts.pageSize || PAGE_SIZE;
   // ver.20261004.07: DB（Supabase）は1回に最大1000件しか返さないため、1000件を超える読み込み（かんばん・全部読み）は
   //   同じ条件で1000件ずつ順に読んでつなげる（以前は最初の1000件だけになり、かんばんの件数が実際より少なかった）
-  if (pageSize > 1000 && !opts._chunk && !(opts.sort === 'return-asc' || opts.sort === 'return-desc')) {
+  if (pageSize > 1000 && !opts._chunk && !(opts.sort === 'return-asc' || opts.sort === 'return-desc') && opts.sort !== 'neworg') {
     var _start = (page - 1) * pageSize;
     if (_start % 1000 === 0) {
       var _k = _start / 1000 + 1, _maxK = _start / 1000 + Math.ceil(pageSize / 1000), _all = [], _total = 0;
@@ -7816,7 +7819,7 @@ function sbFetchCases(opts, callback) {
   
   // カウント取得用のクエリ
   var countQuery = _sb.from('cases').select('id', {count: 'exact', head: true});
-  var dataQuery = _sb.from('cases').select('*');
+  var dataQuery = _sb.from('cases').select(opts._lite ? 'id,org,request_date,created_at' : '*');   // ver.20261119.15: _lite＝並び順「新規支援機関」のために並べる材料だけ読む
   
   // ver.20260716.10: 在留期限の期間絞込（from/to どちらか片方でも可）
   if (opts.expireFrom) { countQuery = countQuery.gte('expire', opts.expireFrom); dataQuery = dataQuery.gte('expire', opts.expireFrom); }
@@ -7930,6 +7933,22 @@ function sbFetchCases(opts, callback) {
     dataQuery = dataQuery.order('created_at', {ascending: false, nullsFirst: false});
   }
 
+  // ver.20261119.15: 並び順「新規支援機関：新しい順」＝ 同じ絞り込みで並べる材料（id・支援機関・依頼日）だけを全部読み → 並べる → そのページのぶんだけ中身を読む
+  if (opts.sort === 'neworg') {
+    sbFetchCases(Object.assign({}, opts, { sort:'', colSort:null, page:1, pageSize:30000, _lite:true }), function(liteRows, tot){
+      var ids = _newOrgSortRows(liteRows || []).map(function(r){ return r.id; });
+      var total = tot || ids.length;
+      var paged = ids.slice(from, from + pageSize);
+      if (!paged.length) { callback([], total); return; }
+      var parts = []; for (var _pi = 0; _pi < paged.length; _pi += 150) parts.push(paged.slice(_pi, _pi + 150));
+      Promise.all(parts.map(function(p){ return _sb.from('cases').select('*').in('id', p); })).then(function(rs){
+        var m = {}; rs.forEach(function(r){ ((r && r.data) || []).forEach(function(x){ m[x.id] = x; }); });
+        callback(paged.map(function(id){ return m[id] ? dbRowToCase(m[id]) : null; }).filter(Boolean), total);
+      }).catch(function(err){ console.error('sbFetchCases(neworg) error:', err); callback([], total); });
+    });
+    return;
+  }
+
   var isReturnSort = (opts.sort === 'return-asc' || opts.sort === 'return-desc');
 
   if (isReturnSort) {
@@ -7999,7 +8018,7 @@ function sbFetchCases(opts, callback) {
       var dataRes = results[1];
       var total = (countRes && countRes.count) || 0;
       var rows = (dataRes && dataRes.data) || [];
-      var cases = rows.map(function(r) { return dbRowToCase(r); });
+      var cases = opts._lite ? rows : rows.map(function(r) { return dbRowToCase(r); });   // _lite は並べる材料だけ（案件の形にしない）
       callback(cases, total);
     }).catch(function(err) {
       console.error('sbFetchCases error:', err);
@@ -9924,6 +9943,9 @@ function _bnavSlotPick(){
   document.body.appendChild(ov);
 }
 var WHATS_NEW = [
+  { version:'ver.20261119.15', date:'2026-11-19', notify:true, part:false, items:[
+    '🌱 案件一覧の件数カードに「新規支援機関」を足しました（所属機関が5社までの登録支援機関の進行中案件。6社目の依頼が来たら自動で外れます）。押すとその案件だけになり、並び順は1社目の依頼日が新しい機関からになります（上の［✕］で元に戻ります）。並び順に「新規支援機関：新しい順」も足しました。営業部・書類部のカードは「全案件（書類部）」の1枚にまとめました',
+  ] },
   { version:'ver.20261119.14', date:'2026-11-19', notify:true, part:true, items:[
     '📨 <b>登録支援機関の画面から、営シスに「この情報を入れてください」と依頼できる</b>ようになりました（［📨 営シスに入力を依頼］）。営シスの「確定前に聞くこと」（連絡手段・ヒアリング・書類アップ）が何個入っているかも出ます。営業が入力すると自動で「回答あり」になり、依頼した人にポップアップでお知らせします',
     '📈 管理部レポートの「見込み」タブの上に、<b>営シスへの入力依頼の一覧（未対応／回答あり）</b>を出しました'
@@ -62546,7 +62568,133 @@ function exportCases() {
 function filterTeam(team) {
   var sel = document.getElementById('fTeam');
   if (sel) sel.value = team || '全チーム';
+  try{ clearNewOrgFilter(true); }catch(e){}   // ver.20261119.15: 全案件カードを押したら 🌱 新規支援機関の絞り込みも外す
   applyFilters();
+}
+
+// ============================================================
+// ver.20261119.15: 🌱 新規支援機関（件数カード・一覧の絞り込み・並び順「新規支援機関：新しい順」）
+//   新規＝その登録支援機関の所属機関（company の種類の数）が NEWORG_MAX_CO 社以下。6社目の依頼が来たら自動で外れる
+//   数えるのは全案件（完了・審査完了もふくむ）。org が空欄の案件は対象外
+//   ⚠️ cData は起動時に「完了」を読み込んでいない（ver.20260812.26）ので cData だけだと
+//      完了ずみの所属機関が数えられず、新規でない機関まで新規に見える。
+//      そのため支援機関・所属機関・依頼日だけを全件1回読み（_newOrgLoad）、その後に増えた案件は cData から足す
+//   1社目の依頼日＝その支援機関の案件の requestDate のいちばん早い日（空なら createdAt）
+//   判定は _newOrgStats() の1箇所だけ（カード・絞り込み・並び順が同じものを見る）
+// ============================================================
+var NEWORG_MAX_CO = 5;
+var _newOrgRows = null, _newOrgLoading = false;
+function _newOrgCoKey(s){ return String(s==null?'':s).replace(/[\s\u3000]/g,''); }
+function _newOrgDay(req, created){
+  var v = String(req==null?'':req).trim().replace(/\//g,'-');
+  var m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m) return m[1]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[3]).slice(-2);
+  var c = String(created==null?'':created);
+  return c ? c.slice(0,10) : '';
+}
+// 支援機関・所属機関・依頼日だけを全件（完了もふくむ）読む。読めたら cb()
+function _newOrgLoad(cb){
+  if(_newOrgLoading || typeof _sb==='undefined' || !_sb || typeof DB_READY==='undefined' || !DB_READY) return;
+  _newOrgLoading = true;
+  var all = [], from = 0;
+  (function next(){
+    _sb.from('cases').select('id,org,company,request_date,created_at').not('org','is',null).order('id',{ascending:true}).range(from, from+999).then(function(r){
+      if(r && r.error){ console.warn('[neworg] load', r.error); _newOrgLoading = false; return; }
+      var d = (r && r.data) || []; all = all.concat(d);
+      if(d.length === 1000 && from < 100000){ from += 1000; next(); return; }
+      _newOrgRows = all; _newOrgLoading = false;
+      if(typeof cb === 'function'){ try{ cb(); }catch(e){ console.warn('[neworg] cb', e); } }
+    }).catch(function(e){ console.warn('[neworg] load', e); _newOrgLoading = false; });
+  })();
+}
+function _newOrgStats(){
+  var trash = {};
+  try{ (typeof TRASH_CASES!=='undefined' ? (TRASH_CASES||[]) : []).forEach(function(t){ if(t && t.id) trash[t.id]=1; }); }catch(e){}
+  try{ if(window._trashedCaseIds) Object.keys(window._trashedCaseIds).forEach(function(id){ trash[id]=1; }); }catch(e){}
+  var seen = {}, map = {};
+  function add(id, org, co, req, cr){
+    if(!id || seen[id] || trash[id]) return; seen[id] = 1;
+    org = String(org==null?'':org).trim(); if(!org) return;
+    var m = map[org] || (map[org] = { org:org, cos:{}, n:0, first:'' });
+    var k = _newOrgCoKey(co); if(k && !m.cos[k]){ m.cos[k] = 1; m.n++; }
+    var d = _newOrgDay(req, cr); if(d && (!m.first || d < m.first)) m.first = d;
+  }
+  // 画面の中の値（cData）を先に＝この画面で直した・増えた案件をそのまま反映。完了の案件は _newOrgRows から
+  (cData||[]).forEach(function(c){ if(c) add(c.id, c.org, c.company, c.requestDate, c.createdAt); });
+  (_newOrgRows||[]).forEach(function(r){ if(r) add(r.id, r.org, r.company, r.request_date, r.created_at); });
+  var isNew = {};
+  Object.keys(map).forEach(function(o){ if(map[o].n <= NEWORG_MAX_CO) isNew[o] = map[o]; });
+  return { map:map, isNew:isNew, ready:!!_newOrgRows };
+}
+// 新規の支援機関の進行中案件（完了・審査完了を除く）
+function _newOrgActive(st){
+  st = st || _newOrgStats();
+  var list = (cData||[]).filter(function(c){
+    if(!c) return false;
+    var o = String(c.org==null?'':c.org).trim();
+    return !!(o && st.isNew[o] && c.status !== '完了' && c.status !== '審査完了');
+  });
+  var orgs = {}; list.forEach(function(c){ orgs[String(c.org).trim()] = 1; });
+  return { list:list, orgs:Object.keys(orgs) };
+}
+// 並び順「新規支援機関：新しい順」＝ 新規の支援機関の案件が先（1社目の依頼日が新しい機関から・同じ機関は依頼日の新しい順）。
+//   ほかの案件はそのあと（元の並び＝登録の新しい順のまま）。DBの行（request_date）でも案件（requestDate）でも並べられる
+function _newOrgSortRows(rows){
+  var st = _newOrgStats();
+  var f = function(r){ return { org:String(r.org==null?'':r.org).trim(), req:(r.request_date!==undefined ? r.request_date : r.requestDate), cr:(r.created_at!==undefined ? r.created_at : r.createdAt) }; };
+  return (rows||[]).map(function(r, i){ return { r:r, i:i, k:f(r) }; }).sort(function(a, b){
+    var na = st.isNew[a.k.org], nb = st.isNew[b.k.org];
+    if(!!na !== !!nb) return na ? -1 : 1;
+    if(na && nb){
+      if(na.first !== nb.first) return na.first < nb.first ? 1 : -1;
+      if(a.k.org !== b.k.org) return a.k.org < b.k.org ? -1 : 1;
+      var da = _newOrgDay(a.k.req, a.k.cr), db = _newOrgDay(b.k.req, b.k.cr);
+      if(da !== db) return da < db ? 1 : -1;
+    }
+    return a.i - b.i;
+  }).map(function(x){ return x.r; });
+}
+// カードを押したとき：進行中案件のIDで絞り、並び順を「新規支援機関：新しい順」に
+function filterNewOrg(){
+  var st = _newOrgStats(), a = _newOrgActive(st);
+  if(!st.ready){ if(typeof showToast==='function') showToast('🌱 新規支援機関を集計中です。少し待ってからもう一度押してください'); return; }
+  if(!a.list.length){ if(typeof showToast==='function') showToast('🌱 新規支援機関の進行中案件はありません'); return; }
+  var sel = document.getElementById('fSort');
+  if(!window._newOrgFilterOn) window._newOrgPrevSort = sel ? sel.value : '';
+  window._pendingFilterCaseIds = a.list.map(function(c){ return c.id; });
+  window._newOrgFilterOn = true;
+  if(sel) sel.value = 'neworg';
+  _renderNewOrgFilterBar(st, a);
+  applyFilters(true);
+  try{ renderStats(); }catch(e){}
+}
+// ✕／全案件カード：絞り込みを外して元の並び順に戻す（noApply のときは一覧の読み直しは呼ぶ側にまかせる）
+function clearNewOrgFilter(noApply){
+  if(!window._newOrgFilterOn) return false;
+  window._pendingFilterCaseIds = null;
+  window._newOrgFilterOn = false;
+  var sel = document.getElementById('fSort');
+  if(sel && sel.value === 'neworg') sel.value = window._newOrgPrevSort || '';
+  var bar = document.getElementById('newOrgFilterBar'); if(bar) bar.style.display = 'none';
+  if(!noApply) applyFilters(true);
+  try{ renderStats(); }catch(e){}
+  return true;
+}
+function _renderNewOrgFilterBar(st, a){
+  var bar = document.getElementById('newOrgFilterBar'); if(!bar) return;
+  if(!window._newOrgFilterOn){ bar.style.display = 'none'; return; }
+  st = st || _newOrgStats(); a = a || _newOrgActive(st);
+  var n = (window._pendingFilterCaseIds||[]).length;
+  var orgs = a.orgs.slice().sort(function(x, y){ var fx = (st.isNew[x]||{}).first||'', fy = (st.isNew[y]||{}).first||''; return fx < fy ? 1 : (fx > fy ? -1 : 0); });
+  var tip = orgs.map(function(o){ var m = st.isNew[o]||{}; return o+'（所属機関 '+(m.n||0)+'社・1社目の依頼 '+(m.first||'-')+'）'; }).join('\n');
+  var esc = function(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
+  bar.title = tip;
+  bar.innerHTML = '<span>🌱 新規支援機関で絞り込み中</span>'
+    + '<span style="font-weight:600;color:#047857;">'+orgs.length+'機関・'+n+'件（所属機関が'+NEWORG_MAX_CO+'社まで）'+(st.ready?'':'・集計中')+'</span>'
+    + '<span style="font-weight:500;color:#64748b;font-size:11px;">並び順：1社目の依頼日が新しい機関から</span>'
+    + '<button type="button" onclick="clearNewOrgFilter()" title="絞り込みを外して元に戻す" style="margin-left:auto;background:white;color:#065f46;border:1px solid #6ee7b7;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:700;cursor:pointer;">✕</button>';
+  bar.style.display = 'flex';
+  bar.setAttribute('aria-label', esc('新規支援機関で絞り込み中'));
 }
 
 // ===== STATS =====
@@ -62559,8 +62707,7 @@ function renderStats() {
     else if(c.team==='中林チーム') c.team='営業部';
     else if(c.team==='亀谷チーム') c.team='管理部';
   });
-  var teams = ['営業部','書類部'];  // ver.20260803.06: 管理部カード非表示
-  var teamColors = {'営業部':'#2563eb','管理部':'#d97706','書類部':'#16a34a'};
+  // ver.20261119.15: 営業部・書類部のカードは1枚（全案件（書類部））にまとめた
   var h = '';
   // 完了・審査完了を除いたアクティブ案件
   var activeData = cData.filter(function(c){ return c.status !== '完了' && c.status !== '審査完了'; });
@@ -62572,31 +62719,27 @@ function renderStats() {
 
   // 全案件カード（完了除く）
   h += '<div class="stat-card sc-click" data-team="" onclick="filterTeam(this.dataset.team)">';
-  h += '<div class="sc-lbl">全案件</div>';
+  h += '<div class="sc-lbl">全案件（書類部）</div>';
   h += '<div class="sc-row">'+_scNum(activeData.length, 'var(--navy)');
   if (urgent) h += '<span class="sc-sub" style="color:#dc2626;">⚠ 要対応 '+urgent+'件</span>';
   else h += '<span class="sc-sub" style="color:var(--gray-400);font-weight:500;">異常なし</span>';
   h += '</div>'+_scGo()+'</div>';
 
-  // チームカード（完了除く）
-  teams.forEach(function(team) {
-    var col = teamColors[team]||'#64748b';
-    var cases = activeData.filter(function(c){ return c.team===team; });
-    var docs=cases.filter(function(c){return c.status!=='審査中'&&c.status!=='特活審査中'&&c.status!=='完了'&&c.status!=='★要追完'&&c.status!=='★申請';}).length;
-    var rev=cases.filter(function(c){return c.status==='審査中'||c.status==='特活審査中';}).length;
-    var add=cases.filter(function(c){return c.status==='★要追完';}).length;
-    var tname = team.replace('チーム','');
-    h += '<div class="stat-card sc-click" data-team="'+team+'" onclick="filterTeam(this.dataset.team)">';
-    h += '<div class="sc-lbl">'+tname+'</div>';
-    h += '<div class="sc-row">'+_scNum(cases.length, col);
-    var _bd='';
-    if(docs) _bd+='<span style="color:#2563eb;">書類'+docs+'</span> ';
-    if(rev)  _bd+='<span style="color:#d97706;">審査'+rev+'</span> ';
-    if(add)  _bd+='<span style="color:#dc2626;">⚠'+add+'</span>';
-    if(_bd) h += '<span class="sc-sub">'+_bd+'</span>';
-    else h += '<span class="sc-sub" style="color:var(--gray-400);font-weight:500;">異常なし</span>';
-    h += '</div>'+_scGo()+'</div>';
-  });
+  // 🌱 新規支援機関（全案件（書類部）の右どなり）＝ 所属機関が NEWORG_MAX_CO 社以下の登録支援機関の進行中案件。判定は _newOrgStats()
+  var _no = _newOrgStats(), _noA = _newOrgActive(_no);
+  if(!_no.ready && !_newOrgLoading) _newOrgLoad(function(){ try{ renderStats(); _renderNewOrgFilterBar(); }catch(e){} });
+  var _noOn = _no.ready && _noA.list.length > 0;   // 全件（完了ふくむ）を読み終わるまでは数えない（完了ずみの所属機関が抜けて、新規でない機関まで入るため）
+  var _noCol = '#059669';
+  h += '<div class="stat-card'+(_noOn?' sc-click':'')+(window._newOrgFilterOn?' active':'')+'"'+(_noOn?' onclick="filterNewOrg()"':'')+' style="'+(_noOn?'border:1.5px solid #6ee7b7;':'')+'" title="所属機関（会社）が'+NEWORG_MAX_CO+'社までの登録支援機関の進行中案件。6社目の依頼が来たら自動で外れます'+(_no.ready?'':'（集計中）')+'">';
+  h += '<div class="sc-lbl" style="color:'+(_noOn?_noCol:'var(--gray-400)')+';">🌱 新規支援機関</div>';
+  if(_noOn){
+    h += '<div class="sc-row">'+_scNum(_noA.list.length, _noCol)+'<span class="sc-sub" style="color:'+_noCol+';">'+_noA.orgs.length+'機関・'+NEWORG_MAX_CO+'社まで</span></div>'+_scGo();
+  } else if(!_no.ready){
+    h += '<div class="sc-row"><span class="sc-sub" style="color:var(--gray-400);font-weight:500;">集計中…</span></div>';
+  } else {
+    h += '<div class="sc-row"><span class="sc-none">✓ 対象なし</span></div>';
+  }
+  h += '</div>';
 
   // 期限まわりのカード（件数があるときだけ押せる）
   function _scAlertCard(atype, label, col, border, list, minVal){
@@ -98302,7 +98445,12 @@ function applyFilters(resetPage) {
               || ((typeof caseNotes!=='undefined' && caseNotes[c.id]) ? _srchNorm(caseNotes[c.id]).includes(_srchNorm(q)) : false)
               || (c.followup_note ? _srchNorm(c.followup_note).includes(_srchNorm(q)) : false));
     });
-    if (sort === 'expire-asc') filtered.sort(function(a,b){ return new Date(a.expire) - new Date(b.expire); });
+    if (window._pendingFilterCaseIds && window._pendingFilterCaseIds.length) {   // ver.20261119.15: 🌱 新規支援機関などで案件IDを指定して絞っているとき
+      var _pfIds = {}; window._pendingFilterCaseIds.forEach(function(id){ _pfIds[id] = 1; });
+      filtered = filtered.filter(function(c){ return !!_pfIds[c.id]; });
+    }
+    if (sort === 'neworg') filtered = _newOrgSortRows(filtered);
+    else if (sort === 'expire-asc') filtered.sort(function(a,b){ return new Date(a.expire) - new Date(b.expire); });
     else if (sort === 'expire-desc') filtered.sort(function(a,b){ return new Date(b.expire) - new Date(a.expire); });
     else if (sort === 'priority') filtered.sort(function(a,b){
       var pa = a.priority != null ? a.priority : 999;
