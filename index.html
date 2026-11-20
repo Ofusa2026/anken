@@ -6807,7 +6807,115 @@ window.addEventListener('unhandledrejection', function(e) {
 // ===== Supabase 設定 =====
 var SUPABASE_URL = 'https://ehwlgbwpycglmopiqyty.supabase.co';
 var SUPABASE_KEY = 'sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
-var OFUSA_VERSION = 'ver.20261120.22';
+// ver.20261120.23: 実費相当の説明のテンプレート（ここから）
+/* ===== 実費相当の説明（支援計画書1-17号）のテンプレート ===== */
+/* 住居形態・月額（家賃／自己所有は算出した月額費用）・入居人数・徴収額から文章を作る。1人当たり＝月額÷人数（円未満切り捨て）。
+   文の形はSaysayの1-17（1_17_en.html の _p17HousingTr）で各言語に自動で訳すので、文言を変えるときは両方そろえること。 */
+function _hcYenJa(n){ n=Math.floor(+n||0); var m=Math.floor(n/10000), r=n%10000, s='';
+  if(m) s+=m+'万';
+  if(r) s+=(r%1000===0) ? (r/1000)+'千' : r.toLocaleString('ja-JP');
+  return (s||'0')+'円'; }
+function _hcNum(x){ x=String(x==null?'':x).replace(/[０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-0xFEE0);}).replace(/[,，\s円]/g,''); return /^\d+$/.test(x)?parseInt(x,10):0; }
+function _hcBuild(o){
+  var type=String(o.type||''), R=_hcNum(o.rent), N=_hcNum(o.n), F=_hcNum(o.fee), C=_hcNum(o.cost), Yr=_hcNum(o.years);
+  if(/借上/.test(type)) type='借上'; else if(/自己所有/.test(type)) type='自己所有'; else return {err:'住居形態（借上／自己所有）を選んでください'};
+  if(type==='自己所有'){   // 自己所有は、建築・購入費用を耐用年数で割って月額を出す（耐用年数などを考えた額にするため）
+    if(!C) return {err:'建築・購入費用を入れてください（概算で大丈夫です）'};
+    if(!Yr) return {err:'耐用年数を選ぶか入れてください'};
+    R=Math.floor(C/(Yr*12));
+    if(!R) return {err:'月額費用が0円になります。建築・購入費用と耐用年数を見直してください'};
+  }
+  if(!R) return {err:'月額家賃を入れてください（予定・概算で大丈夫です）'};
+  if(!N) return {err:'入居人数を入れてください（予定で大丈夫です）'};
+  if(!F) return {rent:R, err:'徴収する額（居住費控除の月額。予定・概算で大丈夫です）を入れてください。居住費を控除しない場合は、この説明は要りません（1-17は「居住費の徴収 無」になります）'};
+  var P=Math.floor(R/N);
+  if(F===Math.ceil(R/N)) P=F;
+  if(F>P) return {rent:R, per:P, err:'徴収額 '+_hcYenJa(F)+' が1人当たり '+_hcYenJa(P)+' を超えています（実費を超える徴収は適正と言えません）。概算で大丈夫なので、徴収額か'+(type==='自己所有'?'費用・耐用年数':'月額')+'を見直してください'};
+  var s1 = type==='自己所有' ? '自己所有の物件で、建築・購入費用'+_hcYenJa(C)+'を耐用年数'+Yr+'年で割った月額費用は'+_hcYenJa(R)+'。' : '月額'+_hcYenJa(R)+'の家賃で借上げの物件。';
+  var s2 = (F===P) ? N+'名入居のため、1人当たり'+_hcYenJa(P)+'は適正。' : N+'名入居で1人当たり'+_hcYenJa(P)+'のところ、'+_hcYenJa(F)+'を徴収し、差額は会社負担のため適正。';
+  var note=String(o.note||'').trim();   // 補足（任意）：文の最後に付ける
+  return {text:s1+s2+note, per:P, type:type, rent:R, n:N, fee:F, cost:C, years:Yr, note:note};
+}
+/* 既にテンプレートで作った文なら、値を読み戻す（作り直し用） */
+function _hcJaYen(s){ s=String(s||'').replace(/[０-９]/g,function(c){return String.fromCharCode(c.charCodeAt(0)-0xFEE0);}).replace(/[,，円\s]/g,'');
+  var m=s.match(/^(?:(\d+)万)?(?:(\d+)千)?(\d+)?$/); if(!m||!(m[1]||m[2]||m[3])) return 0;
+  return (+(m[1]||0))*10000+(+(m[2]||0))*1000+(+(m[3]||0)); }
+function _hcParse(t){
+  /* 戻り値 kind：rent（借上）／own2（自己所有・費用と耐用年数つき）／own（自己所有・前の書き方） */
+  t=String(t||'').trim(); var Y='([0-9０-９万千,，]+円)', o=null, rest='';
+  var heads=[['rent','^月額'+Y+'の家賃で借上げの物件。'],['own2','^自己所有の物件で、建築・購入費用'+Y+'を耐用年数(\\d+)年で割った月額費用は'+Y+'。'],['own','^自己所有の物件で、建築・購入費用と耐用年数から算出した月額費用は'+Y+'。']];
+  for(var i=0;i<heads.length && !o;i++){ var m=t.match(new RegExp(heads[i][1])); if(!m) continue;
+    o={kind:heads[i][0], type:heads[i][0]==='rent'?'借上':'自己所有'};
+    if(o.kind==='own2'){ o.cost=_hcJaYen(m[1]); o.years=+m[2]; o.rent=_hcJaYen(m[3]); } else o.rent=_hcJaYen(m[1]);
+    rest=t.slice(m[0].length); }
+  if(!o) return null;
+  var m2=rest.match(new RegExp('^(\\d+)名入居(?:のため、1人当たり'+Y+'は適正|で1人当たり'+Y+'のところ、'+Y+'を徴収し、差額は会社負担のため適正)。'));
+  if(!m2) return null;
+  o.n=+m2[1]; o.per=_hcJaYen(m2[2]||m2[3]); o.lt=!!m2[4]; o.fee=m2[4]?_hcJaYen(m2[4]):o.per; o.note=rest.slice(m2[0].length);
+  return o;
+}
+/* 画面部品：<details>を開くと、今の入力（住居形態・同居人数・居住費控除・今の説明文）から値を読み込む */
+var _HC_CFG = {};
+function _hcBuilderHtml(key, cfg){
+  _HC_CFG[key]=cfg;
+  var ip='padding:6px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;box-sizing:border-box;width:100%;background:#fff;';
+  var lb='display:block;font-size:10px;font-weight:700;color:#6b7280;margin-bottom:2px;';
+  var on=' oninput="_hcPreview(\''+key+'\')" onchange="_hcPreview(\''+key+'\')"';
+  return '<details id="hcb_'+key+'" ontoggle="if(this.open)_hcFill(\''+key+'\')" style="margin-top:6px;border:1px dashed #93c5fd;border-radius:8px;background:#eff6ff;padding:6px 10px;">'+
+    '<summary style="cursor:pointer;font-size:12px;font-weight:700;color:#1d4ed8;">🧩 テンプレートで作る（金額と人数を入れると文章を自動で作ります）</summary><div style="font-size:10px;color:#6b7280;margin-top:4px;">※ 居住費を給与から控除する（徴収する）場合だけ使います。<b>金額・人数は予定・概算で大丈夫です</b>（決まっていなければ見込みの金額を入れてください）。</div>'+
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;margin-top:8px;">'+
+      '<div><label style="'+lb+'">住居形態</label><select id="hcb_'+key+'_type" style="'+ip+'"'+on+'><option value="借上">借上</option><option value="自己所有">自己所有</option></select></div>'+
+      '<div id="hcb_'+key+'_rentW"><label style="'+lb+'">月額家賃（円）</label><input id="hcb_'+key+'_rent" type="number" min="0" placeholder="例: 92000" style="'+ip+'"'+on+'></div>'+
+      '<div id="hcb_'+key+'_costW" style="display:none;"><label style="'+lb+'">建築・購入費用（円）</label><input id="hcb_'+key+'_cost" type="number" min="0" placeholder="例: 15000000" style="'+ip+'"'+on+'></div>'+
+      '<div id="hcb_'+key+'_yrsW" style="display:none;"><label style="'+lb+'">耐用年数（年）</label><select id="hcb_'+key+'_struct" style="'+ip+'margin-bottom:4px;" onchange="var y=document.getElementById(\'hcb_'+key+'_years\');if(this.value)y.value=this.value;_hcPreview(\''+key+'\')"><option value="">構造から選ぶ（法定耐用年数）</option><option value="22">木造（22年）</option><option value="19">軽量鉄骨・骨格材3mm以下（19年）</option><option value="27">軽量鉄骨・骨格材3mm超4mm以下（27年）</option><option value="34">鉄骨造・骨格材4mm超（34年）</option><option value="47">鉄筋コンクリート造（47年）</option></select><input id="hcb_'+key+'_years" type="number" min="1" placeholder="例: 22（中古は残りの年数）" style="'+ip+'"'+on+'></div>'+
+      '<div><label style="'+lb+'">入居人数（同居人数計）</label><input id="hcb_'+key+'_n" type="number" min="1" value="1" placeholder="例: 4" style="'+ip+'"'+on+'></div>'+
+      '<div><label style="'+lb+'">徴収する額（円/月・1人）</label><input id="hcb_'+key+'_fee" type="number" min="0" placeholder="例: 13000" style="'+ip+'"'+on+'></div>'+
+    '</div>'+
+    '<div style="margin-top:6px;"><label style="'+lb+'">補足（任意・文の最後に付けます。例：光熱費は別途実費。）</label><input id="hcb_'+key+'_note" type="text" placeholder="なければ空欄" style="'+ip+'"'+on+'></div>'+
+    '<div id="hcb_'+key+'_pv" style="margin-top:6px;font-size:12px;line-height:1.6;color:#374151;"></div>'+
+    '<button type="button" onclick="_hcApply(\''+key+'\')" style="margin-top:6px;padding:6px 12px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">↑ 説明文に入れる</button>'+
+    '<span style="font-size:10px;color:#6b7280;margin-left:8px;">住居形態・同居人数も一緒にそろえます。直すときは、ここで直して入れ直すと各言語の訳も合ったままになります</span>'+
+  '</details>';
+}
+/* 住居形態の値（「□自己所有物件　■借り上げ物件」形式／「自己所有」「借上」）→ 借上／自己所有 */
+function _hcOwnOf(v){ v=String(v||''); if(/■/.test(v)) return /■\s*自己所有/.test(v)?'自己所有':'借上'; return /自己所有/.test(v)?'自己所有':'借上'; }
+function _hcEl(id){ return id ? document.getElementById(id) : null; }
+function _hcFill(key){
+  var c=_HC_CFG[key]; if(!c) return; var g=function(s){ return document.getElementById('hcb_'+key+'_'+s); };
+  var d=_hcEl(c.desc), p=_hcParse(d&&d.value), t=_hcEl(c.type), n=_hcEl(c.n), f=_hcEl(c.fee);
+  var tv = c.getType ? c.getType() : ((t&&t.value)||''); g('type').value = p ? p.type : _hcOwnOf(tv);
+  if(p){ g('rent').value=p.rent||''; g('n').value=p.n||''; g('fee').value=p.fee||''; g('note').value=p.note||''; if(p.cost) g('cost').value=p.cost; if(p.years) g('years').value=p.years; }
+  else { g('n').value = (n && _hcNum(n.value)) || _hcNum(g('n').value) || 1; }   // 人数の初期値は1名（住居形態の初期値は借上）
+  if(!g('fee').value && f && _hcNum(f.value)) g('fee').value=_hcNum(f.value);
+  _hcPreview(key);
+  if(f && !_hcNum(f.value)){ var pv=document.getElementById('hcb_'+key+'_pv'); if(pv) pv.innerHTML='<span style="color:#b45309;">⚠ 居住費控除が入っていません。控除しない場合、この説明は要りません。控除する場合は「徴収する額」を入れてください（説明文に入れると居住費控除にも入ります）。</span>'; }
+}
+function _hcRead(key){ var g=function(s){ var e=document.getElementById('hcb_'+key+'_'+s); return e?e.value:''; };
+  return _hcBuild({type:g('type'), rent:g('rent'), n:g('n'), fee:g('fee'), note:g('note'), cost:g('cost'), years:g('years')}); }
+function _hcPreview(key){
+  var ty=document.getElementById('hcb_'+key+'_type'), own=!!(ty && ty.value==='自己所有'), sw=function(s,v){ var e=document.getElementById('hcb_'+key+'_'+s); if(e) e.style.display=v?'':'none'; };
+  sw('rentW',!own); sw('costW',own); sw('yrsW',own);   // 自己所有は「建築・購入費用」と「耐用年数」から月額を出す
+  var r=_hcRead(key), pv=document.getElementById('hcb_'+key+'_pv'); if(!pv) return;
+  var per = (own && r.rent ? '<b>月額費用：'+_hcYenJa(r.rent)+'</b>（費用÷耐用年数÷12か月）　' : '') + ((r.per!=null) ? '<b>1人当たり：'+_hcYenJa(r.per)+'</b>　' : '');
+  pv.innerHTML = r.err ? per+'<span style="color:#b45309;">⚠ '+r.err+'</span>' : per+'<br>📝 '+r.text.replace(/</g,'&lt;');
+}
+function _hcApply(key){
+  var c=_HC_CFG[key], r=_hcRead(key); if(!c) return;
+  if(r.err){ alert(r.err); return; }
+  var d=_hcEl(c.desc);
+  if(d && d.value.trim() && d.value.trim()!==r.text && !_hcParse(d.value) && !confirm('今の説明文を、テンプレートの文に置き換えます。よろしいですか？\n\n今：'+d.value.trim())) return;
+  var fire=function(el){ if(!el) return; ['input','change'].forEach(function(ev){ try{ el.dispatchEvent(new Event(ev,{bubbles:true})); }catch(e){} }); };
+  if(d){ d.value=r.text; fire(d); if(d.tagName==='TEXTAREA'){ try{ d.style.height='auto'; d.style.height=(d.scrollHeight+4)+'px'; }catch(e){} } }   // 文が全部見えるように高さを合わせる
+  var t=_hcEl(c.type), tval = (c.typeFmt==='mark') ? (r.type==='自己所有'?'■自己所有物件　□借り上げ物件':'□自己所有物件　■借り上げ物件') : r.type;
+  if(t){ if(t.tagName==='SELECT'){ var ok=[].some.call(t.options,function(o){return o.value===tval;}); if(ok) t.value=tval; } else t.value=tval; fire(t); }
+  var n=_hcEl(c.n); if(n){ n.value=r.n; fire(n); }
+  var f=_hcEl(c.fee), want=r.fee;
+  if(f && !_hcNum(f.value)){ f.value = c.feeFmt ? Number(want).toLocaleString('ja-JP') : want; fire(f); }
+  else if(f && _hcNum(f.value)!==want){ alert('居住費控除の月額（'+_hcYenJa(_hcNum(f.value))+'）と、この文の徴収額（'+_hcYenJa(want)+'）が違います。どちらかを直してください。'); }
+  if(c.after) try{ c.after(r); }catch(e){}
+}
+// （ここまで）
+var OFUSA_VERSION = 'ver.20261120.23';
 var TOKUREI_CARD_DAYS = 21;   // ver.20261029.08: 期限の「⚖️ 特例期限」のカードと一覧に出す日数はここだけ（14日 → 21日）。起動直後にカードを描くので上に置く
 
 // ver.20260909.01: 「許可された在留期間」の選択肢（1ヶ月刻み・1ヶ月〜5年）＋その他。O-Link新規案件依頼の「現在の在留期間」と値の形式を統一し、intake流し込み値（例：1年6ヶ月）がそのまま一致・表示されるようにする
@@ -10030,6 +10138,7 @@ function _bnavSlotPick(){
   document.body.appendChild(ov);
 }
 var WHATS_NEW = [
+  { version:'ver.20261120.23', date:'2026-11-20', notify:true, part:false, items:['🧩 雇用条件セットの<b>「実費相当説明」（支援計画書1-17号の居住費の説明）を、テンプレートで作れる</b>ようにしました。欄の下の「テンプレートで作る」を開いて、<b>住居形態（借上／自己所有）・月額・入居人数・徴収する額</b>を入れると、<b>1人当たりの額を自動で計算</b>して文章を作ります（例：月額9万2千円の家賃で借上げの物件。4名入居で1人当たり2万3千円のところ、1万3千円を徴収し、差額は会社負担のため適正。）。徴収額が1人当たりの額より多いときは警告します。この文は<b>Saysayの1-17号で12言語に自動で訳されます</b>。','🏠 雇用条件セットの住居（支援計画書用）に<b>「居室 1人当たり7.5㎡以上」「寝室 1人当たり4.5㎡以上」</b>（確保／未確保）を追加。ヒアリングフォームで確認した結果が入ります。空欄は「確保」として1-17号に■が付きます。'] },
   { version:'ver.20261120.22', date:'2026-11-20', notify:true, items:['👁 確認事項のタスク一覧に、入管記録と同じ<b>「確認者で絞る」の名前ボタン</b>を付けました。だれでも選べて、人ごとの件数も出ます（いちばん左は「👤 自分」。もう一度押すと全員に戻ります）。','🧹 絞り込みの帯を整えました。よく使う「確認待ち・急ぎ」「確認待ちだけ」「急ぎだけ」はボタン、件数の多い「依頼・着手中・未着手・全部」は「その他の状態」の欄にまとめました。件数が多いときは200件ずつ出し、「もっと見る」で続きが見られます。'] },
   { version:'ver.20261120.21', date:'2026-11-20', notify:true, items:['✅ 確認事項の<b>タスク一覧の絞り込みを、押すだけのボタンにしました</b>。「確認待ち・急ぎ」「確認待ちだけ」「急ぎだけ」「未着手」「依頼」「着手中」「全部」を押すと切り替わり、それぞれ何件あるかも出ます。','👁 <b>「確認者が自分」</b>を押すと、確認者に自分が入っているタスクだけになります。タスクの種類の欄には件数が出て、0件の種類は出さないようにしました。','📌 絞り込みの帯は一覧の上に貼り付くので、下までスクロールしても切り替えられます。「すべてたたむ／すべて開く」も付けました。'] },
   { version:'ver.20261120.20', date:'2026-11-20', notify:true, items:['📢 強制表示の<b>担当者コメントは「何を」「いつ」を具体的に書いてもらう</b>ようにしました。「対応中」「確認します」だけ・「a」「あ」などの1文字・前回と同じ文では送信できません（欄の下に、何が足りないかが出ます）。','✍️ 書きやすいように、欄の下に<b>例文のボタン</b>（例：企業に◯◯を督促）と<b>「いつ」のボタン</b>（今日中・明日まで・今週中・来週中・日付）を付けました。例文を押すと「◯◯」が選ばれた状態で入るので、そのまま書きかえてください。前回のコメントも欄の下に出ます。'] },
@@ -73841,6 +73950,7 @@ function previewFormResponse(responseId, formType, idPrefix) {
       sections.push({ title:'控除', fields:[
         { k:'deductTax', l:'税金（円）' }, { k:'deductSocial', l:'社会保険料（円）' }, { k:'deductEmployment', l:'雇用保険料（円）' },
         { k:'housingOwnership', l:'住居形態' }, { k:'cohabitants', l:'同居人数' }, { k:'actualCostDesc', l:'実費相当の説明' },
+        { k:'roomArea75', l:'居室 1人当たり7.5㎡以上' }, { k:'bedroomArea45', l:'寝室 1人当たり4.5㎡以上' },   // ver.20261120.23
         { k:'housingProvided', l:'居住費徴収' }, { k:'deductHousing', l:'居住費控除（円）' }, { k:'housingDetail', l:'居住費説明' },
         { k:'foodProvided', l:'食費徴収' }, { k:'deductFood', l:'食費控除（円）' }, { k:'foodDetail', l:'食費説明' },
         { k:'deductUtility', l:'水道光熱費（円）' }, { k:'deductOther1Name', l:'その他控除名目' }, { k:'deductOther1Amount', l:'その他控除金額' }
@@ -74187,7 +74297,7 @@ function importFormResponse(responseId, caseId, formType) {
           'jobDescription',
           'jpCompAllow1Name','jpCompAllow1Amt','jpCompAllow2Name','jpCompAllow2Amt',
           'jpCompAllow3Name','jpCompAllow3Amt','salaryRuleApply',
-          'housingOwnership','cohabitants','actualCostDesc','resignNoticeDays',   // ver.20261015.28: 自己都合退職 何日前までに申し出るか（フォーム ver.20261015.04〜）
+          'housingOwnership','cohabitants','actualCostDesc','roomArea75','bedroomArea45','resignNoticeDays',   // ver.20261015.28: 自己都合退職 何日前までに申し出るか（フォーム ver.20261015.04〜）
           'jpCompJobDesc','jpCompAge','jpCompGender','jpCompExp','jpCompSalary',
           'jpCompAllow1Name','jpCompAllow1Amt','jpCompAllow2Name','jpCompAllow2Amt',
           'jpCompAllow3Name','jpCompAllow3Amt',
@@ -89106,7 +89216,9 @@ var EMP_SET_FIELDS = [
   {section:'住居（支援計画書用）', fields:[
     {k:'cohabitants',l:'同居人数',ph:'例: 3',type:'number'},
     {k:'housingOwnership',l:'自己所有/借上',ph:'自己所有 or 借上'},
-    {k:'actualCostDesc',l:'実費相当説明',ph:'',wide:true}
+    {k:'roomArea75',l:'居室 1人当たり7.5㎡以上',type:'select',opts:['','確保','未確保']},   // ver.20261120.23: 空欄は「確保」扱い（1-17で■）
+    {k:'bedroomArea45',l:'寝室 1人当たり4.5㎡以上',type:'select',opts:['','確保','未確保']},
+    {k:'actualCostDesc',l:'実費相当説明',ph:'例: 月額9万2千円の家賃で借上げの物件。4名入居のため、1人当たり2万3千円は適正。（下の「🧩 テンプレートで作る」で自動作成）',wide:true}
   ]},
   {section:'就業区分（書類生成用）', fields:[
     {k:'applicantField',l:'申請人分野',type:'fieldSelect',uiOnly:true},
@@ -89679,6 +89791,8 @@ function editEmpSet(coId, idx) {
         h += '>';
       } else if (f.wide) {
         h += '<textarea id="esf_' + f.k + '" placeholder="' + f.ph + '" rows="2" style="width:100%;padding:7px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;resize:vertical;box-sizing:border-box;' + phStyle + '">' + (es[f.k] || '') + '</textarea>';
+        // ver.20261120.23: 実費相当説明はテンプレートで作れる（住居形態・月額・人数・徴収額 → 文章。1人当たりは自動計算）
+        if (f.k === 'actualCostDesc' && typeof _hcBuilderHtml === 'function') h += _hcBuilderHtml('es', {desc:'esf_actualCostDesc', type:'esf_housingOwnership', n:'esf_cohabitants', fee:'esf_deductHousing', typeFmt:'mark'});
       } else {
         h += '<input id="esf_' + f.k + '" type="' + (f.type || 'text') + '" value="' + val + '" placeholder="' + f.ph + '"' + (f.readOnly?' readonly style="width:100%;padding:7px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;box-sizing:border-box;background:#f3f4f6;color:#6b7280;"':' style="width:100%;padding:7px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:12px;box-sizing:border-box;' + phStyle + '"') + '>';
       }
@@ -165698,7 +165812,7 @@ function checkEmpHearingResponses(coId, idx) {
         'healthCheckM':'健康診断 受診月', 'healthCheckY':'健康診断 受診年', 'healthInsurance':'健康保険', 'holiday':'休日',
         'holidayOther':'休日 その他', 'holidayRateLegal':'法定休日（35%以上）', 'holidayRateNon':'法定外休日（25%以上）', 'holidayType':'休日の種類',
         'hourlyPay':'時間給（円）', 'hourlyRate':'時間外賃金', 'housingDetail':'居住費 適正額の説明', 'housingFee':'居住費控除 月額（円）',
-        'housingOwnership':'自己所有/借上', 'housingProvided':'居住費徴収の有無', 'id':'案件ID', 'insEmp':'雇用保険 加入',
+        'housingOwnership':'自己所有/借上', 'roomArea75':'居室 1人当たり7.5㎡以上', 'bedroomArea45':'寝室 1人当たり4.5㎡以上', 'housingProvided':'居住費徴収の有無', 'id':'案件ID', 'insEmp':'雇用保険 加入',
         'insKenpo':'健康保険 加入', 'insLabor':'労災保険 加入', 'insPension':'厚生年金 加入', 'insurance':'社会保険',
         'introFee':'人材紹介料（税抜）', 'jidou':'自動更新', 'jobCategory':'業務区分', 'jobCategoryEn':'業務区分（翻訳）',
         'jobDescription':'業務内容', 'jpCompAge':'年齢', 'jpCompAllow1Amt':'手当①金額（円）', 'jpCompAllow1Name':'手当①名称',
