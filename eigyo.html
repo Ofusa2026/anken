@@ -344,7 +344,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261119.02</div>
+      <div class="ver">ver.20261120.01</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -3844,7 +3844,7 @@ function matDelete(id, path, scope){
 }
 function _matItem(m, deletable){
   return '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:6px;padding:5px 8px;margin-bottom:4px;">'
-    + '<span style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(m.path?'📄':'🔗')+' '+esc(m.name)+(m.scope==='common'?' <span style="font-size:10px;color:#805ad5;">[共通]</span>':'')+'</span>'
+    + '<span style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(m.path?'📄':'🔗')+' '+esc(m.label||m.name)+(m.label?' <span style="font-size:10px;color:#718096;">（御礼文：'+esc(m.name)+'）</span>':'')+(m.scope==='common'?' <span style="font-size:10px;color:#805ad5;">[共通]</span>':'')+'</span>'
     + '<span style="white-space:nowrap;">'
     + (m.url?'<a class="btn btn-sm" href="'+esc(m.url)+'" target="_blank"'+(m.path?' download':'')+'>開く</a>':'')
     + (deletable?' <button class="btn btn-sm" style="color:#c53030;" onclick="matDelete('+m.id+','+(m.path?('\''+esc(m.path)+'\''):'null')+',\''+esc(m.scope)+'\')">削除</button>':'')
@@ -3854,6 +3854,8 @@ var _commonMats=[];
 function loadCommonMatsCache(){
   _sb.from('eigyo_materials').select('id,name,url,category').eq('scope','common').order('category',{ascending:true}).order('created_at',{ascending:true}).then(function(r){ _commonMats=(r.data)||[]; });
 }
+var PROP_CAT='個別ご提案資料';
+function matPropOnly(cb){ if(!cb.checked) return; document.querySelectorAll('.matprop').forEach(function(x){ if(x!==cb) x.checked=false; }); }
 function loadMaterials(regNo){
   var box=el('matList'); if(!box) return;
   _sb.from('eigyo_materials').select('*').or('scope.eq.common,reg_no.eq.'+regNo).order('scope',{ascending:true}).order('created_at',{ascending:true}).then(function(r){
@@ -3878,15 +3880,18 @@ function loadMaterials(regNo){
     }
     if(common.length){
       var groups={}; common.forEach(function(m){ var c=m.category||'共通資料'; (groups[c]=groups[c]||[]).push(m); });
+      // ver.20261120.01: 個別ご提案資料は3パターン。グループを先頭に出し、使った資料を1つだけ選ぶ（初回商談用を初期チェック）
+      var gkeys=Object.keys(groups).sort(function(a,b){ return (b===PROP_CAT?1:0)-(a===PROP_CAT?1:0); });
       h+='<div style="border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin-bottom:6px;text-align:left;">';
-      Object.keys(groups).forEach(function(c){
-        h+='<div style="font-size:11px;font-weight:700;color:#6b46c1;margin:2px 0;">'+esc(c)+'</div>';
-        h+='<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px;">';
-        h+=groups[c].map(function(m){
-          var checked=(c==='共通資料' && !(hasOwnPrice && String(m.name).indexOf('料金表')>=0))?' checked':'';
+      gkeys.forEach(function(c){
+        var isProp=(c===PROP_CAT);
+        h+='<div style="font-size:11px;font-weight:700;color:#6b46c1;margin:2px 0;">'+esc(c)+(isProp?' <span style="font-weight:400;color:#c05621;">← 商談で使った資料を1つ選ぶ</span>':'')+'</div>';
+        h+='<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px;'+(isProp?'background:#faf5ff;':'')+'">';
+        h+=groups[c].map(function(m,gi){
+          var checked=isProp ? (gi===0?' checked':'') : ((c==='共通資料' && !(hasOwnPrice && String(m.name).indexOf('料金表')>=0))?' checked':'');
           return '<tr>'
-            + '<td style="width:22px;vertical-align:top;padding:2px 0;"><input type="checkbox" class="matpick" value="'+m.id+'" data-name="'+esc(m.name)+'" data-url="'+esc(m.url||'')+'"'+checked+' style="width:15px;height:15px;padding:0;margin:0;"></td>'
-            + '<td style="vertical-align:top;padding:2px 4px;word-break:break-word;">'+esc(m.name)+'</td>'
+            + '<td style="width:22px;vertical-align:top;padding:2px 0;"><input type="checkbox" class="matpick'+(isProp?' matprop':'')+'" value="'+m.id+'" data-name="'+esc(m.name)+'" data-url="'+esc(m.url||'')+'"'+checked+(isProp?' onchange="matPropOnly(this)"':'')+' style="width:15px;height:15px;padding:0;margin:0;"></td>'
+            + '<td style="vertical-align:top;padding:2px 4px;word-break:break-word;">'+esc(m.label||m.name)+'</td>'
             + '<td style="width:34px;vertical-align:top;padding:2px 0;text-align:right;">'+(m.url?'<a href="'+esc(m.url)+'" target="_blank" style="font-size:10px;">開く</a>':'')+'</td>'
             + '</tr>';
         }).join('');
