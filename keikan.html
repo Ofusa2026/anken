@@ -141,13 +141,13 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto
       <a href="./index.html">📋 案シス（案件管理）</a>
       <a href="./eigyo.html">🤝 営シス（営業管理）</a>
     </nav>
-    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261105.06</span></div>
+    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261124.02</span></div>
   </aside>
   <main class="kk-main" id="kkMain"><div style="padding:60px;text-align:center;color:#94a3b8;">読み込み中…</div></main>
 </div>
 <div id="toast"></div>
 <script>
-var OFUSA_VERSION='ver.20261105.06';
+var OFUSA_VERSION='ver.20261124.02';
 var SUPABASE_URL='https://ehwlgbwpycglmopiqyty.supabase.co', SUPABASE_KEY='sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}, global:{headers:{'x-ofusa-user':encodeURIComponent((function(){ try{ return localStorage.getItem('ofusa_currentUser')||''; }catch(e){ return ''; } })())}, fetch:__ofusaAuthFetch}}); window.__ofusaSb=_sb;   // ver.20261103.01: ログインしていないときはDBに出さない
 var DB_READY=true;
@@ -877,7 +877,7 @@ function _skRmOf(R){
   var all=_skRp.plan||{}, p=all.roadmap;
   if(!p){ var names=_shienAllStaffNames(); p={members:_SKRP_DEF_MEMBERS.map(function(k){ var hit=names.filter(function(n){ return _skRpN(n).indexOf(k)===0; })[0]; return hit||k; }),
     std:100, auto:true, hires:[], caps:[], items:[], base:null, baseGrowth:0, baseUnit:null, goal:{year:2029, apps:40000}, start:String(+R.Y+1)+'-01', _new:true}; }
-  ['hires','caps','items'].forEach(function(k){ p[k]=p[k]||[]; });
+  ['hires','caps','items','leaves'].forEach(function(k){ p[k]=p[k]||[]; });   // ver.20261124.01: leaves＝休み（産休・育休など）{name, ym:から, end:まで（空＝未定）}
   // ver.20261030.06: 決まっている入社（年内に山内・細川が加わる）。まだ計画を保存していないときの最初の形
   if(!p.joins){ var nm=_shienAllStaffNames(), f=function(k){ return nm.filter(function(n){ return _skRpN(n).indexOf(k)===0; })[0]||k; };
     p.joins=[{name:f('山内'), ym:'2026-11'},{name:f('細川'), ym:'2026-12'}];   // 山内は2026/11/1入社
@@ -906,6 +906,7 @@ function _skRmSet(path, v){
     else if(path.indexOf('member-:')===0){ var m2=path.slice(8); p.members=p.members.filter(function(x){ return x!==m2; }); }
     else if(path.indexOf('add:')===0){ var k=path.slice(4), ym=p.start||(String(+R.Y+1)+'-04');
       if(k==='joins'){ p.joins=p.joins||[]; p.joins.push({name:'', ym:ym}); }
+      else if(k==='leaves'){ p.leaves=p.leaves||[]; p.leaves.push({name:'', ym:ym, end:''}); }
       else if(k==='hires') p.hires.push({ym:ym, n:1, note:''}); else if(k==='caps') p.caps.push({ym:ym, std:p.std});
       else if(k==='roles') p.roles.push({key:'r'+Date.now(), name:'新しい役割', rule:'fixed', fixed:{}, cost:300000});
       else p.items.push({name:'', ym:ym, n:30, mode:'flat', kind:'認定・変更', price:null, end:''}); }
@@ -958,6 +959,7 @@ function _skRmCalc(R, p){
     var capOf=function(T){ var L=play?Math.ceil(T/(lPer+1)):0; return {L:L, m:T-L, cap:(T-L)*(std||100)+L*lStd}; };
     var need=0; while(capOf(need).cap<demand && need<1000) need++;
     var memAt=p.members.length; (p.joins||[]).forEach(function(j){ if(j.ym && j.ym<=ym) memAt++; });   // 今のメンバー＋決まっている入社
+    (p.leaves||[]).forEach(function(l){ if(l.ym && l.ym<=ym && (!l.end || ym<=l.end)) memAt--; });   // ver.20261124.01: 休み（産休・育休など）の間はいない
     var manual=memAt; p.hires.forEach(function(h){ if(h.ym && h.ym<=ym) manual+=(+h.n||0); });
     var staff=p.auto?Math.max(need, memAt):manual, cc=capOf(staff), cap=cc.cap, apps=Math.min(demand,cap), ratio=demand?apps/demand:0;
     // 組織（役割ごとの人数と人件費）
@@ -1073,6 +1075,53 @@ function _skRmPageHtml(R){
   h+='<tr class="tot grp"><td class="l" style="padding-left:16px;">合計</td><td></td><td></td><td></td>'+Ys.map(function(y,j){ return '<td'+(j===0?' class="dv"':'')+'>'+C.years[y].headEnd+'名</td>'; }).join('')+'<td class="dv"></td><td></td></tr>'
     +'<tr class="sub"><td class="l" style="padding-left:16px;">人件費（年間）</td><td></td><td></td><td></td>'+Ys.map(function(y,j){ return '<td'+(j===0?' class="dv"':'')+'>'+_skRpMan(C.years[y].cost,0)+'万円</td>'; }).join('')+'<td class="dv"></td><td></td></tr>';
   h+='</tbody></table></div><div style="display:flex;gap:12px;"><button class="skp-add" onclick="_skRmSet(\'add:roles\')">＋ 役割を追加</button><button class="skp-add" style="color:#94a3b8;" onclick="if(confirm(\'役割を最初の設定に戻しますか？\'))_skRmSet(\'resetRoles\')">最初の設定に戻す</button></div>';
+  // ver.20261124.01: 👥 人数の過不足（月ごと）— 必要な人数に対して、いる人数（今のメンバー＋入社予定－休み）が足りているか
+  //   ver.20261124.02: 「リアル見込み」（今の申請＝直近3か月の平均＋営シスの見込み〔決まりそう・始まったばかりの先、確度で重みづけ〕＋③の上乗せ）と「ゴール計画」の2本で見る。今月から24か月
+  (function(){
+    var jmm=function(ym){ return ym.slice(0,4)+'年'+(+ym.slice(5))+'月'; };
+    var lead=(p.lead!=null&&p.lead!=='')?+p.lead:3, nowYm=new Date(Date.now()+9*3600000).toISOString().slice(0,7), addM=function(ym,k){ var y=+ym.slice(0,4), m=+ym.slice(5)+k; while(m<1){ m+=12; y--; } while(m>12){ m-=12; y++; } return y+'-'+String(m).padStart(2,'0'); };
+    var MS=[]; for(var k=0;k<24;k++) MS.push(addM(nowYm,k));
+    var leadR=p.roles.filter(function(r){ return r.key==='lead'; })[0], play=!!(leadR && leadR.rule!=='fixed'), lPer=(leadR&&leadR.per)?+leadR.per:5, lStd=(leadR&&leadR.lstd!=null&&leadR.lstd!=='')?+leadR.lstd:50;
+    var stdAt=function(ym){ var sd=+p.std||100; p.caps.slice().sort(function(a,b){ return String(a.ym).localeCompare(String(b.ym)); }).forEach(function(c){ if(c.ym && c.ym<=ym && c.std!=null) sd=+c.std; }); return sd; };
+    var needOf=function(d,sd){ var T=0; while(T<1000){ var L=play?Math.ceil(T/(lPer+1)):0; if((T-L)*sd+L*lStd>=d) break; T++; } return T; };
+    var memOf=function(ym){ var n=p.members.length; (p.joins||[]).forEach(function(j){ if(j.ym && j.ym<=ym) n++; }); (p.leaves||[]).forEach(function(l){ if(l.ym && l.ym<=ym && (!l.end || ym<=l.end)) n--; }); return n; };
+    var base=C.base, EIG=_skRmEigList(), Y0=+nowYm.slice(0,4);
+    // 既存の伸び（経管の「既存の伸び」＝年15%が基本。月ごとになだらかに）
+    var gr=(typeof kkGrowth==='function')?kkGrowth():15;
+    var rows=MS.map(function(ym,k){ var sd=stdAt(ym), b=base*Math.pow(1+gr/100, k/12), add=0, eig=0;
+      p.items.forEach(function(it){ add+=_skRmItemN(it,ym)||0; }); EIG.forEach(function(e){ if(e.ym<=ym) eig+=e.wn; });
+      var dR=b+eig+add, g=C.rows.filter(function(x){ return x.ym===ym; })[0];
+      return {ym:ym, base:b, eig:eig, add:add, dR:dR, needR:needOf(dR,sd), needG:g?g.need:null, dG:g?g.demand:null, mem:memOf(ym)}; });
+    var ev={}; var addEv=function(ym,t){ (ev[ym]=ev[ym]||[]).push(t); };
+    (p.joins||[]).forEach(function(j){ if(j.name&&j.ym) addEv(j.ym,'<span style="color:#15803d;">🆕 '+esc(j.name)+' 入社</span>'); });
+    (p.leaves||[]).forEach(function(l){ if(!l.name||!l.ym) return; addEv(l.ym,'<span style="color:#be185d;">🍼 '+esc(l.name)+' 休み'+(l.end?'（〜'+(+l.end.slice(5))+'月）':'（復帰未定）')+'</span>');
+      if(l.end) addEv(addM(l.end,1),'<span style="color:#1d4ed8;">↩ '+esc(l.name)+' 復帰</span>'); });
+    var cl='padding:5px 6px;text-align:center;font-size:12px;border-bottom:1px solid #f1f5f9;white-space:nowrap;', lc=cl+'text-align:left;font-weight:700;position:sticky;left:0;background:#fff;';
+    var badge=function(d){ if(d==null) return '<span style="color:#cbd5e1;">—</span>'; return '<span style="display:inline-block;min-width:34px;padding:2px 6px;border-radius:6px;font-weight:900;'+(d<0?'background:#fee2e2;color:#b91c1c;':d===0?'background:#fef9c3;color:#a16207;':'background:#dcfce7;color:#15803d;')+'">'+(d>0?'+':'')+d+'</span>'; };
+    var banner=function(label, list, getNeed, col){ var sh=list.filter(function(r){ var n=getNeed(r); return n!=null && r.mem<n; }), f=sh[0];
+      if(!f) return '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:9px;padding:7px 12px;margin-bottom:6px;font-size:13px;color:#166534;font-weight:800;">'+label+'：✓ この先24か月は、いまの人数と入社予定で足りています</div>';
+      var w=sh.slice().sort(function(a,b){ return (a.mem-getNeed(a))-(b.mem-getNeed(b)); })[0], st0=addM(f.ym,-lead);
+      return '<div style="background:'+col[0]+';border:1px solid '+col[1]+';border-radius:9px;padding:7px 12px;margin-bottom:6px;font-size:13px;color:'+col[2]+';font-weight:800;">'+label+'：⚠️ '+jmm(f.ym)+'から足りなくなります（'+(getNeed(f)-f.mem)+'名不足）。採用は '+jmm(st0)+' までに始める'+(st0<nowYm?'（もう過ぎています）':'')+'。<span style="font-weight:600;">一番足りない月 '+jmm(w.ym)+'（'+(getNeed(w)-w.mem)+'名不足）</span></div>'; };
+    h+='<div class="skrp-sec">👥 人数の過不足（月ごと）<span>いる人数（今のメンバー＋入社予定－休み）で、リアル見込みとゴール計画のそれぞれに足りるか</span></div><div class="skp-auto" style="display:block;">';
+    h+=banner('🔎 リアル見込み', rows, function(r){ return r.needR; }, ['#fef2f2','#fecaca','#991b1b'])
+      +banner('🎯 ゴール計画（'+p.goal.year+'年に年'+n0(p.goal.apps)+'件）', rows, function(r){ return r.needG; }, ['#fff7ed','#fed7aa','#9a3412']);
+    // リアル見込みの中身（営シスの見込み・上乗せ）
+    var eigL=EIG.slice().sort(function(a,b){ return a.ym.localeCompare(b.ym) || b.wn-a.wn; });
+    h+='<details style="margin:4px 0 8px;"><summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:#1d4ed8;">🔎 リアル見込みの中身：今の申請 月'+n0(base)+'件（直近3か月の平均・年'+gr+'%で伸びる）＋営シスの見込み '+eigL.length+'社'+(p.items.length?'＋上乗せ '+p.items.length+'件':'')+'</summary>'
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">'+eigL.map(function(e){ return '<span style="font-size:12px;padding:3px 10px;border:1px solid #c7d2fe;background:#eef2ff;border-radius:999px;white-space:nowrap;"><b>'+esc(String(e.name).replace(/株式会社|協同組合|一般社団法人|有限会社/g,''))+'</b> '+(+e.ym.slice(5))+'月〜 月'+e.n+'件'+(e.w<1?' ×'+Math.round(e.w*100)+'%':'')+' <span style="color:#64748b;">'+esc(e.st)+'</span></span>'; }).join('')
+      +p.items.filter(function(it){ return it.name||it.n; }).map(function(it){ return '<span style="font-size:12px;padding:3px 10px;border:1px solid #99f6e4;background:#f0fdfa;border-radius:999px;white-space:nowrap;"><b>'+esc(it.name||'上乗せ')+'</b> '+(it.ym?(+it.ym.slice(5))+'月〜':'')+' 月'+it.n+'件'+(it.mode==='ramp'?'ずつ増':'')+'</span>'; }).join('')+'</div>'
+      +'<div class="skp-note" style="margin:4px 0 0;">営シスの見込みは「依頼開始見込み」と「月の申請件数」から。依頼待ち・取引中は100%、それ以外は確度（なければ 結果待ち50%・商談予定30%・ほか10%）で重みづけ。直すときは営シスの「🧭 パイプライン」で。営シスにない増え方（例：既存の取引先が増えそう）は下の③「上乗せ」で入れられます。</div></details>';
+    var evs=Object.keys(ev).sort(); if(evs.length) h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:12.5px;">'+evs.map(function(ym){ return '<span style="padding:4px 10px;border:1px solid #e2e8f0;border-radius:999px;background:#fff;"><b>'+jmm(ym)+'</b> '+ev[ym].join('・')+' → <b>'+memOf(ym)+'名</b></span>'; }).join('')+'</div>';
+    h+='<div style="overflow:auto;"><table style="border-collapse:collapse;min-width:100%;"><thead><tr><th style="'+lc+'color:#475569;">月</th>'+rows.map(function(r,i){ return '<th style="'+cl+'color:#475569;">'+(i===0||+r.ym.slice(5)===1?r.ym.slice(2,4)+'/':'')+(+r.ym.slice(5))+'月'+(ev[r.ym]?'<div style="font-size:11px;">'+ev[r.ym].map(function(t){ return t.indexOf('🆕')>=0?'🆕':t.indexOf('🍼')>=0?'🍼':'↩'; }).join('')+'</div>':'')+'</th>'; }).join('')+'</tr></thead><tbody>'
+      +'<tr><td style="'+lc+'">いる人数</td>'+rows.map(function(r,i){ var d=i>0?r.mem-rows[i-1].mem:0; return '<td style="'+cl+'font-weight:900;font-size:13px;">'+r.mem+(d?'<span style="font-size:10px;color:'+(d>0?'#15803d':'#be185d')+';">'+(d>0?'+':'')+d+'</span>':'')+'</td>'; }).join('')+'</tr>'
+      +'<tr style="background:#f8fafc;"><td style="'+lc+'background:#f8fafc;color:#1e3a8a;">🔎 リアル見込み（月）</td>'+rows.map(function(r){ return '<td style="'+cl+'color:#1e3a8a;" title="今 '+n0(r.base)+'＋営シス '+n0(r.eig)+(r.add?'＋上乗せ '+n0(r.add):'')+'">'+n0(r.dR)+'</td>'; }).join('')+'</tr>'
+      +'<tr style="background:#f8fafc;"><td style="'+lc+'background:#f8fafc;color:#1e3a8a;">　必要な人数</td>'+rows.map(function(r){ return '<td style="'+cl+'font-weight:800;color:#1e3a8a;">'+r.needR+'</td>'; }).join('')+'</tr>'
+      +'<tr style="background:#f8fafc;"><td style="'+lc+'background:#f8fafc;color:#1e3a8a;">　過不足</td>'+rows.map(function(r){ return '<td style="'+cl+'">'+badge(r.mem-r.needR)+'</td>'; }).join('')+'</tr>'
+      +'<tr><td style="'+lc+'color:#9a3412;">🎯 ゴール計画（月）</td>'+rows.map(function(r){ return '<td style="'+cl+'color:#9a3412;">'+(r.dG!=null?n0(r.dG):'<span style="color:#cbd5e1;">—</span>')+'</td>'; }).join('')+'</tr>'
+      +'<tr><td style="'+lc+'color:#9a3412;">　必要な人数</td>'+rows.map(function(r){ return '<td style="'+cl+'font-weight:800;color:#9a3412;">'+(r.needG!=null?r.needG:'<span style="color:#cbd5e1;">—</span>')+'</td>'; }).join('')+'</tr>'
+      +'<tr><td style="'+lc+'color:#9a3412;">　過不足</td>'+rows.map(function(r){ return '<td style="'+cl+'">'+badge(r.needG!=null?r.mem-r.needG:null)+'</td>'; }).join('')+'</tr>'
+      +'</tbody></table></div><div class="skp-note" style="margin:4px 0 0;">過不足：緑＝余裕・黄＝ちょうど・赤＝足りない。リアル見込み＝今の申請（直近3か月の平均・既存は年'+gr+'%で伸びる）＋営シスの見込み＋③の上乗せ。ゴール計画は'+jmm(C.M[0])+'から。入社予定と休み（産休・育休など）は下の「① 人員」で入れられます。</div></div>';
+  })();
   // 採用計画（申請担当の月ごとの増員）
   h+='<div class="skrp-sec">採用計画（申請担当）<span>'+(p.auto?'必要人数で自動：需要÷1人あたり件数。月ごとに何名増えるか':'手で入れた採用')+'</span></div>';
   // 採用＝決まっている入社（joins）では足りない分。prevH＝その月までに必要な採用の累計
@@ -1131,6 +1180,14 @@ function _skRmPageHtml(R){
     +'<div style="margin:0 0 8px;"><div style="font-size:12.5px;font-weight:800;margin-bottom:4px;">🆕 決まっている入社（これから加わる人）</div>'
       +(p.joins||[]).map(function(j,i){ return '<div style="display:flex;gap:8px;align-items:center;margin:3px 0;"><input value="'+esc(j.name||'')+'" placeholder="名前" style="width:140px;" onchange="_skRmSet(\'joins.'+i+'.name\',this.value)"><select onchange="_skRmSet(\'joins.'+i+'.ym\',this.value)">'+((j.ym&&C.M.indexOf(j.ym)<0)?'<option value="'+j.ym+'" selected>'+j.ym.slice(0,4)+'年'+(+j.ym.slice(5))+'月</option>':'')+monthsOpt(j.ym)+'</select><span>から</span><button class="skp-del" onclick="_skRmSet(\'del:joins.'+i+'\')">✕</button></div>'; }).join('')
       +'<button class="skp-add" onclick="_skRmSet(\'add:joins\')">＋ 入社する人を追加</button></div>'
+    // ver.20261124.01: 休み（産休・育休・長期休みなど）。その間は人数から外して計算する
+    +'<div style="margin:0 0 8px;"><div style="font-size:12.5px;font-weight:800;margin-bottom:4px;">🍼 休み（産休・育休など。その間は人数から外します）</div>'
+      +(p.leaves||[]).map(function(l,i){ var nm=p.members.concat((p.joins||[]).map(function(j){ return j.name; })).filter(Boolean);
+        return '<div style="display:flex;gap:8px;align-items:center;margin:3px 0;flex-wrap:wrap;"><select onchange="_skRmSet(\'leaves.'+i+'.name\',this.value)"><option value="">（名前）</option>'+nm.map(function(n){ return '<option'+(n===l.name?' selected':'')+'>'+esc(n)+'</option>'; }).join('')+(l.name&&nm.indexOf(l.name)<0?'<option selected>'+esc(l.name)+'</option>':'')+'</select>'
+          +'<select onchange="_skRmSet(\'leaves.'+i+'.ym\',this.value)">'+((l.ym&&C.M.indexOf(l.ym)<0)?'<option value="'+l.ym+'" selected>'+l.ym.slice(0,4)+'年'+(+l.ym.slice(5))+'月</option>':'')+monthsOpt(l.ym)+'</select><span>から</span>'
+          +'<select onchange="_skRmSet(\'leaves.'+i+'.end\',this.value)"><option value=""'+(l.end?'':' selected')+'>未定</option>'+monthsOpt(l.end||'__')+'</select><span>まで</span>'
+          +'<button class="skp-del" onclick="_skRmSet(\'del:leaves.'+i+'\')">✕</button></div>'; }).join('')
+      +'<button class="skp-add" onclick="_skRmSet(\'add:leaves\')">＋ 休みを追加</button></div>'
     +'<div style="display:flex;gap:16px;align-items:center;margin-bottom:6px;"><label style="cursor:pointer;"><input type="radio" name="skrmAuto" '+(p.auto?'checked':'')+' onchange="_skRmSet(\'auto\',true)"> 必要人数で自動（需要÷'+std+'件）</label><label style="cursor:pointer;"><input type="radio" name="skrmAuto" '+(!p.auto?'checked':'')+' onchange="_skRmSet(\'auto\',false)"> 採用を手で入れる</label></div>'
     +(!p.auto?p.hires.map(function(x,i){ return '<div style="display:flex;gap:8px;align-items:center;margin:4px 0;"><select onchange="_skRmSet(\'hires.'+i+'.ym\',this.value)">'+monthsOpt(x.ym)+'</select><span>から</span><input type="number" value="'+(x.n!=null?x.n:'')+'" style="width:60px;text-align:right;" onchange="_skRmSet(\'hires.'+i+'.n\',this.value)"><span>名</span><input value="'+esc(x.note||'')+'" placeholder="メモ（例：新卒2名）" style="flex:1;max-width:280px;" onchange="_skRmSet(\'hires.'+i+'.note\',this.value)"><button class="skp-del" onclick="_skRmSet(\'del:hires.'+i+'\')">✕</button></div>'; }).join('')+'<button class="skp-add" onclick="_skRmSet(\'add:hires\')">＋ 採用を追加</button>':'')
     +'</div>';
