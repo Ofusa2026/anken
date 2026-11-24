@@ -131,6 +131,7 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto
       <a data-p="budget" onclick="kkGo('budget')">📝 機関別の依頼予算</a>
       <a data-p="perf" onclick="kkGo('perf')">👤 担当者別（査定）</a>
       <a data-p="rankpt" onclick="kkGo('rankpt')">🏆 担当者パフォーマンス</a>
+      <a data-p="hyoka" onclick="kkGo('hyoka')">📝 評価（40／30／30）</a>
       <div class="sep">計画</div>
       <a data-p="roadmap" onclick="kkGo('roadmap')">🗺 ロードマップ・人員・組織</a>
       <a data-p="sales" onclick="kkGo('sales')">🤝 営業計画（営シス連携）</a>
@@ -141,13 +142,13 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto
       <a href="./index.html">📋 案シス（案件管理）</a>
       <a href="./eigyo.html">🤝 営シス（営業管理）</a>
     </nav>
-    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261124.04</span></div>
+    <div class="kk-user">👤 <span id="kkUser"></span><br><span id="kkVer">ver.20261124.05</span></div>
   </aside>
   <main class="kk-main" id="kkMain"><div style="padding:60px;text-align:center;color:#94a3b8;">読み込み中…</div></main>
 </div>
 <div id="toast"></div>
 <script>
-var OFUSA_VERSION='ver.20261124.04';
+var OFUSA_VERSION='ver.20261124.05';
 var SUPABASE_URL='https://ehwlgbwpycglmopiqyty.supabase.co', SUPABASE_KEY='sb_publishable_3ptyILIpGIcNA5sUBhFMbA_n0VxpY2u';
 var _sb=window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}, global:{headers:{'x-ofusa-user':encodeURIComponent((function(){ try{ return localStorage.getItem('ofusa_currentUser')||''; }catch(e){ return ''; } })())}, fetch:__ofusaAuthFetch}}); window.__ofusaSb=_sb;   // ver.20261103.01: ログインしていないときはDBに出さない
 var DB_READY=true;
@@ -1506,7 +1507,7 @@ function kkRender(){
   if(!_skIsKanribu()){ el.innerHTML='<div class="kk-card" style="padding:30px;">このページは管理部（町田・中林・大房・亀谷・宮澤）だけが見られます。<br><span style="color:#94a3b8;font-size:12px;">案シスで管理部の名前でログインしてから開いてください（今の名前：'+_skEsc(currentUser||'未設定')+'）。</span></div>'; return; }
   _skPlanStyle(); _skRpStyle();
   var P=KK.page, Y=_skPerf.year, h='';
-  var title={home:'🏠 総合',mbr:'📋 月次経営報告（社長・経営陣向け）',kettei:'🔎 決定報告（LINE）と案シスの突き合わせ',result:'📊 件数・売上（Result）',budget:'📝 機関別の依頼予算',perf:'👤 担当者別（査定）',rankpt:'🏆 担当者パフォーマンス（申請ポイント・係数）',roadmap:'🗺 ロードマップ・人員・組織計画',sales:'🤝 営業計画（営シス連携）',cost:'💴 費用',pl:'📈 月次の損益'}[P]||'';
+  var title={hyoka:'📝 評価（ボリューム40％・クオリティ30％・貢献30％）',home:'🏠 総合',mbr:'📋 月次経営報告（社長・経営陣向け）',kettei:'🔎 決定報告（LINE）と案シスの突き合わせ',result:'📊 件数・売上（Result）',budget:'📝 機関別の依頼予算',perf:'👤 担当者別（査定）',rankpt:'🏆 担当者パフォーマンス（申請ポイント・係数）',roadmap:'🗺 ロードマップ・人員・組織計画',sales:'🤝 営業計画（営シス連携）',cost:'💴 費用',pl:'📈 月次の損益'}[P]||'';
   if(P==='weekly'){ KK.mbrMode='week'; KK.page=P='mbr'; }   // ver.20261104.03: 週次は経営報告の切り替えへ
   if(P==='mbr' && kkMbrMode()==='week'){ title='📋 週次報告（月曜の定例用）'; }
   var years=[]; for(var y=2026;y<=new Date().getFullYear()+1;y++) years.push(String(y));
@@ -1523,10 +1524,110 @@ function kkRender(){
   else if(P==='mbr') h=kkMbrHtml(R);
   else if(P==='kettei') h=kkKtPageHtml(R);
   else if(P==='rankpt') h=kkRankPageHtml(R);
+  else if(P==='hyoka') h=kkHyHtml(R);
   else if(P==='pl') h=kkPlHtml(R);
   else h=kkHomeHtml(R);
   el.innerHTML=head+'<div class="skp">'+h+'</div>';
 }
+
+// ===== ver.20261124.05: 📝 評価（40／30／30）— 半期ごとに、担当ごとの評価点を出す（管理部のみ） =====
+//   40％ ボリューム＝申請ポイント（申請の種類×登録支援機関の係数＋国交省＋新規獲得）の月平均 ÷ 標準ポイント（担当者パフォーマンスの「標準」）。時間ではなく成果で見る
+//   30％ クオリティ＝自動3つ（自分のミスの追完率・在留期限7日前までの申請率・依頼から申請までの日数）＋MGがつける3つ（顧客対応・書類収集・全体への依頼の期限内対応）。各0〜4点
+//   30％ 貢献＝マインドセット・ヒューマンスキルの16項目（評価面談シートの「貢献30%」と同じ）。各0〜4点
+//   入力は settings.hyoka_eval = { "2026-H2": { "名前": {q:{cust,doc,req}, c:[16個]} } }
+var KK_HY_C=[['マインドセット','誠実さ','感謝の気持ちを持ち、陰口・批判をしない'],['マインドセット','誠実さ','嘘やごまかしをせず、正直に報告できる'],
+  ['マインドセット','当事者意識','自分の案件に最後まで責任を持ってやり切る'],['マインドセット','当事者意識','指示待ちにならず、チーム・事務所の課題を自分ごととして動ける'],
+  ['マインドセット','成長意欲','分からないことを放置せず、自ら学んで知識を更新している'],['マインドセット','成長意欲','2ヶ月ごとに自分の課題を立て、改善し続けている'],
+  ['マインドセット','素直さ・他責にしない','指摘を受け止め、改善に活かせる'],['マインドセット','素直さ・他責にしない','うまくいかない原因を環境や他人のせいにしない'],
+  ['マインドセット','自制・配慮','感情を抑えて冷静にやり取りできる'],['マインドセット','自制・配慮','相手の立場で考え、時間泥棒にならない'],
+  ['ヒューマンスキル','お客様対応','気持ちの良い表現で、ラリーの少ない返信ができる'],['ヒューマンスキル','お客様対応','期待値をコントロールできる（結果時期・許可の見通し）'],
+  ['ヒューマンスキル','社内コミュニケーション','挨拶・お礼・謝罪が素直にできる'],['ヒューマンスキル','社内コミュニケーション','嫌な言い方・攻撃的な言動をとらない'],
+  ['ヒューマンスキル','チームへの貢献','忙しい時でも相談に乗り、困っている人を助けられる'],['ヒューマンスキル','チームへの貢献','改善提案（お客様の意見＋自分の考え＋改善案）や仕組みづくりで会社に貢献している']];
+var KK_HY_Q=[{k:'cust',n:'顧客対応',d:'返信の早さ・ていねいさ、クレームがない'},{k:'doc',n:'書類収集',d:'催促が止まっていない・書類が早くそろう'},{k:'req',n:'全体への依頼',d:'会社・チームからの依頼（強制表示など）に期限内に対応'}];
+var KK_HY_LV=['要根本改善(0)','要指導(1)','要タスク管理(2)','良好(3)','自立・模範(4)'];
+function kkHyLoad(){ if(KK.hyLoading||KK.hy) return; KK.hyLoading=true;
+  _sb.from('settings').select('value').eq('key','hyoka_eval').maybeSingle().then(function(r){ try{ KK.hy=JSON.parse((r&&r.data&&r.data.value)||'{}')||{}; }catch(e){ KK.hy={}; } KK.hyLoading=false; kkRender(); }, function(){ KK.hy={}; KK.hyLoading=false; kkRender(); }); }
+async function kkHySave(){ try{ var r=await _sb.from('settings').upsert({key:'hyoka_eval', value:JSON.stringify(KK.hy||{})},{onConflict:'key'}); if(r&&r.error) throw r.error; showToast('💾 保存しました'); }catch(e){ showToast('⚠️ 保存できませんでした：'+(e.message||e)); } }
+function kkHyPer(R){ var Y=String(R.Y); var v=KK.hyPer&&KK.hyPer.slice(0,4)===Y?KK.hyPer:(Y+(R.nowYm>=Y+'-07'?'-H2':'-H1')); return v; }
+function kkHyMonths(per){ var y=per.slice(0,4), a=per.slice(5)==='H1'?1:7, out=[]; for(var i=0;i<6;i++) out.push(y+'-'+String(a+i).padStart(2,'0')); return out; }
+function kkHySc(v, th, lowGood){ if(v==null) return null; for(var i=0;i<th.length;i++){ if(lowGood? v<=th[i] : v>=th[i]) return 4-i; } return 0; }
+function kkHyCalc(R, per){
+  var ms=kkHyMonths(per).filter(function(m){ return m<=R.nowYm; }), msC=ms.filter(function(m){ return kkMonthClosed(m); }), use=msC.length?msC:ms, S={}, key=function(n){ return String(n||'').replace(/[\s　]+/g,''); };
+  var get=function(n){ var k=key(n); return S[k]=S[k]||{name:n, k:k, pt:0, m:0, n:0, own:0, lt:[], dlN:0, dlOk:0}; };
+  use.forEach(function(ym){ kkMbrRank(R, ym).forEach(function(o){ var x=get(o.name); x.pt+=o.pt; x.m+=o.m; }); });
+  var UN=null, Q={}; [use.slice(0,3), use.slice(3)].forEach(function(win){ if(!win.length) return; var q=kkMbrQCalc(R, win[win.length-1]).S; Object.keys(q).forEach(function(k){ var a=Q[k]=Q[k]||{n:0, own:0}; a.n+=q[k].n; a.own+=q[k].own; }); });
+  ((_skPerf.data||{}).cases||[]).forEach(function(c){ var rd=String(c.receipt_date||'').slice(0,10); if(!/^\d{4}-\d\d-\d\d$/.test(rd) || use.indexOf(rd.slice(0,7))<0 || String(c.app_type||'')==='申請なし') return;
+    var k=key(c.staff); if(!S[k]) return; var x=S[k];
+    if(c.created_at){ var lt=Math.round((new Date(rd+'T00:00:00+09:00')-new Date(c.created_at))/864e5); if(lt>=0&&lt<=365) x.lt.push(lt); }
+    var ex=String(c.expire||'').slice(0,10); if((c.app_type==='変更'||c.app_type==='更新') && /^\d{4}-\d\d-\d\d$/.test(ex)){ x.dlN++; if(Math.round((new Date(ex)-new Date(rd))/864e5)>=7) x.dlOk++; } });
+  var med=function(a){ if(!a.length) return null; var b=a.slice().sort(function(x,y){ return x-y; }), k=Math.floor(b.length/2); return b.length%2?b[k]:(b[k-1]+b[k])/2; };
+  var std=kkPtStd(), H=(KK.hy||{})[per]||{};
+  var L=Object.keys(S).map(function(k){ var x=S[k], q=Q[k]||{n:0,own:0}, e=H[x.name]||H[k]||{};
+    x.avgPt=use.length?x.pt/use.length:0; x.ratio=std?x.avgPt/std:0; x.vol=Math.min(1,x.ratio)*40;
+    x.ownRate=q.n?q.own/q.n*100:null; x.dlRate=x.dlN?x.dlOk/x.dlN*100:null; x.ltMed=med(x.lt);
+    x.qa=[kkHySc(x.ownRate,[3,6,10,15],true), kkHySc(x.dlRate,[98,95,90,80],false), kkHySc(x.ltMed,[14,21,30,45],true)];
+    x.qm=KK_HY_Q.map(function(d){ var v=(e.q||{})[d.k]; return (v===0||v)?+v:null; });
+    var qs=x.qa.concat(x.qm).filter(function(v){ return v!=null; }); x.qual=qs.length?qs.reduce(function(a,b){ return a+b; },0)/(qs.length*4)*30:null; x.qN=qs.length;
+    var cs=(e.c||[]).filter(function(v){ return v===0||v; }); x.cN=cs.length; x.con=cs.length?cs.reduce(function(a,b){ return a+(+b); },0)/(cs.length*4)*30:null;
+    x.tot=x.vol+(x.qual||0)+(x.con||0); x.done=x.qN===6 && x.cN===KK_HY_C.length; return x; })
+    .filter(function(x){ return x.m>=5 && !/スタッフ|担当なし|未割当/.test(x.name); }).sort(function(a,b){ return b.tot-a.tot; });
+  return {L:L, use:use, std:std, per:per};
+}
+function kkHyGrade(t){ return t>=90?'S':t>=80?'A':t>=65?'B':t>=50?'C':'D'; }
+function kkHyHtml(R){
+  if(!KK.mbr){ kkMbrLoad(); return kkLoading(['申請ポイント']); } if(!KK.mbrNew){ try{ kkMbrNewLoad(); }catch(e){} }
+  if(!KK.hy){ kkHyLoad(); return kkLoading(['評価の入力']); }
+  var esc=_skEsc, per=kkHyPer(R), C=kkHyCalc(R, per), Y=String(R.Y), p1=function(v){ return v==null?'—':(Math.round(v*10)/10).toFixed(1); };
+  var sel='<select onchange="KK.hyPer=this.value;kkRender()" style="font:inherit;font-size:15px;border:1px solid #cbd5e1;border-radius:8px;padding:5px 10px;font-weight:700;">'+['H1','H2'].map(function(h){ var v=Y+'-'+h; return '<option value="'+v+'"'+(v===per?' selected':'')+'>'+Y+'年 '+(h==='H1'?'前期（1〜6月）':'後期（7〜12月）')+'</option>'; }).join('')+'</select>';
+  var cl='padding:9px 8px;font-size:14.5px;border-bottom:1px solid #eef2f7;text-align:center;white-space:nowrap;', hd='padding:8px;font-size:12.5px;color:#475569;background:#f8fafc;border-bottom:2px solid #e2e8f0;text-align:center;white-space:nowrap;';
+  var sc=function(v){ if(v==null) return '<span style="color:#cbd5e1;">—</span>'; var c=['#b91c1c','#c2410c','#a16207','#1d4ed8','#15803d'][v]; return '<b style="color:'+c+';">'+v+'</b>'; };
+  var qsel=function(nm,k,v){ return '<select onchange="kkHySetQ(\''+esc(nm).replace(/'/g,"\\'")+'\',\''+k+'\',this.value)" style="font:inherit;font-size:14px;border:1px solid '+(v==null?'#fb923c':'#cbd5e1')+';background:'+(v==null?'#fff7ed':'#fff')+';border-radius:6px;padding:2px 4px;"><option value="">—</option>'+[4,3,2,1,0].map(function(n){ return '<option value="'+n+'"'+(v===n?' selected':'')+'>'+n+'</option>'; }).join('')+'</select>'; };
+  var h='<div class="mbr-box"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px;">'+sel+'<span style="font-size:13px;color:#64748b;">対象月：'+C.use.map(function(m){ return +m.slice(5)+'月'; }).join('・')+'（締まった月）</span></div>'
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 12px;font-size:13.5px;">'
+    +'<span style="padding:6px 12px;border-radius:10px;background:#eff6ff;border:1px solid #bfdbfe;"><b style="color:#1d4ed8;">40％ ボリューム</b>：申請ポイントの月平均 ÷ 標準 月'+C.std+'点（100％で40点）</span>'
+    +'<span style="padding:6px 12px;border-radius:10px;background:#f0fdf4;border:1px solid #bbf7d0;"><b style="color:#15803d;">30％ クオリティ</b>：自動3つ＋MGが入れる3つ（各0〜4点）</span>'
+    +'<span style="padding:6px 12px;border-radius:10px;background:#fdf4ff;border:1px solid #f5d0fe;"><b style="color:#a21caf;">30％ 貢献</b>：マインドセット・ヒューマンスキル16項目（各0〜4点）</span></div>';
+  h+='<div style="overflow:auto;"><table style="border-collapse:collapse;min-width:100%;"><thead>'
+    +'<tr><th style="'+hd+'text-align:left;" rowspan="2">担当</th><th style="'+hd+'color:#1d4ed8;" colspan="3">40％ ボリューム</th><th style="'+hd+'color:#15803d;" colspan="7">30％ クオリティ</th><th style="'+hd+'color:#a21caf;" colspan="2">30％ 貢献</th><th style="'+hd+'" rowspan="2">合計<br>（100点）</th><th style="'+hd+'" rowspan="2">評価</th></tr>'
+    +'<tr><th style="'+hd+'">月平均pt</th><th style="'+hd+'">標準比</th><th style="'+hd+'color:#1d4ed8;">点</th>'
+    +'<th style="'+hd+'" title="自分のミスによる追完の割合（健康診断などやむを得ないものは除く）">追完率<br><span style="font-weight:400;">自分のミス</span></th><th style="'+hd+'" title="変更・更新を在留期限の7日前までに申請できた割合">期限<br><span style="font-weight:400;">7日前まで</span></th><th style="'+hd+'" title="依頼（案件登録）から申請までの日数の中央値">スピード<br><span style="font-weight:400;">依頼→申請</span></th>'
+    +KK_HY_Q.map(function(d){ return '<th style="'+hd+'" title="'+esc(d.d)+'">'+esc(d.n)+'<br><span style="font-weight:400;">MG</span></th>'; }).join('')+'<th style="'+hd+'color:#15803d;">点</th>'
+    +'<th style="'+hd+'">16項目</th><th style="'+hd+'color:#a21caf;">点</th></tr></thead><tbody>';
+  C.L.forEach(function(x){ var g=kkHyGrade(x.tot), gc={S:'#7c3aed',A:'#15803d',B:'#1d4ed8',C:'#a16207',D:'#b91c1c'}[g];
+    h+='<tr><td style="'+cl+'text-align:left;font-weight:800;">'+esc(x.name)+'<div style="font-size:11px;color:#94a3b8;font-weight:500;">'+x.m+'件</div></td>'
+      +'<td style="'+cl+'">'+p1(x.avgPt)+'</td><td style="'+cl+'color:'+(x.ratio>=1?'#15803d':x.ratio>=0.8?'#1d4ed8':'#b91c1c')+';font-weight:700;">'+Math.round(x.ratio*100)+'%</td><td style="'+cl+'font-weight:900;color:#1d4ed8;background:#f8fbff;">'+p1(x.vol)+'</td>'
+      +'<td style="'+cl+'" title="'+(x.ownRate==null?'':p1(x.ownRate)+'%')+'">'+sc(x.qa[0])+'<div style="font-size:11px;color:#94a3b8;">'+(x.ownRate==null?'':p1(x.ownRate)+'%')+'</div></td>'
+      +'<td style="'+cl+'">'+sc(x.qa[1])+'<div style="font-size:11px;color:#94a3b8;">'+(x.dlRate==null?'':Math.round(x.dlRate)+'%')+'</div></td>'
+      +'<td style="'+cl+'">'+sc(x.qa[2])+'<div style="font-size:11px;color:#94a3b8;">'+(x.ltMed==null?'':Math.round(x.ltMed)+'日')+'</div></td>'
+      +KK_HY_Q.map(function(d,i){ return '<td style="'+cl+'">'+qsel(x.name,d.k,x.qm[i])+'</td>'; }).join('')
+      +'<td style="'+cl+'font-weight:900;color:#15803d;background:#f7fdf9;">'+p1(x.qual)+'</td>'
+      +'<td style="'+cl+'"><button onclick="kkHyOpenC(\''+esc(x.name).replace(/'/g,"\\'")+'\')" style="font:inherit;font-size:13px;padding:3px 10px;border-radius:7px;border:1px solid '+(x.cN<KK_HY_C.length?'#fb923c':'#cbd5e1')+';background:'+(x.cN<KK_HY_C.length?'#fff7ed':'#fff')+';cursor:pointer;font-weight:700;">✏️ '+x.cN+'/'+KK_HY_C.length+'</button></td>'
+      +'<td style="'+cl+'font-weight:900;color:#a21caf;background:#fdf8ff;">'+p1(x.con)+'</td>'
+      +'<td style="'+cl+'font-size:17px;font-weight:900;">'+p1(x.tot)+(x.done?'':'<div style="font-size:10.5px;color:#c2410c;font-weight:600;">入力途中</div>')+'</td>'
+      +'<td style="'+cl+'"><span style="display:inline-block;min-width:32px;padding:3px 8px;border-radius:8px;background:'+(x.done?gc:'#cbd5e1')+';color:#fff;font-weight:900;font-size:15px;" title="'+(x.done?'':'入力がそろうと確定します')+'">'+g+'</span></td></tr>'; });
+  h+='</tbody></table></div>'
+    +'<div class="skp-note" style="margin-top:8px;line-height:1.8;">'
+    +'・<b>ボリューム</b>：申請ポイント＝申請の種類の点数×登録支援機関の係数＋国交省＋新規獲得。かかった時間ではなく「どれだけ出したか」で見るので、早く正確に出すほど点が上がります。標準は「🏆 担当者パフォーマンス」で変えられます。<br>'
+    +'・<b>クオリティの自動3つ</b>：追完率（自分のミス）3%以下=4・6%以下=3・10%以下=2・15%以下=1／期限7日前まで 98%以上=4・95%=3・90%=2・80%=1／依頼→申請の日数 14日以内=4・21日=3・30日=2・45日=1。<br>'
+    +'・<b>評価</b>：90点以上 S・80点以上 A・65点以上 B・50点以上 C・それ未満 D。MGの入力がまだの項目は、入っている項目だけで計算します（「入力途中」と出ます）。対象は期間中に申請5件以上の担当です。</div></div>';
+  return h;
+}
+function kkHyEnt(nm){ var per=kkHyPer(_skRpCalc(_skPerf.year)); KK.hy=KK.hy||{}; var H=KK.hy[per]=KK.hy[per]||{}; return H[nm]=H[nm]||{q:{}, c:[]}; }
+function kkHySetQ(nm, k, v){ var e=kkHyEnt(nm); if(v==='') delete e.q[k]; else e.q[k]=+v; kkHySave(); kkRender(); }
+function kkHyOpenC(nm){ var esc=_skEsc, e=kkHyEnt(nm), ex=document.getElementById('kkHyModal'); if(ex) ex.remove();
+  var ov=document.createElement('div'); ov.id='kkHyModal'; ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:24px;overflow:auto;';
+  ov.onclick=function(ev){ if(ev.target===ov) ov.remove(); };
+  var last='', rows=KK_HY_C.map(function(it,i){ var v=e.c[i], head=(it[0]+it[1])!==last; last=it[0]+it[1];
+    return (head?'<tr><td colspan="2" style="padding:10px 6px 4px;font-size:13px;font-weight:900;color:'+(it[0]==='マインドセット'?'#c2410c':'#15803d')+';">'+esc(it[0])+'　/　'+esc(it[1])+'</td></tr>':'')
+      +'<tr><td style="padding:6px;font-size:14.5px;border-bottom:1px solid #f1f5f9;">'+esc(it[2])+'</td><td style="padding:6px;border-bottom:1px solid #f1f5f9;white-space:nowrap;">'
+      +[4,3,2,1,0].map(function(n){ var on=(v===n); return '<button onclick="kkHySetC(\''+esc(nm).replace(/'/g,"\\'")+'\','+i+','+n+')" title="'+KK_HY_LV[n]+'" style="font:inherit;font-size:14px;width:34px;height:30px;margin-left:3px;border-radius:7px;cursor:pointer;font-weight:800;border:1px solid '+(on?'#0f2040':'#cbd5e1')+';background:'+(on?'#0f2040':'#fff')+';color:'+(on?'#fff':'#334155')+';">'+n+'</button>'; }).join('')+'</td></tr>'; }).join('');
+  var cs=(e.c||[]).filter(function(v){ return v===0||v; }), pct=cs.length?Math.round(cs.reduce(function(a,b){ return a+(+b); },0)/(cs.length*4)*100):null;
+  ov.innerHTML='<div style="background:#fff;border-radius:14px;padding:18px 20px;max-width:760px;width:100%;margin:auto;">'
+    +'<div style="display:flex;align-items:center;gap:10px;"><div style="font-size:17px;font-weight:900;">🤝 貢献（30％）：'+esc(nm)+'</div><div style="font-size:14px;color:#a21caf;font-weight:800;">'+(pct==null?'':'達成率 '+pct+'%　→ '+(Math.round(pct*0.3*10)/10).toFixed(1)+'点')+'</div><button onclick="document.getElementById(\'kkHyModal\').remove()" style="margin-left:auto;background:none;border:none;font-size:22px;cursor:pointer;color:#94a3b8;">✕</button></div>'
+    +'<div style="font-size:12.5px;color:#64748b;margin:4px 0 6px;">4＝自立・模範（100%）／3＝良好・課題認識あり／2＝要タスク管理／1＝要指導・認識不足／0＝要根本改善。押すとすぐ保存されます。</div>'
+    +'<table style="width:100%;border-collapse:collapse;">'+rows+'</table></div>';
+  document.body.appendChild(ov); }
+function kkHySetC(nm, i, n){ var e=kkHyEnt(nm); e.c[i]=(e.c[i]===n)?null:n; kkHySave(); kkHyOpenC(nm); kkRender(); }
 // ===== ver.20261104.01: 🧭 大方針の帯（ロードマップ・月次経営報告の上）と「まず見るところ」。ポイント（80pt・係数）は再計算中のため保留表示 =====
 var KK_POLICY={};   // ver.20261105.03: 大方針（月80pt など）の文言は外した（まだ決まっていない）
 function kkPolStyle(){ if(document.getElementById('kkPolCss')) return; var s=document.createElement('style'); s.id='kkPolCss';
