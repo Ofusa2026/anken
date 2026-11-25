@@ -344,7 +344,7 @@ tr.row-over:hover,tr.row-soon:hover{background:#fde8e8;}
     <div>
       <h1 class="page-title">営業管理システム</h1>
       <div class="page-subtitle">登録支援機関登録簿ベースの新規開拓リスト</div>
-      <div class="ver">ver.20261124.01</div>
+      <div class="ver">ver.20261125.01</div>
     </div>
     <div class="toolbar" style="display:none;"></div>
   </div>
@@ -6367,15 +6367,15 @@ function loadSeminarList(){
     var regs=d.map(function(x){return x.reg_no;}).filter(function(x){return x;});
     var done=function(leads,calls){
       var lm={}, cm={}; (leads||[]).forEach(function(l){ lm[l.reg_no]=l; });
-      (calls||[]).forEach(function(n){ if(!cm[n.reg_no]) cm[n.reg_no]=n; });
-      d.forEach(function(x){ x._lead=x.reg_no?lm[x.reg_no]:null; x._call=x.reg_no?cm[x.reg_no]:null; });
+      (calls||[]).forEach(function(n){ (cm[n.reg_no]=cm[n.reg_no]||[]).push(n); });
+      d.forEach(function(x){ x._lead=x.reg_no?lm[x.reg_no]:null; x._calls=x.reg_no?(cm[x.reg_no]||[]):[]; x._call=x._calls[0]||null; });
       _semRows=d; renderSeminarList();
     };
     if(!regs.length){ done([],[]); return; }
     // ver.20261115.01: 支援者数・電話・最新の架電メモも取得（セミナー一覧から架電できるように）
     Promise.all([
       _sb.from('eigyo_leads').select('reg_no,name,status,lead_rank,staff,supporter_count,tel').in('reg_no',regs),
-      _sb.from('eigyo_notes').select('reg_no,note_date,body,author,id').eq('kind','架電').in('reg_no',regs).order('note_date',{ascending:false}).order('id',{ascending:false})
+      _sb.from('eigyo_notes').select('reg_no,note_date,body,author,id,status_to').eq('kind','架電').in('reg_no',regs).order('note_date',{ascending:false}).order('id',{ascending:false})
     ]).then(function(R){ done(R[0].data||[], R[1].data||[]); });
   });
 }
@@ -6402,7 +6402,8 @@ function renderSeminarList(){
     var telHtml = tels.length? tels.map(function(t){ return '<a href="tel:'+esc(semDigits(t))+'" style="color:#2563eb;font-weight:700;white-space:nowrap;text-decoration:none;">📞 '+esc(t)+'</a>'; }).join('<br>') : '<span class="sub">—</span>';
     var C=x._call;
     var callHtml = L ? '<button class="btn btn-sm" onclick="semCallOpen(\''+R+'\')" style="white-space:nowrap;background:#eff6ff;border-color:#93c5fd;color:#1d4ed8;font-weight:700;">📝 架電メモ</button>'
-        + (C?'<div class="sub" style="font-size:11px;margin-top:3px;max-width:200px;" title="'+esc(C.body||'')+'">'+esc((C.note_date||'').slice(5).replace('-','/'))+(C.author?' '+esc(C.author):'')+'：'+esc(String(C.body||'').slice(0,30))+'</div>':'')
+        + (C?'<div class="sub" style="font-size:11px;margin-top:3px;max-width:220px;" title="'+esc(C.body||'')+'">'+esc((C.note_date||'').slice(5).replace('-','/'))+(C.author?' '+esc(C.author):'')+'：'+esc(String(C.body||'').slice(0,30))+'</div>':'')
+        + (x._calls&&x._calls.length>1?'<details style="margin-top:3px;max-width:240px;"><summary style="cursor:pointer;font-size:11px;color:#1d4ed8;">過去の架電 '+(x._calls.length-1)+'件</summary>'+semCallHistHtml(x._calls.slice(1),true)+'</details>':'')
       : '<span class="sub" style="font-size:11px;">営業リスト未登録</span>';
     return '<tr style="border-bottom:1px solid var(--line);'+(absent?'opacity:.55;':'')+'">'
       + (all?'<td style="'+td+'white-space:nowrap;">'+esc(semMap[x.seminar_id]?semLabel(semMap[x.seminar_id]):x.seminar_id)+'</td>':'')
@@ -6444,6 +6445,9 @@ function semCallOpen(reg){
   box.innerHTML='<div style="background:#fff;border-radius:12px;padding:18px 20px;width:min(520px,92vw);box-shadow:0 10px 30px rgba(0,0,0,.25);">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><b style="font-size:15px;">📝 架電メモ：'+esc(x.company)+'</b><button class="btn btn-sm" onclick="semCallClose()">✕</button></div>'
     + '<div class="sub" style="font-size:12px;margin-bottom:8px;">出席者：'+esc(x.attendees||'—')+' ／ 支援人数：'+esc(x.scale||'—')+'</div>'
+    + (x._calls&&x._calls.length
+        ? '<details style="margin-bottom:10px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;background:#f8fafc;"><summary style="cursor:pointer;font-size:13px;font-weight:700;color:#1d4ed8;">📋 過去の架電メモ（'+x._calls.length+'件）<span class="sub" style="font-weight:400;font-size:11px;margin-left:6px;">最新：'+esc(semMd(x._calls[0].note_date))+'</span></summary>'+semCallHistHtml(x._calls,false)+'</details>'
+        : '<div class="sub" style="font-size:12px;margin-bottom:8px;">過去の架電メモはありません</div>')
     + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">'+SEM_CALL_RESULTS.map(function(k){ return '<button class="btn btn-sm" onclick="semCallQuick(\''+k+'\')">'+k+'</button>'; }).join('')+'</div>'
     + '<textarea id="semCallBody" rows="4" placeholder="話した内容・結果" style="width:100%;box-sizing:border-box;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:8px;font-family:inherit;"></textarea>'
     + '<div style="display:grid;grid-template-columns:90px 1fr;gap:8px 10px;align-items:center;margin-top:10px;font-size:13px;">'
@@ -6453,6 +6457,16 @@ function semCallOpen(reg){
     + '</div>'
     + '<div style="text-align:right;margin-top:12px;"><button class="btn btn-primary" onclick="semCallSave(\''+esc(reg)+'\')">記録する</button></div></div>';
   box.style.display='flex'; setTimeout(function(){ var t=el('semCallBody'); if(t) t.focus(); },50);
+}
+function semMd(d){ d=String(d||''); return d.length>=10? (+d.slice(5,7))+'/'+(+d.slice(8,10)) : d; }
+// 過去の架電メモ一覧（新しい順）。compact=一覧セル用の小さい表示
+function semCallHistHtml(list,compact){
+  var fs=compact?'11px':'12.5px';
+  return '<div style="max-height:'+(compact?'180px':'240px')+';overflow-y:auto;margin-top:6px;">'+list.map(function(n,i){
+    return '<div style="padding:6px 0;'+(i?'border-top:1px dashed var(--line);':'')+'font-size:'+fs+';">'
+      + '<div style="font-weight:700;color:#334155;">'+esc(semMd(n.note_date))+(n.author?' <span class="sub" style="font-weight:400;">'+esc(n.author)+'</span>':'')+(n.status_to?' <span class="sub" style="font-weight:400;">→ '+esc(n.status_to)+'</span>':'')+'</div>'
+      + '<div style="white-space:pre-wrap;word-break:break-word;color:#0f172a;">'+esc(n.body||'')+'</div></div>';
+  }).join('')+'</div>';
 }
 function semCallClose(){ var b=el('semCallBox'); if(b) b.style.display='none'; }
 function semCallQuick(k){ var t=el('semCallBody'); if(!t) return; t.value=(t.value?t.value+'\n':'')+k; t.focus(); }
@@ -6468,7 +6482,7 @@ function semCallSave(reg){
     if(rec.status_to) patch.status=st;
     if(nx){ patch.next_action_kind='電話'; patch.next_action_date=nx; }
     _sb.from('eigyo_leads').update(patch).eq('reg_no',reg).then(function(){
-      _semRows.forEach(function(y){ if(y.reg_no===reg){ if(y._lead && rec.status_to) y._lead.status=st; y._call={reg_no:reg,note_date:td,body:body,author:au}; } });
+      _semRows.forEach(function(y){ if(y.reg_no===reg){ if(y._lead && rec.status_to) y._lead.status=st; y._call={reg_no:reg,note_date:td,body:body,author:au,status_to:rec.status_to}; y._calls=[y._call].concat(y._calls||[]); } });
       if(typeof _PL!=='undefined') _PL.data=null;
       semCallClose(); autosaveToast('✓ 架電メモを対応履歴に残しました'); renderSeminarList();
     });
